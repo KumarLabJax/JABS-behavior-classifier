@@ -88,9 +88,6 @@ class MainWindow(QtWidgets.QWidget):
 
         self.setLayout(layout)
 
-        self.video_stream = None
-        self.playing = False
-
     def new_label(self):
         text, ok = QtWidgets.QInputDialog.getText(self, 'New Label',
                                         'New Label Name:')
