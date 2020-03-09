@@ -1,17 +1,19 @@
 from PyQt5 import QtGui, QtCore, QtWidgets
-import numpy as np
-import time
 import darkdetect
 
 from ui import PlayerWidget
 
 
 class MainWindow(QtWidgets.QWidget):
+    """
+    QT Widget implementing our main window
+    """
+
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
 
-        # on OS X dark mode the label color needs to be adjusted for the dark
-        # background
+        # on OS X dark mode some of the colors need to be adjusted to
+        # accommodate the dark window background color
         if darkdetect.theme() == 'Dark':
             self.setStyleSheet("""
                 QLabel { color : #D3D3D3; }
@@ -19,12 +21,13 @@ class MainWindow(QtWidgets.QWidget):
                 QToolButton { background: #6C6C6C; }
             """)
 
+        # initial behavior labels to list in the drop down selection
         self._behaviors = [
             'Walking', 'Sleeping', 'Freezing', 'Grooming', 'Following',
             'Rearing (supported)', 'Rearing (unsupported)'
         ]
 
-        self.main_layout = QtWidgets.QVBoxLayout()
+        # video player
         self.player_widget = PlayerWidget()
 
         # behavior selection form components
@@ -47,11 +50,11 @@ class MainWindow(QtWidgets.QWidget):
 
         self.label_behavior_button = QtWidgets.QPushButton()
         self.label_behavior_button.setText(self.behavior_selection.currentText())
-        label_none_button = QtWidgets.QPushButton("None")
-        label_unknown_button = QtWidgets.QPushButton("Clear")
+        self.label_none_button = QtWidgets.QPushButton(f"Not {self.behavior_selection.currentText()}")
+        label_unknown_button = QtWidgets.QPushButton("Clear Label")
 
         label_layout.addWidget(self.label_behavior_button)
-        label_layout.addWidget(label_none_button)
+        label_layout.addWidget(self.label_none_button)
         label_layout.addWidget(label_unknown_button)
         label_group = QtWidgets.QGroupBox("Label")
         label_group.setLayout(label_layout)
@@ -82,13 +85,16 @@ class MainWindow(QtWidgets.QWidget):
 
         # main layout
         layout = QtWidgets.QGridLayout()
-        layout.setColumnStretch(0, 4)
         layout.addWidget(self.player_widget, 0, 0)
         layout.addLayout(control_layout, 0, 1)
 
         self.setLayout(layout)
 
     def new_label(self):
+        """
+        callback for the "new behavior" button
+        opens a modal dialog to allow the user to enter a new behavior label
+        """
         text, ok = QtWidgets.QInputDialog.getText(self, 'New Label',
                                         'New Label Name:')
         if ok and text not in self._behaviors:
@@ -96,5 +102,10 @@ class MainWindow(QtWidgets.QWidget):
             self.behavior_selection.addItem(text)
 
     def change_behavior(self):
+        """
+        make UI changes to reflect the currently selected behavior
+        """
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
+        self.label_none_button.setText(
+            f"Not {self.behavior_selection.currentText()}")

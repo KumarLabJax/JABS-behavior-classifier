@@ -5,6 +5,14 @@ from video_stream import VideoStream
 
 
 class _PlayerThread(QtCore.QThread):
+    """
+    thread used to grab frames (numpy arrays) from a video stream and convert
+    them to a QImage for display by the frame widget
+
+    handles timing to get correct playback speed
+    """
+
+    # signals used to update the UI components from the thread
     newImage = QtCore.pyqtSignal('QImage')
     updatePosition = QtCore.pyqtSignal(int)
     endOfFile = QtCore.pyqtSignal()
@@ -14,34 +22,61 @@ class _PlayerThread(QtCore.QThread):
         self.stream = video_stream
 
     def terminate(self):
+        """
+        tell run thread to stop playback
+        """
         self.stream.stop()
 
     def run(self):
+        """
+        method to be run as a thread during playback
+        handles grabbing the next frame from the buffer, converting to a QImage,
+        and sending to the UI component for display.
+        """
+
+        # flag used to terminate loop after we've displayed the last frame
+        end_of_file = False
+
+        # tell stream to start buffering frames
         self.stream.start()
-        next_sleep = 0
-        while not self.stream.stopped:
+
+        # no delay before showing the first frame
+        delay = 0
+
+        # iterate until we've been told to stop (user clicks pause button)
+        # or we reach end of file
+        while not self.stream.stopped and not end_of_file:
+            # time iteration to account for it in delay between frame refresh
             iteration_start = time.perf_counter()
+
+            # grab next frame from stream buffer
             frame = self.stream.read()
-            frame_data = frame['data']
-            if frame_data is not None:
-                image = QtGui.QImage(frame_data, frame_data.shape[1],
-                                     frame_data.shape[0],
+
+            if frame['data'] is not None:
+                # convert OpenCV image (numpy array) to QImage
+                image = QtGui.QImage(frame['data'], frame['data'].shape[1],
+                                     frame['data'].shape[0],
                                      QtGui.QImage.Format_RGB888).rgbSwapped()
-                time.sleep(next_sleep)
+                # don't update frame until we've shown the last one for the
+                # required duration
+                time.sleep(delay)
+
+                # send the new frame and the frame index to the UI components
                 self.newImage.emit(image)
                 self.updatePosition.emit(frame['index'])
 
-                # 'iteration time' is how long the loop took minus the time we
+                # 'iteration time' is how long this loop took minus the time we
                 # slept
-                iteration_time = time.perf_counter() - iteration_start - next_sleep
+                iteration_time = time.perf_counter() - iteration_start - delay
 
                 # next iteration we sleep the frame duration minus how long
-                # this loop took. over time the video should appear to be
-                # playing back in real time.
-                next_sleep = max(frame['duration'] - iteration_time, 0)
+                # this loop took.
+                delay = max(frame['duration'] - iteration_time, 0)
             else:
+                # if the video stream reached the end of file let the UI know
                 self.endOfFile.emit()
-                return
+                # and terminate the loop
+                end_of_file = True
 
 
 class _FrameWidget(QtWidgets.QLabel):
@@ -51,108 +86,157 @@ class _FrameWidget(QtWidgets.QLabel):
     """
     def __init__(self):
         super().__init__()
-        # initially we want the _FrameWidget to expand to the size of the frame
+
+        # initially we want the _FrameWidget to expand to the true size of the
+        # image
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
-        self.installEventFilter(self)
         self.firstFrame = True
 
     def paintEvent(self, event):
+        """
+        override the paintEvent() handler to scale the image if the widget is
+        resized. We don't allow resizing the first frame so the size of the
+        widget will be expanded to fit the actual size of the frame.
+        """
+
+        # only draw if we have an image to show
         if self.pixmap() is not None:
+            # current size of the widget
             size = self.size()
+
             painter = QtGui.QPainter(self)
             point = QtCore.QPoint(0, 0)
 
+            # scale the image to the current size of the widget. With the
+            # initial Expanding size policy, the widget will have already been
+            # expanded to the size of the frame
+            # once we change the size policy, this will resize the image to
+            # fit the current size of the widget
             pix = self.pixmap().scaled(size, QtCore.Qt.KeepAspectRatio, transformMode = QtCore.Qt.FastTransformation)
+
             # start painting the label from left upper corner
             point.setX((size.width() - pix.width()) / 2)
             point.setY((size.height() - pix.height()) / 2)
             painter.drawPixmap(point, pix)
 
-            # after we let the first frame epand the widget (and it's parent)
-            # switch to the tgnored size policy and handle resizing ourself.
+            # after we let the first frame expand the widget (and it's parent)
+            # switch to the Ignored size policy and we will resize the image to
+            # fit the widget
             if self.firstFrame:
                 self.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
                                    QtWidgets.QSizePolicy.Ignored)
                 self.firstFrame = False
         else:
+            # if we don't have a pixmap to display just call the original QLabel
+            # paintEvent
             super().paintEvent(event)
 
 
 class PlayerWidget(QtWidgets.QWidget):
+    """
+    Video Player Widget. Consists of a QLabel to display a frame image, and
+    basic player controls below the frame (play/pause button, position slider,
+    previous/next frame buttons.
 
+    position slider can be dragged while video is paused or is playing and the
+    position will be updated. If video was playing when the slider is dragged
+    the playback will resume after the slider is released.
+    """
+
+    # signal to allow parent UI component to observe current frame number
     updateFrameNumber = QtCore.pyqtSignal(int)
 
     def __init__(self, *args, **kwargs):
         super(PlayerWidget, self).__init__(*args, **kwargs)
 
-        self.playing = False
-        self.seeking = False
-        self.video_stream = None
-        self.player_thread = None
+        # keep track of the current state
+        self._playing = False
+        self._seeking = False
 
-        # setup the player controls
-        self.frame_widget = _FrameWidget()
-        self.play_button = QtWidgets.QPushButton()
-        self.play_button.setCheckable(True)
-        self.play_button.setEnabled(False)
-        self.play_button.setIcon(
+        # VideoStream object, will be initialized when video is loaded
+        self._video_stream = None
+
+        # player thread spawned during playback
+        self._player_thread = None
+
+        # setup Widget UI components
+
+        # custom widget for displaying a resizable image
+        self._frame_widget = _FrameWidget()
+
+        # the player controls
+
+        # play/pause button
+        self._play_button = QtWidgets.QPushButton()
+        self._play_button.setCheckable(True)
+        self._play_button.setEnabled(False)
+        self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
-        self.play_button.clicked.connect(self.play)
+        self._play_button.clicked.connect(self.play)
 
-        self.previous_frame_button = QtWidgets.QPushButton("◀")
-        self.previous_frame_button.setMaximumWidth(20)
-        self.previous_frame_button.setMaximumHeight(20)
-        self.previous_frame_button.clicked.connect(self.previous_frame)
-        self.previous_frame_button.setAutoRepeat(True)
+        # previous frame button
+        self._previous_frame_button = QtWidgets.QPushButton("◀")
+        self._previous_frame_button.setMaximumWidth(20)
+        self._previous_frame_button.setMaximumHeight(20)
+        self._previous_frame_button.clicked.connect(self.previous_frame)
+        self._previous_frame_button.setAutoRepeat(True)
 
-        self.next_frame_button = QtWidgets.QPushButton("▶")
-        self.next_frame_button.setMaximumWidth(20)
-        self.next_frame_button.setMaximumHeight(20)
-        self.next_frame_button.clicked.connect(self.next_frame)
-        self.next_frame_button.setAutoRepeat(True)
+        # next frame button
+        self._next_frame_button = QtWidgets.QPushButton("▶")
+        self._next_frame_button.setMaximumWidth(20)
+        self._next_frame_button.setMaximumHeight(20)
+        self._next_frame_button.clicked.connect(self.next_frame)
+        self._next_frame_button.setAutoRepeat(True)
 
-        self.disable_frame_buttons()
+        # prev/next frame buttons are disabled until a video is loaded
+        self._disable_frame_buttons()
 
-        self.position_slider = QtWidgets.QSlider(minimum=0, maximum=0,
-                                                 orientation=QtCore.Qt.Horizontal)
-        self.position_slider.sliderMoved.connect(self.position_slider_moved)
-        self.position_slider.sliderPressed.connect(self.position_slider_clicked)
-        self.position_slider.sliderReleased.connect(
-            self.position_slider_release)
+        # position slider
+        self._position_slider = QtWidgets.QSlider(minimum=0, maximum=0,
+                                                  orientation=QtCore.Qt.Horizontal)
+        self._position_slider.sliderMoved.connect(self._position_slider_moved)
+        self._position_slider.sliderPressed.connect(self._position_slider_clicked)
+        self._position_slider.sliderReleased.connect(
+            self._position_slider_release)
+        self._position_slider.setEnabled(False)
 
+        # setup the layout of the components
+
+        # player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
         player_control_layout.setContentsMargins(0, 0, 0, 0)
-        player_control_layout.addWidget(self.play_button)
-        player_control_layout.addWidget(self.position_slider)
-        player_control_layout.addWidget(self.previous_frame_button)
-        player_control_layout.addWidget(self.next_frame_button)
+        player_control_layout.addWidget(self._play_button)
+        player_control_layout.addWidget(self._position_slider)
+        player_control_layout.addWidget(self._previous_frame_button)
+        player_control_layout.addWidget(self._next_frame_button)
 
+        # main widget layout
         player_layout = QtWidgets.QVBoxLayout()
-        player_layout.setContentsMargins(0, 0, 0, 0)
-        player_layout.addWidget(self.frame_widget)
+        player_layout.addWidget(self._frame_widget)
         player_layout.addLayout(player_control_layout)
 
         self.setLayout(player_layout)
 
     def __del__(self):
-        if self.player_thread:
-            self.player_thread.terminate()
+        if self._player_thread:
+            self._player_thread.terminate()
 
     def load_video(self, path):
         """
         load a new video source
         :param path: path to video file
         """
-        self.video_stream = VideoStream(path)
-        self.frame_widget.firstFrame = True
-        self.update_frame(self.video_stream.read())
-        self.position_slider.setValue(0)
-        self.position_slider.setMaximum(self.video_stream.num_frames - 1)
-        self.play_button.setEnabled(True)
-        self.enable_frame_buttons()
+        self._video_stream = VideoStream(path)
+        self._frame_widget.firstFrame = True
+        self._update_frame(self._video_stream.read())
+        self._position_slider.setValue(0)
+        self._position_slider.setMaximum(self._video_stream.num_frames - 1)
+        self._play_button.setEnabled(True)
+        self._enable_frame_buttons()
+        self._position_slider.setEnabled(True)
 
-    def position_slider_clicked(self):
+    def _position_slider_clicked(self):
         """
         Click event for position slider.
         Seek to the new position of the slider. If the video is playing, the
@@ -162,131 +246,162 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # this prevents the player thread from updating the position of the
         # slider after we start seeking
-        self.seeking = True
-        pos = self.position_slider.value()
+        self._seeking = True
+        pos = self._position_slider.value()
 
         # if the video is playing, we stop the player thread and wait for it
         # to terminate
-        if self.player_thread:
-            self.player_thread.terminate()
-            self.player_thread.wait()
-            self.player_thread = None
+        if self._player_thread:
+            self._player_thread.terminate()
+            self._player_thread.wait()
+            self._player_thread = None
 
         # seek to the slider position and update the displayed frame
-        self.video_stream.seek(pos)
-        self.update_frame(self.video_stream.read())
+        self._video_stream.seek(pos)
+        self._update_frame(self._video_stream.read())
 
-    def position_slider_moved(self):
+    def _position_slider_moved(self):
         """
         position slider move event. seek the video to the new frame and display
         it
         """
-        self.video_stream.seek(self.position_slider.value())
-        self.update_frame(self.video_stream.read())
+        self._video_stream.seek(self._position_slider.value())
+        self._update_frame(self._video_stream.read())
 
-    def position_slider_release(self):
+    def _position_slider_release(self):
         """
         release event for the position slider.
         The new position gets updated for the final time. If we were playing
         when we clicked the slider then we resume playing after releasing.
         :return:
         """
-        self.video_stream.seek(self.position_slider.value())
-        self.update_frame(self.video_stream.read())
-        self.seeking = False
+        self._video_stream.seek(self._position_slider.value())
+        self._update_frame(self._video_stream.read())
+        self._seeking = False
 
         # resume playing
-        if self.playing:
-            self.start_player_thread()
+        if self._playing:
+            self._start_player_thread()
 
     def play(self):
         """
         handle clicking on the play button
         """
+        # don't do anything if a video hasn't been loaded
+        if self._video_stream is None:
+            return
 
-        if self.playing:
+        if self._playing:
             # if we are playing, stop
             self.stop()
 
         else:
             # we weren't already playing so start
-            self.play_button.setIcon(
+            self._play_button.setIcon(
                 self.style().standardIcon(QtWidgets.QStyle.SP_MediaPause))
-            self.disable_frame_buttons()
-            self.start_player_thread()
+            self._disable_frame_buttons()
+            self._start_player_thread()
 
     def stop(self):
         """
-        stop playing and rest the play button to its initial state
+        stop playing and reset the play button to its initial state
         """
+        # don't do anything if a video hasn't been loaded
+        if self._video_stream is None:
+            return
 
         # if we have an active player thread, terminate
-        if self.player_thread:
-            self.player_thread.terminate()
-            self.player_thread.wait()
-            self.player_thread = None
+        if self._player_thread:
+            self._player_thread.terminate()
+            self._player_thread.wait()
+            self._player_thread = None
 
         # change the icon to play
-        self.play_button.setIcon(
+        self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
 
         # switch the button state to off
-        self.play_button.setChecked(False)
+        self._play_button.setChecked(False)
 
-        self.enable_frame_buttons()
-        self.playing = False
+        self._enable_frame_buttons()
+        self._playing = False
 
     def next_frame(self):
         """
         advance to the next frame and display it
         """
-        new_frame = min(self.position_slider.value() + 1, self.video_stream.num_frames - 1)
-        self.position_slider.setValue(new_frame)
-        self.video_stream.seek(new_frame)
-        self.update_frame(self.video_stream.read())
+
+        # don't do anything if a video hasn't been loaded
+        if self._video_stream is None:
+            return
+
+        new_frame = min(self._position_slider.value() + 1,
+                        self._position_slider.maximum())
+
+        # if new_frame == the current value of the position slider we are at
+        # the end of the video, don't do anything. Otherwise, show the next
+        # frame and advance the slider.
+        if new_frame != self._position_slider.value():
+            self._position_slider.setValue(new_frame)
+            # make sure the buffer isn't empty before calling video_stream.read
+            self._video_stream.load_next_frame()
+            self._update_frame(self._video_stream.read())
 
     def previous_frame(self):
         """
         go back to the previous frame and display it
         """
-        new_frame = max(self.position_slider.value() - 1, 0)
-        self.position_slider.setValue(new_frame)
-        self.video_stream.seek(new_frame)
-        self.update_frame(self.video_stream.read())
 
-    def enable_frame_buttons(self):
+        # don't do anything if a video hasn't been loaded
+        if self._video_stream is None:
+            return
+
+        new_frame = max(self._position_slider.value() - 1, 0)
+
+        # if new_frame == current value of the position slider we are at the
+        # beginning of the video, don't do anything. Otherwise, seek to the
+        # new frame and display it.
+        if new_frame != self._position_slider.value():
+            self._position_slider.setValue(new_frame)
+            self._video_stream.seek(new_frame)
+            self._update_frame(self._video_stream.read())
+
+    def _enable_frame_buttons(self):
         """
         enable the previous/next frame buttons
         """
-        self.next_frame_button.setEnabled(True)
-        self.previous_frame_button.setEnabled(True)
+        self._next_frame_button.setEnabled(True)
+        self._previous_frame_button.setEnabled(True)
 
-    def disable_frame_buttons(self):
+    def _disable_frame_buttons(self):
         """
         disable the previous/next frame buttons
         """
-        self.next_frame_button.setEnabled(False)
-        self.previous_frame_button.setEnabled(False)
+        self._next_frame_button.setEnabled(False)
+        self._previous_frame_button.setEnabled(False)
 
-    def update_frame(self, frame):
+    def _update_frame(self, frame):
         """
-        updat ethe displayed frame using the dict returned by video_stream.read
+        update the displayed frame
+        :param frame: dict returned by video_stream.read()
         """
-        image = QtGui.QImage(frame['data'], frame['data'].shape[1],
-                             frame['data'].shape[0],
-                             QtGui.QImage.Format_RGB888).rgbSwapped()
-        self.display_image(image)
-        self.updateFrameNumber.emit(frame['index'])
+        if frame['index'] != -1:
+            image = QtGui.QImage(frame['data'], frame['data'].shape[1],
+                                 frame['data'].shape[0],
+                                 QtGui.QImage.Format_RGB888).rgbSwapped()
+            self._display_image(image)
+            self.updateFrameNumber.emit(frame['index'])
 
     @QtCore.pyqtSlot(QtGui.QImage)
-    def display_image(self, image):
+    def _display_image(self, image):
         """
         display a new QImage sent from the player thread
+        :param image: QImage to display as next frame
         """
-        self.frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
+        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.pyqtSlot(int)
-    def set_position(self, frame_number):
+    def _set_position(self, frame_number):
         """
         update the value of the position slider to the frame number sent from
         the player thread
@@ -294,20 +409,20 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         # don't update the slider value if user is seeking, since that can
         # interfere
-        if not self.seeking:
-            self.position_slider.setValue(frame_number)
+        if not self._seeking:
+            self._position_slider.setValue(frame_number)
             self.updateFrameNumber.emit(frame_number)
 
-    def start_player_thread(self):
+    def _start_player_thread(self):
         """
-        start a new player thread and connect it
+        start a new player thread and connect it to the UI components
         """
-        self.player_thread = _PlayerThread(self.video_stream)
-        self.player_thread.newImage.connect(self.display_image)
-        self.player_thread.updatePosition.connect(self.set_position)
-        self.player_thread.endOfFile.connect(self.stop)
-        self.player_thread.start()
-        self.playing = True
+        self._player_thread = _PlayerThread(self._video_stream)
+        self._player_thread.newImage.connect(self._display_image)
+        self._player_thread.updatePosition.connect(self._set_position)
+        self._player_thread.endOfFile.connect(self.stop)
+        self._player_thread.start()
+        self._playing = True
 
 
 

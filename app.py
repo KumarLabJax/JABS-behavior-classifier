@@ -7,7 +7,7 @@ import sys
 import argparse
 from PyQt5 import QtWidgets
 
-from main_window import MainWindow
+from ui import MainWindow
 
 
 def main():

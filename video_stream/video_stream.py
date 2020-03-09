@@ -7,16 +7,33 @@ _FRAME_LABEL_COLOR = (0, 255, 102)
 
 class VideoStream:
     """
-    video stream
+    VideoStream.
+
+    Uses OpenCV to open a video file and read frames.
+
+    Allows for reading one frame at a time, or starting a thread to buffer
+    frames.
+
     """
-    def __init__(self, path, queue_size=128):
+
+    _EOF = {'data': None, 'index': -1}
+
+    def __init__(self, path, frame_buffer_size=128):
+        """
+
+        :param path: path to video file
+        :param frame_buffer_size: max number of frames to buffer
+        """
+
+        # open video file
         self.stream = cv2.VideoCapture(path)
         if not self.stream.isOpened():
+            # TODO use a less general exception
             raise Exception(f"unable to open {path}")
 
-        self.frame_index = 0
-        self.queue_size = queue_size
-        self.frame_queue = Queue(maxsize=self.queue_size)
+        self._frame_index = 0
+        self._queue_size = frame_buffer_size
+        self._frame_queue = Queue(maxsize=frame_buffer_size)
 
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
         self._fps = self.stream.get(cv2.CAP_PROP_FPS)
@@ -25,11 +42,18 @@ class VideoStream:
         # used to signal the reading thread to terminate
         self._stopped = False
 
-        self.thread = None
+        # flag used to indicate we've read to the end of the file
+        # used so that load_next_frame() won't add more than one EOF frame
+        self._eof = False
 
-        # load the first frame:
+        # buffering thread
+        self._thread = None
+
+        # load the first frame into the buffer so the player can show the
+        # first frame:
         self.load_next_frame()
 
+        # get frame dimensions
         self._width = int(self.stream.get(cv2.CAP_PROP_FRAME_WIDTH))
         self._height = int(self.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -48,52 +72,92 @@ class VideoStream:
     def dimensions(self):
         return self._width, self._height
 
-    def seek(self, frame):
-        self.stream.set(cv2.CAP_PROP_POS_FRAMES, frame)
-        self.frame_index = frame
-        self.frame_queue = Queue(maxsize=self.queue_size)
-        self.load_next_frame()
+    def seek(self, index):
+        """
+        Seek to a specific frame.
+        This will clear the buffer and insert the frame at the new position.
+
+        NOTE:
+            some video formats might not be able to set an exact frame position
+            this is not a problem with our AVI files, but should be kept in
+            mind if we eventually accommodate other types of files.
+        """
+        if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
+            self._frame_index = index
+            self._eof = False
+
+            # clear the buffer
+            self._frame_queue = Queue(maxsize=self._queue_size)
+
+            # load frame at current position into buffer
+            self.load_next_frame()
 
     def load_next_frame(self):
-        (grabbed, frame) = self.stream.read()
+        """ grab the next frame and add it to the queue """
 
+        # queue is already full, don't do anything
+        if self._frame_queue.full():
+            return
+
+        (grabbed, frame) = self.stream.read()
         if grabbed:
-            self.frame_queue.put({
+            self._frame_queue.put({
                 'data': frame,
-                'index': self.frame_index,
+                'index': self._frame_index,
                 'duration': self._duration
             })
-            self.frame_index += 1
+            self._frame_index += 1
+        elif not self._eof:
+            # if the _EOF frame hasn't already been written to the buffer
+            # do so now
+            self._frame_queue.put(self._EOF)
+            self._eof = True
 
     def start(self):
-        """ start a thread to read frames from the file video stream """
+        """
+        start a thread to read frames from the file video stream from the
+        current position
+        """
         self._stopped = False
-        self.thread = Thread(target=self._main, args=())
-        self.thread.start()
+        self._thread = Thread(target=self._stream, args=())
+        self._thread.start()
         return self
 
     def stop(self):
         """stop the thread """
         self._stopped = True
-        self.thread.join()
-        self.thread = None
+        self._thread.join()
+        self._thread = None
 
     def read(self):
-        """ return next frame in the queue """
-        frame = self.frame_queue.get()
+        """
+        return next frame in the queue
+
+        Note: this is blocking! Don't call this without starting the stream
+        or explicitly calling load_next_frame().
+        """
+        frame = self._frame_queue.get()
+
+        # add label with frame number
+        # TODO remove, currently for debugging
         if frame['index'] != -1:
             self._add_frame_num(frame['data'], frame['index'])
+
         return frame
 
-    def empty(self):
-        """ is the frame queue empty """
-        return self.frame_queue.qsize() == 0
-
     @staticmethod
-    def image_resize(image, width=None, height=None, inter=cv2.INTER_AREA):
-        # initialize the dimensions of the image to be resized and
-        # grab the image size
-        dim = None
+    def _image_resize(image, width=None, height=None, inter=cv2.INTER_AREA):
+        """
+        resize an image, allow passing only desired width or height to
+        maintain current aspect ratio
+
+        :param image: image to resize
+        :param width: new width, if None compute to maintain aspect ratio
+        :param height: new height, if None compute to maintain aspect ratio
+        :param inter: type of interpolation to use for resize
+        :return: resized image
+        """
+        # current size
         (h, w) = image.shape[:2]
 
         # if both the width and height are None, then return the
@@ -101,19 +165,20 @@ class VideoStream:
         if width is None and height is None:
             return image
 
-        # check to see if the width is None
         if width is None:
             # calculate the ratio of the height and construct the
             # dimensions
             r = height / float(h)
             dim = (int(w * r), height)
 
-        # otherwise, the height is None
-        else:
+        elif height is None:
             # calculate the ratio of the width and construct the
             # dimensions
             r = width / float(w)
             dim = (width, int(h * r))
+
+        else:
+            dim = (width, height)
 
         # resize the image
         resized = cv2.resize(image, dim, interpolation=inter)
@@ -132,28 +197,27 @@ class VideoStream:
 
         cv2.putText(frame, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5, _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
 
-    def _main(self):
-        """ main loop for thread """
-        while True:
-            # do we need to stop?
-            if self._stopped:
-                return
+    def _stream(self):
+        """
+        main loop for thread
 
-            # otherwise if the queue is not full grab a frame insert it
-            if not self.frame_queue.full():
+        reads frames in and buffers them in our frame queue
+        """
+        while not self._stopped:
+            # if the queue is not full grab a frame insert it
+            if not self._frame_queue.full():
                 (grabbed, frame) = self.stream.read()
 
                 if not grabbed:
-                    # we reached the end of file
-                    self.frame_queue.put({
-                        'data': None,
-                        'index': -1
+                    # We've reached the end of file.
+                    # Add EOF indicator to end of buffer
+                    self._frame_queue.put(self._EOF)
+                    self._eof = True
+                else:
+                    # we got a new frame, add it to the queue
+                    self._frame_queue.put({
+                        'data': frame,
+                        'index': self._frame_index,
+                        'duration': self._duration
                     })
-                    return
-
-                self.frame_queue.put({
-                    'data': frame,
-                    'index': self.frame_index,
-                    'duration': self._duration
-                })
-                self.frame_index += 1
+                    self._frame_index += 1
