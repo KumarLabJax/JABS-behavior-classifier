@@ -124,10 +124,11 @@ class VideoStream:
         return self
 
     def stop(self):
-        """stop the thread """
-        self._stopped = True
-        self._thread.join()
-        self._thread = None
+        """stop the buffering thread """
+        if self._thread:
+            self._stopped = True
+            self._thread.join()
+            self._thread = None
 
     def read(self):
         """
