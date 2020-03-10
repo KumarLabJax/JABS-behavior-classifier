@@ -115,7 +115,9 @@ class _FrameWidget(QtWidgets.QLabel):
             # fit the current size of the widget
             pix = self.pixmap().scaled(size, QtCore.Qt.KeepAspectRatio, transformMode = QtCore.Qt.FastTransformation)
 
-            # start painting the label from left upper corner
+            # because we are maintaining aspect ratio, the scaled frame might
+            # not be the same dimensions as the area we are painting it.
+            # adjust the start point to center the image in the widget
             point.setX((size.width() - pix.width()) / 2)
             point.setY((size.height() - pix.height()) / 2)
             painter.drawPixmap(point, pix)
