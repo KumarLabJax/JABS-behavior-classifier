@@ -33,7 +33,8 @@ class MainWindow(QtWidgets.QWidget):
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
         self.behavior_selection.addItems(self._behaviors)
-        self.behavior_selection.currentIndexChanged.connect(self.change_behavior)
+        self.behavior_selection.currentIndexChanged.connect(
+            self.change_behavior)
 
         add_label_button = QtWidgets.QPushButton("New Behavior")
         add_label_button.clicked.connect(self.new_label)
@@ -49,8 +50,10 @@ class MainWindow(QtWidgets.QWidget):
         label_layout = QtWidgets.QVBoxLayout()
 
         self.label_behavior_button = QtWidgets.QPushButton()
-        self.label_behavior_button.setText(self.behavior_selection.currentText())
-        self.label_none_button = QtWidgets.QPushButton(f"Not {self.behavior_selection.currentText()}")
+        self.label_behavior_button.setText(
+            self.behavior_selection.currentText())
+        self.label_none_button = QtWidgets.QPushButton(
+            f"Not {self.behavior_selection.currentText()}")
         label_unknown_button = QtWidgets.QPushButton("Clear Label")
 
         label_layout.addWidget(self.label_behavior_button)

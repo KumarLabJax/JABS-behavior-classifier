@@ -194,9 +194,11 @@ class VideoStream:
 
         # figure out text origin
         label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        text_origin = (frame.shape[1] - label_size[0][0] - 5, frame.shape[0] - 5)
+        text_origin = (frame.shape[1] - label_size[0][0] - 5,
+                       frame.shape[0] - 5)
 
-        cv2.putText(frame, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5, _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
+        cv2.putText(frame, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
 
     def _stream(self):
         """

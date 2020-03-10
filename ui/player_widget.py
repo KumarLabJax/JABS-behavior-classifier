@@ -113,7 +113,11 @@ class _FrameWidget(QtWidgets.QLabel):
             # expanded to the size of the frame
             # once we change the size policy, this will resize the image to
             # fit the current size of the widget
-            pix = self.pixmap().scaled(size, QtCore.Qt.KeepAspectRatio, transformMode = QtCore.Qt.FastTransformation)
+            pix = self.pixmap().scaled(
+                size,
+                QtCore.Qt.KeepAspectRatio,
+                transformMode=QtCore.Qt.FastTransformation
+            )
 
             # because we are maintaining aspect ratio, the scaled frame might
             # not be the same dimensions as the area we are painting it.
@@ -195,10 +199,11 @@ class PlayerWidget(QtWidgets.QWidget):
         self._disable_frame_buttons()
 
         # position slider
-        self._position_slider = QtWidgets.QSlider(minimum=0, maximum=0,
-                                                  orientation=QtCore.Qt.Horizontal)
+        self._position_slider = QtWidgets.QSlider(
+            minimum=0, maximum=0, orientation=QtCore.Qt.Horizontal)
         self._position_slider.sliderMoved.connect(self._position_slider_moved)
-        self._position_slider.sliderPressed.connect(self._position_slider_clicked)
+        self._position_slider.sliderPressed.connect(
+            self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(
             self._position_slider_release)
         self._position_slider.setEnabled(False)
