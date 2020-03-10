@@ -24,7 +24,6 @@ def main():
     except Exception as e:
         sys.exit(f"Error loading file:  {e}")
 
-
     main_window.show()
     sys.exit(app.exec_())
 

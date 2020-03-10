@@ -430,6 +430,3 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
-
-
-
