@@ -13,7 +13,6 @@ class VideoStream:
 
     Allows for reading one frame at a time, or starting a thread to buffer
     frames.
-
     """
 
     _EOF = {'data': None, 'index': -1}
