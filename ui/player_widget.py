@@ -116,7 +116,7 @@ class _FrameWidget(QtWidgets.QLabel):
             pix = self.pixmap().scaled(
                 size,
                 QtCore.Qt.KeepAspectRatio,
-                transformMode=QtCore.Qt.FastTransformation
+                transformMode=QtCore.Qt.SmoothTransformation
             )
 
             # because we are maintaining aspect ratio, the scaled frame might
