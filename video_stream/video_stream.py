@@ -146,7 +146,7 @@ class VideoStream:
         return frame
 
     @staticmethod
-    def _image_resize(image, width=None, height=None, inter=cv2.INTER_AREA):
+    def _resize_image(image, width=None, height=None, interpolation=None):
         """
         resize an image, allow passing only desired width or height to
         maintain current aspect ratio
@@ -154,7 +154,9 @@ class VideoStream:
         :param image: image to resize
         :param width: new width, if None compute to maintain aspect ratio
         :param height: new height, if None compute to maintain aspect ratio
-        :param inter: type of interpolation to use for resize
+        :param interpolation: type of interpolation to use for resize. If None,
+        we will default to cv2.INTER_AREA for shrinking cv2.INTER_CUBIC when
+        expanding
         :return: resized image
         """
         # current size
@@ -179,6 +181,16 @@ class VideoStream:
 
         else:
             dim = (width, height)
+
+        if interpolation is None:
+            if dim[0] * dim[1] < w * h:
+                # new image size is larger than the original, default to
+                # INTER_AREA
+                inter = cv2.INTER_AREA
+            else:
+                inter = cv2.INTER_CUBIC
+        else:
+            inter = interpolation
 
         # resize the image
         resized = cv2.resize(image, dim, interpolation=inter)
