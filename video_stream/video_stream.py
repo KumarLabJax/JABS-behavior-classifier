@@ -1,6 +1,7 @@
 from threading import Thread
 from queue import Queue
 import cv2
+import time
 
 _FRAME_LABEL_COLOR = (0, 255, 102)
 
@@ -138,10 +139,11 @@ class VideoStream:
         """
         frame = self._frame_queue.get()
 
-        # add label with frame number
+        # add labels with frame number and time
         # TODO remove, currently for debugging
         if frame['index'] != -1:
             self._add_frame_num(frame['data'], frame['index'])
+            self._add_time_overlay(frame['data'], frame['index'] * frame['duration'])
 
         return frame
 
@@ -200,7 +202,11 @@ class VideoStream:
 
     @staticmethod
     def _add_frame_num(frame, frame_num):
-        """ add the frame number to bottom right of frame """
+        """
+        add the frame number to bottom right of frame
+        :param frame: frame image
+        :param frame_num: frame index
+        """
         label = f"{frame_num}"
 
         # figure out text origin
@@ -210,6 +216,21 @@ class VideoStream:
 
         cv2.putText(frame, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
+
+    @staticmethod
+    def _add_time_overlay(frame, frame_time):
+        """
+        add a time overlay in the format HH:MM:SS to the lower left of the frame
+        :param frame: frame image
+        :param frame_time: time in seconds to use for overlay
+        :return: frame with text added
+        """
+        formatted_time = time.strftime('%H:%M:%S', time.gmtime(frame_time))
+
+        text_origin = (5, frame.shape[0] - 5)
+        cv2.putText(frame, formatted_time, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
+
 
     def _stream(self):
         """
