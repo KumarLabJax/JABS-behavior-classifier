@@ -231,7 +231,6 @@ class VideoStream:
         cv2.putText(frame, formatted_time, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
 
-
     def _stream(self):
         """
         main loop for thread
