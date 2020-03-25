@@ -1,5 +1,4 @@
 from PyQt5 import QtGui, QtCore, QtWidgets
-import darkdetect
 
 from ui import PlayerWidget
 
@@ -11,15 +10,6 @@ class MainWindow(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
-
-        # on OS X dark mode some of the colors need to be adjusted to
-        # accommodate the dark window background color
-        if darkdetect.theme() == 'Dark':
-            self.setStyleSheet("""
-                QLabel { color : #D3D3D3; }
-                QGroupBox { background-color: #6C6C6C; color : #D3D3D3;}
-                QToolButton { background: #6C6C6C; }
-            """)
 
         # initial behavior labels to list in the drop down selection
         self._behaviors = [

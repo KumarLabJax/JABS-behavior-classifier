@@ -173,6 +173,21 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # the player controls
 
+        # current time and frame display
+        font = QtGui.QFont("Courier New", 14)
+        self._time_label = QtWidgets.QLabel("00:00:00")
+        self._frame_label = QtWidgets.QLabel("0")
+        self._frame_label.setFont(font)
+        self._time_label.setFont(font)
+        self._time_label.setSizePolicy(QtWidgets.QSizePolicy.Fixed,
+                                       QtWidgets.QSizePolicy.Fixed)
+        self._frame_label.setSizePolicy(QtWidgets.QSizePolicy.Fixed,
+                                        QtWidgets.QSizePolicy.Fixed)
+        time_layout = QtWidgets.QHBoxLayout()
+        time_layout.addWidget(self._time_label)
+        time_layout.addStretch()
+        time_layout.addWidget(self._frame_label)
+
         # play/pause button
         self._play_button = QtWidgets.QPushButton()
         self._play_button.setCheckable(True)
@@ -183,24 +198,26 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
-        self._previous_frame_button.setMaximumWidth(20)
-        self._previous_frame_button.setMaximumHeight(20)
+        self._previous_frame_button.setMaximumWidth(35)
         self._previous_frame_button.clicked.connect(self.previous_frame)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
         self._next_frame_button = QtWidgets.QPushButton("▶")
-        self._next_frame_button.setMaximumWidth(20)
-        self._next_frame_button.setMaximumHeight(20)
+        self._next_frame_button.setMaximumWidth(35)
         self._next_frame_button.clicked.connect(self.next_frame)
         self._next_frame_button.setAutoRepeat(True)
+
+        frame_button_layout = QtWidgets.QHBoxLayout()
+        frame_button_layout.setSpacing(0)
+        frame_button_layout.addWidget(self._previous_frame_button)
+        frame_button_layout.addWidget(self._next_frame_button)
 
         # prev/next frame buttons are disabled until a video is loaded
         self._disable_frame_buttons()
 
         # position slider
-        self._position_slider = QtWidgets.QSlider(
-            minimum=0, maximum=0, orientation=QtCore.Qt.Horizontal)
+        self._position_slider = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
         self._position_slider.sliderMoved.connect(self._position_slider_moved)
         self._position_slider.sliderPressed.connect(
             self._position_slider_clicked)
@@ -212,15 +229,15 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
-        player_control_layout.setContentsMargins(0, 0, 0, 0)
+        player_control_layout.setContentsMargins(2, 0, 2, 0)
         player_control_layout.addWidget(self._play_button)
         player_control_layout.addWidget(self._position_slider)
-        player_control_layout.addWidget(self._previous_frame_button)
-        player_control_layout.addWidget(self._next_frame_button)
+        player_control_layout.addLayout(frame_button_layout)
 
         # main widget layout
         player_layout = QtWidgets.QVBoxLayout()
         player_layout.addWidget(self._frame_widget)
+        player_layout.addLayout(time_layout)
         player_layout.addLayout(player_control_layout)
 
         self.setLayout(player_layout)
@@ -398,6 +415,17 @@ class PlayerWidget(QtWidgets.QWidget):
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
             self._display_image(image)
             self.updateFrameNumber.emit(frame['index'])
+            self._update_time_display(frame['index'])
+
+    def _update_time_display(self, frame_number):
+        """
+        update the time and current frame labels with current frame
+        :param frame_number: current frame number
+        """
+        self._frame_label.setText(
+            f"{frame_number}:{self._video_stream.num_frames - 1}")
+        self._time_label.setText(
+            self._video_stream.get_frame_time(frame_number))
 
     @QtCore.pyqtSlot(QtGui.QImage)
     def _display_image(self, image):
@@ -419,6 +447,7 @@ class PlayerWidget(QtWidgets.QWidget):
         if not self._seeking:
             self._position_slider.setValue(frame_number)
             self.updateFrameNumber.emit(frame_number)
+            self._update_time_display(frame_number)
 
     def _start_player_thread(self):
         """
