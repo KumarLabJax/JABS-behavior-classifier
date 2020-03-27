@@ -2,6 +2,7 @@ import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from video_stream import VideoStream
+from pose_estimation import PoseEstimationV3
 
 
 class _PlayerThread(QtCore.QThread):
@@ -153,6 +154,8 @@ class PlayerWidget(QtWidgets.QWidget):
     # signal to allow parent UI component to observe current frame number
     updateFrameNumber = QtCore.pyqtSignal(int)
 
+    updateIdentities = QtCore.pyqtSignal(list)
+
     def __init__(self, *args, **kwargs):
         super(PlayerWidget, self).__init__(*args, **kwargs)
 
@@ -162,6 +165,8 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
+
+        self._tracks = None
 
         # player thread spawned during playback
         self._player_thread = None
@@ -252,6 +257,8 @@ class PlayerWidget(QtWidgets.QWidget):
         :param path: path to video file
         """
         self._video_stream = VideoStream(path)
+        self._tracks = PoseEstimationV3(path)
+        self.updateIdentities.emit(self._tracks.identities)
         self._frame_widget.firstFrame = True
         self._update_frame(self._video_stream.read())
         self._position_slider.setValue(0)

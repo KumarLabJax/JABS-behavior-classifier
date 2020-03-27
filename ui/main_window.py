@@ -19,6 +19,9 @@ class MainWindow(QtWidgets.QWidget):
 
         # video player
         self.player_widget = PlayerWidget()
+        self.player_widget.updateIdentities.connect(self._update_identities)
+
+        self._tracks = None
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -35,6 +38,14 @@ class MainWindow(QtWidgets.QWidget):
 
         behavior_group = QtWidgets.QGroupBox("Behavior")
         behavior_group.setLayout(behavior_layout)
+
+        # identity selection form components
+        self.identity_selection = QtWidgets.QComboBox()
+        identity_layout = QtWidgets.QVBoxLayout()
+        identity_layout.addWidget(self.identity_selection)
+        identity_group = QtWidgets.QGroupBox("Identity")
+        identity_group.setLayout(identity_layout)
+
 
         # label components
         label_layout = QtWidgets.QVBoxLayout()
@@ -72,6 +83,7 @@ class MainWindow(QtWidgets.QWidget):
         control_layout = QtWidgets.QVBoxLayout()
         control_layout.setSpacing(25)
         control_layout.addWidget(behavior_group)
+        control_layout.addWidget(identity_group)
         control_layout.addWidget(label_group)
         control_layout.addWidget(select_group)
         control_layout.addStretch()
@@ -102,3 +114,7 @@ class MainWindow(QtWidgets.QWidget):
             self.behavior_selection.currentText())
         self.label_none_button.setText(
             f"Not {self.behavior_selection.currentText()}")
+
+    def _update_identities(self, identities):
+        self.identity_selection.clear()
+        self.identity_selection.addItems([str(i) for i in identities])
