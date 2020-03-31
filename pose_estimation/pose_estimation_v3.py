@@ -98,8 +98,7 @@ class PoseEstimationV3:
             track['stop_frame_exclu'] = track_length + track['start_frame']
 
     def _build_identity_map(self):
-        assigned_identities = set()
-        free_identities = [] #set(self._identities)
+        free_identities = []
         for i in self._identities:
             heapq.heappush(free_identities, i)
 
@@ -112,15 +111,12 @@ class PoseEstimationV3:
             for track in last_tracks:
                 if track not in current_tracks:
                     identity = self._identity_map[track]
-                    #assigned_identities.remove(identity)
-                    #free_identities.add(identity)
                     heapq.heappush(free_identities, identity)
 
             # if this is the first time we see the track grab a new identity
             for i in range(len(current_tracks)):
                 if current_tracks[i] not in self._identity_map:
-                    identity = heapq.heappop(free_identities) #free_identities.pop()
-                    #assigned_identities.add(identity)
+                    identity = heapq.heappop(free_identities)
                     self._identity_map[current_tracks[i]] = identity
                     self._identity_to_instance[frame_index][identity] = current_tracks[i]
                 else:
