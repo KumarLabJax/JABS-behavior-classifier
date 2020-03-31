@@ -1,4 +1,5 @@
 import enum
+import heapq
 import h5py
 import numpy as np
 
@@ -56,6 +57,16 @@ class PoseEstimationV3:
     def identities(self):
         return self._identities
 
+    def get_points(self, frame_index, identity):
+        instance = self._identity_to_instance[frame_index][identity]
+        if instance == -1:
+            return None, None
+
+        track = self._track_dict[instance]
+        points = track['points'][frame_index - track['start_frame']]
+        mask = track['point_masks'][frame_index - track['start_frame']]
+        return points, mask
+
     def _build_tracks(self):
         all_points_mask = self._all_confidence > 0
 
@@ -88,7 +99,9 @@ class PoseEstimationV3:
 
     def _build_identity_map(self):
         assigned_identities = set()
-        free_identities = set(self._identities)
+        free_identities = [] #set(self._identities)
+        for i in self._identities:
+            heapq.heappush(free_identities, i)
 
         last_tracks = []
         for frame_index in range(len(self._all_instance_count)):
@@ -99,25 +112,18 @@ class PoseEstimationV3:
             for track in last_tracks:
                 if track not in current_tracks:
                     identity = self._identity_map[track]
-                    assigned_identities.remove(identity)
-                    free_identities.add(identity)
+                    #assigned_identities.remove(identity)
+                    #free_identities.add(identity)
+                    heapq.heappush(free_identities, identity)
 
             # if this is the first time we see the track grab a new identity
             for i in range(len(current_tracks)):
                 if current_tracks[i] not in self._identity_map:
-                    identity = free_identities.pop()
-                    assigned_identities.add(identity)
+                    identity = heapq.heappop(free_identities) #free_identities.pop()
+                    #assigned_identities.add(identity)
                     self._identity_map[current_tracks[i]] = identity
                     self._identity_to_instance[frame_index][identity] = current_tracks[i]
                 else:
                     self._identity_to_instance[frame_index][self._identity_map[current_tracks[i]]] = current_tracks[i]
 
             last_tracks = current_tracks[:]
-
-    def get_points(self, frame_index, identity):
-        instance = self._identity_to_instance[frame_index][identity]
-        if instance == -1:
-            return None
-
-        track = self._track_dict[instance]
-        return track['points'][frame_index - track['start_frame']]

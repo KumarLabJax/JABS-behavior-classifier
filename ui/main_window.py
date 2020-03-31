@@ -19,7 +19,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # video player
         self.player_widget = PlayerWidget()
-        self.player_widget.updateIdentities.connect(self._update_identities)
+        self.player_widget.updateIdentities.connect(self._set_identities)
 
         self._tracks = None
 
@@ -41,11 +41,12 @@ class MainWindow(QtWidgets.QWidget):
 
         # identity selection form components
         self.identity_selection = QtWidgets.QComboBox()
+        self.identity_selection.currentIndexChanged.connect(
+            self._change_identity)
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
         identity_group = QtWidgets.QGroupBox("Identity")
         identity_group.setLayout(identity_layout)
-
 
         # label components
         label_layout = QtWidgets.QVBoxLayout()
@@ -115,6 +116,10 @@ class MainWindow(QtWidgets.QWidget):
         self.label_none_button.setText(
             f"Not {self.behavior_selection.currentText()}")
 
-    def _update_identities(self, identities):
+    def _set_identities(self, identities):
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
+
+    def _change_identity(self):
+        self.player_widget.set_active_identity(
+            self.identity_selection.currentIndex())

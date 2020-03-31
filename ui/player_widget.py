@@ -1,7 +1,7 @@
 import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from video_stream import VideoStream
+from video_stream import VideoStream, annotate_image
 from pose_estimation import PoseEstimationV3
 
 
@@ -18,15 +18,20 @@ class _PlayerThread(QtCore.QThread):
     updatePosition = QtCore.pyqtSignal(int)
     endOfFile = QtCore.pyqtSignal()
 
-    def __init__(self, video_stream):
+    def __init__(self, video_stream, pose_est, identity=None):
         QtCore.QThread.__init__(self)
-        self.stream = video_stream
+        self._stream = video_stream
+        self._pose_est = pose_est
+        self._identity = identity
 
     def terminate(self):
         """
         tell run thread to stop playback
         """
-        self.stream.stop()
+        self._stream.stop()
+
+    def set_identity(self, identity):
+        self._identity = identity
 
     def run(self):
         """
@@ -39,21 +44,27 @@ class _PlayerThread(QtCore.QThread):
         end_of_file = False
 
         # tell stream to start buffering frames
-        self.stream.start()
+        self._stream.start()
 
         # no delay before showing the first frame
         delay = 0
 
         # iterate until we've been told to stop (user clicks pause button)
         # or we reach end of file
-        while not self.stream.stopped and not end_of_file:
+        while not self._stream.stopped and not end_of_file:
             # time iteration to account for it in delay between frame refresh
             iteration_start = time.perf_counter()
 
             # grab next frame from stream buffer
-            frame = self.stream.read()
+            frame = self._stream.read()
 
             if frame['data'] is not None:
+                # add annotation
+                if self._identity is not None:
+                    annotate_image(frame['data'],
+                                   *self._pose_est.get_points(frame['index'],
+                                                              self._identity))
+
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                      frame['data'].shape[0],
@@ -166,7 +177,9 @@ class PlayerWidget(QtWidgets.QWidget):
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
 
+        # track annotation
         self._tracks = None
+        self._active_identity = None
 
         # player thread spawned during playback
         self._player_thread = None
@@ -258,14 +271,16 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         self._video_stream = VideoStream(path)
         self._tracks = PoseEstimationV3(path)
+        self._position_slider.setValue(0)
+        self._position_slider.setMaximum(self._video_stream.num_frames - 1)
+        self._position_slider.setEnabled(True)
+
         self.updateIdentities.emit(self._tracks.identities)
         self._frame_widget.firstFrame = True
         self._update_frame(self._video_stream.read())
-        self._position_slider.setValue(0)
-        self._position_slider.setMaximum(self._video_stream.num_frames - 1)
+
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
-        self._position_slider.setEnabled(True)
 
     def _position_slider_clicked(self):
         """
@@ -376,7 +391,8 @@ class PlayerWidget(QtWidgets.QWidget):
             self._position_slider.setValue(new_frame)
             # make sure the buffer isn't empty before calling video_stream.read
             self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+            frame = self._video_stream.read()
+            self._update_frame(frame)
 
     def previous_frame(self):
         """
@@ -395,6 +411,16 @@ class PlayerWidget(QtWidgets.QWidget):
         if new_frame != self._position_slider.value():
             self._position_slider.setValue(new_frame)
             self._video_stream.seek(new_frame)
+            frame = self._video_stream.read()
+            self._update_frame(frame)
+
+    def set_active_identity(self, identity):
+        self._active_identity = identity
+        if self._player_thread:
+            self._player_thread.set_identity(identity)
+        else:
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
 
     def _enable_frame_buttons(self):
@@ -417,6 +443,9 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame: dict returned by video_stream.read()
         """
         if frame['index'] != -1:
+            annotate_image(frame['data'],
+                           *self._tracks.get_points(frame['index'],
+                                                    self._active_identity))
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
@@ -460,9 +489,17 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         start a new player thread and connect it to the UI components
         """
-        self._player_thread = _PlayerThread(self._video_stream)
+        self._player_thread = _PlayerThread(self._video_stream,
+                                            self._tracks,
+                                            self._active_identity)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
+
+    def _get_identity_points(self, frame_index):
+        if self._active_identity is not None:
+            return self._pose_est.get_points(frame_index, self._active_identity)
+        else:
+            return None

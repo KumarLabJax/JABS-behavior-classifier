@@ -141,9 +141,7 @@ class VideoStream:
         Note: this is blocking! Don't call this without starting the stream
         or explicitly calling load_next_frame().
         """
-        frame = self._frame_queue.get()
-
-        return frame
+        return self._frame_queue.get()
 
     @staticmethod
     def _resize_image(image, width=None, height=None, interpolation=None):
