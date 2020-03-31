@@ -1,5 +1,4 @@
-darkdetect==0.1.1
 numpy==1.18.1
 opencv-python-headless==4.2.0.32
-PyQt5==5.9.2
-sip==4.19.8
+PyQt5==5.14.1
+PyQt5-sip==12.7.1

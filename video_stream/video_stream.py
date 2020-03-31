@@ -72,6 +72,10 @@ class VideoStream:
     def dimensions(self):
         return self._width, self._height
 
+    def get_frame_time(self, frame_number):
+        return time.strftime('%H:%M:%S',
+                             time.gmtime(frame_number * self._duration))
+
     def seek(self, index):
         """
         Seek to a specific frame.
@@ -138,12 +142,6 @@ class VideoStream:
         or explicitly calling load_next_frame().
         """
         frame = self._frame_queue.get()
-
-        # add labels with frame number and time
-        # TODO remove, currently for debugging
-        if frame['index'] != -1:
-            self._add_frame_num(frame['data'], frame['index'])
-            self._add_time_overlay(frame['data'], frame['index'] * frame['duration'])
 
         return frame
 
