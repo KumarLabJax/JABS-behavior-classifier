@@ -121,5 +121,5 @@ class MainWindow(QtWidgets.QWidget):
         self.identity_selection.addItems([str(i) for i in identities])
 
     def _change_identity(self):
-        self.player_widget.set_active_identity(
+        self.player_widget._set_active_identity(
             self.identity_selection.currentIndex())
