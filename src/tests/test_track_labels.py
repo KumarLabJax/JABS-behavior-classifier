@@ -21,7 +21,7 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_behavior(50, 100)
 
         for i in range(50, 100):
-            self.assertEqual(labels.get_frame_label(50), labels.Label.BEHAVIOR)
+            self.assertEqual(labels.get_frame_label(i), labels.Label.BEHAVIOR)
 
         # test before and after the block we labeled to make sure it is
         # still unlabeled
@@ -34,8 +34,23 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_not_behavior(50, 100)
 
         for i in range(50, 100):
-            self.assertEqual(labels.get_frame_label(50),
+            self.assertEqual(labels.get_frame_label(i),
                              labels.Label.NOT_BEHAVIOR)
+
+    def test_clear_labels(self):
+        """ test clearing labels """
+        labels = TrackLabels(100)
+
+        # apply some labels so we can clear them
+        labels.label_behavior(15, 30)
+
+        # clear labels we just set
+        labels.clear_labels(15, 30)
+
+        # make sure frames no longer have labels
+        for i in range(15, 30):
+            self.assertEqual(labels.get_frame_label(i),
+                             labels.Label.NONE)
 
     def test_export_behavior_blocks(self):
         """ test exporting to list of label block dicts """
