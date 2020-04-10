@@ -3,7 +3,13 @@ from .track_labels import TrackLabels
 
 class VideoLabels:
     """
-    store the labels associated with a video file
+    store the labels associated with a video file.
+
+    labels are organized by "identity". Each identity may have multiple
+    behaviors labeled. An identity and behavior uniquely identifies a
+    TrackLabels object, which stores labels for each frame in the video. Each
+    frame can have one of three label values: TrackLabels.Label.NONE,
+    Tracklabels.Label.BEHAVIOR, and TrackLabels.Label.NOT_BEHAVIOR
     """
     def __init__(self, filename, num_frames):
         self._filename = filename
