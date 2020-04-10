@@ -32,10 +32,10 @@ class TrackLabels:
         """ get the label for a given frame """
         return self._labels[frame_index]
 
-    def export(self):
+    def get_blocks(self):
         """
-        export internal representation of labels as something that can
-        easily be exported as json for saving to disk
+        return label blocks as something that can easily be exported as json
+        for saving to disk
         :return:  list of blocks of frames that have been labeled as having
         the behavior or not having the behavior. Each block has the following
         representation:

@@ -25,16 +25,34 @@ class VideoLabels:
 
         return self._identity_labels[identity][behavior]
 
-    def export(self):
+    def as_dict(self):
         """
-        export all labels for this video in a json serializable nested  dict
+        return dict representation of self
+
+        example return value:
+        {
+            "file": "filename.avi",
+            "num_frames": 100,
+            "labels": {
+                "identity name": {
+                    "behavior name": [
+                        {
+                            "start": 25,
+                            "end": 50,
+                            "present": True
+                        }
+                    ]
+                }
+            }
+        }
+
         """
         labels = {}
         for identity in self._identity_labels:
             labels[identity] = {}
             for behavior in self._identity_labels[identity]:
                 labels[identity][behavior] = \
-                    self._identity_labels[identity][behavior].export()
+                    self._identity_labels[identity][behavior].as_dict()
 
         return {
             'file': self._filename,

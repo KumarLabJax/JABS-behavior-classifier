@@ -49,4 +49,4 @@ class TestVideoLabels(unittest.TestCase):
         self.assertEqual(track.get_frame_label(51), track.Label.NONE)
 
         # make sure exported dict is the same as the one we used to create it
-        self.assertDictEqual(labels.export(), video_label_dict)
+        self.assertDictEqual(labels.as_dict(), video_label_dict)

@@ -67,7 +67,7 @@ class TestTrackLabels(unittest.TestCase):
             {'start': 300, 'end': 325, 'present': True}
         ]
 
-        for exported, expected in zip(labels.export(), expected_blocks):
+        for exported, expected in zip(labels.get_blocks(), expected_blocks):
             self.assertDictEqual(exported, expected)
 
     def test_labeling_single_frame(self):
@@ -81,7 +81,7 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(labels.get_frame_label(26), labels.Label.NONE)
 
         # make sure the block is exported properly
-        exported_blocks = labels.export()
+        exported_blocks = labels.get_blocks()
         self.assertEqual(len(exported_blocks), 1)
         self.assertDictEqual({'start': 25, 'end': 25, 'present': True},
                              exported_blocks[0])
