@@ -1,8 +1,8 @@
 import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from video_stream import VideoStream, label_identity
-from pose_estimation import PoseEstimationV3
+from src.video_stream import VideoStream, label_identity
+from src.pose_estimation import PoseEstimationV3
 
 
 class _PlayerThread(QtCore.QThread):
