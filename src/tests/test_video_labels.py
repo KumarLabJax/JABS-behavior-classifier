@@ -6,15 +6,11 @@ from src.labeler.video_labels import VideoLabels
 class TestVideoLabels(unittest.TestCase):
     """ test labeler.video_labels.VideoLabels """
     def test_create(self):
-        """
-        test initializing new VideoLabels
-        """
+        """ test initializing new VideoLabels """
         labels = VideoLabels('filename.avi', 100)
 
     def test_getting_new_track(self):
-        """
-        test initializing new VideoLabels
-        """
+        """ test initializing new VideoLabels """
         labels = VideoLabels('filename.avi', 100)
         track = labels.get_track_labels('identity name', 'behavior name')
 
