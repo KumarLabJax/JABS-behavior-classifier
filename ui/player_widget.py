@@ -1,7 +1,8 @@
 import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from video_stream import VideoStream
+from video_stream import VideoStream, label_identity
+from pose_estimation import PoseEstimationV3
 
 
 class _PlayerThread(QtCore.QThread):
@@ -17,15 +18,26 @@ class _PlayerThread(QtCore.QThread):
     updatePosition = QtCore.pyqtSignal(int)
     endOfFile = QtCore.pyqtSignal()
 
-    def __init__(self, video_stream):
+    def __init__(self, video_stream, pose_est, identity=None):
         QtCore.QThread.__init__(self)
-        self.stream = video_stream
+        self._stream = video_stream
+        self._pose_est = pose_est
+        self._identity = identity
 
     def terminate(self):
         """
         tell run thread to stop playback
         """
-        self.stream.stop()
+        self._stream.stop()
+
+    def set_identity(self, identity):
+        """
+        set the active identity -- we will draw a dot to indicate the position
+        of the selected identity
+        :param identity: new selected identity
+        :return: None
+        """
+        self._identity = identity
 
     def run(self):
         """
@@ -38,21 +50,27 @@ class _PlayerThread(QtCore.QThread):
         end_of_file = False
 
         # tell stream to start buffering frames
-        self.stream.start()
+        self._stream.start()
 
         # no delay before showing the first frame
         delay = 0
 
         # iterate until we've been told to stop (user clicks pause button)
         # or we reach end of file
-        while not self.stream.stopped and not end_of_file:
+        while not self._stream.stopped and not end_of_file:
             # time iteration to account for it in delay between frame refresh
             iteration_start = time.perf_counter()
 
             # grab next frame from stream buffer
-            frame = self.stream.read()
+            frame = self._stream.read()
 
             if frame['data'] is not None:
+                # add if active identity set, label it on the frame
+                if self._identity is not None:
+                    label_identity(frame['data'],
+                                   *self._pose_est.get_points(frame['index'],
+                                                              self._identity))
+
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                      frame['data'].shape[0],
@@ -96,8 +114,9 @@ class _FrameWidget(QtWidgets.QLabel):
     def paintEvent(self, event):
         """
         override the paintEvent() handler to scale the image if the widget is
-        resized. We don't allow resizing the first frame so the size of the
-        widget will be expanded to fit the actual size of the frame.
+        resized.
+        Don't enable resizing until after  the first frame has been drawn so
+        that the widget will be expanded to fit the actual size of the frame.
         """
 
         # only draw if we have an image to show
@@ -108,11 +127,8 @@ class _FrameWidget(QtWidgets.QLabel):
             painter = QtGui.QPainter(self)
             point = QtCore.QPoint(0, 0)
 
-            # scale the image to the current size of the widget. With the
-            # initial Expanding size policy, the widget will have already been
-            # expanded to the size of the frame
-            # once we change the size policy, this will resize the image to
-            # fit the current size of the widget
+            # scale the image to the current size of the widget. First frame,
+            # the widget will be expanded to fit the full size image.
             pix = self.pixmap().scaled(
                 size,
                 QtCore.Qt.KeepAspectRatio,
@@ -124,9 +140,11 @@ class _FrameWidget(QtWidgets.QLabel):
             # adjust the start point to center the image in the widget
             point.setX((size.width() - pix.width()) / 2)
             point.setY((size.height() - pix.height()) / 2)
+
+            # draw the pixmap starting at the new calculated offset
             painter.drawPixmap(point, pix)
 
-            # after we let the first frame expand the widget (and it's parent)
+            # after we let the first frame expand the widget
             # switch to the Ignored size policy and we will resize the image to
             # fit the widget
             if self.firstFrame:
@@ -153,6 +171,9 @@ class PlayerWidget(QtWidgets.QWidget):
     # signal to allow parent UI component to observe current frame number
     updateFrameNumber = QtCore.pyqtSignal(int)
 
+    # let the main window UI know what the list of identities should be
+    updateIdentities = QtCore.pyqtSignal(list)
+
     def __init__(self, *args, **kwargs):
         super(PlayerWidget, self).__init__(*args, **kwargs)
 
@@ -163,15 +184,21 @@ class PlayerWidget(QtWidgets.QWidget):
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
 
+        # track annotation
+        self._tracks = None
+
+        # currently selected identity -- if set will be labeled in the video
+        self._active_identity = None
+
         # player thread spawned during playback
         self._player_thread = None
 
-        # setup Widget UI components
+        #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
         self._frame_widget = _FrameWidget()
 
-        # the player controls
+        #  -- player controls
 
         # current time and frame display
         font = QtGui.QFont("Courier New", 14)
@@ -194,7 +221,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
-        self._play_button.clicked.connect(self.play)
+        self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
@@ -208,11 +235,11 @@ class PlayerWidget(QtWidgets.QWidget):
         self._next_frame_button.clicked.connect(self.next_frame)
         self._next_frame_button.setAutoRepeat(True)
 
+        # previous/next button layout
         frame_button_layout = QtWidgets.QHBoxLayout()
         frame_button_layout.setSpacing(0)
         frame_button_layout.addWidget(self._previous_frame_button)
         frame_button_layout.addWidget(self._next_frame_button)
-
         # prev/next frame buttons are disabled until a video is loaded
         self._disable_frame_buttons()
 
@@ -225,7 +252,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._position_slider_release)
         self._position_slider.setEnabled(False)
 
-        # setup the layout of the components
+        # -- setup the layout of the components
 
         # player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
@@ -243,6 +270,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self.setLayout(player_layout)
 
     def __del__(self):
+        # make sure we terminate the player thread if it is still active
+        # during destruction
         if self._player_thread:
             self._player_thread.terminate()
 
@@ -251,14 +280,28 @@ class PlayerWidget(QtWidgets.QWidget):
         load a new video source
         :param path: path to video file
         """
+
+        # load the video and pose file
         self._video_stream = VideoStream(path)
-        self._frame_widget.firstFrame = True
-        self._update_frame(self._video_stream.read())
+        self._tracks = PoseEstimationV3(path)
+
+        # setup the position slider
         self._position_slider.setValue(0)
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
+        self._position_slider.setEnabled(True)
+
+        # let frame_widget know it's loading the first frame from the video
+        # so it sets the initial size properly
+        self._frame_widget.firstFrame = True
+
+        # tell main window to populate the identity selection drop down
+        # this will cause _set_active_identity() to be called, which will load
+        # and display the current frame
+        self.updateIdentities.emit(self._tracks.identities)
+
+        # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
-        self._position_slider.setEnabled(True)
 
     def _position_slider_clicked(self):
         """
@@ -307,9 +350,9 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._playing:
             self._start_player_thread()
 
-    def play(self):
+    def toggle_play(self):
         """
-        handle clicking on the play button
+        handle clicking on the play/pause button
         """
         # don't do anything if a video hasn't been loaded
         if self._video_stream is None:
@@ -369,7 +412,8 @@ class PlayerWidget(QtWidgets.QWidget):
             self._position_slider.setValue(new_frame)
             # make sure the buffer isn't empty before calling video_stream.read
             self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+            frame = self._video_stream.read()
+            self._update_frame(frame)
 
     def previous_frame(self):
         """
@@ -388,6 +432,16 @@ class PlayerWidget(QtWidgets.QWidget):
         if new_frame != self._position_slider.value():
             self._position_slider.setValue(new_frame)
             self._video_stream.seek(new_frame)
+            frame = self._video_stream.read()
+            self._update_frame(frame)
+
+    def _set_active_identity(self, identity):
+        self._active_identity = identity
+        if self._player_thread:
+            self._player_thread.set_identity(identity)
+        else:
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
 
     def _enable_frame_buttons(self):
@@ -410,6 +464,9 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame: dict returned by video_stream.read()
         """
         if frame['index'] != -1:
+            label_identity(frame['data'],
+                           *self._tracks.get_points(frame['index'],
+                                                    self._active_identity))
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
@@ -453,9 +510,17 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         start a new player thread and connect it to the UI components
         """
-        self._player_thread = _PlayerThread(self._video_stream)
+        self._player_thread = _PlayerThread(self._video_stream,
+                                            self._tracks,
+                                            self._active_identity)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
+
+    def _get_identity_points(self, frame_index):
+        if self._active_identity is not None:
+            return self._pose_est.get_points(frame_index, self._active_identity)
+        else:
+            return None

@@ -3,8 +3,6 @@ from queue import Queue
 import cv2
 import time
 
-_FRAME_LABEL_COLOR = (0, 255, 102)
-
 
 class VideoStream:
     """
@@ -36,7 +34,11 @@ class VideoStream:
         self._frame_queue = Queue(maxsize=frame_buffer_size)
 
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # get framerate
         self._fps = self.stream.get(cv2.CAP_PROP_FPS)
+
+        # calculate duration in seconds of each frame based on framerate
         self._duration = 1 / self._fps
 
         # used to signal the reading thread to terminate
@@ -62,17 +64,21 @@ class VideoStream:
 
     @property
     def num_frames(self):
+        """ get total number of frames in the video """
         return self._num_frames
 
     @property
     def stopped(self):
+        """ return True if the stream is stopped, false otherwise """
         return self._stopped
 
     @property
     def dimensions(self):
+        """ return width, height of video frames """
         return self._width, self._height
 
     def get_frame_time(self, frame_number):
+        """ return a formatted string of the time of a given frame """
         return time.strftime('%H:%M:%S',
                              time.gmtime(frame_number * self._duration))
 
@@ -82,9 +88,9 @@ class VideoStream:
         This will clear the buffer and insert the frame at the new position.
 
         NOTE:
-            some video formats might not be able to set an exact frame position
-            this is not a problem with our AVI files, but should be kept in
-            mind if we eventually accommodate other types of files.
+            some video formats might not be able to seek to an exact frame
+            position so this could be slow in those cases. Our avi files have
+            reasonable seek times.
         """
         if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
             self._frame_index = index
@@ -97,7 +103,7 @@ class VideoStream:
             self.load_next_frame()
 
     def load_next_frame(self):
-        """ grab the next frame and add it to the queue """
+        """ grab the next frame from the stream and add it to the buffer """
 
         # queue is already full, don't do anything
         if self._frame_queue.full():
@@ -120,7 +126,7 @@ class VideoStream:
     def start(self):
         """
         start a thread to read frames from the file video stream from the
-        current position
+        current position and insert them into the buffer
         """
         self._stopped = False
         self._thread = Thread(target=self._stream, args=())
@@ -141,9 +147,7 @@ class VideoStream:
         Note: this is blocking! Don't call this without starting the stream
         or explicitly calling load_next_frame().
         """
-        frame = self._frame_queue.get()
-
-        return frame
+        return self._frame_queue.get()
 
     @staticmethod
     def _resize_image(image, width=None, height=None, interpolation=None):
@@ -197,37 +201,6 @@ class VideoStream:
 
         # return the resized image
         return resized
-
-    @staticmethod
-    def _add_frame_num(frame, frame_num):
-        """
-        add the frame number to bottom right of frame
-        :param frame: frame image
-        :param frame_num: frame index
-        """
-        label = f"{frame_num}"
-
-        # figure out text origin
-        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        text_origin = (frame.shape[1] - label_size[0][0] - 5,
-                       frame.shape[0] - 5)
-
-        cv2.putText(frame, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
-
-    @staticmethod
-    def _add_time_overlay(frame, frame_time):
-        """
-        add a time overlay in the format HH:MM:SS to the lower left of the frame
-        :param frame: frame image
-        :param frame_time: time in seconds to use for overlay
-        :return: frame with text added
-        """
-        formatted_time = time.strftime('%H:%M:%S', time.gmtime(frame_time))
-
-        text_origin = (5, frame.shape[0] - 5)
-        cv2.putText(frame, formatted_time, text_origin, cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    _FRAME_LABEL_COLOR, 1, cv2.LINE_AA)
 
     def _stream(self):
         """
