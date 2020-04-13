@@ -101,7 +101,8 @@ class PoseEstimationV3:
         frame_count = len(self._all_instance_count)
         for frame_index in range(frame_count):
             curr_instance_count = self._all_instance_count[frame_index]
-            curr_track_ids = self._all_track_id[frame_index, :curr_instance_count]
+            curr_track_ids = self._all_track_id[frame_index,
+                             : curr_instance_count]
             for i, curr_track_id in enumerate(curr_track_ids):
                 curr_track_points = self._all_points[frame_index, i, ...]
                 curr_track_points_mask = all_points_mask[frame_index, i, :]
@@ -130,6 +131,7 @@ class PoseEstimationV3:
             track['stop_frame_exclu'] = track_length + track['start_frame']
 
     def _build_identity_map(self):
+        """ map individual tracks to identities """
         free_identities = []
         for i in self._identities:
             heapq.heappush(free_identities, i)
@@ -142,17 +144,19 @@ class PoseEstimationV3:
             # add identities back to the pool for any tracks that terminated
             for track in last_tracks:
                 if track not in current_tracks:
-                    identity = self._identity_map[track]
-                    heapq.heappush(free_identities, identity)
+                    heapq.heappush(free_identities, self._identity_map[track])
 
             # if this is the first time we see the track grab a new identity
             for i in range(len(current_tracks)):
                 if current_tracks[i] not in self._identity_map:
                     identity = heapq.heappop(free_identities)
                     self._identity_map[current_tracks[i]] = identity
-                    self._identity_to_instance[frame_index][identity] = current_tracks[i]
+                    self._identity_to_instance[frame_index][identity] = \
+                        current_tracks[i]
                 else:
-                    self._identity_to_instance[frame_index][self._identity_map[current_tracks[i]]] = current_tracks[i]
+                    self._identity_to_instance[frame_index][
+                        self._identity_map[current_tracks[i]]] = \
+                        current_tracks[i]
 
             last_tracks = current_tracks[:]
 
