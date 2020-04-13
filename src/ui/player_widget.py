@@ -275,6 +275,14 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread:
             self._player_thread.terminate()
 
+    def current_frame(self):
+        """ return the current frame """
+        return self._position_slider.value()
+
+    def num_frames(self):
+        assert self._video_stream is not None
+        return self._video_stream.num_frames
+
     def load_video(self, path):
         """
         load a new video source

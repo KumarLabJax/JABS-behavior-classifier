@@ -1,6 +1,7 @@
 from PyQt5 import QtWidgets
 
 from src.ui import PlayerWidget
+from src.labeler import VideoLabels
 
 
 class MainWindow(QtWidgets.QWidget):
@@ -18,10 +19,13 @@ class MainWindow(QtWidgets.QWidget):
         ]
 
         # video player
-        self.player_widget = PlayerWidget()
-        self.player_widget.updateIdentities.connect(self._set_identities)
+        self._player_widget = PlayerWidget()
+        self._player_widget.updateIdentities.connect(self._set_identities)
 
         self._tracks = None
+        self._labels = None
+
+        self._selection_start = 0
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -54,31 +58,28 @@ class MainWindow(QtWidgets.QWidget):
         self.label_behavior_button = QtWidgets.QPushButton()
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
-        self.label_none_button = QtWidgets.QPushButton(
+        self.label_behavior_button.clicked.connect(self._label_behavior)
+
+        self.label_not_behavior_button = QtWidgets.QPushButton(
             f"Not {self.behavior_selection.currentText()}")
-        label_unknown_button = QtWidgets.QPushButton("Clear Label")
+        self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
+
+        self.clear_label_button = QtWidgets.QPushButton("Clear Label")
+        self.clear_label_button.clicked.connect(self._clear_behavior_label)
+
+        self.select_button = QtWidgets.QPushButton("Select Frames")
+        self.select_button.setCheckable(True)
+        self.select_button.clicked.connect(self._start_selection)
+
+        # label buttons are disabled unless user has a range of frames selected
+        self._disable_label_buttons()
 
         label_layout.addWidget(self.label_behavior_button)
-        label_layout.addWidget(self.label_none_button)
-        label_layout.addWidget(label_unknown_button)
+        label_layout.addWidget(self.label_not_behavior_button)
+        label_layout.addWidget(self.clear_label_button)
+        label_layout.addWidget(self.select_button)
         label_group = QtWidgets.QGroupBox("Label")
         label_group.setLayout(label_layout)
-
-        # select mode components
-        select_layout = QtWidgets.QGridLayout()
-
-        select_button = QtWidgets.QPushButton("Select")
-        select_button.setCheckable(True)
-
-        selection_clear_button = QtWidgets.QPushButton("Clear")
-        selection_play_button = QtWidgets.QPushButton("Play")
-
-        select_layout.addWidget(select_button, 0, 0, 1, 2)
-        select_layout.addWidget(selection_clear_button, 1, 0)
-        select_layout.addWidget(selection_play_button, 1, 1)
-
-        select_group = QtWidgets.QGroupBox("Selection")
-        select_group.setLayout(select_layout)
 
         # control layout
         control_layout = QtWidgets.QVBoxLayout()
@@ -86,15 +87,18 @@ class MainWindow(QtWidgets.QWidget):
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
         control_layout.addWidget(label_group)
-        control_layout.addWidget(select_group)
         control_layout.addStretch()
 
         # main layout
         layout = QtWidgets.QGridLayout()
-        layout.addWidget(self.player_widget, 0, 0)
+        layout.addWidget(self._player_widget, 0, 0)
         layout.addLayout(control_layout, 0, 1)
 
         self.setLayout(layout)
+
+    def load_video(self, path):
+        self._player_widget.load_video(path)
+        self._labels = VideoLabels(path, self._player_widget.num_frames())
 
     def new_label(self):
         """
@@ -113,13 +117,50 @@ class MainWindow(QtWidgets.QWidget):
         """
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
-        self.label_none_button.setText(
+        self.label_not_behavior_button.setText(
             f"Not {self.behavior_selection.currentText()}")
+
+    def _start_selection(self, pressed):
+        if pressed:
+            self.label_behavior_button.setEnabled(True)
+            self.label_not_behavior_button.setEnabled(True)
+            self.clear_label_button.setEnabled(True)
+            self._selection_start = self._player_widget.current_frame()
+        else:
+            self.label_behavior_button.setEnabled(False)
+            self.label_not_behavior_button.setEnabled(False)
+            self.clear_label_button.setEnabled(False)
+
+    def _label_behavior(self):
+        label_range = sorted(
+            (self._selection_start, self._player_widget.current_frame()))
+        identity = self.identity_selection.currentText()
+        behavior = self.behavior_selection.currentText()
+        self._labels.get_track_labels(identity, behavior).label_behavior(*label_range)
+        self._disable_label_buttons()
+
+    def _label_not_behavior(self):
+        label_range = sorted(
+            (self._selection_start, self._player_widget.current_frame()))
+        identity = self.identity_selection.currentText()
+        behavior = self.behavior_selection.currentText()
+        self._labels.get_track_labels(identity, behavior).label_not_behavior(
+            *label_range)
+        self._disable_label_buttons()
+
+    def _clear_behavior_label(self):
+        self._disable_label_buttons()
 
     def _set_identities(self, identities):
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
 
     def _change_identity(self):
-        self.player_widget._set_active_identity(
+        self._player_widget._set_active_identity(
             self.identity_selection.currentIndex())
+
+    def _disable_label_buttons(self):
+        self.label_behavior_button.setEnabled(False)
+        self.label_not_behavior_button.setEnabled(False)
+        self.clear_label_button.setEnabled(False)
+        self.select_button.setChecked(False)

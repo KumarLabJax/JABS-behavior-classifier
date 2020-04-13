@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        main_window.player_widget.load_video(args.video_file)
+        main_window.load_video(args.video_file)
     except Exception as e:
         sys.exit(f"Error loading file:  {e}")
 
