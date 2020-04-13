@@ -97,6 +97,7 @@ class MainWindow(QtWidgets.QWidget):
         self.setLayout(layout)
 
     def load_video(self, path):
+        """ load new avi file """
         self._player_widget.load_video(path)
         self._labels = VideoLabels(path, self._player_widget.num_frames())
 
@@ -121,6 +122,13 @@ class MainWindow(QtWidgets.QWidget):
             f"Not {self.behavior_selection.currentText()}")
 
     def _start_selection(self, pressed):
+        """
+        handle click on "select button. If button was previously in "unchecked"
+        state, then grab the current frame to begin selecting a range. If the
+        button was in the checked state, clicking cancels the current selection.
+
+        While selection is in progress, the labeling buttons become active.
+        """
         if pressed:
             self.label_behavior_button.setEnabled(True)
             self.label_not_behavior_button.setEnabled(True)
@@ -132,34 +140,41 @@ class MainWindow(QtWidgets.QWidget):
             self.clear_label_button.setEnabled(False)
 
     def _label_behavior(self):
-        label_range = sorted(
-            (self._selection_start, self._player_widget.current_frame()))
-        identity = self.identity_selection.currentText()
-        behavior = self.behavior_selection.currentText()
-        self._labels.get_track_labels(identity, behavior).label_behavior(*label_range)
+        """ Apply behavior label to currently selected range of frames """
+        label_range = sorted([self._selection_start,
+                              self._player_widget.current_frame()])
+        self._labels.get_track_labels(
+            self.identity_selection.currentText(),
+            self.behavior_selection.currentText()
+        ).label_behavior(*label_range)
         self._disable_label_buttons()
 
     def _label_not_behavior(self):
-        label_range = sorted(
-            (self._selection_start, self._player_widget.current_frame()))
-        identity = self.identity_selection.currentText()
-        behavior = self.behavior_selection.currentText()
-        self._labels.get_track_labels(identity, behavior).label_not_behavior(
-            *label_range)
+        """ apply _not_ behavior label to currently selected range of frames """
+        label_range = sorted([self._selection_start,
+                              self._player_widget.current_frame()])
+        self._labels.get_track_labels(
+            self.identity_selection.currentText(),
+            self.behavior_selection.currentText()
+        ).label_not_behavior(*label_range)
         self._disable_label_buttons()
 
     def _clear_behavior_label(self):
+        """ clear all behavior/not behavior labels from current selection """
         self._disable_label_buttons()
 
     def _set_identities(self, identities):
+        """ populate the identity_selection combobox """
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
 
     def _change_identity(self):
+        """ handle changing value of identity_selection """
         self._player_widget._set_active_identity(
             self.identity_selection.currentIndex())
 
     def _disable_label_buttons(self):
+        """ disable labeling buttons that require a selected range of frames """
         self.label_behavior_button.setEnabled(False)
         self.label_not_behavior_button.setEnabled(False)
         self.clear_label_button.setEnabled(False)
