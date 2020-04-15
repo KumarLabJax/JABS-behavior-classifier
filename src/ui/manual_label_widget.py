@@ -57,19 +57,29 @@ class ManualLabelWidget(QWidget):
         TODO: this could could be broken up into a few logical steps
         """
         qp = QPainter(self)
+
+        # figure out some dimensions
+        # width of entire widget
         width = self.size().width()
+
+        # width of the bar that will be rawn
         bar_width = width - (2 * self._padding_left)
+
+        # size each frame takes up in the bar in pixels
         pixels_per_frame = bar_width / (self._window_size * 2 + 1)
 
+        # starting and ending frames of the current view
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
 
+        # slice size for grabbing label blocks
         slice_start = max(start, 0)
         slice_end = self._current_frame + self._window_size + 1
 
         label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
 
-        # draw padding if any
+        qp.setPen(Qt.NoPen)
+        # draw start padding if any
         start_padding_width = 0
         if start < 0:
             start_padding_width = abs(start) * pixels_per_frame
@@ -83,10 +93,11 @@ class ManualLabelWidget(QWidget):
         if self._num_frames and end >= self._num_frames:
             end_padding_frames = end - (self._num_frames - 1)
             end_padding_width = end_padding_frames * pixels_per_frame
-            qp.setPen(self._OUTLINE_COLOR)
             qp.setBrush(QBrush(self._BACKGROUND_COLOR, Qt.Dense6Pattern))
-            qp.drawRect(self._padding_left + (self._window_size * 2 + 1 - end_padding_frames) * pixels_per_frame,
-                        self._padding_top, end_padding_width, self._bar_height)
+            qp.drawRect(
+                self._padding_left + (self._window_size * 2 + 1 - end_padding_frames) * pixels_per_frame,
+                self._padding_top, end_padding_width, self._bar_height
+            )
 
         # draw background color (will be color for no label)
         qp.setBrush(self._BACKGROUND_COLOR)
@@ -96,7 +107,6 @@ class ManualLabelWidget(QWidget):
                     self._bar_height)
 
         # draw label blocks
-        qp.setPen(Qt.NoPen)
         for block in label_blocks:
             if block['present']:
                 qp.setBrush(self._BEHAVIOR_COLOR)
