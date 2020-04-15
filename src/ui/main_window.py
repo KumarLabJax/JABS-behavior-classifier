@@ -202,11 +202,9 @@ class MainWindow(QtWidgets.QWidget):
         self.manual_labels.set_current_frame(new_frame)
 
     def _set_label_track(self):
-        label_name = self.behavior_selection.currentText()
-        identity_index = self.identity_selection.currentIndex()
+        behavior = self.behavior_selection.currentText()
+        identity = self.identity_selection.currentText()
 
-        if identity_index >= 0 and label_name != '' and self._labels is not None :
+        if identity != '' and behavior != '' and self._labels is not None:
             self.manual_labels.set_labels(
-                self._labels.get_track_labels(
-                    self.identity_selection.currentText(),
-                    self.behavior_selection.currentText()))
+                self._labels.get_track_labels(identity, behavior))
