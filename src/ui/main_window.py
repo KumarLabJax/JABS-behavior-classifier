@@ -1,6 +1,6 @@
 from PyQt5 import QtWidgets
 
-from src.ui import PlayerWidget
+from src.ui import PlayerWidget, ManualLabelWidget
 from src.labeler import VideoLabels
 
 
@@ -21,6 +21,7 @@ class MainWindow(QtWidgets.QWidget):
         # video player
         self._player_widget = PlayerWidget()
         self._player_widget.updateIdentities.connect(self._set_identities)
+        self._player_widget.updateFrameNumber.connect(self._frame_change)
 
         self._tracks = None
         self._labels = None
@@ -89,10 +90,14 @@ class MainWindow(QtWidgets.QWidget):
         control_layout.addWidget(label_group)
         control_layout.addStretch()
 
+        # label widgets
+        self.manual_labels = ManualLabelWidget()
+
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addLayout(control_layout, 0, 1)
+        layout.addWidget(self.manual_labels, 1, 0, 1, 2)
 
         self.setLayout(layout)
 
@@ -100,6 +105,8 @@ class MainWindow(QtWidgets.QWidget):
         """ load new avi file """
         self._player_widget.load_video(path)
         self._labels = VideoLabels(path, self._player_widget.num_frames())
+        self._set_label_track()
+        self.manual_labels._num_frames = self._player_widget.num_frames()
 
     def new_label(self):
         """
@@ -120,6 +127,7 @@ class MainWindow(QtWidgets.QWidget):
             self.behavior_selection.currentText())
         self.label_not_behavior_button.setText(
             f"Not {self.behavior_selection.currentText()}")
+        self._set_label_track()
 
     def _start_selection(self, pressed):
         """
@@ -148,6 +156,7 @@ class MainWindow(QtWidgets.QWidget):
             self.behavior_selection.currentText()
         ).label_behavior(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.update()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -158,10 +167,18 @@ class MainWindow(QtWidgets.QWidget):
             self.behavior_selection.currentText()
         ).label_not_behavior(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.update()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
+        label_range = sorted([self._selection_start,
+                              self._player_widget.current_frame()])
+        self._labels.get_track_labels(
+            self.identity_selection.currentText(),
+            self.behavior_selection.currentText()
+        ).clear_labels(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.update()
 
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
@@ -172,6 +189,7 @@ class MainWindow(QtWidgets.QWidget):
         """ handle changing value of identity_selection """
         self._player_widget._set_active_identity(
             self.identity_selection.currentIndex())
+        self._set_label_track()
 
     def _disable_label_buttons(self):
         """ disable labeling buttons that require a selected range of frames """
@@ -179,3 +197,16 @@ class MainWindow(QtWidgets.QWidget):
         self.label_not_behavior_button.setEnabled(False)
         self.clear_label_button.setEnabled(False)
         self.select_button.setChecked(False)
+
+    def _frame_change(self, new_frame):
+        self.manual_labels.set_current_frame(new_frame)
+
+    def _set_label_track(self):
+        label_name = self.behavior_selection.currentText()
+        identity_index = self.identity_selection.currentIndex()
+
+        if identity_index >= 0 and label_name != '' and self._labels is not None :
+            self.manual_labels.set_labels(
+                self._labels.get_track_labels(
+                    self.identity_selection.currentText(),
+                    self.behavior_selection.currentText()))
