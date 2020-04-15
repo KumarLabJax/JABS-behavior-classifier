@@ -113,14 +113,18 @@ class ManualLabelWidget(QWidget):
         # highlight current selection
         if self._selection_start is not None:
             qp.setPen(Qt.NoPen)
-            qp.setBrush(QBrush(self._POSITION_MARKER_COLOR, Qt.DiagCrossPattern))
+            qp.setBrush(QBrush(self._POSITION_MARKER_COLOR,
+                               Qt.DiagCrossPattern))
             if self._selection_start < self._current_frame:
                 selection_start = max(self._selection_start - start, 0)
-                selection_width = (self._current_frame - max(start,
-                                                             self._selection_start) + 1) * pixels_per_frame
+                selection_width = (
+                    self._current_frame - max(start, self._selection_start) + 1
+                ) * pixels_per_frame
             elif self._selection_start > self._current_frame:
                 selection_start = self._current_frame - start
-                selection_width = (min(end, self._selection_start) - self._current_frame + 1) * pixels_per_frame
+                selection_width = (
+                    min(end, self._selection_start) - self._current_frame + 1
+                ) * pixels_per_frame
 
             else:
                 selection_start = self._current_frame - start
@@ -131,17 +135,18 @@ class ManualLabelWidget(QWidget):
                         selection_width,
                         self._bar_height)
 
+        # draw current position indicator
+        pen = QPen(self._POSITION_MARKER_COLOR, 2, Qt.SolidLine)
+        qp.setPen(pen)
+        position_offset = width // 2
+        qp.drawLine(position_offset, self._padding_top + 1, position_offset,
+                    self._padding_top + 49)
+
         # draw bounding box
         qp.setPen(self._OUTLINE_COLOR)
         qp.setBrush(Qt.NoBrush)
         qp.drawRect(self._padding_left, self._padding_top, bar_width,
                     self._bar_height)
-
-        # draw current position indicator
-        pen = QPen(self._POSITION_MARKER_COLOR, 2, Qt.SolidLine)
-        qp.setPen(pen)
-        qp.drawLine(width // 2, self._padding_top + 2, width // 2,
-                    self._padding_top + 49)
 
     def set_labels(self, labels):
         """ load label track to display """
@@ -154,8 +159,12 @@ class ManualLabelWidget(QWidget):
         self.update()
 
     def start_selection(self, start_frame):
+        """
+        start highlighting selection from start_frame to self._current_frame
+        """
         self._selection_start = start_frame
 
     def clear_selection(self):
+        """ stop highlighting selection """
         self._selection_start = None
 
