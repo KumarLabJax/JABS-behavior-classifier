@@ -1,8 +1,8 @@
 import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from video_stream import VideoStream, label_identity
-from pose_estimation import PoseEstimationV3
+from src.video_stream import VideoStream, label_identity
+from src.pose_estimation import PoseEstimationV3
 
 
 class _PlayerThread(QtCore.QThread):
@@ -275,6 +275,16 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread:
             self._player_thread.terminate()
 
+    def current_frame(self):
+        """ return the current frame """
+        assert self._video_stream is not None
+        return self._position_slider.value()
+
+    def num_frames(self):
+        """ get total number of frames in the loaded video  """
+        assert self._video_stream is not None
+        return self._video_stream.num_frames
+
     def load_video(self, path):
         """
         load a new video source
@@ -436,6 +446,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._update_frame(frame)
 
     def _set_active_identity(self, identity):
+        """ set an active identity, which will be labeled in the video """
         self._active_identity = identity
         if self._player_thread:
             self._player_thread.set_identity(identity)
