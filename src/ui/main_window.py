@@ -131,7 +131,7 @@ class MainWindow(QtWidgets.QWidget):
 
     def _start_selection(self, pressed):
         """
-        handle click on "select button. If button was previously in "unchecked"
+        handle click on "select" button. If button was previously in "unchecked"
         state, then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
