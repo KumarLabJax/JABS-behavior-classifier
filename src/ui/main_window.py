@@ -60,10 +60,36 @@ class MainWindow(QtWidgets.QWidget):
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
         self.label_behavior_button.clicked.connect(self._label_behavior)
+        self.label_behavior_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgb(128, 0, 0);
+                border-radius: 4px;
+                padding: 2px;
+            }
+            QPushButton:pressed {
+                background-color: rgb(255, 0, 0);
+            }
+            QPushButton:disabled {
+                background-color: rgb(64, 0, 0);
+            }
+        """)
 
         self.label_not_behavior_button = QtWidgets.QPushButton(
             f"Not {self.behavior_selection.currentText()}")
         self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
+        self.label_not_behavior_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgb(0, 0, 128);
+                border-radius: 4px;
+                padding: 2px;
+            }
+            QPushButton:pressed {
+                background-color: rgb(0, 0, 255);
+            }
+            QPushButton:disabled {
+                background-color: rgb(0, 0, 64);
+            }
+        """)
 
         self.clear_label_button = QtWidgets.QPushButton("Clear Label")
         self.clear_label_button.clicked.connect(self._clear_behavior_label)
