@@ -56,8 +56,6 @@ class ManualLabelWidget(QWidget):
         This draws the widget.
         TODO: this could could be broken up into a few logical steps
         """
-        qp = QPainter(self)
-
         # figure out some dimensions
         # width of entire widget
         width = self.size().width()
@@ -78,7 +76,9 @@ class ManualLabelWidget(QWidget):
 
         label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
 
+        qp = QPainter(self)
         qp.setPen(Qt.NoPen)
+
         # draw start padding if any
         start_padding_width = 0
         if start < 0:
