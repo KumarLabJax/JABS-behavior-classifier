@@ -65,12 +65,14 @@ class MainWindow(QtWidgets.QWidget):
                 background-color: rgb(128, 0, 0);
                 border-radius: 4px;
                 padding: 2px;
+                color: white;
             }
             QPushButton:pressed {
                 background-color: rgb(255, 0, 0);
             }
             QPushButton:disabled {
                 background-color: rgb(64, 0, 0);
+                color: grey;
             }
         """)
 
@@ -82,12 +84,14 @@ class MainWindow(QtWidgets.QWidget):
                 background-color: rgb(0, 0, 128);
                 border-radius: 4px;
                 padding: 2px;
+                color: white;
             }
             QPushButton:pressed {
                 background-color: rgb(0, 0, 255);
             }
             QPushButton:disabled {
                 background-color: rgb(0, 0, 64);
+                color: grey;
             }
         """)
 
