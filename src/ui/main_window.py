@@ -87,8 +87,8 @@ class MainWindow(QtWidgets.QWidget):
         control_layout.setSpacing(25)
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
-        control_layout.addWidget(label_group)
         control_layout.addStretch()
+        control_layout.addWidget(label_group)
 
         # label widgets
         self.manual_labels = ManualLabelWidget()
@@ -142,10 +142,13 @@ class MainWindow(QtWidgets.QWidget):
             self.label_not_behavior_button.setEnabled(True)
             self.clear_label_button.setEnabled(True)
             self._selection_start = self._player_widget.current_frame()
+            self.manual_labels.start_selection(self._selection_start)
         else:
             self.label_behavior_button.setEnabled(False)
             self.label_not_behavior_button.setEnabled(False)
             self.clear_label_button.setEnabled(False)
+            self.manual_labels.clear_selection()
+        self.manual_labels.update()
 
     def _label_behavior(self):
         """ Apply behavior label to currently selected range of frames """
@@ -153,6 +156,7 @@ class MainWindow(QtWidgets.QWidget):
                               self._player_widget.current_frame()])
         self._get_label_track().label_behavior(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.clear_selection()
         self.manual_labels.update()
 
     def _label_not_behavior(self):
@@ -161,6 +165,7 @@ class MainWindow(QtWidgets.QWidget):
                               self._player_widget.current_frame()])
         self._get_label_track().label_not_behavior(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.clear_selection()
         self.manual_labels.update()
 
     def _clear_behavior_label(self):
@@ -169,6 +174,7 @@ class MainWindow(QtWidgets.QWidget):
                               self._player_widget.current_frame()])
         self._get_label_track().clear_labels(*label_range)
         self._disable_label_buttons()
+        self.manual_labels.clear_selection()
         self.manual_labels.update()
 
     def _set_identities(self, identities):
