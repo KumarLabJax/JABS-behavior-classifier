@@ -151,10 +151,7 @@ class MainWindow(QtWidgets.QWidget):
         """ Apply behavior label to currently selected range of frames """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._labels.get_track_labels(
-            self.identity_selection.currentText(),
-            self.behavior_selection.currentText()
-        ).label_behavior(*label_range)
+        self._get_track_labels().label_behavior(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -162,10 +159,7 @@ class MainWindow(QtWidgets.QWidget):
         """ apply _not_ behavior label to currently selected range of frames """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._labels.get_track_labels(
-            self.identity_selection.currentText(),
-            self.behavior_selection.currentText()
-        ).label_not_behavior(*label_range)
+        self._get_track_labels().label_not_behavior(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -173,10 +167,7 @@ class MainWindow(QtWidgets.QWidget):
         """ clear all behavior/not behavior labels from current selection """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._labels.get_track_labels(
-            self.identity_selection.currentText(),
-            self.behavior_selection.currentText()
-        ).clear_labels(*label_range)
+        self._get_track_labels().clear_labels(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -199,12 +190,25 @@ class MainWindow(QtWidgets.QWidget):
         self.select_button.setChecked(False)
 
     def _frame_change(self, new_frame):
+        """
+        called when the video player widget emits its updateFrameNumber signal
+        """
         self.manual_labels.set_current_frame(new_frame)
 
     def _set_label_track(self):
+        """
+        loads new set of labels in self.manual_labels when the selected
+        behavior or identity is changed
+        """
         behavior = self.behavior_selection.currentText()
         identity = self.identity_selection.currentText()
 
         if identity != '' and behavior != '' and self._labels is not None:
             self.manual_labels.set_labels(
                 self._labels.get_track_labels(identity, behavior))
+
+    def _get_track_labels(self):
+        return self._labels.get_track_labels(
+            self.identity_selection.currentText(),
+            self.behavior_selection.currentText()
+        )
