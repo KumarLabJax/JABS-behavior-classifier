@@ -32,10 +32,10 @@ class MainWindow(QtWidgets.QWidget):
         self.behavior_selection = QtWidgets.QComboBox()
         self.behavior_selection.addItems(self._behaviors)
         self.behavior_selection.currentIndexChanged.connect(
-            self.change_behavior)
+            self._change_behavior)
 
         add_label_button = QtWidgets.QPushButton("New Behavior")
-        add_label_button.clicked.connect(self.new_label)
+        add_label_button.clicked.connect(self._new_label)
 
         behavior_layout = QtWidgets.QVBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
@@ -108,7 +108,7 @@ class MainWindow(QtWidgets.QWidget):
         self._set_label_track()
         self.manual_labels._num_frames = self._player_widget.num_frames()
 
-    def new_label(self):
+    def _new_label(self):
         """
         callback for the "new behavior" button
         opens a modal dialog to allow the user to enter a new behavior label
@@ -119,7 +119,7 @@ class MainWindow(QtWidgets.QWidget):
             self._behaviors.append(text)
             self.behavior_selection.addItem(text)
 
-    def change_behavior(self):
+    def _change_behavior(self):
         """
         make UI changes to reflect the currently selected behavior
         """
@@ -151,7 +151,7 @@ class MainWindow(QtWidgets.QWidget):
         """ Apply behavior label to currently selected range of frames """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._get_track_labels().label_behavior(*label_range)
+        self._get_label_track().label_behavior(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -159,7 +159,7 @@ class MainWindow(QtWidgets.QWidget):
         """ apply _not_ behavior label to currently selected range of frames """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._get_track_labels().label_not_behavior(*label_range)
+        self._get_label_track().label_not_behavior(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -167,7 +167,7 @@ class MainWindow(QtWidgets.QWidget):
         """ clear all behavior/not behavior labels from current selection """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
-        self._get_track_labels().clear_labels(*label_range)
+        self._get_label_track().clear_labels(*label_range)
         self._disable_label_buttons()
         self.manual_labels.update()
 
@@ -207,7 +207,11 @@ class MainWindow(QtWidgets.QWidget):
             self.manual_labels.set_labels(
                 self._labels.get_track_labels(identity, behavior))
 
-    def _get_track_labels(self):
+    def _get_label_track(self):
+        """
+        get the current label track for the currently selected identity and
+        behavior
+        """
         return self._labels.get_track_labels(
             self.identity_selection.currentText(),
             self.behavior_selection.currentText()

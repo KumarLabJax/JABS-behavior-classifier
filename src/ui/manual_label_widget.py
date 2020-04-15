@@ -52,28 +52,29 @@ class ManualLabelWidget(QWidget):
         label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
 
         # draw padding if any
-        start_padding_frames = 0
+        start_padding_width = 0
         if start < 0:
-            start_padding_frames = abs(start)
+            start_padding_width = abs(start) * pixels_per_frame
             qp.setBrush(QBrush(QColor(128, 128, 128), Qt.DiagCrossPattern))
             qp.drawRect(self._padding_left, self._padding_top,
-                        start_padding_frames * pixels_per_frame,
+                        start_padding_width,
                         self._bar_height)
 
         # draw end padding if any
         end_padding_frames = 0
         if self._num_frames and end >= self._num_frames:
             end_padding_frames = end - (self._num_frames - 1)
+            end_padding_width = end_padding_frames * pixels_per_frame
             qp.setPen(QColor(212, 212, 212))
             qp.setBrush(QBrush(QColor(128, 128, 128), Qt.DiagCrossPattern))
             qp.drawRect(self._padding_left + (self._window_size * 2 + 1 - end_padding_frames) * pixels_per_frame,
-                        self._padding_top, end_padding_frames * pixels_per_frame,
-                            self._bar_height)
+                        self._padding_top, end_padding_width, self._bar_height)
 
         # draw background color (will be color for no label)
         qp.setBrush(QColor(128, 128, 128))
-        qp.drawRect(self._padding_left + start_padding_frames * pixels_per_frame,
-                    self._padding_top, bar_width - (start_padding_frames * pixels_per_frame) - (end_padding_frames * pixels_per_frame),
+        qp.drawRect(self._padding_left + start_padding_width,
+                    self._padding_top,
+                    bar_width - start_padding_width - (end_padding_frames * pixels_per_frame),
                     self._bar_height)
 
         # draw label blocks
@@ -84,13 +85,11 @@ class ManualLabelWidget(QWidget):
             else:
                 qp.setBrush(QColor(0, 0, 128))
 
-            block_width = block['end'] - block['start'] + 1
-            offset_x = self._padding_left + \
-                (block['start'] + start_padding_frames) * pixels_per_frame
+            block_width = (block['end'] - block['start'] + 1) * pixels_per_frame
+            offset_x = self._padding_left + start_padding_width + block[
+                'start'] * pixels_per_frame
 
-            qp.drawRect(offset_x,
-                        self._padding_top,
-                        block_width * pixels_per_frame,
+            qp.drawRect(offset_x, self._padding_top, block_width,
                         self._bar_height)
 
         # draw bounding box
