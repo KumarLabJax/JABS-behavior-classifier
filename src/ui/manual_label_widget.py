@@ -115,17 +115,20 @@ class ManualLabelWidget(QWidget):
             qp.setBrush(QBrush(self._POSITION_MARKER_COLOR,
                                Qt.DiagCrossPattern))
             if self._selection_start < self._current_frame:
+                # other end of selection is left of the current frame
                 selection_start = max(self._selection_start - start, 0)
                 selection_width = (
                     self._current_frame - max(start, self._selection_start) + 1
                 ) * pixels_per_frame
             elif self._selection_start > self._current_frame:
+                # other end of selection is to the right of the current frame
                 selection_start = self._current_frame - start
                 selection_width = (
                     min(end, self._selection_start) - self._current_frame + 1
                 ) * pixels_per_frame
 
             else:
+                # only the current frame is selected
                 selection_start = self._current_frame - start
                 selection_width = pixels_per_frame
 
