@@ -33,9 +33,17 @@ class TrackLabels:
         return self._labels[frame_index]
 
     def get_blocks(self):
+        """
+        get blocks for entire label array
+        see _array_to_blocks() for return type
+        """
         return self._array_to_blocks(self._labels)
 
     def get_slice_blocks(self, start, end):
+        """
+        get label blocks for a slice of frames
+        block start and end frame numbers will be relative to the slice start
+        """
         return self._array_to_blocks(self._labels[start:end+1])
 
     @classmethod
