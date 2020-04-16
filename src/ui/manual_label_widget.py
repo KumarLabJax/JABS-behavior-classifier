@@ -11,7 +11,8 @@ class ManualLabelWidget(QWidget):
     """
 
     _OUTLINE_COLOR = QColor(212, 212, 212)
-    _POSITION_MARKER_COLOR = QColor(255, 255, 0)
+    _SELECTION_COLOR = QColor(255, 255, 0)
+    _POSITION_MARKER_COLOR = QColor(255, 165, 0)
     _BACKGROUND_COLOR = QColor(128, 128, 128)
     _BEHAVIOR_COLOR = QColor(128, 0, 0)
     _NOT_BEHAVIOR_COLOR = QColor(0, 0, 128)
@@ -112,7 +113,7 @@ class ManualLabelWidget(QWidget):
         # highlight current selection
         if self._selection_start is not None:
             qp.setPen(Qt.NoPen)
-            qp.setBrush(QBrush(self._POSITION_MARKER_COLOR,
+            qp.setBrush(QBrush(self._SELECTION_COLOR,
                                Qt.DiagCrossPattern))
             if self._selection_start < self._current_frame:
                 # other end of selection is left of the current frame
