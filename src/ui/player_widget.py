@@ -245,7 +245,8 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # position slider
         self._position_slider = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
-        self._position_slider.sliderMoved.connect(self._position_slider_moved)
+        self._position_slider.sliderMoved.connect(self._position_slider_moved,
+                                                  QtCore.Qt.QueuedConnection)
         self._position_slider.sliderPressed.connect(
             self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(
