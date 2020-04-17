@@ -70,6 +70,20 @@ class TestTrackLabels(unittest.TestCase):
         for exported, expected in zip(labels.get_blocks(), expected_blocks):
             self.assertDictEqual(exported, expected)
 
+    def test_export_behavior_block_slice(self):
+        """ test exporting to list of label block dicts """
+        labels = TrackLabels(1000)
+        labels.label_behavior(0, 100)
+        labels.label_behavior(250, 500)
+
+        expected_blocks = [
+            {'start': 0, 'end': 25, 'present': True}
+        ]
+
+        for exported, expected in zip(labels.get_slice_blocks(0, 25), expected_blocks):
+            self.assertDictEqual(exported, expected)
+
+
     def test_labeling_single_frame(self):
         """ test labeling a single frame """
         labels = TrackLabels(100)
