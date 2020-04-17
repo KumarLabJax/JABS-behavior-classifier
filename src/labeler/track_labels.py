@@ -50,6 +50,10 @@ class TrackLabels:
     def load(cls, num_frames, blocks):
         """
         return a TrackLabels object initialized with data from a list of blocks
+        :param num_frames total number of frames in the video
+        :param blocks - blocks to use to initialize frame label array. see
+        _array_to_blocks() for format
+        :return initialized TrackLabels object
         """
         labels = cls(num_frames)
         for block in blocks:
@@ -64,18 +68,20 @@ class TrackLabels:
         """
             return label blocks as something that can easily be exported as json
             for saving to disk
+            :param array numpy label array to encode as blocks. Each element
+            should be one of TrackLabels.Label enum values.
             :return:  list of blocks of frames that have been labeled as having
-            the behavior or not having the behavior. Each block has the following
-            representation:
+            the behavior or not having the behavior. Each block has the
+            following representation:
             {
                 'start': block_start_frame,
                 'end': block_end_frame,
                 'present': boolean
             }
             where 'present' is True if the block has been labeled as showing the
-            behavior and False if it has been labeled as not showing the behavior.
-            Unlabeled frames are not included, so the total number of frames is
-            also required to reconstruct the labels array.
+            behavior and False if it has been labeled as not showing the
+            behavior. Unlabeled frames are not included, so the total number of
+            frames is also required to reconstruct the labels array.
         """
 
         block_start = 0
