@@ -114,6 +114,17 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(ds[0], TrackLabels.Label.MIX)
         self.assertEqual(ds[1], TrackLabels.Label.NONE)
 
+    def test_downsample_non_divisible(self):
+        """
+        test that we can downsample to a size that doesn't evenly divide
+        the label array
+        """
+
+        labels = TrackLabels(100)
+        ds = labels.downsample(33)
+
+        self.assertEqual(len(ds), 33)
+
 
     def test_export_behavior_blocks(self):
         """ test exporting to list of label block dicts """
