@@ -1,6 +1,6 @@
 from PyQt5 import QtWidgets
 
-from src.ui import PlayerWidget, ManualLabelWidget
+from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
 from src.labeler import VideoLabels
 
 
@@ -9,8 +9,8 @@ class MainWindow(QtWidgets.QWidget):
     QT Widget implementing our main window
     """
 
-    def __init__(self, parent=None):
-        super(MainWindow, self).__init__(parent)
+    def __init__(self, parent=None, *args, **kwargs):
+        super(MainWindow, self).__init__(parent, *args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
         self._behaviors = [
@@ -123,11 +123,15 @@ class MainWindow(QtWidgets.QWidget):
         # label widgets
         self.manual_labels = ManualLabelWidget()
 
+        # timeline widget
+        self.timeline_widget = TimelineLabelWidget()
+
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addLayout(control_layout, 0, 1)
-        layout.addWidget(self.manual_labels, 1, 0, 1, 2)
+        layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
+        layout.addWidget(self.manual_labels, 2, 0, 1, 2)
 
         self.setLayout(layout)
 
@@ -136,7 +140,8 @@ class MainWindow(QtWidgets.QWidget):
         self._player_widget.load_video(path)
         self._labels = VideoLabels(path, self._player_widget.num_frames())
         self._set_label_track()
-        self.manual_labels._num_frames = self._player_widget.num_frames()
+        self.manual_labels.set_num_frames(self._player_widget.num_frames())
+        self.timeline_widget.set_num_frames(self._player_widget.num_frames())
 
     def _new_label(self):
         """
@@ -188,6 +193,7 @@ class MainWindow(QtWidgets.QWidget):
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
+        self.timeline_widget.update()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -197,6 +203,7 @@ class MainWindow(QtWidgets.QWidget):
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
+        self.timeline_widget.update()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
@@ -230,6 +237,7 @@ class MainWindow(QtWidgets.QWidget):
         called when the video player widget emits its updateFrameNumber signal
         """
         self.manual_labels.set_current_frame(new_frame)
+        self.timeline_widget.set_current_frame(new_frame)
 
     def _set_label_track(self):
         """
@@ -240,8 +248,9 @@ class MainWindow(QtWidgets.QWidget):
         identity = self.identity_selection.currentText()
 
         if identity != '' and behavior != '' and self._labels is not None:
-            self.manual_labels.set_labels(
-                self._labels.get_track_labels(identity, behavior))
+            labels = self._labels.get_track_labels(identity, behavior)
+            self.manual_labels.set_labels(labels)
+            self.timeline_widget.set_labels(labels)
 
     def _get_label_track(self):
         """

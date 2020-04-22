@@ -1,8 +1,9 @@
-import sys
+from PyQt5.QtWidgets import QWidget, QSizePolicy
+from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt5.QtCore import QSize, Qt
 
-from PyQt5.QtWidgets import QWidget, QApplication, QSizePolicy
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPalette
-from PyQt5.QtCore import QSize, Qt, QPoint
+from .utilities import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
+                        POSITION_MARKER_COLOR)
 
 
 class ManualLabelWidget(QWidget):
@@ -12,13 +13,13 @@ class ManualLabelWidget(QWidget):
 
     _OUTLINE_COLOR = QColor(212, 212, 212)
     _SELECTION_COLOR = QColor(255, 255, 0)
-    _POSITION_MARKER_COLOR = QColor(255, 165, 0)
-    _BACKGROUND_COLOR = QColor(128, 128, 128)
-    _BEHAVIOR_COLOR = QColor(128, 0, 0)
-    _NOT_BEHAVIOR_COLOR = QColor(0, 0, 128)
+    _POSITION_MARKER_COLOR = QColor(*POSITION_MARKER_COLOR)
+    _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
+    _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
+    _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
-    def __init__(self):
-        super(ManualLabelWidget, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(ManualLabelWidget, self).__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -157,6 +158,9 @@ class ManualLabelWidget(QWidget):
         self._current_frame = current_frame
         # force redraw
         self.update()
+
+    def set_num_frames(self, num_frames):
+        self._num_frames = num_frames
 
     def start_selection(self, start_frame):
         """

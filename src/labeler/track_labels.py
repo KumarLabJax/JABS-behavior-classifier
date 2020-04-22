@@ -1,4 +1,5 @@
 import enum
+import math
 from itertools import groupby
 import numpy as np
 
@@ -45,6 +46,44 @@ class TrackLabels:
         block start and end frame numbers will be relative to the slice start
         """
         return self._array_to_blocks(self._labels[start:end+1])
+
+    def downsample(self, size):
+        """
+        Downsample the label array for a "zoomed out" view. We use a special
+        downsampling algorithm. Each element in the downsampled array is
+        assigned one of the following values:
+            0: all elements in the bin have the value of 0 (Label.NONE)
+            1: all elements are either zero or 1 (Label.BEHAVIOR)
+            2: all elements are either zero or 2 (Label.NOT_BEHAVIOR)
+            3: bin contains 1 and 2
+        :param size: size of the resulting downsampled label array
+        :return: numpy array of size 'size' with downsampled values
+        """
+        # we may need to padd the label array if it is not evenly divisible by
+        # the new size
+        pad_size = math.ceil(
+            float(self._labels.size) / size) * size - self._labels.size
+        padded = np.append(self._labels, np.full(pad_size, self._labels[-1:]))
+
+        # find the scaling factor to go from the padded size to new size
+        bin_size = padded.size // size
+
+        binned = padded.reshape(-1, bin_size)
+
+        downsampled = np.empty(size, dtype=np.uint8)
+
+        # return downsampled array with length 'size'
+        for i in range(size):
+            counts = np.bincount(binned[i], minlength=3)
+            if counts[0] == bin_size:
+                downsampled[i] = 0
+            elif counts[1] != 0 and counts[2] == 0:
+                downsampled[i] = 1
+            elif counts[1] == 0 and counts[2] != 0:
+                downsampled[i] = 2
+            else:
+                downsampled[i] = 3
+        return downsampled
 
     @classmethod
     def load(cls, num_frames, blocks):

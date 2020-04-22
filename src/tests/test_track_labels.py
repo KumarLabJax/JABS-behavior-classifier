@@ -52,6 +52,19 @@ class TestTrackLabels(unittest.TestCase):
             self.assertEqual(labels.get_frame_label(i),
                              labels.Label.NONE)
 
+    def test_downsample(self):
+        """ testing downsampling of label array """
+        labels = TrackLabels(75)
+
+        labels.label_behavior(25, 49)
+        labels.label_not_behavior(50, 74)
+
+        ds = labels.downsample(3)
+        self.assertEqual(ds[0], 0)
+        self.assertEqual(ds[1], 1)
+        self.assertEqual(ds[2], 2)
+        self.assertEqual(len(ds), 3)
+
     def test_export_behavior_blocks(self):
         """ test exporting to list of label block dicts """
         labels = TrackLabels(1000)
@@ -82,7 +95,6 @@ class TestTrackLabels(unittest.TestCase):
 
         for exported, expected in zip(labels.get_slice_blocks(0, 25), expected_blocks):
             self.assertDictEqual(exported, expected)
-
 
     def test_labeling_single_frame(self):
         """ test labeling a single frame """
