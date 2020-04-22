@@ -13,7 +13,7 @@ class TrackLabels:
         NONE = 0
         BEHAVIOR = 1
         NOT_BEHAVIOR = 2
-        MIX = 3  # only used in downsampling, has special meaning
+        MIX = 3  # only used in downsampling label array, has special meaning
 
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)
@@ -79,13 +79,13 @@ class TrackLabels:
         for i in range(size):
             counts = np.bincount(binned[i], minlength=3)
             if counts[0] == bin_size:
-                downsampled[i] = 0
+                downsampled[i] = self.Label.NONE
             elif counts[1] != 0 and counts[2] == 0:
-                downsampled[i] = 1
+                downsampled[i] = self.Label.BEHAVIOR
             elif counts[1] == 0 and counts[2] != 0:
-                downsampled[i] = 2
+                downsampled[i] = self.Label.NOT_BEHAVIOR
             else:
-                downsampled[i] = 3
+                downsampled[i] = self.Label.MIX
 
         return downsampled
 
