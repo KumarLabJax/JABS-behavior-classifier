@@ -59,7 +59,7 @@ class TrackLabels:
         :param size: size of the resulting downsampled label array
         :return: numpy array of size 'size' with downsampled values
         """
-        # we may need to padd the label array if it is not evenly divisible by
+        # we may need to pad the label array if it is not evenly divisible by
         # the new size
         pad_size = math.ceil(
             float(self._labels.size) / size) * size - self._labels.size
