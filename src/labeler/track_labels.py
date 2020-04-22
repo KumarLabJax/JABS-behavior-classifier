@@ -13,6 +13,7 @@ class TrackLabels:
         NONE = 0
         BEHAVIOR = 1
         NOT_BEHAVIOR = 2
+        MIX = 3  # only used in downsampling, has special meaning
 
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)

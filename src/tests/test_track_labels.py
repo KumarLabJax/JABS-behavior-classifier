@@ -52,18 +52,68 @@ class TestTrackLabels(unittest.TestCase):
             self.assertEqual(labels.get_frame_label(i),
                              labels.Label.NONE)
 
-    def test_downsample(self):
+    def test_downsample_basic(self):
         """ testing downsampling of label array """
-        labels = TrackLabels(75)
 
+        # downsample into an array of length 3
+        # will result in three bins of uniform value
+        # 0-24 will be unlabeled
+        # 25-49 labeled with behavior
+        # 50-74 labeled not behavior
+        labels = TrackLabels(75)
         labels.label_behavior(25, 49)
         labels.label_not_behavior(50, 74)
 
+        # downsample into an array of length 3
         ds = labels.downsample(3)
-        self.assertEqual(ds[0], 0)
-        self.assertEqual(ds[1], 1)
-        self.assertEqual(ds[2], 2)
+
+        # confirm length
         self.assertEqual(len(ds), 3)
+
+        # we should end up with tree bins, each with a different value
+        self.assertEqual(ds[0], TrackLabels.Label.NONE)
+        self.assertEqual(ds[1], TrackLabels.Label.BEHAVIOR)
+        self.assertEqual(ds[2], TrackLabels.Label.NOT_BEHAVIOR)
+
+    def test_downsample_mixed_1(self):
+        """
+        test that a bin containin gmix of Label.NONE and Label.BEHAVIOR results
+        in a value of Label.BEHAVIOR in downsampled array
+        """
+
+        labels = TrackLabels(10)
+
+        # label position 0, 1, 2
+        labels.label_behavior(0, 2)
+
+        # downsample into an array of length two
+        # ds[0] will be computed from [1, 1, 1, 0, 0]
+        # ds[1] will be computed from [0, 0, 0, 0, 0]
+        ds = labels.downsample(2)
+
+        self.assertEqual(ds[0], TrackLabels.Label.BEHAVIOR)
+        self.assertEqual(ds[1], TrackLabels.Label.NONE)
+
+    def test_downsample_mixed_2(self):
+        """
+        test that a bin containing mix of Label.BEHAVIOR and Label.NOT_BEHAVIOR
+        results in a special value (Label.MIX)
+        """
+
+        labels = TrackLabels(10)
+
+        # label position 0, 1,
+        labels.label_behavior(0, 1)
+        labels.label_not_behavior(2, 3)
+
+        # downsample into an array of length two
+        # ds[0] will be computed from [1, 1, 2, 2, 0]
+        # ds[1] will be computed from [0, 0, 0, 0, 0]
+        ds = labels.downsample(2)
+
+        self.assertEqual(ds[0], TrackLabels.Label.MIX)
+        self.assertEqual(ds[1], TrackLabels.Label.NONE)
+
 
     def test_export_behavior_blocks(self):
         """ test exporting to list of label block dicts """
