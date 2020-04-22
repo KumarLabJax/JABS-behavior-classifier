@@ -4,13 +4,13 @@ from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
 from src.labeler import VideoLabels
 
 
-class MainWindow(QtWidgets.QWidget):
+class CentralWidget(QtWidgets.QWidget):
     """
-    QT Widget implementing our main window
+    QT Widget implementing our main window contents
     """
 
-    def __init__(self, parent=None, *args, **kwargs):
-        super(MainWindow, self).__init__(parent, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super(CentralWidget, self).__init__(*args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
         self._behaviors = [
