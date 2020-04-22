@@ -63,16 +63,18 @@ class TrackLabels:
         # the new size
         pad_size = math.ceil(
             float(self._labels.size) / size) * size - self._labels.size
+
+        # create the padded array, repeating the last value for any padding
         padded = np.append(self._labels, np.full(pad_size, self._labels[-1:]))
 
-        # find the scaling factor to go from the padded size to new size
+        # split the padded array into 'size' bins each with 'bin_size' values
         bin_size = padded.size // size
-
         binned = padded.reshape(-1, bin_size)
 
+        # create output array
         downsampled = np.empty(size, dtype=np.uint8)
 
-        # return downsampled array with length 'size'
+        # fill output array
         for i in range(size):
             counts = np.bincount(binned[i], minlength=3)
             if counts[0] == bin_size:
@@ -83,6 +85,7 @@ class TrackLabels:
                 downsampled[i] = 2
             else:
                 downsampled[i] = 3
+
         return downsampled
 
     @classmethod
