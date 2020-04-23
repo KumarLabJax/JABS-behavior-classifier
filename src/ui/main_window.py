@@ -6,6 +6,10 @@ class MainWindow(QtWidgets.QMainWindow):
         super(MainWindow, self).__init__(*args, **kwargs)
 
     def keyPressEvent(self, event):
+        """
+        override keyPressEvent so we can pass some key press events on
+        to the centralWidget
+        """
         key = event.key()
 
         # pass along some of the key press events to the central widget
@@ -22,4 +26,5 @@ class MainWindow(QtWidgets.QMainWindow):
             self.centralWidget().keyPressEvent(event)
 
         else:
+            # anything else pass on to the super keyPressEvent
             super(MainWindow, self).keyPressEvent(event)

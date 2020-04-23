@@ -147,6 +147,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.timeline_widget.set_num_frames(self._player_widget.num_frames())
 
     def keyPressEvent(self, event):
+        """ handle key press events """
         key = event.key()
         if key == QtCore.Qt.Key_Left:
             self._player_widget.previous_frame()
