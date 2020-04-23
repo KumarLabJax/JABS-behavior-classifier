@@ -54,7 +54,6 @@ class TimelineLabelWidget(QWidget):
         self._current_frame = 0
         self._num_frames = 0
 
-
     def sizeHint(self):
         """
         Override QWidget.sizeHint to give an initial starting size.
@@ -113,6 +112,10 @@ class TimelineLabelWidget(QWidget):
         """ set the number of frames in the current video """
         self._num_frames = num_frames
         self._update_scale()
+
+    def update_labels(self):
+        self._update_bar()
+        self.update()
 
     def _update_bar(self):
         """
