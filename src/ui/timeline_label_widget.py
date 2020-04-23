@@ -54,7 +54,6 @@ class TimelineLabelWidget(QWidget):
         self._current_frame = 0
         self._num_frames = 0
 
-
     def sizeHint(self):
         """
         Override QWidget.sizeHint to give an initial starting size.
