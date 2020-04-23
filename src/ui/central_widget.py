@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore
 
 from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
 from src.labeler import VideoLabels
@@ -27,6 +27,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
 
         self._selection_start = 0
+
+        # options
+        self._frame_jump = 10
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -142,6 +145,29 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self.manual_labels.set_num_frames(self._player_widget.num_frames())
         self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key == QtCore.Qt.Key_Left:
+            self._player_widget.previous_frame()
+        elif key == QtCore.Qt.Key_Right:
+            self._player_widget.next_frame()
+        elif key == QtCore.Qt.Key_Up:
+            self._player_widget.previous_frame(self._frame_jump)
+        elif key == QtCore.Qt.Key_Down:
+            self._player_widget.next_frame(self._frame_jump)
+        elif key == QtCore.Qt.Key_Space:
+            self.select_button.toggle()
+            self._start_selection(self.select_button.isChecked())
+        elif key == QtCore.Qt.Key_Z:
+            if self.select_button.isChecked():
+                self._label_behavior()
+        elif key == QtCore.Qt.Key_X:
+            if self.select_button.isChecked():
+                self._clear_behavior_label()
+        elif key == QtCore.Qt.Key_C:
+            if self.select_button.isChecked():
+                self._label_not_behavior()
 
     def _new_label(self):
         """
