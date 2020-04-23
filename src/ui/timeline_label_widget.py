@@ -113,6 +113,10 @@ class TimelineLabelWidget(QWidget):
         self._num_frames = num_frames
         self._update_scale()
 
+    def update_labels(self):
+        self._update_bar()
+        self.update()
+
     def _update_bar(self):
         """
         Updates the bar pixmap. Downsamples with the current size and updates
