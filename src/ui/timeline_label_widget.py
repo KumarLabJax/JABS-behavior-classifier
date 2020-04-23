@@ -1,8 +1,8 @@
 import math
 
 from PyQt5.QtWidgets import QWidget, QSizePolicy
-from PyQt5.QtGui import QPainter, QColor, QPen
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
+from PyQt5.QtCore import QSize, Qt, QPoint
 
 from .utilities import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
 from src.labeler.track_labels import TrackLabels
@@ -37,8 +37,23 @@ class TimelineLabelWidget(QWidget):
         # TrackLabels object containing labels for current behavior & identity
         self._labels = None
 
+        # In order to indicate where the current frame is on the bar,
+        # we need to know out which element it corresponds to in the downsampled
+        # array. That maps to a pixel location in the bar. To calculate that
+        # we will need to know the bin size. This is updated at every resize
+        # event
+        self._bin_size = 0
+
+        # scale factor is based on the bin size and is used to determine how
+        # wide to draw the box showing the current window being displayed in
+        # the ManualLabelWidget
+        self._scale_factor = 0
+
+        self._pixmap = None
+
         self._current_frame = 0
         self._num_frames = 0
+
 
     def sizeHint(self):
         """
@@ -49,19 +64,19 @@ class TimelineLabelWidget(QWidget):
         """
         return QSize(400, self._height)
 
-    def set_labels(self, labels):
-        """ load label track to display """
-        self._labels = labels
+    def resizeEvent(self, event):
+        """
+        handle resize event. Recalculates scaling factors and calls
+        update_bar() to redownsample and rerender the bar
+        """
 
-    def set_current_frame(self, current_frame):
-        """ called to reposition the view """
-        self._current_frame = current_frame
-        # force redraw
-        self.update()
+        # if no video is loaded, there is nothing to display and nothing to
+        # resize
+        if self._num_frames == 0:
+            return
 
-    def set_num_frames(self, num_frames):
-        """ set the number of frames in the current video """
-        self._num_frames = num_frames
+        self._update_scale()
+        self._update_bar()
 
     def paintEvent(self, event):
         """ override QWidget paintEvent """
@@ -70,36 +85,49 @@ class TimelineLabelWidget(QWidget):
         if self._labels is None:
             return
 
-        width = self.size().width()
         height = self.size().height()
 
         qp = QPainter(self)
+        qp.drawPixmap(QPoint(0, 0), self._pixmap)
 
-        # downsample the label array to fit the width we have to draw
-        downsampled = self._labels.downsample(width)
-
-        # In order to indicate where the current frame is on the bar,
-        # we need to find out which element it corresponds to in the downsampled
-        # array. That maps to a pixel location in the bar.
-        # First, get padded size to figure out which 'bin' the current frame
-        # falls into
-        pad_size = math.ceil(
-            float(self._num_frames) / width) * width - self._num_frames
-        bin_size = (self._num_frames + pad_size) / width
-        mapped_position = self._current_frame // bin_size
-
-        # calculate a scale factor for determining the width of the box we will
-        # draw to highlight the range of frames in view in the ManualLabelWidget
-        scale_factor = (width / self._num_frames)
+        # get the current position
+        mapped_position = self._current_frame // self._bin_size
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
-        start = mapped_position - (self._window_size * scale_factor)
+        start = mapped_position - (self._window_size * self._scale_factor)
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
-        qp.drawRect(start, 0, self._frames_in_view * scale_factor, height - 1)
+        qp.drawRect(start, 0, self._frames_in_view * self._scale_factor, height - 1)
+
+    def set_labels(self, labels):
+        """ load label track to display """
+        self._labels = labels
+        self._update_bar()
+
+    def set_current_frame(self, current_frame):
+        """ called to reposition the view """
+        self._current_frame = current_frame
+        self.update()
+
+    def set_num_frames(self, num_frames):
+        """ set the number of frames in the current video """
+        self._num_frames = num_frames
+        self._update_scale()
+
+    def _update_bar(self):
+        """
+        Updates the bar pixmap. Downsamples with the current size and updates
+        self._pixmap
+        """
+        width = self.size().width()
+        height = self.size().height()
+        self._pixmap = QPixmap(width, height)
+        self._pixmap.fill(Qt.transparent)
+        downsampled = self._labels.downsample(width)
 
         # draw the bar, each pixel along the width corresponds to a value in the
         # down sampled label array
+        qp = QPainter(self._pixmap)
         for x in range(width):
             if downsampled[x] == TrackLabels.Label.NONE:
                 qp.setPen(self._BACKGROUND_COLOR)
@@ -116,3 +144,14 @@ class TimelineLabelWidget(QWidget):
             for y in range(self._bar_padding,
                            self._bar_padding + self._bar_height):
                 qp.drawPoint(x, y)
+        qp.end()
+
+    def _update_scale(self):
+        """ update scale factor and bin size """
+        width = self.size().width()
+
+        pad_size = math.ceil(
+            float(self._num_frames) / width) * width - self._num_frames
+        self._bin_size = (self._num_frames + pad_size) / width
+
+        self._scale_factor = (width / self._num_frames)
