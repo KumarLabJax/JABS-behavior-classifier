@@ -11,7 +11,7 @@ from src.labeler.track_labels import TrackLabels
 class TimelineLabelWidget(QWidget):
     """
     Widget that shows a "zoomed out" overview of labels for the entire video.
-    Because each pixel along wthe width ends up representing multiple frames,
+    Because each pixel along the width ends up representing multiple frames,
     you can't see fine detail, but you can see where manual labels have been
     applied. This can be useful for seeking through the video to a location of
     labeling.

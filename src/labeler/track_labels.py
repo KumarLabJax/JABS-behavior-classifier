@@ -50,13 +50,13 @@ class TrackLabels:
 
     def downsample(self, size):
         """
-        Downsample the label array for a "zoomed out" view. We use a special
+        Downsample the label array for a "zoomed out" view. We use a custom
         downsampling algorithm. Each element in the downsampled array is
         assigned one of the following values:
             0: all elements in the bin have the value of 0 (Label.NONE)
             1: all elements are either zero or 1 (Label.BEHAVIOR)
             2: all elements are either zero or 2 (Label.NOT_BEHAVIOR)
-            3: bin contains 1 and 2
+            3: bin contains 1 and 2 (Label.MIX)
         :param size: size of the resulting downsampled label array
         :return: numpy array of size 'size' with downsampled values
         """
