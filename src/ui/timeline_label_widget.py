@@ -1,3 +1,5 @@
+import math
+
 from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QPen
 from PyQt5.QtCore import QSize, Qt
@@ -75,14 +77,24 @@ class TimelineLabelWidget(QWidget):
 
         # downsample the label array to fit the width we have to draw
         downsampled = self._labels.downsample(width)
-        scale_factor = (width / self._num_frames)
 
-        # find the location of the current frame scaled to the width
-        scaled_position = int(self._current_frame * scale_factor)
+        # In order to indicate where the current frame is on the bar,
+        # we need to find out which element it corresponds to in the downsampled
+        # array. That maps to a pixel location in the bar.
+        # First, get padded size to figure out which 'bin' the current frame
+        # falls into
+        pad_size = math.ceil(
+            float(self._num_frames) / width) * width - self._num_frames
+        bin_size = (self._num_frames + pad_size) / width
+        mapped_position = self._current_frame // bin_size
+
+        # calculate a scale factor for determining the width of the box we will
+        # draw to highlight the range of frames in view in the ManualLabelWidget
+        scale_factor = (width / self._num_frames)
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
-        start = scaled_position - (self._window_size * scale_factor)
+        start = mapped_position - (self._window_size * scale_factor)
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.drawRect(start, 0, self._frames_in_view * scale_factor, height - 1)
 
