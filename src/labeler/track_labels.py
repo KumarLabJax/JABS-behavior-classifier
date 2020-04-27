@@ -63,7 +63,7 @@ class TrackLabels:
         # we may need to pad the label array if it is not evenly divisible by
         # the new size
         pad_size = math.ceil(
-            float(self._labels.size) / size) * size - self._labels.size
+            self._labels.size / size) * size - self._labels.size
 
         # create the padded array, repeating the last value for any padding
         padded = np.append(self._labels, np.full(pad_size, self._labels[-1:]))

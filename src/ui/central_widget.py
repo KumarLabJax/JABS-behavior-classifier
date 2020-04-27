@@ -141,6 +141,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = VideoLabels(path, self._player_widget.num_frames())
         self._set_label_track()
         self.manual_labels.set_num_frames(self._player_widget.num_frames())
+        self.manual_labels.set_framerate(self._player_widget.stream_fps())
         self.timeline_widget.set_num_frames(self._player_widget.num_frames())
 
     def _new_label(self):

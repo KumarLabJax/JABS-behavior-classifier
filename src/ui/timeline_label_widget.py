@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QPen
 from PyQt5.QtCore import QSize, Qt
 
-from .utilities import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
 from src.labeler.track_labels import TrackLabels
 
 
