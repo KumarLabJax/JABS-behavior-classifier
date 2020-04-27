@@ -411,16 +411,17 @@ class PlayerWidget(QtWidgets.QWidget):
         self._enable_frame_buttons()
         self._playing = False
 
-    def next_frame(self):
+    def next_frame(self, frames=1):
         """
         advance to the next frame and display it
+        :param frames: optional, number of frames to advance
         """
 
         # don't do anything if a video hasn't been loaded
         if self._video_stream is None:
             return
 
-        new_frame = min(self._position_slider.value() + 1,
+        new_frame = min(self._position_slider.value() + frames,
                         self._position_slider.maximum())
 
         # if new_frame == the current value of the position slider we are at
@@ -428,21 +429,29 @@ class PlayerWidget(QtWidgets.QWidget):
         # frame and advance the slider.
         if new_frame != self._position_slider.value():
             self._position_slider.setValue(new_frame)
-            # make sure the buffer isn't empty before calling video_stream.read
-            self._video_stream.load_next_frame()
+
+            if frames == 1:
+                # make sure the buffer isn't empty
+                self._video_stream.load_next_frame()
+            else:
+                # skipping ahead by more than one frame, can rely on the
+                # basic read ahead buffering to get the frame
+                self._video_stream.seek(new_frame)
+
             frame = self._video_stream.read()
             self._update_frame(frame)
 
-    def previous_frame(self):
+    def previous_frame(self, frames=1):
         """
         go back to the previous frame and display it
+        :param frames: optional number of frames to move back
         """
 
         # don't do anything if a video hasn't been loaded
         if self._video_stream is None:
             return
 
-        new_frame = max(self._position_slider.value() - 1, 0)
+        new_frame = max(self._position_slider.value() - frames, 0)
 
         # if new_frame == current value of the position slider we are at the
         # beginning of the video, don't do anything. Otherwise, seek to the

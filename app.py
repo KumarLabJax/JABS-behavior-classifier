@@ -7,13 +7,13 @@ import sys
 import argparse
 from PyQt5 import QtWidgets
 
-from src.ui import CentralWidget
+from src.ui import CentralWidget, MainWindow
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
-    main_window = QtWidgets.QMainWindow()
+    main_window = MainWindow()
     main_window.setCentralWidget(CentralWidget())
 
     parser = argparse.ArgumentParser()
