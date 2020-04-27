@@ -7,12 +7,14 @@ import sys
 import argparse
 from PyQt5 import QtWidgets
 
-from src.ui import MainWindow
+from src.ui import CentralWidget
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
-    main_window = MainWindow()
+
+    main_window = QtWidgets.QMainWindow()
+    main_window.setCentralWidget(CentralWidget())
 
     parser = argparse.ArgumentParser()
 
@@ -20,7 +22,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        main_window.load_video(args.video_file)
+        main_window.centralWidget().load_video(args.video_file)
     except Exception as e:
         sys.exit(f"Error loading file:  {e}")
 

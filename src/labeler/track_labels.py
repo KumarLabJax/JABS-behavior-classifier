@@ -1,4 +1,5 @@
 import enum
+import math
 from itertools import groupby
 import numpy as np
 
@@ -12,6 +13,7 @@ class TrackLabels:
         NONE = 0
         BEHAVIOR = 1
         NOT_BEHAVIOR = 2
+        MIX = 3  # only used in downsampling label array, has special meaning
 
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)
@@ -45,6 +47,47 @@ class TrackLabels:
         block start and end frame numbers will be relative to the slice start
         """
         return self._array_to_blocks(self._labels[start:end+1])
+
+    def downsample(self, size):
+        """
+        Downsample the label array for a "zoomed out" view. We use a custom
+        downsampling algorithm. Each element in the downsampled array is
+        assigned one of the following values:
+            0: all elements in the bin have the value of 0 (Label.NONE)
+            1: all elements are either zero or 1 (Label.BEHAVIOR)
+            2: all elements are either zero or 2 (Label.NOT_BEHAVIOR)
+            3: bin contains 1 and 2 (Label.MIX)
+        :param size: size of the resulting downsampled label array
+        :return: numpy array of size 'size' with downsampled values
+        """
+        # we may need to pad the label array if it is not evenly divisible by
+        # the new size
+        pad_size = math.ceil(
+            float(self._labels.size) / size) * size - self._labels.size
+
+        # create the padded array, repeating the last value for any padding
+        padded = np.append(self._labels, np.full(pad_size, self._labels[-1:]))
+
+        # split the padded array into 'size' bins each with 'bin_size' values
+        bin_size = padded.size // size
+        binned = padded.reshape(-1, bin_size)
+
+        # create output array
+        downsampled = np.empty(size, dtype=np.uint8)
+
+        # fill output array
+        for i in range(size):
+            counts = np.bincount(binned[i], minlength=3)
+            if counts[0] == bin_size:
+                downsampled[i] = self.Label.NONE
+            elif counts[1] != 0 and counts[2] == 0:
+                downsampled[i] = self.Label.BEHAVIOR
+            elif counts[1] == 0 and counts[2] != 0:
+                downsampled[i] = self.Label.NOT_BEHAVIOR
+            else:
+                downsampled[i] = self.Label.MIX
+
+        return downsampled
 
     @classmethod
     def load(cls, num_frames, blocks):
