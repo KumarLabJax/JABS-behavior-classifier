@@ -193,7 +193,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
-        self.timeline_widget.update()
+        self.timeline_widget.update_labels()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -203,7 +203,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
-        self.timeline_widget.update()
+        self.timeline_widget.update_labels()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
@@ -213,6 +213,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
+        self.timeline_widget.update_labels()
 
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
