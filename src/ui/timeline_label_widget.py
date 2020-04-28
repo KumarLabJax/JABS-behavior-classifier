@@ -2,7 +2,7 @@ import math
 
 from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
-from PyQt5.QtCore import QSize, Qt, QPoint
+from PyQt5.QtCore import QSize, Qt
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
 from src.labeler.track_labels import TrackLabels
@@ -20,6 +20,7 @@ class TimelineLabelWidget(QWidget):
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
     _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
+    _PADDING_COLOR = QColor(*BACKGROUND_COLOR, 128)
     _RANGE_COLOR = QColor(255, 255, 204)
 
     def __init__(self, *args, **kwargs):
@@ -50,6 +51,7 @@ class TimelineLabelWidget(QWidget):
         self._scale_factor = 0
 
         self._pixmap = None
+        self._pixmap_padding = 0
 
         self._current_frame = 0
         self._num_frames = 0
@@ -91,12 +93,12 @@ class TimelineLabelWidget(QWidget):
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
-        start = mapped_position - (self._window_size * self._scale_factor)
+        start = mapped_position - (self._window_size * self._scale_factor) + self._pixmap_padding
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.drawRect(start, 0, self._frames_in_view * self._scale_factor,
                     self.size().height() - 1)
 
-        qp.drawPixmap(0, 0, self._pixmap)
+        qp.drawPixmap(0 + self._pixmap_padding, 0, self._pixmap)
 
     def set_labels(self, labels):
         """ load label track to display """
@@ -138,10 +140,13 @@ class TimelineLabelWidget(QWidget):
                 qp.setPen(self._BEHAVIOR_COLOR)
             elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:
                 qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            else:
+            elif downsampled[x] == TrackLabels.Label.MIX:
                 # bin contains mix of behavior/not behavior labels, color these
                 # as magenta
                 qp.setPen(Qt.magenta)
+            else:
+                continue
+                #qp.setPen(self._PADDING_COLOR)
 
             # draw a vertical bar of pixels
             for y in range(self._bar_padding,
@@ -158,3 +163,4 @@ class TimelineLabelWidget(QWidget):
         self._bin_size = (self._num_frames + pad_size) / width
 
         self._scale_factor = (width / self._num_frames)
+        self._pixmap_padding = ((self._bin_size * width - self._num_frames) / self._bin_size) // 2

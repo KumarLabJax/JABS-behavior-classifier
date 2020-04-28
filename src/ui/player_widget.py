@@ -228,13 +228,14 @@ class PlayerWidget(QtWidgets.QWidget):
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
         self._previous_frame_button.setMaximumWidth(35)
-        self._previous_frame_button.clicked.connect(self.previous_frame)
+        self._previous_frame_button.clicked.connect(
+            self._previous_frame_clicked)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
         self._next_frame_button = QtWidgets.QPushButton("▶")
         self._next_frame_button.setMaximumWidth(35)
-        self._next_frame_button.clicked.connect(self.next_frame)
+        self._next_frame_button.clicked.connect(self._next_frame_clicked)
         self._next_frame_button.setAutoRepeat(True)
 
         # previous/next button layout
@@ -367,6 +368,12 @@ class PlayerWidget(QtWidgets.QWidget):
         # resume playing
         if self._playing:
             self._start_player_thread()
+
+    def _next_frame_clicked(self):
+        self.next_frame()
+
+    def _previous_frame_clicked(self):
+        self.previous_frame()
 
     def toggle_play(self):
         """
