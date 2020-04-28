@@ -370,9 +370,21 @@ class PlayerWidget(QtWidgets.QWidget):
             self._start_player_thread()
 
     def _next_frame_clicked(self):
+        """
+        handle "clicked" signal for the next frame button. Need to wrap
+        self.next_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that is
+        meaningless unless the button is "checkable"
+        """
         self.next_frame()
 
     def _previous_frame_clicked(self):
+        """
+        handle "clicked" signal for the previous frame button. Need to wrap
+        self.previous_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that is
+        meaningless unless the button is "checkable"
+        """
         self.previous_frame()
 
     def toggle_play(self):
