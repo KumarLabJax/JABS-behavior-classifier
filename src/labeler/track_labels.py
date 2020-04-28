@@ -16,8 +16,8 @@ class TrackLabels:
 
         # the following only used in downsampling label array
         # they have special meaning
-        PAD = 3
-        MIX = 4
+        MIX = 3
+        PAD = 4
 
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)
