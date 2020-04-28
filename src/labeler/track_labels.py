@@ -84,7 +84,7 @@ class TrackLabels:
         # fill output array
         for i in range(size):
             counts = np.bincount(binned[i], minlength=3)
-            if counts[0] == bin_size:
+            if counts[0] != 0 and counts[1] == 0 and counts[2] == 0:
                 downsampled[i] = self.Label.NONE
             elif counts[1] != 0 and counts[2] == 0:
                 downsampled[i] = self.Label.BEHAVIOR
