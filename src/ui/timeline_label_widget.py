@@ -84,19 +84,19 @@ class TimelineLabelWidget(QWidget):
         if self._labels is None:
             return
 
-        height = self.size().height()
-
-        qp = QPainter(self)
-        qp.drawPixmap(QPoint(0, 0), self._pixmap)
-
         # get the current position
         mapped_position = self._current_frame // self._bin_size
+
+        qp = QPainter(self)
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
         start = mapped_position - (self._window_size * self._scale_factor)
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
-        qp.drawRect(start, 0, self._frames_in_view * self._scale_factor, height - 1)
+        qp.drawRect(start, 0, self._frames_in_view * self._scale_factor,
+                    self.size().height() - 1)
+
+        qp.drawPixmap(0, 0, self._pixmap)
 
     def set_labels(self, labels):
         """ load label track to display """
