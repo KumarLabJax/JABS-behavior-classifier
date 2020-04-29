@@ -70,7 +70,10 @@ class ManualLabelWidget(QWidget):
         slice_start = max(start, 0)
         slice_end = self._current_frame + self._window_size
 
-        label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
+        if self._labels is not None:
+            label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
+        else:
+            label_blocks = []
 
         qp = QPainter(self)
         qp.setPen(Qt.NoPen)
