@@ -86,8 +86,10 @@ class _PlayerThread(QtCore.QThread):
                     start_time = now
 
                 # send the new frame and the frame index to the UI components
-                self.newImage.emit(image)
-                self.updatePosition.emit(frame['index'])
+                # if playback was stopped while we were sleeping
+                if not self._stream.stopped:
+                    self.newImage.emit(image)
+                    self.updatePosition.emit(frame['index'])
 
                 # update timestamp for when should the next frame be shown
                 next_timestamp += frame['duration']
@@ -445,6 +447,14 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.wait()
             self._player_thread = None
 
+        # seek to the current position of the slider -- it's possible a
+        # player thread had read a frame or two beyond that but the frames
+        # were discarded when they arrived at the UI thread after playback
+        # stopped. This makes sure we don't skip over those frames when
+        # playback resumes.
+        self._video_stream.seek(self._position_slider.value())
+        self._update_frame(self._video_stream.read())
+
         # change the icon to play
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
@@ -585,7 +595,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # interfere.
         # Also make sure the video stream hasn't been closed since the signal
         # was sent.
-        if self._seeking or self._video_stream is None:
+        if not self._playing or self._seeking or self._video_stream is None:
             return
 
         self._position_slider.setValue(frame_number)
