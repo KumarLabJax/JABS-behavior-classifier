@@ -16,6 +16,10 @@ class VideoLabels:
         self._num_frames = num_frames
         self._identity_labels = {}
 
+    @property
+    def filename(self):
+        return self._filename
+
     def get_track_labels(self, identity, behavior):
         """ return a TrackLabels for an identity & behavior """
         identity_labels = self._identity_labels.get(identity)

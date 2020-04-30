@@ -111,6 +111,12 @@ class _FrameWidget(QtWidgets.QLabel):
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
 
+    def sizeHint(self):
+        """
+        Override QLabel.sizeHint to give an initial starting size.
+        """
+        return QtCore.QSize(400, 400)
+
     def paintEvent(self, event):
         """
         override the paintEvent() handler to scale the image if the widget is

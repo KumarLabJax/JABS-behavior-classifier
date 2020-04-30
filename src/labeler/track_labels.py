@@ -6,7 +6,8 @@ import numpy as np
 
 class TrackLabels:
     """
-    stores labels for a given identity and behavior
+    stores labels for a given identity and behavior. requires one byte per
+    frame to store labels (e.g. approx. 108kb per 1 hour of 30fps video)
     """
     class Label(enum.IntEnum):
         """ label values """

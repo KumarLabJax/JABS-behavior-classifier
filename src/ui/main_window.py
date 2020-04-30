@@ -1,4 +1,5 @@
 from PyQt5 import QtWidgets, QtCore
+from pyqtspinner.spinner import WaitingSpinner
 
 from src.labeler.project import Project
 from .playlist_widget import PlaylistWidget
@@ -6,6 +7,9 @@ from .central_widget import CentralWidget
 
 
 class MainWindow(QtWidgets.QMainWindow):
+
+    loadVideoAsyncSignal = QtCore.pyqtSignal(str)
+
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
@@ -15,6 +19,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setUnifiedTitleAndToolBarOnMac(True)
 
         self._project = None
+
+        self.loadVideoAsyncSignal.connect(self._load_video_async,
+                                          QtCore.Qt.QueuedConnection)
 
         menu = self.menuBar()
 
@@ -32,13 +39,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # video playlist menu item
         self.view_playlist = QtWidgets.QAction('View Playlist', self,
                                                checkable=True)
-        self.view_playlist.triggered.connect(self._togglePlaylist)
+        self.view_playlist.triggered.connect(self._toggle_playlist)
+
         view_menu.addAction(self.view_playlist)
 
         # playlist widget added to dock on left side of main window
         self.playlist = PlaylistWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.playlist)
         self.playlist.setFloating(False)
+
 
         # if the playlist visibility changes, make sure the view_playlists
         # checkmark is set correctly
@@ -73,9 +82,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project(self, project_path):
         self._project = Project(project_path)
+        self.centralWidget().set_project(self._project)
         self.playlist.set_project(self._project)
 
-    def _togglePlaylist(self, checked):
+    def _toggle_playlist(self, checked):
         if not checked:
             # user unchecked
             self.playlist.hide()
@@ -84,4 +94,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.playlist.show()
 
     def _video_playlist_selection(self, filename):
-        self.centralWidget().load_video(self._project.make_path(filename))
+        self.loadVideoAsyncSignal.emit(str(filename))
+
+    @QtCore.pyqtSlot(str)
+    def _load_video_async(self, filename):
+        try:
+            self.centralWidget().load_video(self._project.video_path(filename))
+        except OSError as e:
+            # TODO: display a dialog box or status bar message
+            print(e)
