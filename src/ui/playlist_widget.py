@@ -11,6 +11,7 @@ class _VideoListWidget(QtWidgets.QListWidget):
         # only allow one selection
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.setSortingEnabled(True)
+        self.setFocusPolicy(QtCore.Qt.NoFocus)
 
         # don't allow items to be edited
         self.setEditTriggers(

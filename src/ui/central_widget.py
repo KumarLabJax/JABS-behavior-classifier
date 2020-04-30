@@ -148,6 +148,8 @@ class CentralWidget(QtWidgets.QWidget):
         # new video
         if self._labels is not None:
             self._project.cache_unsaved_annotations(self._labels)
+            self._start_selection(False)
+            self.select_button.setChecked(False)
 
         try:
             # open the video
