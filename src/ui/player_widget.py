@@ -292,11 +292,27 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.num_frames
 
+    def reset(self):
+        self._video_stream = None
+        self._tracks = None
+        self._position_slider.setEnabled(False)
+        self.updateIdentities.emit([])
+        self._play_button.setEnabled(False)
+        self._disable_frame_buttons()
+
     def load_video(self, path):
         """
         load a new video source
         :param path: path to video file
         """
+
+        # if we already have a video loaded make sure it is stopped
+        self.stop()
+        # make sure the current frame image / frame counter / current time is
+        # cleared in case that we are unable to load the video
+        self._frame_widget.clear()
+        self._frame_label.setText('')
+        self._time_label.setText('')
 
         # load the video and pose file
         self._video_stream = VideoStream(path)
@@ -463,6 +479,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _set_active_identity(self, identity):
         """ set an active identity, which will be labeled in the video """
+
+        # don't do anything if a video isn't loaded
+        if self._video_stream is None:
+            return
+
         self._active_identity = identity
         if self._player_thread:
             self._player_thread.set_identity(identity)
@@ -506,6 +527,7 @@ class PlayerWidget(QtWidgets.QWidget):
         update the time and current frame labels with current frame
         :param frame_number: current frame number
         """
+
         self._frame_label.setText(
             f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(
@@ -517,6 +539,10 @@ class PlayerWidget(QtWidgets.QWidget):
         display a new QImage sent from the player thread
         :param image: QImage to display as next frame
         """
+        # make sure the video stream hasn't been closed since this signal
+        # was sent
+        if self._video_stream is None:
+            return
         self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.pyqtSlot(int)
@@ -527,11 +553,15 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame_number: new value for the progress slider
         """
         # don't update the slider value if user is seeking, since that can
-        # interfere
-        if not self._seeking:
-            self._position_slider.setValue(frame_number)
-            self.updateFrameNumber.emit(frame_number)
-            self._update_time_display(frame_number)
+        # interfere.
+        # Also make sure the video stream hasn't been closed since the signal
+        # was sent.
+        if self._seeking or self._video_stream is None:
+            return
+
+        self._position_slider.setValue(frame_number)
+        self.updateFrameNumber.emit(frame_number)
+        self._update_time_display(frame_number)
 
     def _start_player_thread(self):
         """

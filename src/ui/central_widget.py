@@ -149,16 +149,22 @@ class CentralWidget(QtWidgets.QWidget):
         if self._labels is not None:
             self._project.cache_unsaved_annotations(self._labels)
 
-        # open the video
-        self._player_widget.load_video(path)
+        try:
+            # open the video
+            self._player_widget.load_video(path)
 
-        # load labels for new video and set track for current identity
-        self._labels = self._project.load_annotation_track(path)
-        self._set_label_track()
+            # load labels for new video and set track for current identity
+            self._labels = self._project.load_annotation_track(path)
+            self._set_label_track()
 
-        # update ui components with properties of new video
-        self.manual_labels.set_num_frames(self._player_widget.num_frames())
-        self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+            # update ui components with properties of new video
+            self.manual_labels.set_num_frames(self._player_widget.num_frames())
+            self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+        except OSError as e:
+            # error loading
+            self._labels = None
+            self._player_widget.reset()
+            raise e
 
     def keyPressEvent(self, event):
         """ handle key press events """
