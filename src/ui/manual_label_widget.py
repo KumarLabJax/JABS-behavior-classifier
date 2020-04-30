@@ -176,6 +176,9 @@ class ManualLabelWidget(QWidget):
         :param start: starting frame number
         :param end: ending frame number
         """
+        if self._framerate == 0:
+            return
+
         painter.setBrush(self._BORDER_COLOR)
         for i in range(start, end + 1):
             # we could add i > 0 and i < num_frames to this if test to avoid

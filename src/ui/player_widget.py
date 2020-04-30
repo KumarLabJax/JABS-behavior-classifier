@@ -117,7 +117,13 @@ class _FrameWidget(QtWidgets.QLabel):
         """
         Override QLabel.sizeHint to give an initial starting size.
         """
-        return QtCore.QSize(400, 400)
+        return QtCore.QSize(800, 800)
+
+    def reset(self):
+        self.clear()
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                           QtWidgets.QSizePolicy.Expanding)
+        self.firstFrame = True
 
     def paintEvent(self, event):
         """
@@ -318,9 +324,10 @@ class PlayerWidget(QtWidgets.QWidget):
         self.stop()
         # make sure the current frame image / frame counter / current time is
         # cleared in case that we are unable to load the video
-        self._frame_widget.clear()
         self._frame_label.setText('')
         self._time_label.setText('')
+
+        self._frame_widget.reset()
 
         # load the video and pose file
         self._video_stream = VideoStream(path)
@@ -330,10 +337,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.setValue(0)
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
         self._position_slider.setEnabled(True)
-
-        # let frame_widget know it's loading the first frame from the video
-        # so it sets the initial size properly
-        self._frame_widget.firstFrame = True
 
         # tell main window to populate the identity selection drop down
         # this will cause _set_active_identity() to be called, which will load
