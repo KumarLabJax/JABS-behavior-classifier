@@ -52,14 +52,13 @@ class _PlayerThread(QtCore.QThread):
         # tell stream to start buffering frames
         self._stream.start()
 
-        # no delay before showing the first frame
-        delay = 0
+        next_timestamp = 0
+        start_time = 0
 
         # iterate until we've been told to stop (user clicks pause button)
         # or we reach end of file
         while not self._stream.stopped and not end_of_file:
-            # time iteration to account for it in delay between frame refresh
-            iteration_start = time.perf_counter()
+            now = time.perf_counter()
 
             # grab next frame from stream buffer
             frame = self._stream.read()
@@ -75,21 +74,24 @@ class _PlayerThread(QtCore.QThread):
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                      frame['data'].shape[0],
                                      QtGui.QImage.Format_RGB888).rgbSwapped()
+
                 # don't update frame until we've shown the last one for the
                 # required duration
-                time.sleep(delay)
+                if start_time > 0:
+                    # sleep difference between next_timestamp and amount of
+                    # actual clock time since we started playback
+                    time.sleep(max(0, next_timestamp - (now - start_time)))
+                else:
+                    # first frame, save the start time
+                    start_time = now
 
                 # send the new frame and the frame index to the UI components
                 self.newImage.emit(image)
                 self.updatePosition.emit(frame['index'])
 
-                # 'iteration time' is how long this loop took minus the time we
-                # slept
-                iteration_time = time.perf_counter() - iteration_start - delay
+                # update timestamp for when should the next frame be shown
+                next_timestamp += frame['duration']
 
-                # next iteration we sleep the frame duration minus how long
-                # this loop took.
-                delay = max(frame['duration'] - iteration_time, 0)
             else:
                 # if the video stream reached the end of file let the UI know
                 self.endOfFile.emit()
@@ -226,13 +228,14 @@ class PlayerWidget(QtWidgets.QWidget):
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
         self._previous_frame_button.setMaximumWidth(35)
-        self._previous_frame_button.clicked.connect(self.previous_frame)
+        self._previous_frame_button.clicked.connect(
+            self._previous_frame_clicked)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
         self._next_frame_button = QtWidgets.QPushButton("▶")
         self._next_frame_button.setMaximumWidth(35)
-        self._next_frame_button.clicked.connect(self.next_frame)
+        self._next_frame_button.clicked.connect(self._next_frame_clicked)
         self._next_frame_button.setAutoRepeat(True)
 
         # previous/next button layout
@@ -285,6 +288,11 @@ class PlayerWidget(QtWidgets.QWidget):
         """ get total number of frames in the loaded video  """
         assert self._video_stream is not None
         return self._video_stream.num_frames
+
+    def stream_fps(self):
+        """ get frames per second from loaded video """
+        assert self._video_stream is not None
+        return self._video_stream.fps
 
     def load_video(self, path):
         """
@@ -360,6 +368,24 @@ class PlayerWidget(QtWidgets.QWidget):
         # resume playing
         if self._playing:
             self._start_player_thread()
+
+    def _next_frame_clicked(self):
+        """
+        handle "clicked" signal for the next frame button. Need to wrap
+        self.next_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that is
+        meaningless unless the button is "checkable"
+        """
+        self.next_frame()
+
+    def _previous_frame_clicked(self):
+        """
+        handle "clicked" signal for the previous frame button. Need to wrap
+        self.previous_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that is
+        meaningless unless the button is "checkable"
+        """
+        self.previous_frame()
 
     def toggle_play(self):
         """
