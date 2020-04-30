@@ -67,6 +67,11 @@ class VideoStream:
         return self._num_frames
 
     @property
+    def fps(self):
+        """ get frames per second from video """
+        return self._fps
+
+    @property
     def stopped(self):
         """ return True if the stream is stopped, false otherwise """
         return self._stopped

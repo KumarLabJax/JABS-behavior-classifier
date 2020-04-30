@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
 from PyQt5.QtCore import QSize, Qt
 
-from .utilities import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
 from src.labeler.track_labels import TrackLabels
 
 
@@ -50,6 +50,7 @@ class TimelineLabelWidget(QWidget):
         self._scale_factor = 0
 
         self._pixmap = None
+        self._pixmap_offset = 0
 
         self._current_frame = 0
         self._num_frames = 0
@@ -91,13 +92,14 @@ class TimelineLabelWidget(QWidget):
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
-        start = mapped_position - (self._window_size * self._scale_factor)
+        start = mapped_position - (
+                self._window_size * self._scale_factor) + self._pixmap_offset
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
         qp.drawRect(start, 0, self._frames_in_view * self._scale_factor,
                     self.size().height() - 1)
 
-        qp.drawPixmap(0, 0, self._pixmap)
+        qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
 
     def set_labels(self, labels):
         """ load label track to display """
@@ -139,10 +141,12 @@ class TimelineLabelWidget(QWidget):
                 qp.setPen(self._BEHAVIOR_COLOR)
             elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:
                 qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            else:
+            elif downsampled[x] == TrackLabels.Label.MIX:
                 # bin contains mix of behavior/not behavior labels, color these
                 # as magenta
                 qp.setPen(Qt.magenta)
+            else:
+                continue
 
             # draw a vertical bar of pixels
             for y in range(self._bar_padding,
@@ -159,3 +163,5 @@ class TimelineLabelWidget(QWidget):
         self._bin_size = (self._num_frames + pad_size) / width
 
         self._scale_factor = (width / self._num_frames)
+        padding = (self._bin_size * width - self._num_frames) / self._bin_size
+        self._pixmap_offset = padding // 2
