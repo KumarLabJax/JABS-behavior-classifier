@@ -1,8 +1,7 @@
 from PyQt5 import QtWidgets, QtCore
-from pyqtspinner.spinner import WaitingSpinner
 
 from src.labeler.project import Project
-from .playlist_widget import PlaylistWidget
+from .video_list_widget import VideoListDockWidget
 from .central_widget import CentralWidget
 
 
@@ -39,22 +38,22 @@ class MainWindow(QtWidgets.QMainWindow):
         # video playlist menu item
         self.view_playlist = QtWidgets.QAction('View Playlist', self,
                                                checkable=True)
-        self.view_playlist.triggered.connect(self._toggle_playlist)
+        self.view_playlist.triggered.connect(self._toggle_video_list)
 
         view_menu.addAction(self.view_playlist)
 
         # playlist widget added to dock on left side of main window
-        self.playlist = PlaylistWidget()
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.playlist)
-        self.playlist.setFloating(False)
+        self.video_list = VideoListDockWidget()
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
+        self.video_list.setFloating(False)
 
 
         # if the playlist visibility changes, make sure the view_playlists
         # checkmark is set correctly
-        self.playlist.visibilityChanged.connect(self.view_playlist.setChecked)
+        self.video_list.visibilityChanged.connect(self.view_playlist.setChecked)
 
         # handle event where user selects a different video in the playlist
-        self.playlist.selectionChanged.connect(self._video_playlist_selection)
+        self.video_list.selectionChanged.connect(self._video_list_selection)
 
     def keyPressEvent(self, event):
         """
@@ -77,27 +76,34 @@ class MainWindow(QtWidgets.QMainWindow):
             self.centralWidget().keyPressEvent(event)
 
         else:
-            # anything else pass on to the super keyPressEvent
+            # anything else pass on to the super class keyPressEvent
             super(MainWindow, self).keyPressEvent(event)
 
     def open_project(self, project_path):
+        """ open a new project directory """
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
-        self.playlist.set_project(self._project)
+        self.video_list.set_project(self._project)
 
-    def _toggle_playlist(self, checked):
+    def _toggle_video_list(self, checked):
+        """ show/hide video list """
         if not checked:
             # user unchecked
-            self.playlist.hide()
+            self.video_list.hide()
         else:
             # user checked
-            self.playlist.show()
+            self.video_list.show()
 
-    def _video_playlist_selection(self, filename):
+    def _video_list_selection(self, filename):
+        """
+        handle a click on a new video in the by sending a signal to an
+        asynchronous event handler
+        """
         self.loadVideoAsyncSignal.emit(str(filename))
 
     @QtCore.pyqtSlot(str)
     def _load_video_async(self, filename):
+        """ process signal requesting to load a new video file """
         try:
             self.centralWidget().load_video(self._project.video_path(filename))
         except OSError as e:

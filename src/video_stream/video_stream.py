@@ -51,7 +51,6 @@ class VideoStream:
 
         # load the first frame into the buffer so the player can show the
         # first frame:
-        start = time.clock()
         self.load_next_frame()
 
         # get frame dimensions

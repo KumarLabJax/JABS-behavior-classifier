@@ -86,7 +86,7 @@ class _PlayerThread(QtCore.QThread):
                     start_time = now
 
                 # send the new frame and the frame index to the UI components
-                # if playback was stopped while we were sleeping
+                # unless playback was stopped while we were sleeping
                 if not self._stream.stopped:
                     self.newImage.emit(image)
                     self.updatePosition.emit(frame['index'])
@@ -122,6 +122,7 @@ class _FrameWidget(QtWidgets.QLabel):
         return QtCore.QSize(800, 800)
 
     def reset(self):
+        """ reset state of frame widget  """
         self.clear()
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
@@ -304,12 +305,17 @@ class PlayerWidget(QtWidgets.QWidget):
         return self._video_stream.num_frames
 
     def reset(self):
+        """ reset video player """
         self._video_stream = None
         self._tracks = None
+        self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
         self.updateIdentities.emit([])
         self._play_button.setEnabled(False)
         self._disable_frame_buttons()
+        self._frame_label.setText('')
+        self._time_label.setText('')
+        self._frame_widget.reset()
 
     def stream_fps(self):
         """ get frames per second from loaded video """
@@ -324,19 +330,13 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # if we already have a video loaded make sure it is stopped
         self.stop()
-        # make sure the current frame image / frame counter / current time is
-        # cleared in case that we are unable to load the video
-        self._frame_label.setText('')
-        self._time_label.setText('')
-
-        self._frame_widget.reset()
+        self.reset()
 
         # load the video and pose file
         self._video_stream = VideoStream(path)
         self._tracks = PoseEstimationV3(path)
 
         # setup the position slider
-        self._position_slider.setValue(0)
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
         self._position_slider.setEnabled(True)
 
@@ -614,9 +614,3 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
-
-    def _get_identity_points(self, frame_index):
-        if self._active_identity is not None:
-            return self._pose_est.get_points(frame_index, self._active_identity)
-        else:
-            return None

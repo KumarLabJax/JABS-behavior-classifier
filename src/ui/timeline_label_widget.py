@@ -4,7 +4,8 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
 from PyQt5.QtCore import QSize, Qt
 
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
+from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
+                     POSITION_MARKER_COLOR)
 from src.labeler.track_labels import TrackLabels
 
 
@@ -20,7 +21,7 @@ class TimelineLabelWidget(QWidget):
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
     _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
-    _RANGE_COLOR = QColor(252, 175, 35)
+    _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
     def __init__(self, *args, **kwargs):
         super(TimelineLabelWidget, self).__init__(*args, **kwargs)

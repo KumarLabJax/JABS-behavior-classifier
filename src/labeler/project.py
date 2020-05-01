@@ -17,7 +17,7 @@ class Project:
         :param project_path: path to project directory
         """
 
-        # make sure this is a pathlib.Path
+        # make sure this is a pathlib.Path and not a string
         self._project_path = Path(project_path)
 
         # get list of video files in the project directory
@@ -34,7 +34,6 @@ class Project:
             mode=0o775, exist_ok=True)
 
         # unsaved annotations
-        # could write these to a temp file on disk instead of keeping in memory
         self._unsaved_annotations = {}
 
     @property
@@ -49,7 +48,7 @@ class Project:
         """
         load an annotation track from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
-        :param video_name: filename of the video
+        :param video_name: filename of the video: string or pathlib.Path
         :return: initialized VideoLabels object
         """
 
@@ -57,9 +56,12 @@ class Project:
         filename = Path(video_name).with_suffix('.json')
         path = Path(self.__PROJ_DIR, "annotations", filename)
 
+        # if this has already been opened
         if video_filename in self._unsaved_annotations:
             return VideoLabels.load(self._unsaved_annotations[video_filename])
 
+        # if annotations already exist for this video file in the project open
+        # it, otherwise create a new empty VideoLabels
         if path.exists():
             with path.open() as f:
                 return VideoLabels.load(json.load(f))
@@ -70,6 +72,13 @@ class Project:
             return VideoLabels(video_filename, nframes)
 
     def cache_unsaved_annotations(self, annotations):
+        """
+        Cache a VideoLabels object after encoding as a JSON serializable dict.
+        Used when user switches from one video to another during a labeling
+        project.
+        :param annotations: VideoLabels object
+        :return: None
+        """
         self._unsaved_annotations[annotations.filename] = annotations.as_dict()
 
     def save_annotations(self):

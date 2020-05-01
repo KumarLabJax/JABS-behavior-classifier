@@ -11,6 +11,9 @@ class _VideoListWidget(QtWidgets.QListWidget):
         # only allow one selection
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.setSortingEnabled(True)
+
+        # don't take focus otherwise up/down arrows will change video
+        # when the user is intending to skip forward/back frames
         self.setFocusPolicy(QtCore.Qt.NoFocus)
 
         # don't allow items to be edited
@@ -28,7 +31,7 @@ class _VideoListWidget(QtWidgets.QListWidget):
             return super(_VideoListWidget, self).selectionCommand(index, event)
 
 
-class PlaylistWidget(QtWidgets.QDockWidget):
+class VideoListDockWidget(QtWidgets.QDockWidget):
     """
     dock for listing video files associated with the project.
     dock is floating and can
@@ -37,7 +40,7 @@ class PlaylistWidget(QtWidgets.QDockWidget):
     selectionChanged = QtCore.pyqtSignal(str)
 
     def __init__(self):
-        super(PlaylistWidget, self).__init__()
+        super(VideoListDockWidget, self).__init__()
         self.setWindowTitle("Project Videos")
         self.file_list = _VideoListWidget()
         self.setWidget(self.file_list)
@@ -52,6 +55,10 @@ class PlaylistWidget(QtWidgets.QDockWidget):
         self.selectionChanged.emit(current.text())
 
     def set_project(self, project):
+        """
+        set currently active project and update list contents with videos
+        from new active project
+        """
         self._project = project
         self.file_list.clear()
         for video in self._project.videos:

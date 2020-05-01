@@ -176,6 +176,8 @@ class ManualLabelWidget(QWidget):
         :param start: starting frame number
         :param end: ending frame number
         """
+
+        # can't draw if we don't know the frame rate yet
         if self._framerate == 0:
             return
 
@@ -192,17 +194,19 @@ class ManualLabelWidget(QWidget):
         self._labels = labels
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view """
+        """ called to reposition the view around new current frame """
         self._current_frame = current_frame
         # force redraw
         self.update()
 
     def set_num_frames(self, num_frames):
+        """ set number of frames in current video, needed to properly render """
         self._num_frames = num_frames
 
     def set_framerate(self, fps):
         """
-        set the frame rate for the currently loaded video
+        set the frame rate for the currently loaded video, needed to draw the
+        ticks at one second intervals
         :param fps: frame rate in frames per second
         """
         self._framerate = fps
