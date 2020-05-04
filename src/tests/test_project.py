@@ -81,6 +81,27 @@ class TestProject(unittest.TestCase):
         # matches what was used to load the annotation track from disk
         self.assertDictEqual(labels.as_dict(), dict_from_file)
 
+    def test_save_annotations(self):
+        """ test saving annotations """
+        project = Project(self._EXISTING_PROJ_PATH)
+        labels = project.load_annotation_track(self._FILENAMES[0])
+        walking_labels = labels.get_track_labels('0', 'Walking')
+
+        # make some changes
+        walking_labels.label_behavior(5000, 5500)
+
+        # save changes
+        project.save_annotatios(labels)
+
+        # make sure the .json file in the project directory matches the new
+        # state
+        with (self._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
+              Path(self._FILENAMES[0]).with_suffix('.json')
+        ).open('r') as f:
+            dict_from_file = json.load(f)
+
+        self.assertDictEqual(labels.as_dict(), dict_from_file)
+
     def test_load_annotations_bad_filename(self):
         """
         attempt to load annotations for a file that doesn't exist, should
