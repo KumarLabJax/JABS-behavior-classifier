@@ -18,12 +18,17 @@ class Project:
         """
 
         # make sure this is a pathlib.Path and not a string
-        self._project_path = Path(project_path)
+        self._project_dir_path = Path(project_path)
+        self._annotations_dir = self._project_dir_path / self.__PROJ_DIR / "annotations"
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
-        self._videos = [f.name for f in self._project_path.glob("*.avi")]
+        self._videos = [f.name for f in self._project_dir_path.glob("*.avi")]
         self._videos.sort()
+
+        # if project directory doesn't exist, create it (empty project)
+        # parent directory must exist.
+        Path(project_path).mkdir(mode=0o775, exist_ok=True)
 
         # make sure the project .labeler directory exists to store project
         # metadata and annotations
@@ -53,8 +58,12 @@ class Project:
         """
 
         video_filename = Path(video_name).name
-        filename = Path(video_name).with_suffix('.json')
-        path = Path(self.__PROJ_DIR, "annotations", filename)
+
+        # make sure the video name actually matches one in the project
+        if video_filename not in self._videos:
+            raise ValueError(f"{video_filename} not in project")
+
+        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
 
         # if this has already been opened
         if video_filename in self._unsaved_annotations:
@@ -66,8 +75,7 @@ class Project:
             with path.open() as f:
                 return VideoLabels.load(json.load(f))
         else:
-            video_path = Path(
-                self._project_path, video_filename)
+            video_path = self._project_dir_path / video_filename
             nframes = get_frame_count(str(video_path))
             return VideoLabels(video_filename, nframes)
 
@@ -81,12 +89,30 @@ class Project:
         """
         self._unsaved_annotations[annotations.filename] = annotations.as_dict()
 
-    def save_annotations(self):
+    def save_annotatios(self, annotations):
         """
-        TODO: this is a stub to finish in a another JIRA issue & pull request
+        save state of a VideoLabels object to the project directory
+        :param annotations: VideoLabels object
+        :return: None
         """
-        raise NotImplementedError
+        path = self._annotations_dir / Path(
+            annotations.filename).with_suffix('.json')
+
+        with path.open(mode='w', newline='\n') as f:
+            json.dump(annotations.as_dict(), f)
+
+    def save_cached_annotations(self):
+        """
+
+        :return:
+        """
+        for annotation in self._unsaved_annotations:
+            path = self._annotations_dir / Path(
+                annotation['file']).with_suffix('.json')
+
+            with path.open(mode='w', newline='\n') as f:
+                json.dump(annotation, f)
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
-        return Path(self._project_path, video_file)
+        return Path(self._project_dir_path, video_file)

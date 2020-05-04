@@ -29,6 +29,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
 
+        # save action
+        save_action = QtWidgets.QAction('&Save', self)
+        save_action.setShortcut('Ctrl+S')
+        save_action.setStatusTip('Save Project State')
+        save_action.triggered.connect(self._save_project)
+        file_menu.addAction(save_action)
+
         # exit action
         exit_action = QtWidgets.QAction(' &Exit', self)
         exit_action.setShortcut('Ctrl+Q')
@@ -47,7 +54,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
-
 
         # if the playlist visibility changes, make sure the view_playlists
         # checkmark is set correctly
@@ -85,6 +91,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+
+    def _save_project(self):
+        """ save current project state """
+
+        current_video_labels = self.centralWidget().get_labels()
+        self._project.save_annotatios(current_video_labels)
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """

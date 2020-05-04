@@ -23,6 +23,11 @@ class VideoLabels:
 
     def get_track_labels(self, identity, behavior):
         """ return a TrackLabels for an identity & behavior """
+
+        # require identity to be a string for serialization
+        if not isinstance(identity, str):
+            raise ValueError("Identity must be a string")
+
         identity_labels = self._identity_labels.get(identity)
 
         # identity not already present

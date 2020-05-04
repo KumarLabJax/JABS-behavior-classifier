@@ -134,16 +134,25 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
+
         self.setLayout(layout)
 
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
 
+    def get_labels(self):
+        """
+        get VideoLabels for currently opened video file
+        note: the @property decorator doesn't work with QWidgets so we have
+        not implemented this as a property
+        """
+        return self._labels
+
     def load_video(self, path):
         """ load new avi file """
 
-        # if we have labels already loaded, cache them before opening labels for
+        # if we have labels loaded, cache them before opening labels for
         # new video
         if self._labels is not None:
             self._project.cache_unsaved_annotations(self._labels)
