@@ -67,7 +67,8 @@ class Project:
 
         # if this has already been opened
         if video_filename in self._unsaved_annotations:
-            return VideoLabels.load(self._unsaved_annotations[video_filename])
+            annotations = self._unsaved_annotations.pop(video_filename)
+            return VideoLabels.load(annotations)
 
         # if annotations already exist for this video file in the project open
         # it, otherwise create a new empty VideoLabels
@@ -103,15 +104,14 @@ class Project:
 
     def save_cached_annotations(self):
         """
-
-        :return:
+        save VideoLabel objects that have been cached
+        :return: None
         """
-        for annotation in self._unsaved_annotations:
-            path = self._annotations_dir / Path(
-                annotation['file']).with_suffix('.json')
+        for video in self._unsaved_annotations:
+            path = self._annotations_dir / Path(video).with_suffix('.json')
 
             with path.open(mode='w', newline='\n') as f:
-                json.dump(annotation, f)
+                json.dump(self._unsaved_annotations[video], f)
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
