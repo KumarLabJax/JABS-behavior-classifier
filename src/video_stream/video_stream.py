@@ -22,12 +22,10 @@ class VideoStream:
         :param path: path to video file
         :param frame_buffer_size: max number of frames to buffer
         """
-
         # open video file
-        self.stream = cv2.VideoCapture(path)
+        self.stream = cv2.VideoCapture(str(path))
         if not self.stream.isOpened():
-            # TODO use a less general exception
-            raise Exception(f"unable to open {path}")
+            raise IOError(f"unable to open {path}")
 
         self._frame_index = 0
         self._queue_size = frame_buffer_size

@@ -86,8 +86,10 @@ class _PlayerThread(QtCore.QThread):
                     start_time = now
 
                 # send the new frame and the frame index to the UI components
-                self.newImage.emit(image)
-                self.updatePosition.emit(frame['index'])
+                # unless playback was stopped while we were sleeping
+                if not self._stream.stopped:
+                    self.newImage.emit(image)
+                    self.updatePosition.emit(frame['index'])
 
                 # update timestamp for when should the next frame be shown
                 next_timestamp += frame['duration']
@@ -109,6 +111,19 @@ class _FrameWidget(QtWidgets.QLabel):
 
         # initially we want the _FrameWidget to expand to the true size of the
         # image
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                           QtWidgets.QSizePolicy.Expanding)
+        self.firstFrame = True
+
+    def sizeHint(self):
+        """
+        Override QLabel.sizeHint to give an initial starting size.
+        """
+        return QtCore.QSize(800, 800)
+
+    def reset(self):
+        """ reset state of frame widget  """
+        self.clear()
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
@@ -289,6 +304,19 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.num_frames
 
+    def reset(self):
+        """ reset video player """
+        self._video_stream = None
+        self._tracks = None
+        self._position_slider.setValue(0)
+        self._position_slider.setEnabled(False)
+        self.updateIdentities.emit([])
+        self._play_button.setEnabled(False)
+        self._disable_frame_buttons()
+        self._frame_label.setText('')
+        self._time_label.setText('')
+        self._frame_widget.reset()
+
     def stream_fps(self):
         """ get frames per second from loaded video """
         assert self._video_stream is not None
@@ -300,18 +328,17 @@ class PlayerWidget(QtWidgets.QWidget):
         :param path: path to video file
         """
 
+        # if we already have a video loaded make sure it is stopped
+        self.stop()
+        self.reset()
+
         # load the video and pose file
         self._video_stream = VideoStream(path)
         self._tracks = PoseEstimationV3(path)
 
         # setup the position slider
-        self._position_slider.setValue(0)
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
         self._position_slider.setEnabled(True)
-
-        # let frame_widget know it's loading the first frame from the video
-        # so it sets the initial size properly
-        self._frame_widget.firstFrame = True
 
         # tell main window to populate the identity selection drop down
         # this will cause _set_active_identity() to be called, which will load
@@ -420,6 +447,14 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.wait()
             self._player_thread = None
 
+        # seek to the current position of the slider -- it's possible a
+        # player thread had read a frame or two beyond that but the frames
+        # were discarded when they arrived at the UI thread after playback
+        # stopped. This makes sure we don't skip over those frames when
+        # playback resumes.
+        self._video_stream.seek(self._position_slider.value())
+        self._update_frame(self._video_stream.read())
+
         # change the icon to play
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
@@ -483,6 +518,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _set_active_identity(self, identity):
         """ set an active identity, which will be labeled in the video """
+
+        # don't do anything if a video isn't loaded
+        if self._video_stream is None:
+            return
+
         self._active_identity = identity
         if self._player_thread:
             self._player_thread.set_identity(identity)
@@ -526,6 +566,7 @@ class PlayerWidget(QtWidgets.QWidget):
         update the time and current frame labels with current frame
         :param frame_number: current frame number
         """
+
         self._frame_label.setText(
             f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(
@@ -537,6 +578,10 @@ class PlayerWidget(QtWidgets.QWidget):
         display a new QImage sent from the player thread
         :param image: QImage to display as next frame
         """
+        # make sure the video stream hasn't been closed since this signal
+        # was sent
+        if self._video_stream is None:
+            return
         self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.pyqtSlot(int)
@@ -547,11 +592,15 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame_number: new value for the progress slider
         """
         # don't update the slider value if user is seeking, since that can
-        # interfere
-        if not self._seeking:
-            self._position_slider.setValue(frame_number)
-            self.updateFrameNumber.emit(frame_number)
-            self._update_time_display(frame_number)
+        # interfere.
+        # Also make sure the video stream hasn't been closed since the signal
+        # was sent.
+        if not self._playing or self._seeking or self._video_stream is None:
+            return
+
+        self._position_slider.setValue(frame_number)
+        self.updateFrameNumber.emit(frame_number)
+        self._update_time_display(frame_number)
 
     def _start_player_thread(self):
         """
@@ -565,9 +614,3 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
-
-    def _get_identity_points(self, frame_index):
-        if self._active_identity is not None:
-            return self._pose_est.get_points(frame_index, self._active_identity)
-        else:
-            return None

@@ -7,22 +7,22 @@ import sys
 import argparse
 from PyQt5 import QtWidgets
 
-from src.ui import CentralWidget, MainWindow
+from src.ui import MainWindow
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
     main_window = MainWindow()
-    main_window.setCentralWidget(CentralWidget())
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('video_file')
+    parser.add_argument('project_dir')
     args = parser.parse_args()
 
     try:
-        main_window.centralWidget().load_video(args.video_file)
+        #main_window.centralWidget().load_video(args.video_file)
+        main_window.open_project(args.project_dir)
     except Exception as e:
         sys.exit(f"Error loading file:  {e}")
 

@@ -1,10 +1,11 @@
 import math
 
 from PyQt5.QtWidgets import QWidget, QSizePolicy
-from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
+from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
 from PyQt5.QtCore import QSize, Qt
 
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR
+from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
+                     POSITION_MARKER_COLOR)
 from src.labeler.track_labels import TrackLabels
 
 
@@ -20,7 +21,7 @@ class TimelineLabelWidget(QWidget):
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
     _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
-    _RANGE_COLOR = QColor(255, 255, 204)
+    _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
     def __init__(self, *args, **kwargs):
         super(TimelineLabelWidget, self).__init__(*args, **kwargs)
@@ -95,6 +96,7 @@ class TimelineLabelWidget(QWidget):
         start = mapped_position - (
                 self._window_size * self._scale_factor) + self._pixmap_offset
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
+        qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
         qp.drawRect(start, 0, self._frames_in_view * self._scale_factor,
                     self.size().height() - 1)
 

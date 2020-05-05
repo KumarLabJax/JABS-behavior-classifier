@@ -17,6 +17,13 @@ class TestVideoLabels(unittest.TestCase):
         for i in range(0, 99):
             self.assertEqual(track.get_frame_label(i), track.Label.NONE)
 
+    def test_identity_must_be_string(self):
+        """ test that identity must be a string """
+        labels = VideoLabels('filename.avi', 100)
+
+        with self.assertRaises(ValueError):
+            track = labels.get_track_labels(1, 'behavior name')
+
     def test_load_from_dict(self):
         """ test creating new VideoLabels object from dict representation """
         video_label_dict = {

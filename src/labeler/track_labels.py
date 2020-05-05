@@ -6,7 +6,8 @@ import numpy as np
 
 class TrackLabels:
     """
-    stores labels for a given identity and behavior
+    Stores labels for a given identity and behavior. Requires one byte per
+    frame to store labels (e.g. approx. 108KB per 1 hour of 30fps video)
     """
     class Label(enum.IntEnum):
         """ label values """
@@ -14,7 +15,7 @@ class TrackLabels:
         BEHAVIOR = 1
         NOT_BEHAVIOR = 2
 
-        # the following only used in downsampling label array
+        # the following only used in down sampling label array
         # they have special meaning
         MIX = 3
         PAD = 4
@@ -31,7 +32,7 @@ class TrackLabels:
         self._labels[start:end+1] = self.Label.NOT_BEHAVIOR
 
     def clear_labels(self, start, end):
-        """ clear labels for a range of frames [start, end]"""
+        """ clear labels for a range of frames [start, end] """
         self._labels[start:end+1] = self.Label.NONE
 
     def get_frame_label(self, frame_index):

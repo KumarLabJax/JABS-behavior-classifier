@@ -83,7 +83,10 @@ class ManualLabelWidget(QWidget):
         slice_start = max(start, 0)
         slice_end = self._current_frame + self._window_size
 
-        label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
+        if self._labels is not None:
+            label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
+        else:
+            label_blocks = []
 
         qp = QPainter(self)
         qp.setPen(Qt.NoPen)
@@ -173,6 +176,11 @@ class ManualLabelWidget(QWidget):
         :param start: starting frame number
         :param end: ending frame number
         """
+
+        # can't draw if we don't know the frame rate yet
+        if self._framerate == 0:
+            return
+
         painter.setBrush(self._BORDER_COLOR)
         for i in range(start, end + 1):
             # we could add i > 0 and i < num_frames to this if test to avoid
@@ -186,17 +194,19 @@ class ManualLabelWidget(QWidget):
         self._labels = labels
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view """
+        """ called to reposition the view around new current frame """
         self._current_frame = current_frame
         # force redraw
         self.update()
 
     def set_num_frames(self, num_frames):
+        """ set number of frames in current video, needed to properly render """
         self._num_frames = num_frames
 
     def set_framerate(self, fps):
         """
-        set the frame rate for the currently loaded video
+        set the frame rate for the currently loaded video, needed to draw the
+        ticks at one second intervals
         :param fps: frame rate in frames per second
         """
         self._framerate = fps

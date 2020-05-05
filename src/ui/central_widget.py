@@ -1,7 +1,6 @@
 from PyQt5 import QtWidgets, QtCore
 
 from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
-from src.labeler import VideoLabels
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -23,7 +22,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.updateIdentities.connect(self._set_identities)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
 
-        self._tracks = None
+        self._project = None
         self._labels = None
 
         self._selection_start = 0
@@ -135,17 +134,47 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
-
         self.setLayout(layout)
+
+    def set_project(self, project):
+        """ set the currently opened project """
+        self._project = project
+
+    def get_labels(self):
+        """
+        get VideoLabels for currently opened video file
+        note: the @property decorator doesn't work with QWidgets so we have
+        not implemented this as a property
+        """
+        return self._labels
 
     def load_video(self, path):
         """ load new avi file """
-        self._player_widget.load_video(path)
-        self._labels = VideoLabels(path, self._player_widget.num_frames())
-        self._set_label_track()
-        self.manual_labels.set_num_frames(self._player_widget.num_frames())
-        self.manual_labels.set_framerate(self._player_widget.stream_fps())
-        self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+
+        # if we have labels loaded, cache them before opening labels for
+        # new video
+        if self._labels is not None:
+            self._project.cache_unsaved_annotations(self._labels)
+            self._start_selection(False)
+            self.select_button.setChecked(False)
+
+        try:
+            # open the video
+            self._player_widget.load_video(path)
+
+            # load labels for new video and set track for current identity
+            self._labels = self._project.load_annotation_track(path)
+            self._set_label_track()
+
+            # update ui components with properties of new video
+            self.manual_labels.set_num_frames(self._player_widget.num_frames())
+            self.manual_labels.set_framerate(self._player_widget.stream_fps())
+            self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+        except OSError as e:
+            # error loading
+            self._labels = None
+            self._player_widget.reset()
+            raise e
 
     def keyPressEvent(self, event):
         """ handle key press events """
@@ -176,8 +205,8 @@ class CentralWidget(QtWidgets.QWidget):
         callback for the "new behavior" button
         opens a modal dialog to allow the user to enter a new behavior label
         """
-        text, ok = QtWidgets.QInputDialog.getText(self, 'New Label',
-                                        'New Label Name:')
+        text, ok = QtWidgets.QInputDialog.getText(None, 'New Label',
+                                                  'New Label Name:')
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self.behavior_selection.addItem(text)

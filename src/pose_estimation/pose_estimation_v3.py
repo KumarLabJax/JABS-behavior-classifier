@@ -25,12 +25,16 @@ class PoseEstimationV3:
         TIP_TAIL = 11
 
     def __init__(self, file_path):
+        """
+        :param file_path: Path object representing the location of the pose file
+        """
 
         # Allow the path to the avi file to be passed rather than the path to
         # the .h5 file. Since we use a standardized naming convention we can
         # generate the path to the .h5 from the .avi path
-        if file_path.lower().endswith('.avi'):
-            self._path = file_path[:-4] + '_pose_est_v3.h5'
+        if file_path.suffix.lower() == '.avi':
+            self._path = file_path.with_name(
+                file_path.with_suffix('').name + '_pose_est_v3.h5')
         else:
             self._path = file_path
 

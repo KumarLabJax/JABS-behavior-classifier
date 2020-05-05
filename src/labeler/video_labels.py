@@ -16,24 +16,40 @@ class VideoLabels:
         self._num_frames = num_frames
         self._identity_labels = {}
 
+    @property
+    def filename(self):
+        """ return filename of video this object represents """
+        return self._filename
+
     def get_track_labels(self, identity, behavior):
         """ return a TrackLabels for an identity & behavior """
+
+        # require identity to be a string for serialization
+        if not isinstance(identity, str):
+            raise ValueError("Identity must be a string")
+
         identity_labels = self._identity_labels.get(identity)
 
+        # identity not already present
         if identity_labels is None:
             self._identity_labels[identity] = {}
 
         track_labels = self._identity_labels[identity].get(behavior)
 
+        # identity doesn't have annotations for this behavior, create a new
+        # TrackLabels object
         if track_labels is None:
             self._identity_labels[identity][behavior] = \
                 TrackLabels(self._num_frames)
 
+        # return TrackLabels object for this identity & behavior
         return self._identity_labels[identity][behavior]
 
     def as_dict(self):
         """
-        return dict representation of self
+        return dict representation of self, useful for JSON serialization and
+        saving to disk or cacheing in memory when user switches to a different
+        video
 
         example return value:
         {
