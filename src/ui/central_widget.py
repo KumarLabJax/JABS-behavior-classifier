@@ -139,6 +139,7 @@ class CentralWidget(QtWidgets.QWidget):
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
+        self._labels = None
 
     def get_labels(self):
         """
@@ -154,7 +155,7 @@ class CentralWidget(QtWidgets.QWidget):
         # if we have labels loaded, cache them before opening labels for
         # new video
         if self._labels is not None:
-            self._project.cache_unsaved_annotations(self._labels)
+            self._project.cache_annotations(self._labels)
             self._start_selection(False)
             self.select_button.setChecked(False)
 

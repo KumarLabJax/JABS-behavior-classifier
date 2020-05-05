@@ -19,7 +19,8 @@ class Project:
 
         # make sure this is a pathlib.Path and not a string
         self._project_dir_path = Path(project_path)
-        self._annotations_dir = self._project_dir_path / self.__PROJ_DIR / "annotations"
+        self._annotations_dir = (self._project_dir_path / self.__PROJ_DIR /
+                                 "annotations")
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -80,7 +81,7 @@ class Project:
             nframes = get_frame_count(str(video_path))
             return VideoLabels(video_filename, nframes)
 
-    def cache_unsaved_annotations(self, annotations):
+    def cache_annotations(self, annotations):
         """
         Cache a VideoLabels object after encoding as a JSON serializable dict.
         Used when user switches from one video to another during a labeling

@@ -52,7 +52,8 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
 
     def _selection_changed(self, current, previous):
         """ signal main window that use changed selected video """
-        self.selectionChanged.emit(current.text())
+        if current is not None:
+            self.selectionChanged.emit(current.text())
 
     def set_project(self, project):
         """

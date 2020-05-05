@@ -36,6 +36,13 @@ class MainWindow(QtWidgets.QMainWindow):
         save_action.triggered.connect(self._save_project)
         file_menu.addAction(save_action)
 
+        # open action
+        open_action = QtWidgets.QAction('&Open Project', self)
+        open_action.setShortcut('Ctrl+O')
+        open_action.setStatusTip('Open Project')
+        open_action.triggered.connect(self.show_project_open_dialog)
+        file_menu.addAction(open_action)
+
         # exit action
         exit_action = QtWidgets.QAction(' &Exit', self)
         exit_action.setShortcut('Ctrl+Q')
@@ -91,6 +98,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+
+    def show_project_open_dialog(self):
+        """ prompt the user to select a project directory and open it """
+        options = QtWidgets.QFileDialog.Options()
+        options |= QtWidgets.QFileDialog.DontUseNativeDialog
+
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Project Directory", options=options)
+
+        if directory:
+            self.open_project(directory)
 
     def _save_project(self):
         """
