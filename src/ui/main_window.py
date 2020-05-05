@@ -56,7 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.setFloating(False)
 
         # if the playlist visibility changes, make sure the view_playlists
-        # checkmark is set correctly
+        # check mark is set correctly
         self.video_list.visibilityChanged.connect(self.view_playlist.setChecked)
 
         # handle event where user selects a different video in the playlist
@@ -93,7 +93,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.set_project(self._project)
 
     def _save_project(self):
-        """ save current project state """
+        """
+        save current project state. Handles the File->Save menu action triggered
+        signal.
+        """
 
         # save the labels for the active video
         current_video_labels = self.centralWidget().get_labels()
