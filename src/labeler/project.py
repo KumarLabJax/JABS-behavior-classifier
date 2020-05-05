@@ -90,7 +90,7 @@ class Project:
         """
         self._unsaved_annotations[annotations.filename] = annotations.as_dict()
 
-    def save_annotatios(self, annotations):
+    def save_annotations(self, annotations):
         """
         save state of a VideoLabels object to the project directory
         :param annotations: VideoLabels object

@@ -91,7 +91,7 @@ class TestProject(unittest.TestCase):
         walking_labels.label_behavior(5000, 5500)
 
         # save changes
-        project.save_annotatios(labels)
+        project.save_annotations(labels)
 
         # make sure the .json file in the project directory matches the new
         # state

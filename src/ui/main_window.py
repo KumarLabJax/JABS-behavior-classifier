@@ -97,7 +97,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # save the labels for the active video
         current_video_labels = self.centralWidget().get_labels()
-        self._project.save_annotatios(current_video_labels)
+        self._project.save_annotations(current_video_labels)
 
         # save labels for any other videos that have been worked on this session
         self._project.save_cached_annotations()
