@@ -29,6 +29,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
 
+        # save action
+        save_action = QtWidgets.QAction('&Save', self)
+        save_action.setShortcut('Ctrl+S')
+        save_action.setStatusTip('Save Project State')
+        save_action.triggered.connect(self._save_project)
+        file_menu.addAction(save_action)
+
         # exit action
         exit_action = QtWidgets.QAction(' &Exit', self)
         exit_action.setShortcut('Ctrl+Q')
@@ -48,9 +55,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
 
-
         # if the playlist visibility changes, make sure the view_playlists
-        # checkmark is set correctly
+        # check mark is set correctly
         self.video_list.visibilityChanged.connect(self.view_playlist.setChecked)
 
         # handle event where user selects a different video in the playlist
@@ -85,6 +91,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+
+    def _save_project(self):
+        """
+        save current project state. Handles the File->Save menu action triggered
+        signal.
+        """
+
+        # save the labels for the active video
+        current_video_labels = self.centralWidget().get_labels()
+        self._project.save_annotations(current_video_labels)
+
+        # save labels for any other videos that have been worked on this session
+        self._project.save_cached_annotations()
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """
