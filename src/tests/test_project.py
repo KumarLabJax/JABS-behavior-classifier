@@ -71,8 +71,7 @@ class TestProject(unittest.TestCase):
         labels = project.load_annotation_track(self._FILENAMES[0])
 
         with (self._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
-              Path(self._FILENAMES[0]).with_suffix('.json')
-        ).open('r') as f:
+              (self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
         self.assertTrue(len(project.videos), 2)
@@ -96,8 +95,7 @@ class TestProject(unittest.TestCase):
         # make sure the .json file in the project directory matches the new
         # state
         with (self._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
-              Path(self._FILENAMES[0]).with_suffix('.json')
-        ).open('r') as f:
+              Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
         self.assertDictEqual(labels.as_dict(), dict_from_file)
