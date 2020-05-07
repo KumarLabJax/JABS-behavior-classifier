@@ -49,6 +49,9 @@ def label_all_identities(img, pose_est, identities, frame_index):
 
             # find the center of the remaining points
             center = MultiPoint(filtered_points).convex_hull.centroid
+
+            # write the identity at that location
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),
-                        cv2.FONT_HERSHEY_PLAIN, 1, _FRAME_LABEL_COLOR, 1, lineType=cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_PLAIN, 1, _FRAME_LABEL_COLOR, 1,
+                        lineType=cv2.LINE_AA)
 
