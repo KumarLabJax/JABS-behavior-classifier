@@ -1,6 +1,6 @@
 from PyQt5 import QtWidgets, QtCore
 
-from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
+from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget, FrameLabelsWidget
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -124,6 +124,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # label widgets
         self.manual_labels = ManualLabelWidget()
+        self.frame_ticks = FrameLabelsWidget()
 
         # timeline widget
         self.timeline_widget = TimelineLabelWidget()
@@ -134,6 +135,7 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
+        layout.addWidget(self.frame_ticks,3, 0, 1, 2)
         self.setLayout(layout)
 
     def set_project(self, project):
@@ -175,6 +177,7 @@ class CentralWidget(QtWidgets.QWidget):
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
+            self.frame_ticks.set_num_frames(self._player_widget.num_frames())
             self.timeline_widget.set_num_frames(self._player_widget.num_frames())
         except OSError as e:
             # error loading
@@ -302,6 +305,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self.manual_labels.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
+        self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
         """
