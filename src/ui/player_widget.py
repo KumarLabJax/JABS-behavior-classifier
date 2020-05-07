@@ -1,7 +1,7 @@
 import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from src.video_stream import VideoStream, label_identity, label_all_identities
+from src.video_stream import VideoStream, label_identity
 from src.pose_estimation import PoseEstimationV3
 
 
@@ -23,8 +23,6 @@ class _PlayerThread(QtCore.QThread):
         self._stream = video_stream
         self._pose_est = pose_est
         self._identity = identity
-        self._label_identities = False
-        self._identities = []
 
     def terminate(self):
         """
@@ -40,12 +38,6 @@ class _PlayerThread(QtCore.QThread):
         :return: None
         """
         self._identity = identity
-
-    def set_label_identities(self, val):
-        self._label_identities = val
-
-    def set_labels(self, identities):
-        self._identities = identities
 
     def run(self):
         """
@@ -72,13 +64,8 @@ class _PlayerThread(QtCore.QThread):
             frame = self._stream.read()
 
             if frame['data'] is not None:
-
-                if self._label_identities and self._identities:
-                    # label all identities mode
-                    label_all_identities(frame['data'], self._pose_est, self._identities, frame['index'])
-
-                elif self._identity is not None:
-                    # if active identity set, label it on the frame
+                # add if active identity set, label it on the frame
+                if self._identity is not None:
                     label_identity(frame['data'],
                                    *self._pose_est.get_points(frame['index'],
                                                               self._identity))
@@ -120,7 +107,7 @@ class _FrameWidget(QtWidgets.QLabel):
     full size of the video frame, but then will be resizable after that
     """
     def __init__(self):
-        super(_FrameWidget, self).__init__()
+        super().__init__()
 
         # initially we want the _FrameWidget to expand to the true size of the
         # image
@@ -217,9 +204,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # track annotation
         self._tracks = None
 
-        self._label_all_identities = False
-        self._identities = []
-
         # currently selected identity -- if set will be labeled in the video
         self._active_identity = None
 
@@ -254,7 +238,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
-        self._play_button.clicked.connect(self._toggle_play)
+        self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
@@ -338,25 +322,6 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def set_identity_label_mode(self, enabled):
-        self._label_all_identities = enabled
-
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
-
-        if self._player_thread:
-            if enabled:
-                self._player_thread.set_labels(self._identities)
-            self._player_thread.set_label_identities(enabled)
-        else:
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
-
-    def set_identity_labels(self, identities):
-        self._identities = identities
-
     def load_video(self, path):
         """
         load a new video source
@@ -364,7 +329,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
 
         # if we already have a video loaded make sure it is stopped
-        self._stop()
+        self.stop()
         self.reset()
 
         # load the video and pose file
@@ -383,38 +348,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
-
-    def _stop(self):
-        """
-        stop playing and reset the play button to its initial state
-        """
-        # don't do anything if a video hasn't been loaded
-        if self._video_stream is None:
-            return
-
-        # if we have an active player thread, terminate
-        if self._player_thread:
-            self._player_thread.terminate()
-            self._player_thread.wait()
-            self._player_thread = None
-
-        # seek to the current position of the slider -- it's possible a
-        # player thread had read a frame or two beyond that but the frames
-        # were discarded when they arrived at the UI thread after playback
-        # stopped. This makes sure we don't skip over those frames when
-        # playback resumes.
-        self._video_stream.seek(self._position_slider.value())
-        self._update_frame(self._video_stream.read())
-
-        # change the icon to play
-        self._play_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
-
-        # switch the button state to off
-        self._play_button.setChecked(False)
-
-        self._enable_frame_buttons()
-        self._playing = False
 
     def _position_slider_clicked(self):
         """
@@ -470,7 +403,7 @@ class PlayerWidget(QtWidgets.QWidget):
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
         """
-        self._next_frame()
+        self.next_frame()
 
     def _previous_frame_clicked(self):
         """
@@ -479,9 +412,9 @@ class PlayerWidget(QtWidgets.QWidget):
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
         """
-        self._previous_frame()
+        self.previous_frame()
 
-    def _toggle_play(self):
+    def toggle_play(self):
         """
         handle clicking on the play/pause button
         """
@@ -491,7 +424,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._playing:
             # if we are playing, stop
-            self._stop()
+            self.stop()
 
         else:
             # we weren't already playing so start
@@ -500,7 +433,39 @@ class PlayerWidget(QtWidgets.QWidget):
             self._disable_frame_buttons()
             self._start_player_thread()
 
-    def _next_frame(self, frames=1):
+    def stop(self):
+        """
+        stop playing and reset the play button to its initial state
+        """
+        # don't do anything if a video hasn't been loaded
+        if self._video_stream is None:
+            return
+
+        # if we have an active player thread, terminate
+        if self._player_thread:
+            self._player_thread.terminate()
+            self._player_thread.wait()
+            self._player_thread = None
+
+        # seek to the current position of the slider -- it's possible a
+        # player thread had read a frame or two beyond that but the frames
+        # were discarded when they arrived at the UI thread after playback
+        # stopped. This makes sure we don't skip over those frames when
+        # playback resumes.
+        self._video_stream.seek(self._position_slider.value())
+        self._update_frame(self._video_stream.read())
+
+        # change the icon to play
+        self._play_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
+
+        # switch the button state to off
+        self._play_button.setChecked(False)
+
+        self._enable_frame_buttons()
+        self._playing = False
+
+    def next_frame(self, frames=1):
         """
         advance to the next frame and display it
         :param frames: optional, number of frames to advance
@@ -530,7 +495,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame = self._video_stream.read()
             self._update_frame(frame)
 
-    def _previous_frame(self, frames=1):
+    def previous_frame(self, frames=1):
         """
         go back to the previous frame and display it
         :param frames: optional number of frames to move back
@@ -586,14 +551,9 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame: dict returned by video_stream.read()
         """
         if frame['index'] != -1:
-            if self._label_all_identities:
-                label_all_identities(frame['data'], self._tracks,
-                                     self._identities, frame['index'])
-            else:
-                label_identity(frame['data'],
-                               *self._tracks.get_points(frame['index'],
-                                                        self._active_identity))
-
+            label_identity(frame['data'],
+                           *self._tracks.get_points(frame['index'],
+                                                    self._active_identity))
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
@@ -651,6 +611,6 @@ class PlayerWidget(QtWidgets.QWidget):
                                             self._active_identity)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
-        self._player_thread.endOfFile.connect(self._stop)
+        self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True

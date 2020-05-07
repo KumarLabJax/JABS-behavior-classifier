@@ -1,7 +1,6 @@
 from PyQt5 import QtWidgets, QtCore
 
-from src.ui import (PlayerWidget, ManualLabelWidget, TimelineLabelWidget,
-                    IdentityComboBox)
+from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -48,12 +47,9 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_group.setLayout(behavior_layout)
 
         # identity selection form components
-        self.identity_selection = IdentityComboBox()
+        self.identity_selection = QtWidgets.QComboBox()
         self.identity_selection.currentIndexChanged.connect(
             self._change_identity)
-        self.identity_selection.pop_up_visible.connect(self._identity_popup_visibility_changed)
-        self.identity_selection.setEditable(False)
-        self.identity_selection.installEventFilter(self.identity_selection)
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
         identity_group = QtWidgets.QGroupBox("Identity")
@@ -190,13 +186,13 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle key press events """
         key = event.key()
         if key == QtCore.Qt.Key_Left:
-            self._player_widget._previous_frame()
+            self._player_widget.previous_frame()
         elif key == QtCore.Qt.Key_Right:
-            self._player_widget._next_frame()
+            self._player_widget.next_frame()
         elif key == QtCore.Qt.Key_Up:
-            self._player_widget._previous_frame(self._frame_jump)
+            self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Down:
-            self._player_widget._next_frame(self._frame_jump)
+            self._player_widget.next_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Space:
             self.select_button.toggle()
             self._start_selection(self.select_button.isChecked())
@@ -286,7 +282,6 @@ class CentralWidget(QtWidgets.QWidget):
         """ populate the identity_selection combobox """
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
-        self._player_widget.set_identity_labels(identities)
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
@@ -330,10 +325,3 @@ class CentralWidget(QtWidgets.QWidget):
             self.identity_selection.currentText(),
             self.behavior_selection.currentText()
         )
-
-    @QtCore.pyqtSlot(bool)
-    def _identity_popup_visibility_changed(self, visible):
-        self._player_widget.set_identity_label_mode(visible)
-
-    def _identity_lose_focus(self):
-        self._identity_popup_visibility_changed(False)
