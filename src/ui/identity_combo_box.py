@@ -48,6 +48,13 @@ class IdentityComboBox(QtWidgets.QComboBox):
     #     super(IdentityComboBox, self).hidePopup()
 
     def cancel_popup(self):
+        """
+        Part of the work around described in showPopup. This is connected to
+        the resetButton signal for the QComboBoxPrivateContainer. This lets us
+        emit the signal when the user dismisses the popup by clicking outside
+        the QComboBox drop down. This can be removed if the behavior of
+        hidePopup() changes to get called in this situation.
+        """
         if self._need_to_emit:
             self._need_to_emit = False
             self.pop_up_visible.emit(False)
