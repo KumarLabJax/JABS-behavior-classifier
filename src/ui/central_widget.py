@@ -140,10 +140,10 @@ class CentralWidget(QtWidgets.QWidget):
         """ set the currently opened project """
         self._project = project
 
-        # this will get set when the first video in the project is loaded,
-        # we need to set it to None, otherwise when we open the first video
-        # for this new project it will add the current labels to the project's
-        # cached changes
+        # This will get set when the first video in the project is loaded, but
+        # we need to set it to None so that we don't try to cache the current
+        # labels when we do so (the current labels belong to the previous
+        # project)
         self._labels = None
 
     def get_labels(self):

@@ -12,7 +12,7 @@ class Project:
     def __init__(self, project_path):
         """
         Open a project at a given path. A project is a directory that contains
-        avi files with corresponding pose_est_v3.h5 files and json files
+        avi files, with corresponding pose_est_v3.h5 files and json files
         containing project metadata and annotations.
         :param project_path: path to project directory
         """
