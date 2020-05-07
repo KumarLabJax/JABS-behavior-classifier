@@ -1,6 +1,7 @@
 from PyQt5 import QtWidgets, QtCore
 
-from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget, FrameLabelsWidget
+from src.ui import (PlayerWidget, ManualLabelWidget, TimelineLabelWidget,
+                    FrameLabelsWidget)
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -178,7 +179,8 @@ class CentralWidget(QtWidgets.QWidget):
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
             self.frame_ticks.set_num_frames(self._player_widget.num_frames())
-            self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+            self.timeline_widget.set_num_frames(
+                self._player_widget.num_frames())
         except OSError as e:
             # error loading
             self._labels = None

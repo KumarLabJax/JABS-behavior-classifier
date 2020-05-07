@@ -89,7 +89,8 @@ class FrameLabelsWidget(QWidget):
                 label_text = f"{i}"
                 label_width = self._font_metrics.width(label_text)
                 painter.setPen(self._COLOR)
-                painter.drawText(offset - label_width/2, self._font_height + 8, label_text)
+                painter.drawText(offset - label_width/2, self._font_height + 8,
+                                 label_text)
 
     def set_current_frame(self, current_frame):
         """ called to reposition the view around new current frame """
