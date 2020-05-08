@@ -40,8 +40,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
 
     # the following is commented out because it is unnecessary due to the work-
     # around described in showPopup. The code has been left in place because
-    # if the bug is fixed that requires the work-around, then we can swithc
-    # back
+    # if the bug is fixed then we can switch back
     #
     # def hidePopup(self):
     #     self.pop_up_visible.emit(False)
