@@ -82,7 +82,7 @@ class FrameLabelsWidget(QWidget):
 
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
-                offset = (i - start + .5) * self._frame_width - 2
+                offset = ((i - start + .5) * self._frame_width) - 2
                 painter.setPen(Qt.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
