@@ -192,6 +192,7 @@ class ManualLabelWidget(QWidget):
     def set_labels(self, labels):
         """ load label track to display """
         self._labels = labels
+        self.update()
 
     def set_current_frame(self, current_frame):
         """ called to reposition the view around new current frame """
