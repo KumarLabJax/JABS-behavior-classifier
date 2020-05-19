@@ -197,6 +197,12 @@ class CentralWidget(QtWidgets.QWidget):
 
     def keyPressEvent(self, event):
         """ handle key press events """
+
+        def begin_select_mode():
+            if not self.select_button.isChecked():
+                self.select_button.toggle()
+                self._start_selection(True)
+
         key = event.key()
         if key == QtCore.Qt.Key_Left:
             self._player_widget._previous_frame()
@@ -212,12 +218,18 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_Z:
             if self.select_button.isChecked():
                 self._label_behavior()
+            else:
+                begin_select_mode()
         elif key == QtCore.Qt.Key_X:
             if self.select_button.isChecked():
                 self._clear_behavior_label()
+            else:
+                begin_select_mode()
         elif key == QtCore.Qt.Key_C:
             if self.select_button.isChecked():
                 self._label_not_behavior()
+            else:
+                begin_select_mode()
 
     def _new_label(self):
         """
