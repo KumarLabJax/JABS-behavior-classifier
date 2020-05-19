@@ -105,7 +105,7 @@ class TimelineLabelWidget(QWidget):
     def set_labels(self, labels):
         """ load label track to display """
         self._labels = labels
-        self._update_bar()
+        self.update_labels()
 
     def set_current_frame(self, current_frame):
         """ called to reposition the view """
