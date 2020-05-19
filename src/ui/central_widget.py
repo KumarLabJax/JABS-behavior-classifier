@@ -1,6 +1,12 @@
 from PyQt5 import QtWidgets, QtCore
 
-from src.ui import PlayerWidget, ManualLabelWidget, TimelineLabelWidget
+from src.ui import (
+    PlayerWidget,
+    ManualLabelWidget,
+    TimelineLabelWidget,
+    IdentityComboBox,
+    FrameLabelsWidget,
+)
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -47,9 +53,12 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_group.setLayout(behavior_layout)
 
         # identity selection form components
-        self.identity_selection = QtWidgets.QComboBox()
+        self.identity_selection = IdentityComboBox()
         self.identity_selection.currentIndexChanged.connect(
             self._change_identity)
+        self.identity_selection.pop_up_visible.connect(self._identity_popup_visibility_changed)
+        self.identity_selection.setEditable(False)
+        self.identity_selection.installEventFilter(self.identity_selection)
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
         identity_group = QtWidgets.QGroupBox("Identity")
@@ -124,6 +133,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # label widgets
         self.manual_labels = ManualLabelWidget()
+        self.frame_ticks = FrameLabelsWidget()
 
         # timeline widget
         self.timeline_widget = TimelineLabelWidget()
@@ -134,11 +144,18 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
+        layout.addWidget(self.frame_ticks,3, 0, 1, 2)
         self.setLayout(layout)
 
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
+
+        # This will get set when the first video in the project is loaded, but
+        # we need to set it to None so that we don't try to cache the current
+        # labels when we do so (the current labels belong to the previous
+        # project)
+        self._labels = None
 
     def get_labels(self):
         """
@@ -154,7 +171,7 @@ class CentralWidget(QtWidgets.QWidget):
         # if we have labels loaded, cache them before opening labels for
         # new video
         if self._labels is not None:
-            self._project.cache_unsaved_annotations(self._labels)
+            self._project.cache_annotations(self._labels)
             self._start_selection(False)
             self.select_button.setChecked(False)
 
@@ -169,7 +186,9 @@ class CentralWidget(QtWidgets.QWidget):
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
-            self.timeline_widget.set_num_frames(self._player_widget.num_frames())
+            self.frame_ticks.set_num_frames(self._player_widget.num_frames())
+            self.timeline_widget.set_num_frames(
+                self._player_widget.num_frames())
         except OSError as e:
             # error loading
             self._labels = None
@@ -180,13 +199,13 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle key press events """
         key = event.key()
         if key == QtCore.Qt.Key_Left:
-            self._player_widget.previous_frame()
+            self._player_widget._previous_frame()
         elif key == QtCore.Qt.Key_Right:
-            self._player_widget.next_frame()
+            self._player_widget._next_frame()
         elif key == QtCore.Qt.Key_Up:
-            self._player_widget.previous_frame(self._frame_jump)
+            self._player_widget._previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Down:
-            self._player_widget.next_frame(self._frame_jump)
+            self._player_widget._next_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Space:
             self.select_button.toggle()
             self._start_selection(self.select_button.isChecked())
@@ -276,6 +295,7 @@ class CentralWidget(QtWidgets.QWidget):
         """ populate the identity_selection combobox """
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
+        self._player_widget.set_identity_labels(identities)
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
@@ -296,6 +316,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self.manual_labels.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
+        self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
         """
@@ -319,3 +340,14 @@ class CentralWidget(QtWidgets.QWidget):
             self.identity_selection.currentText(),
             self.behavior_selection.currentText()
         )
+
+    @QtCore.pyqtSlot(bool)
+    def _identity_popup_visibility_changed(self, visible):
+        """
+        connected to the IdentityComboBox.pop_up_visible signal. When
+        visible == True, we tell the player widget to overlay all identity
+        labels on the frame.
+        When visible == False we revert to the normal behavior of only labeling
+        the currently selected identity
+        """
+        self._player_widget.set_identity_label_mode(visible)

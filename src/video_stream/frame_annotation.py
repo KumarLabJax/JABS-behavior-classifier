@@ -31,3 +31,27 @@ def label_identity(img, points, mask):
         cv2.circle(img, (int(center.y), int(center.x)), 6, _FRAME_LABEL_COLOR,
                    1, lineType=cv2.LINE_AA)
 
+
+def label_all_identities(img, pose_est, identities, frame_index):
+    """
+    label all of the identities in the frame
+    :param img: image to draw the labels on
+    :param pose_est: pose estimations for this video
+    :param identities: list of identity names
+    :return: None
+    """
+
+    for identity in identities:
+        points, mask = pose_est.get_points(frame_index, identity)
+        if points is not None:
+            # first remove any invalid points (where mask is not True)
+            filtered_points = list(compress(points[:-2], mask[:-2]))
+
+            # find the center of the remaining points
+            center = MultiPoint(filtered_points).convex_hull.centroid
+
+            # write the identity at that location
+            cv2.putText(img, str(identity), (int(center.y), int(center.x)),
+                        cv2.FONT_HERSHEY_PLAIN, 1, _FRAME_LABEL_COLOR, 1,
+                        lineType=cv2.LINE_AA)
+

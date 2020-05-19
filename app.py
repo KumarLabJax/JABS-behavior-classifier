@@ -17,14 +17,14 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('project_dir')
+    parser.add_argument('project_dir', nargs='?')
     args = parser.parse_args()
 
-    try:
-        #main_window.centralWidget().load_video(args.video_file)
-        main_window.open_project(args.project_dir)
-    except Exception as e:
-        sys.exit(f"Error loading file:  {e}")
+    if args.project_dir is not None:
+        try:
+            main_window.open_project(args.project_dir)
+        except Exception as e:
+            sys.exit(f"Error loading file:  {e}")
 
     main_window.show()
     sys.exit(app.exec_())
