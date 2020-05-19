@@ -343,10 +343,11 @@ class CentralWidget(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(bool)
     def _identity_popup_visibility_changed(self, visible):
-        """ connected to the IdentityComboBox.pop_up_visible signal. When
-         visible == True, we tell the player widget to overlay all identity
-         labels on the frame.
-         When visible == False we revert to the normal behavior of only labeling
-         the currently selected identity
-         """
+        """
+        connected to the IdentityComboBox.pop_up_visible signal. When
+        visible == True, we tell the player widget to overlay all identity
+        labels on the frame.
+        When visible == False we revert to the normal behavior of only labeling
+        the currently selected identity
+        """
         self._player_widget.set_identity_label_mode(visible)
