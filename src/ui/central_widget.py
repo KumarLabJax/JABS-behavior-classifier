@@ -205,16 +205,15 @@ class CentralWidget(QtWidgets.QWidget):
 
         key = event.key()
         if key == QtCore.Qt.Key_Left:
-            self._player_widget._previous_frame()
+            self._player_widget.previous_frame()
         elif key == QtCore.Qt.Key_Right:
-            self._player_widget._next_frame()
+            self._player_widget.next_frame()
         elif key == QtCore.Qt.Key_Up:
-            self._player_widget._previous_frame(self._frame_jump)
+            self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Down:
-            self._player_widget._next_frame(self._frame_jump)
+            self._player_widget.next_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Space:
-            self.select_button.toggle()
-            self._start_selection(self.select_button.isChecked())
+            self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key_Z:
             if self.select_button.isChecked():
                 self._label_behavior()
