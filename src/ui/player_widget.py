@@ -254,7 +254,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
-        self._play_button.clicked.connect(self._toggle_play)
+        self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QPushButton("◀")
@@ -470,7 +470,7 @@ class PlayerWidget(QtWidgets.QWidget):
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
         """
-        self._next_frame()
+        self.next_frame()
 
     def _previous_frame_clicked(self):
         """
@@ -479,14 +479,14 @@ class PlayerWidget(QtWidgets.QWidget):
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
         """
-        self._previous_frame()
+        self.previous_frame()
 
-    def _toggle_play(self):
+    def toggle_play(self):
         """
         handle clicking on the play/pause button
         """
-        # don't do anything if a video hasn't been loaded
-        if self._video_stream is None:
+        # don't do anything if a video hasn't been loaded, or if we are seeking
+        if self._video_stream is None or self._seeking:
             return
 
         if self._playing:
@@ -500,14 +500,15 @@ class PlayerWidget(QtWidgets.QWidget):
             self._disable_frame_buttons()
             self._start_player_thread()
 
-    def _next_frame(self, frames=1):
+    def next_frame(self, frames=1):
         """
         advance to the next frame and display it
         :param frames: optional, number of frames to advance
         """
 
-        # don't do anything if a video hasn't been loaded
-        if self._video_stream is None:
+        # don't do anything if a video hasn't been loaded or if the video is
+        # playing
+        if self._video_stream is None or self._playing:
             return
 
         new_frame = min(self._position_slider.value() + frames,
@@ -530,14 +531,15 @@ class PlayerWidget(QtWidgets.QWidget):
             frame = self._video_stream.read()
             self._update_frame(frame)
 
-    def _previous_frame(self, frames=1):
+    def previous_frame(self, frames=1):
         """
         go back to the previous frame and display it
         :param frames: optional number of frames to move back
         """
 
-        # don't do anything if a video hasn't been loaded
-        if self._video_stream is None:
+        # don't do anything if a video hasn't been loaded or if the video is
+        # playing
+        if self._video_stream is None or self._playing:
             return
 
         new_frame = max(self._position_slider.value() - frames, 0)
