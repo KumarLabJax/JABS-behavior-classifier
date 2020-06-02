@@ -14,7 +14,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Behavior Classifier")
         self.setCentralWidget(CentralWidget())
-        self.grabKeyboard()
 
         self.setUnifiedTitleAndToolBarOnMac(True)
 
