@@ -2,6 +2,7 @@ import enum
 import heapq
 import h5py
 import numpy as np
+from pathlib import Path
 
 
 class PoseEstimationV3:
@@ -24,10 +25,13 @@ class PoseEstimationV3:
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(self, file_path):
+    def __init__(self, _file_path):
         """
         :param file_path: Path object representing the location of the pose file
         """
+
+        # make sure the file_path is a Path object
+        file_path = Path(_file_path)
 
         # Allow the path to the avi file to be passed rather than the path to
         # the .h5 file. Since we use a standardized naming convention we can
@@ -71,6 +75,12 @@ class PoseEstimationV3:
 
             # populate identity_ma and identity_to_instance
             self._build_identity_map()
+
+            self._num_frames = len(self._all_points)
+
+    @property
+    def num_frames(self):
+        return self._num_frames
 
     @property
     def identities(self):

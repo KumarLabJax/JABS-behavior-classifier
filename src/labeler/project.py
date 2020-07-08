@@ -7,7 +7,7 @@ from src.video_stream.utilities import get_frame_count
 
 class Project:
     """ represents a labeling project """
-    __PROJ_DIR = '.labeler'
+    __ROTTA_DIR = 'rotta'
 
     def __init__(self, project_path):
         """
@@ -19,7 +19,7 @@ class Project:
 
         # make sure this is a pathlib.Path and not a string
         self._project_dir_path = Path(project_path)
-        self._annotations_dir = (self._project_dir_path / self.__PROJ_DIR /
+        self._annotations_dir = (self._project_dir_path / self.__ROTTA_DIR /
                                  "annotations")
 
         # get list of video files in the project directory
@@ -31,12 +31,16 @@ class Project:
         # parent directory must exist.
         Path(project_path).mkdir(mode=0o775, exist_ok=True)
 
-        # make sure the project .labeler directory exists to store project
+        # make sure the project subdirectory directory exists to store project
         # metadata and annotations
-        Path(project_path, self.__PROJ_DIR).mkdir(mode=0o775, exist_ok=True)
+        Path(project_path, self.__ROTTA_DIR).mkdir(mode=0o775, exist_ok=True)
 
-        # make sure the project .labeler/annotations directory exists
-        Path(project_path, self.__PROJ_DIR, "annotations").mkdir(
+        # make sure the project self.__ROTTA_DIR/annotations directory exists
+        Path(project_path, self.__ROTTA_DIR, "annotations").mkdir(
+            mode=0o775, exist_ok=True)
+
+        # make sure the self.__ROTTA_DIR/features directory exists
+        Path(project_path, self.__ROTTA_DIR, "features").mkdir(
             mode=0o775, exist_ok=True)
 
         # unsaved annotations
