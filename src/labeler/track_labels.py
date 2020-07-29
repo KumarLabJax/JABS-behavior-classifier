@@ -35,6 +35,9 @@ class TrackLabels:
         """ clear labels for a range of frames [start, end] """
         self._labels[start:end+1] = self.Label.NONE
 
+    def get_labels(self):
+        return self._labels
+
     def get_frame_label(self, frame_index):
         """ get the label for a given frame """
         return self._labels[frame_index]
