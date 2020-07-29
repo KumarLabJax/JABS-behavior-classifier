@@ -32,7 +32,7 @@ class TestProject(unittest.TestCase):
         walking_labels.label_not_behavior(1001, 2000)
 
         # and manually place the .json file in the project directory
-        with (cls._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
+        with (cls._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
               Path(cls._FILENAMES[0]).with_suffix('.json')
         ).open('w', newline='\n') as f:
             json.dump(labels.as_dict(), f)
@@ -50,10 +50,10 @@ class TestProject(unittest.TestCase):
         self.assertTrue(project_dir.exists())
 
         # make sure the .labeler directory was created
-        self.assertTrue((project_dir / '.labeler').exists())
+        self.assertTrue((project_dir / 'rotta').exists())
 
         # make sure the .labeler/annotations directory was created
-        self.assertTrue((project_dir / '.labeler' / 'annotations').exists())
+        self.assertTrue((project_dir / 'rotta' / 'annotations').exists())
 
         # remove project dir
         shutil.rmtree(project_dir)
@@ -70,7 +70,7 @@ class TestProject(unittest.TestCase):
 
         labels = project.load_annotation_track(self._FILENAMES[0])
 
-        with (self._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
+        with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
@@ -94,7 +94,7 @@ class TestProject(unittest.TestCase):
 
         # make sure the .json file in the project directory matches the new
         # state
-        with (self._EXISTING_PROJ_PATH / '.labeler' / 'annotations' /
+        with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
