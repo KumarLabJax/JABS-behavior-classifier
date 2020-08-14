@@ -61,6 +61,17 @@ class IdentityFeatures:
         "min": lambda x: np.amin(x)
     }
 
+    _per_frame_features = [
+        'angles',
+        'pairwise_distances'
+    ]
+
+    _window_features = [
+        'percent_frames_present',
+        'angles',
+        'pairwise_distances'
+    ]
+
     def __init__(self, video_name, identity, directory, pose_est):
         """
         :param video_name: name of the video file, used for generating filenames
@@ -80,16 +91,19 @@ class IdentityFeatures:
                 str(self._identity)
         )
 
+
         # does this identity exist for this frame?
         self._frame_valid = np.zeros(self._num_frames, dtype=np.int8)
 
         # per frame features
-        self._per_frame = {
-            "pairwise_distances": np.empty(
-                [self._num_frames, self._num_distances], dtype=np.float32),
-            "angles":  np.empty(
-                [self._num_frames, self._num_angles], dtype=np.float32)
-        }
+        self._per_frame = {}
+        for feature in self._per_frame_features:
+            if feature == 'pairwise_distances':
+                self._per_frame[feature] = np.empty(
+                    [self._num_frames, self._num_distances], dtype=np.float32)
+            elif feature == 'angles':
+                self._per_frame[feature] = np.empty(
+                    [self._num_frames, self._num_angles], dtype=np.float32)
 
         try:
             # try to load from an h5 file if it exists
@@ -369,6 +383,32 @@ class IdentityFeatures:
                         operation](filtered_slice)
 
         return window_features
+
+    @classmethod
+    def get_feature_names(cls):
+        feature_list = []
+        for feature in sorted(cls._per_frame_features):
+            if feature == 'angles':
+                feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
+            elif feature == 'pairwise_distances':
+                feature_list.extend(IdentityFeatures.get_distance_names())
+
+        for feature in sorted(cls._window_features):
+            if feature == 'percent_frames_present':
+                feature_list.append(feature)
+            else:
+                # [source_feature_name][operator_applied] : numpy array
+                # iterate over operator names
+                for op in sorted(cls._window_feature_operations):
+
+                    if feature == 'angles':
+                        feature_list.extend(
+                            [f"{op} angle {angle.name}" for angle in AngleIndex])
+                    elif feature == 'pairwise_distances':
+                        feature_list.extend(
+                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
+
+        return feature_list
 
     @classmethod
     def merge_per_frame_features(cls, features):

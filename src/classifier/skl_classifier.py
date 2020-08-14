@@ -4,8 +4,6 @@ import numpy as np
 from enum import IntEnum
 import random
 
-from src.feature_extraction.features import AngleIndex,IdentityFeatures
-
 
 class SklClassifier:
 
@@ -43,49 +41,36 @@ class SklClassifier:
 
         }
         """
-        dataset = []
+        datasets = []
         feature_list = []
 
-        # add per frame features to our dataset
-        for feature in per_frame_features:
-            dataset.append(per_frame_features[feature])
+        # add per frame features to our data set
+        for feature in sorted(per_frame_features):
+            datasets.append(per_frame_features[feature])
 
-            if feature == 'angles':
-                feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
-            elif feature == 'pairwise_distances':
-                feature_list.extend(IdentityFeatures.get_distance_names())
-
-        # add window features to our dataset
-        for feature in window_features:
+        # add window features to our data set
+        for feature in sorted(window_features):
             if feature == 'percent_frames_present':
-                dataset.append(window_features[feature])
-                feature_list.append(feature)
+                datasets.append(window_features[feature])
             else:
                 # [source_feature_name][operator_applied] : numpy array
                 # iterate over operator names
-                for op in window_features[feature]:
+                for op in sorted(window_features[feature]):
                     # append the numpy array to the dataset
-                    dataset.append(window_features[feature][op])
-
-                    if feature == 'angles':
-                        feature_list.extend(
-                            [f"{op} angle {angle.name}" for angle in AngleIndex])
-                    elif feature == 'pairwise_distances':
-                        feature_list.extend(
-                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
+                    datasets.append(window_features[feature][op])
 
         # split labeled data and labels
-        split_data = train_test_split(np.concatenate(dataset, axis=1), label_data)
+        split_data = train_test_split(np.concatenate(datasets, axis=1), label_data)
 
         return {
             'test_labels': split_data.pop(),
             'training_labels': split_data.pop(),
             'training_data': split_data[::2],
-            'test_data': split_data[1::2],
-            'feature_list': feature_list
+            'test_data': split_data[1::2]
         }
 
-    def leave_one_group_out(self, per_frame_features, window_features, labels,
+    @staticmethod
+    def leave_one_group_out(per_frame_features, window_features, labels,
                             groups):
         """
 
@@ -99,18 +84,22 @@ class SklClassifier:
 
         datasets = []
 
-        # add per frame features to our dataset
-        for feature in per_frame_features:
+        # iterate over feature sets and add the values to our data set
+        # note, we sort the dictionary keys as we iterate over them so we
+        # have a predictable order
+
+        # add per frame features to our data set
+        for feature in sorted(per_frame_features):
             datasets.append(per_frame_features[feature])
 
-        # add window features to our dataset
-        for feature in window_features:
+        # add window features to our data set
+        for feature in sorted(window_features):
             if feature == 'percent_frames_present':
                 datasets.append(window_features[feature])
             else:
                 # [source_feature_name][operator_applied] : numpy array
                 # iterate over operator names
-                for op in window_features[feature]:
+                for op in sorted(window_features[feature]):
                     # append the numpy array to the dataset
                     datasets.append(window_features[feature][op])
 
@@ -120,8 +109,6 @@ class SklClassifier:
 
         # pick random split
         split = random.choice(list(splits))
-        print(x[split[0]])
-        print(labels[split[0]])
 
         return {
             'training_labels': labels[split[0]],
@@ -158,7 +145,13 @@ class SklClassifier:
 
         return classifier
 
-    def print_feature_importance(self, feature_list):
+    def print_feature_importance(self, feature_list, limit=20):
+        """
+
+        :param feature_list:
+        :param limit:
+        :return:
+        """
         # Get numerical feature importances
         importances = list(self._classifier.feature_importances_)
         # List of tuples with variable and importance
@@ -169,5 +162,5 @@ class SklClassifier:
         feature_importances = sorted(feature_importances, key=lambda x: x[1],
                                      reverse=True)
         # Print out the feature and importances
-        [print('Variable: {:20} Importance: {}'.format(*pair)) for pair in
-         feature_importances];
+        for feature, importance in feature_importances[:limit]:
+            print(f"Variable: {feature:20} Importance: {importance}")
