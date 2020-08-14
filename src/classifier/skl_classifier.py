@@ -2,6 +2,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 import numpy as np
 from enum import IntEnum
+import random
 
 from src.feature_extraction.features import AngleIndex,IdentityFeatures
 
@@ -74,7 +75,7 @@ class SklClassifier:
                             [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
 
         # split labeled data and labels
-        split_data = train_test_split(*dataset, label_data)
+        split_data = train_test_split(np.concatenate(dataset, axis=1), label_data)
 
         return {
             'test_labels': split_data.pop(),
@@ -84,6 +85,51 @@ class SklClassifier:
             'feature_list': feature_list
         }
 
+    def leave_one_group_out(self, per_frame_features, window_features, labels,
+                            groups):
+        """
+
+        :param per_frame_features:
+        :param window_features:
+        :param labels:
+        :param groups:
+        :return:
+        """
+        logo = LeaveOneGroupOut()
+
+        datasets = []
+
+        # add per frame features to our dataset
+        for feature in per_frame_features:
+            datasets.append(per_frame_features[feature])
+
+        # add window features to our dataset
+        for feature in window_features:
+            if feature == 'percent_frames_present':
+                datasets.append(window_features[feature])
+            else:
+                # [source_feature_name][operator_applied] : numpy array
+                # iterate over operator names
+                for op in window_features[feature]:
+                    # append the numpy array to the dataset
+                    datasets.append(window_features[feature][op])
+
+        x = np.concatenate(datasets, axis=1)
+
+        splits = logo.split(x, labels, groups)
+
+        # pick random split
+        split = random.choice(list(splits))
+        print(x[split[0]])
+        print(labels[split[0]])
+
+        return {
+            'training_labels': labels[split[0]],
+            'training_data': x[split[0]],
+            'test_labels': labels[split[1]],
+            'test_data':  x[split[1]]
+        }
+
     def train(self, data):
         """
         train the classifier
@@ -91,7 +137,7 @@ class SklClassifier:
         :return: None
         """
 
-        features = np.concatenate(data['training_data'], axis=1)
+        features = data['training_data']
         labels = data['training_labels']
 
         if self._classifier_type == self.ClassifierType.RANDOM_FOREST:

@@ -441,9 +441,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _train_button_clicked(self):
         features = self._get_labeled_features()
-        data = self._classifier.train_test_split(features['per_frame'], features['window'], features['labels'])
+        data = self._classifier.leave_one_group_out(features['per_frame'], features['window'], features['labels'], features['groups'])
+        #data = self._classifier.train_test_split(features['per_frame'], features['window'], features['labels'])
         self._classifier.train(data)
-        predictions = self._classifier.predict(np.concatenate(data['test_data'], axis=1))
+        predictions = self._classifier.predict(data['test_data'])
 
         correct = 0
         for p, truth in zip(predictions, data['test_labels']):
@@ -451,7 +452,7 @@ class CentralWidget(QtWidgets.QWidget):
                 correct += 1
         print(f"accuracy: {correct / len(predictions) * 100:.2f}%")
 
-        self._classifier.print_feature_importance(data['feature_list'])
+        #self._classifier.print_feature_importance(data['feature_list'])
 
 
 
