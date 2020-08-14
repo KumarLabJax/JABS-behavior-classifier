@@ -3,6 +3,7 @@ import json
 
 from .video_labels import VideoLabels
 from src.video_stream.utilities import get_frame_count
+from src.pose_estimation import PoseEstimationV3
 
 
 class Project:
@@ -21,6 +22,7 @@ class Project:
         self._project_dir_path = Path(project_path)
         self._annotations_dir = (self._project_dir_path / self.__ROTTA_DIR /
                                  "annotations")
+        self._feature_dir = self._project_dir_path / self.__ROTTA_DIR / "features"
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -36,12 +38,10 @@ class Project:
         Path(project_path, self.__ROTTA_DIR).mkdir(mode=0o775, exist_ok=True)
 
         # make sure the project self.__ROTTA_DIR/annotations directory exists
-        Path(project_path, self.__ROTTA_DIR, "annotations").mkdir(
-            mode=0o775, exist_ok=True)
+        self._annotations_dir.mkdir(mode=0o775, exist_ok=True)
 
         # make sure the self.__ROTTA_DIR/features directory exists
-        Path(project_path, self.__ROTTA_DIR, "features").mkdir(
-            mode=0o775, exist_ok=True)
+        self._feature_dir.mkdir(mode=0o775, exist_ok=True)
 
         # unsaved annotations
         self._unsaved_annotations = {}
@@ -54,6 +54,14 @@ class Project:
         """
         return self._videos
 
+    @property
+    def feature_dir(self):
+        return self._feature_dir
+
+    @property
+    def annotation_dir(self):
+        return self._annotations_dir
+
     def load_annotation_track(self, video_name):
         """
         load an annotation track from the project directory or from a cached of
@@ -63,10 +71,7 @@ class Project:
         """
 
         video_filename = Path(video_name).name
-
-        # make sure the video name actually matches one in the project
-        if video_filename not in self._videos:
-            raise ValueError(f"{video_filename} not in project")
+        self.check_video_name(video_filename)
 
         path = self._annotations_dir / Path(video_filename).with_suffix('.json')
 
@@ -84,6 +89,17 @@ class Project:
             video_path = self._project_dir_path / video_filename
             nframes = get_frame_count(str(video_path))
             return VideoLabels(video_filename, nframes)
+
+    def load_pose_est(self, video_name):
+        video_filename = Path(video_name).name
+        self.check_video_name(video_filename)
+
+        return PoseEstimationV3(self.video_path(video_name))
+
+    def check_video_name(self, video_filename):
+        # make sure the video name actually matches one in the project
+        if video_filename not in self._videos:
+            raise ValueError(f"{video_filename} not in project")
 
     def cache_annotations(self, annotations):
         """

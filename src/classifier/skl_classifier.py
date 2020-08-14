@@ -1,13 +1,9 @@
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 import numpy as np
 from enum import IntEnum
 
-from src.feature_extraction import IdentityFeatures
-
-from src.labeler.project import Project
-from src.pose_estimation import PoseEstimationV3
-from src.labeler.track_labels import TrackLabels
+from src.feature_extraction.features import AngleIndex,IdentityFeatures
 
 
 class SklClassifier:
@@ -41,26 +37,41 @@ class SklClassifier:
             'training_data': list of numpy arrays,
             'test_data': list of numpy arrays,
             'training_labels': numpy array,
-            'test_labels': numpy_array
+            'test_labels': numpy_array,
+            'feature_list': list,
 
         }
         """
         dataset = []
+        feature_list = []
 
         # add per frame features to our dataset
         for feature in per_frame_features:
             dataset.append(per_frame_features[feature])
 
+            if feature == 'angles':
+                feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
+            elif feature == 'pairwise_distances':
+                feature_list.extend(IdentityFeatures.get_distance_names())
+
         # add window features to our dataset
         for feature in window_features:
             if feature == 'percent_frames_present':
                 dataset.append(window_features[feature])
+                feature_list.append(feature)
             else:
                 # [source_feature_name][operator_applied] : numpy array
                 # iterate over operator names
                 for op in window_features[feature]:
                     # append the numpy array to the dataset
                     dataset.append(window_features[feature][op])
+
+                    if feature == 'angles':
+                        feature_list.extend(
+                            [f"{op} angle {angle.name}" for angle in AngleIndex])
+                    elif feature == 'pairwise_distances':
+                        feature_list.extend(
+                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
 
         # split labeled data and labels
         split_data = train_test_split(*dataset, label_data)
@@ -69,7 +80,8 @@ class SklClassifier:
             'test_labels': split_data.pop(),
             'training_labels': split_data.pop(),
             'training_data': split_data[::2],
-            'test_data': split_data[1::2]
+            'test_data': split_data[1::2],
+            'feature_list': feature_list
         }
 
     def train(self, data):
@@ -99,3 +111,17 @@ class SklClassifier:
         classifier.fit(features, labels)
 
         return classifier
+
+    def print_feature_importance(self, feature_list):
+        # Get numerical feature importances
+        importances = list(self._classifier.feature_importances_)
+        # List of tuples with variable and importance
+        feature_importances = [(feature, round(importance, 2)) for
+                               feature, importance in
+                               zip(feature_list, importances)]
+        # Sort the feature importances by most important first
+        feature_importances = sorted(feature_importances, key=lambda x: x[1],
+                                     reverse=True)
+        # Print out the feature and importances
+        [print('Variable: {:20} Importance: {}'.format(*pair)) for pair in
+         feature_importances];
