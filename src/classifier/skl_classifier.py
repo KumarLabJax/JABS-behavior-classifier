@@ -37,8 +37,6 @@ class SklClassifier:
             'test_data': list of numpy arrays,
             'training_labels': numpy array,
             'test_labels': numpy_array,
-            'feature_list': list,
-
         }
         """
         datasets = []
@@ -73,12 +71,18 @@ class SklClassifier:
     def leave_one_group_out(per_frame_features, window_features, labels,
                             groups):
         """
-
-        :param per_frame_features:
-        :param window_features:
-        :param labels:
-        :param groups:
-        :return:
+        implements "leave one group out" data splitting strategy
+        :param per_frame_features: per frame features for all labeled data
+        :param window_features: window features for all labeled data
+        :param labels: labels corresponding to each feature row
+        :param groups: group id corresponding to each feature row
+        :return: dictionary of training and test data and labels:
+        {
+            'training_data': list of numpy arrays,
+            'test_data': list of numpy arrays,
+            'training_labels': numpy array,
+            'test_labels': numpy_array,
+        }
         """
         logo = LeaveOneGroupOut()
 

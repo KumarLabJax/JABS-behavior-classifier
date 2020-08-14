@@ -91,7 +91,6 @@ class IdentityFeatures:
                 str(self._identity)
         )
 
-
         # does this identity exist for this frame?
         self._frame_valid = np.zeros(self._num_frames, dtype=np.int8)
 
@@ -114,6 +113,10 @@ class IdentityFeatures:
 
     @property
     def window_ops(self):
+        """
+        get list of window operation names
+        :return: list of strings containing window operation names
+        """
         return self._window_feature_operations.keys()
 
     def __initialize_from_pose_estimation(self, pose_est):
@@ -316,7 +319,6 @@ class IdentityFeatures:
                 'min' numpy float32 array with shape (#frames, #distances),
             },
             'percent_frames_present': numpy float32 array with shape (#frames,)
-
         }
         """
 
@@ -386,6 +388,12 @@ class IdentityFeatures:
 
     @classmethod
     def get_feature_names(cls):
+        """
+        return list of human readable feature names, starting with per frame
+        features followed by window features. feature names in each group are
+        sorted
+        :return: list of human readable feature names
+        """
         feature_list = []
         for feature in sorted(cls._per_frame_features):
             if feature == 'angles':
@@ -412,9 +420,20 @@ class IdentityFeatures:
 
     @classmethod
     def merge_per_frame_features(cls, features):
+        """
+        merge a list of per-frame features where each element in the list is
+        a set of per-frame features computed for an individual animal
+        :param features: list of per-frame feature instances
+        :return: dict of the form
+        {
+            'pairwise_distances': 2D numpy array,
+            'angles': 2D numpy array
+        }
+        """
 
         return {
-            'pairwise_distances': np.concatenate([x['pairwise_distances'] for x in features]),
+            'pairwise_distances': np.concatenate(
+                [x['pairwise_distances'] for x in features]),
             'angles': np.concatenate([x['angles'] for x in features]),
         }
 
@@ -422,10 +441,34 @@ class IdentityFeatures:
 
     @classmethod
     def merge_window_features(cls, features):
+        """
+        merge a list of window features where each element in the list is the
+        set of window features computed for an individual animal
+        :param features: list of window feature instances
+        :return: dictionary of the form:
+        {
+            'angles' {
+                'mean': numpy float32 array with shape (#frames, #angles),
+                'median': numpy float32 array with shape (#frames, #angles),
+                'std_dev': numpy float32 array with shape (#frames, #angles),
+                'max': numpy float32 array with shape (#frames, #angles),
+                'min' numpy float32 array with shape (#frames, #angles),
+            },
+            'pairwise_distances' {
+                'mean': numpy float32 array with shape (#frames, #distances),
+                'median': numpy float32 array with shape (#frames, #distances),
+                'std_dev': numpy float32 array with shape (#frames, #distances),
+                'max': numpy float32 array with shape (#frames, #distances),
+                'min' numpy float32 array with shape (#frames, #distances),
+            },
+            'percent_frames_present': numpy float32 array with shape (#frames,)
+        }
+        """
         merged = {
             'pairwise_distances': {},
             'angles': {},
-            'percent_frames_present': np.concatenate([x['percent_frames_present'] for x in features])
+            'percent_frames_present': np.concatenate(
+                [x['percent_frames_present'] for x in features])
         }
 
         for op in cls._window_feature_operations:
@@ -434,7 +477,6 @@ class IdentityFeatures:
             merged['angles'][op] = np.concatenate(
                 [x['angles'][op] for x in features])
         return merged
-
 
     @staticmethod
     def _compute_pairwise_distance(points):
@@ -453,6 +495,12 @@ class IdentityFeatures:
 
     @staticmethod
     def get_distance_names():
+        """
+        get list of human readable names for each value computed by
+        _compute_pairwise_distances
+        :return: list of distance names where each is a string of the form
+        "distance_name_1-distance_name_2"
+        """
         distances = []
         point_names = [p.name for p in PoseEstimationV3.KeypointIndex]
         for i in range(0, len(point_names)):
