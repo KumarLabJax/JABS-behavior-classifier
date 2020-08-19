@@ -297,6 +297,41 @@ class IdentityFeatures:
                 "angles": self._per_frame["angles"][labels != TrackLabels.Label.NONE, :]
             }
 
+    def get_unlabeled_features(self, radius, labels):
+        """
+        get features and corresponding frame indexes for unlabeled frames for
+        classification
+        :param radius:
+        :param labels:
+        :return:
+        """
+        window_features = self.get_window_features(radius)
+        filter = np.logical_and(self._frame_valid, labels == TrackLabels.Label.NONE)
+
+        per_frame = {}
+        indexes = np.arange(self._num_frames)[filter]
+        for feature in self._per_frame_features:
+            per_frame[feature] = self._per_frame[feature][
+                                 filter, :]
+
+
+        window = {}
+        for key in window_features:
+            if key == 'radius':
+                window[key] = window_features[key]
+            elif key == 'percent_frames_present':
+                window[key] = window_features[key][filter]
+            else:
+                window[key] = {}
+                for op in window_features[key]:
+                    window[key][op] = window_features[key][op][filter]
+
+        return {
+            'per_frame': per_frame,
+            'window': window,
+            'frame_indexes': indexes
+        }
+
     def _compute_window_features(self, radius):
         """
         compute all window features using a given window size
@@ -436,8 +471,6 @@ class IdentityFeatures:
                 [x['pairwise_distances'] for x in features]),
             'angles': np.concatenate([x['angles'] for x in features]),
         }
-
-
 
     @classmethod
     def merge_window_features(cls, features):

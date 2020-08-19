@@ -74,6 +74,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.train_button = QtWidgets.QPushButton("Train")
         self.train_button.clicked.connect(self._train_button_clicked)
         self.classify_button = QtWidgets.QPushButton("Classify")
+        self.classify_button.clicked.connect(self._classify_button_clicked)
+        self.classify_button.setEnabled(False)
         classfier_layout = QtWidgets.QVBoxLayout()
         classfier_layout.addWidget(self.train_button)
         classfier_layout.addWidget(self.classify_button)
@@ -389,7 +391,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _get_labeled_features(self):
         """
-        get all the labeled data for the current behavior
+        get all the labeled data for the current behavior across the entire
+        project
+
+        # TODO move this out of this file, maybe put it into project.py
         :return:
         """
 
@@ -417,6 +422,7 @@ class CentralWidget(QtWidgets.QWidget):
                 else:
                     labels = self._project.load_annotation_track(
                         video).get_track_labels(str(identity), behavior).get_labels()
+
 
                 per_frame_features = features.get_per_frame(labels)
                 # TODO make window size configurable
@@ -459,6 +465,35 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._classifier.print_feature_importance(
             IdentityFeatures.get_feature_names())
+
+        self.classify_button.setEnabled(True)
+
+    def _classify_button_clicked(self):
+        behavior = self.behavior_selection.currentText()
+        for video in self._project.videos:
+
+            pose_est = self._project.load_pose_est(
+                self._project.video_path(video))
+
+            for identity in pose_est.identities:
+                features = IdentityFeatures(video, identity,
+                                            self._project.feature_dir,
+                                            pose_est)
+
+                if self._project.video_path(video) == self._loaded_video:
+                    labels = self._labels.get_track_labels(
+                        str(identity), behavior).get_labels()
+                else:
+                    labels = self._project.load_annotation_track(
+                        video).get_track_labels(str(identity), behavior).get_labels()
+
+                # TODO make window radius configurable
+                unlabeled_features = features.get_unlabeled_features(5, labels)
+                data = self._classifier.combine_data(unlabeled_features['per_frame'], unlabeled_features['window'])
+                prediction = self._classifier.predict_proba(data)
+
+
+
 
 
 
