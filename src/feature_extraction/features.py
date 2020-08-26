@@ -61,20 +61,48 @@ class IdentityFeatures:
         "min": lambda x: np.amin(x)
     }
 
-    def __init__(self, identity, directory, pose_est):
+    _per_frame_features = [
+        'angles',
+        'pairwise_distances'
+    ]
 
+    _window_features = [
+        'percent_frames_present',
+        'angles',
+        'pairwise_distances'
+    ]
+
+    def __init__(self, video_name, identity, directory, pose_est):
+        """
+        :param video_name: name of the video file, used for generating filenames
+        for saving extracted features into the project directory
+        :param identity: identity to extract features for
+        :param directory: path of the project directory
+        :param pose_est: PoseEstimationV3 object corresponding to this video
+        """
+
+        self._video_name = Path(video_name)
         self._num_frames = pose_est.num_frames
         self._identity = identity
         self._project_feature_directory = Path(directory)
+        self._identity_feature_dir = (
+                self._project_feature_directory /
+                self._video_name.stem /
+                str(self._identity)
+        )
 
         # does this identity exist for this frame?
         self._frame_valid = np.zeros(self._num_frames, dtype=np.int8)
 
         # per frame features
-        self._per_frame = {
-            "pairwise_distances": np.empty([self._num_frames, self._num_distances], dtype=np.float32),
-            "angles":  np.empty([self._num_frames, self._num_angles], dtype=np.float32)
-        }
+        self._per_frame = {}
+        for feature in self._per_frame_features:
+            if feature == 'pairwise_distances':
+                self._per_frame[feature] = np.empty(
+                    [self._num_frames, self._num_distances], dtype=np.float32)
+            elif feature == 'angles':
+                self._per_frame[feature] = np.empty(
+                    [self._num_frames, self._num_angles], dtype=np.float32)
 
         try:
             # try to load from an h5 file if it exists
@@ -82,6 +110,14 @@ class IdentityFeatures:
         except OSError:
             # otherwise compute the per frame features and save
             self.__initialize_from_pose_estimation(pose_est)
+
+    @property
+    def window_ops(self):
+        """
+        get list of window operation names
+        :return: list of strings containing window operation names
+        """
+        return self._window_feature_operations.keys()
 
     def __initialize_from_pose_estimation(self, pose_est):
         """
@@ -109,10 +145,9 @@ class IdentityFeatures:
         :return: None
         """
 
-        path = self._project_feature_directory / str(self._identity) / 'per_frame.h5'
+        path = self._identity_feature_dir / 'per_frame.h5'
 
         with h5py.File(path, 'r') as features_h5:
-
             feature_grp = features_h5['features']
 
             # load per frame features
@@ -127,13 +162,11 @@ class IdentityFeatures:
     def save_per_frame(self):
         """ save per frame features to a h5 file """
 
-        identity_feature_dir = self._project_feature_directory / str(
-            self._identity)
-        identity_feature_dir.mkdir(mode=0o775, exist_ok=True)
+        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True, parents=True)
 
-        path = identity_feature_dir / 'per_frame.h5'
+        file_path = self._identity_feature_dir / 'per_frame.h5'
 
-        with h5py.File(path, 'w') as features_h5:
+        with h5py.File(file_path, 'w') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
@@ -150,11 +183,7 @@ class IdentityFeatures:
         :param radius:
         :return: None
         """
-        path = (
-            self._project_feature_directory /
-            str(self._identity) /
-            f"window_features_{radius}.h5"
-        )
+        path = self._identity_feature_dir / f"window_features_{radius}.h5"
 
         with h5py.File(path, 'w') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
@@ -181,11 +210,7 @@ class IdentityFeatures:
         side of current frame to include in the window
         :return:
         """
-        path = (
-                self._project_feature_directory /
-                str(self._identity) /
-                f"window_features_{radius}.h5"
-        )
+        path = self._identity_feature_dir / f"window_features_{radius}.h5"
 
         window_features = {
             'pairwise_distances': {},
@@ -222,11 +247,7 @@ class IdentityFeatures:
         :return: window features for given window size. the format is documented
         in the docstring for _compute_window_features
         """
-        path = (
-                self._project_feature_directory /
-                str(self._identity) /
-                f"window_features_{radius}.h5"
-        )
+        path = self._identity_feature_dir / f"window_features_{radius}.h5"
 
         if path.exists():
             # h5 file exists for this window size, load it
@@ -298,7 +319,6 @@ class IdentityFeatures:
                 'min' numpy float32 array with shape (#frames, #distances),
             },
             'percent_frames_present': numpy float32 array with shape (#frames,)
-
         }
         """
 
@@ -318,7 +338,7 @@ class IdentityFeatures:
             window_features['pairwise_distances'][operation] = np.empty(
                 [self._num_frames, self._num_distances], dtype=np.float32)
 
-        window_features['percent_frames_present'] = np.empty([self._num_frames, 1],
+        window_features['percent_frames_present'] = np.empty((self._num_frames, 1),
                                                              dtype=np.float32)
 
         # compute window features
@@ -335,8 +355,7 @@ class IdentityFeatures:
             frame_valid = self._frame_valid[slice_start:slice_end]
             frames_in_window = np.count_nonzero(frame_valid)
 
-            window_features['percent_frames_present'][
-                i,0] = frames_in_window / max_window_size
+            window_features['percent_frames_present'][i, 0] = frames_in_window / max_window_size
 
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
@@ -367,6 +386,98 @@ class IdentityFeatures:
 
         return window_features
 
+    @classmethod
+    def get_feature_names(cls):
+        """
+        return list of human readable feature names, starting with per frame
+        features followed by window features. feature names in each group are
+        sorted
+        :return: list of human readable feature names
+        """
+        feature_list = []
+        for feature in sorted(cls._per_frame_features):
+            if feature == 'angles':
+                feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
+            elif feature == 'pairwise_distances':
+                feature_list.extend(IdentityFeatures.get_distance_names())
+
+        for feature in sorted(cls._window_features):
+            if feature == 'percent_frames_present':
+                feature_list.append(feature)
+            else:
+                # [source_feature_name][operator_applied] : numpy array
+                # iterate over operator names
+                for op in sorted(cls._window_feature_operations):
+
+                    if feature == 'angles':
+                        feature_list.extend(
+                            [f"{op} angle {angle.name}" for angle in AngleIndex])
+                    elif feature == 'pairwise_distances':
+                        feature_list.extend(
+                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
+
+        return feature_list
+
+    @classmethod
+    def merge_per_frame_features(cls, features):
+        """
+        merge a list of per-frame features where each element in the list is
+        a set of per-frame features computed for an individual animal
+        :param features: list of per-frame feature instances
+        :return: dict of the form
+        {
+            'pairwise_distances': 2D numpy array,
+            'angles': 2D numpy array
+        }
+        """
+
+        return {
+            'pairwise_distances': np.concatenate(
+                [x['pairwise_distances'] for x in features]),
+            'angles': np.concatenate([x['angles'] for x in features]),
+        }
+
+
+
+    @classmethod
+    def merge_window_features(cls, features):
+        """
+        merge a list of window features where each element in the list is the
+        set of window features computed for an individual animal
+        :param features: list of window feature instances
+        :return: dictionary of the form:
+        {
+            'angles' {
+                'mean': numpy float32 array with shape (#frames, #angles),
+                'median': numpy float32 array with shape (#frames, #angles),
+                'std_dev': numpy float32 array with shape (#frames, #angles),
+                'max': numpy float32 array with shape (#frames, #angles),
+                'min' numpy float32 array with shape (#frames, #angles),
+            },
+            'pairwise_distances' {
+                'mean': numpy float32 array with shape (#frames, #distances),
+                'median': numpy float32 array with shape (#frames, #distances),
+                'std_dev': numpy float32 array with shape (#frames, #distances),
+                'max': numpy float32 array with shape (#frames, #distances),
+                'min' numpy float32 array with shape (#frames, #distances),
+            },
+            'percent_frames_present': numpy float32 array with shape (#frames,)
+        }
+        """
+        merged = {
+            'pairwise_distances': {},
+            'angles': {},
+            'percent_frames_present': np.concatenate(
+                [x['percent_frames_present'] for x in features])
+        }
+
+        for op in cls._window_feature_operations:
+            merged['pairwise_distances'][op] = np.concatenate(
+                [x['pairwise_distances'][op] for x in features])
+            merged['angles'][op] = np.concatenate(
+                [x['angles'][op] for x in features])
+        return merged
+
     @staticmethod
     def _compute_pairwise_distance(points):
         """
@@ -381,6 +492,23 @@ class IdentityFeatures:
                 dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
                 distances.append(dist)
         return distances
+
+    @staticmethod
+    def get_distance_names():
+        """
+        get list of human readable names for each value computed by
+        _compute_pairwise_distances
+        :return: list of distance names where each is a string of the form
+        "distance_name_1-distance_name_2"
+        """
+        distances = []
+        point_names = [p.name for p in PoseEstimationV3.KeypointIndex]
+        for i in range(0, len(point_names)):
+            p1 = point_names[i]
+            for p2 in point_names[i + 1:]:
+                distances.append(f"{p1}-{p2}")
+        return distances
+
 
     @staticmethod
     def _compute_angle(a, b, c):

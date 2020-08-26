@@ -1,5 +1,9 @@
 from PyQt5 import QtWidgets, QtCore
+import numpy as np
 
+from src.feature_extraction.features import IdentityFeatures
+from src.labeler.track_labels import TrackLabels
+from src.classifier.skl_classifier import SklClassifier
 from src.ui import (
     PlayerWidget,
     ManualLabelWidget,
@@ -28,6 +32,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.updateIdentities.connect(self._set_identities)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
 
+        self._loaded_video = None
+
         self._project = None
         self._labels = None
 
@@ -49,7 +55,7 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(add_label_button)
 
-        behavior_group = QtWidgets.QGroupBox("Behavior")
+        behavior_group = QtWidgets.QGroupBox("Behavior Selection")
         behavior_group.setLayout(behavior_layout)
 
         # identity selection form components
@@ -61,8 +67,18 @@ class CentralWidget(QtWidgets.QWidget):
         self.identity_selection.installEventFilter(self.identity_selection)
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
-        identity_group = QtWidgets.QGroupBox("Identity")
+        identity_group = QtWidgets.QGroupBox("Identity Selection")
         identity_group.setLayout(identity_layout)
+
+        # classifier controls
+        self.train_button = QtWidgets.QPushButton("Train")
+        self.train_button.clicked.connect(self._train_button_clicked)
+        self.classify_button = QtWidgets.QPushButton("Classify")
+        classfier_layout = QtWidgets.QVBoxLayout()
+        classfier_layout.addWidget(self.train_button)
+        classfier_layout.addWidget(self.classify_button)
+        classifier_group = QtWidgets.QGroupBox("Classifier")
+        classifier_group.setLayout(classfier_layout)
 
         # label components
         label_layout = QtWidgets.QVBoxLayout()
@@ -128,6 +144,7 @@ class CentralWidget(QtWidgets.QWidget):
         control_layout.setSpacing(25)
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
+        control_layout.addWidget(classifier_group)
         control_layout.addStretch()
         control_layout.addWidget(label_group)
 
@@ -146,6 +163,10 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
         layout.addWidget(self.frame_ticks,3, 0, 1, 2)
         self.setLayout(layout)
+
+        # classifier
+        self._classifier = SklClassifier()
+
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -189,9 +210,12 @@ class CentralWidget(QtWidgets.QWidget):
             self.frame_ticks.set_num_frames(self._player_widget.num_frames())
             self.timeline_widget.set_num_frames(
                 self._player_widget.num_frames())
+
+            self._loaded_video = path
         except OSError as e:
             # error loading
             self._labels = None
+            self._loaded_video = None
             self._player_widget.reset()
             raise e
 
@@ -362,3 +386,80 @@ class CentralWidget(QtWidgets.QWidget):
         the currently selected identity
         """
         self._player_widget.set_identity_label_mode(visible)
+
+    def _get_labeled_features(self):
+        """
+        get all the labeled data for the current behavior
+        :return:
+        """
+
+        behavior = self.behavior_selection.currentText()
+
+        all_per_frame = []
+        all_window = []
+        all_labels = []
+        all_group_labels = []
+
+        group_id = 0
+        for video in self._project.videos:
+
+            pose_est = self._project.load_pose_est(
+                self._project.video_path(video))
+
+            for identity in pose_est.identities:
+                features = IdentityFeatures(video, identity,
+                                            self._project.feature_dir,
+                                            pose_est)
+
+                if self._project.video_path(video) == self._loaded_video:
+                    labels = self._labels.get_track_labels(
+                        str(identity), behavior).get_labels()
+                else:
+                    labels = self._project.load_annotation_track(
+                        video).get_track_labels(str(identity), behavior).get_labels()
+
+                per_frame_features = features.get_per_frame(labels)
+                # TODO make window size configurable
+                window_features = features.get_window_features(5, labels)
+
+                all_per_frame.append(per_frame_features)
+                all_window.append(window_features)
+                all_labels.append(labels[labels != TrackLabels.Label.NONE])
+
+                # should be a better way to do this, but I'm getting the number
+                # of frames in this group by looking at the shape of one of
+                # the arrays included in the window_features
+                all_group_labels.append(np.full(window_features['percent_frames_present'].shape[0], group_id))
+                group_id += 1
+
+        return {
+            'window': IdentityFeatures.merge_window_features(all_window),
+            'per_frame': IdentityFeatures.merge_per_frame_features(all_per_frame),
+            'labels': np.concatenate(all_labels),
+            'groups': np.concatenate(all_group_labels),
+        }
+
+    def _train_button_clicked(self):
+        features = self._get_labeled_features()
+        data = self._classifier.leave_one_group_out(
+            features['per_frame'],
+            features['window'],
+            features['labels'],
+            features['groups']
+        )
+
+        self._classifier.train(data)
+        predictions = self._classifier.predict(data['test_data'])
+
+        correct = 0
+        for p, truth in zip(predictions, data['test_labels']):
+            if p == truth:
+                correct += 1
+        print(f"accuracy: {correct / len(predictions) * 100:.2f}%")
+
+        self._classifier.print_feature_importance(
+            IdentityFeatures.get_feature_names())
+
+
+
+
