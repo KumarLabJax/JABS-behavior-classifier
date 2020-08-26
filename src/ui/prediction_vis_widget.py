@@ -10,7 +10,8 @@ from src.labeler.track_labels import TrackLabels
 
 class PredictionVisWidget(QWidget):
     """
-    widget used to show labels for a range of frames arount the current frame
+    widget used to show predicted class for a range of frames around the
+    current frame
     """
 
     _BORDER_COLOR = QColor(212, 212, 212)
@@ -23,6 +24,8 @@ class PredictionVisWidget(QWidget):
     def __init__(self, *args, **kwargs):
         super(PredictionVisWidget, self).__init__(*args, **kwargs)
 
+        self._bar_height = 40
+
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -34,13 +37,11 @@ class PredictionVisWidget(QWidget):
         # current position
         self._current_frame = 0
 
-        # information about the video needed to properly render wigget
+        # information about the video needed to properly render widget
         self._num_frames = 0
 
         self._predictions = None
         self._probabilities = None
-
-        self._bar_height = 40
 
         # size each frame takes up in the bar in pixels
         self._frame_width = self.size().width() // self._nframes
@@ -142,7 +143,7 @@ class PredictionVisWidget(QWidget):
         qp.end()
 
     def set_predictions(self, predictions, probabilities):
-        """ load label track to display """
+        """ set prediction data to display """
         self._predictions = predictions
         self._probabilities = probabilities
         self.update()

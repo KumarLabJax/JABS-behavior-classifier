@@ -458,6 +458,10 @@ class CentralWidget(QtWidgets.QWidget):
         }
 
     def _train_button_clicked(self):
+        """
+        handle user click on "Train" button
+        :return: None
+        """
         features = self._get_labeled_features()
         data = self._classifier.leave_one_group_out(
             features['per_frame'],
@@ -481,39 +485,80 @@ class CentralWidget(QtWidgets.QWidget):
         self.classify_button.setEnabled(True)
 
     def _classify_button_clicked(self):
+        """
+        handle user click on "Classify" button
+        :return: None
+        """
+
+        # get the current behavior
         behavior = self.behavior_selection.currentText()
+
+        # iterate over each video in the project
         for video in self._project.videos:
 
+            # load the poses for this video
             pose_est = self._project.load_pose_est(
                 self._project.video_path(video))
 
+            # make predictions for each identity in this video
             self._predictions[video] = {}
             self._probabilities[video] = {}
             self._frame_indexes[video] = {}
-            for identity in pose_est.identities:
-                features = IdentityFeatures(video, identity,
+            for ident in pose_est.identities:
+
+                # get the features for this identity
+                features = IdentityFeatures(video, ident,
                                             self._project.feature_dir,
                                             pose_est)
+                identity = str(ident)
 
                 if self._project.video_path(video) == self._loaded_video:
+                    # if this is the current video, the labels are loaded
                     labels = self._labels.get_track_labels(
-                        str(identity), behavior).get_labels()
+                        identity, behavior).get_labels()
                 else:
+                    # all other videos, load the labels from the project dir
                     labels = self._project.load_annotation_track(
-                        video).get_track_labels(str(identity), behavior).get_labels()
+                        video).get_track_labels(identity, behavior).get_labels()
 
+                # get the features for all unlabled frames for this identity
                 # TODO make window radius configurable
                 unlabeled_features = features.get_unlabeled_features(5, labels)
-                data = self._classifier.combine_data(unlabeled_features['per_frame'], unlabeled_features['window'])
-                self._predictions[video][str(identity)] = self._classifier.predict(data)
-                prob = self._classifier.predict_proba(data)
 
-                self._probabilities[video][str(identity)] = prob[np.arange(len(prob)), self._predictions[video][str(identity)]-1]
-                self._frame_indexes[video][str(identity)] = unlabeled_features['frame_indexes']
+                # reformat the data in a single 2D numpy array to pass
+                # to the classifier
+                data = self._classifier.combine_data(
+                    unlabeled_features['per_frame'],
+                    unlabeled_features['window']
+                )
+
+                # make predictions
+                self._predictions[video][identity] = self._classifier.predict(data)
+
+                # also get the probabilities
+                prob = self._classifier.predict_proba(data)
+                # Save the probability for the predicted class only.
+                # self._predictions[video][identity] will be an array of
+                # 1s and 2s, since those are our labels. Subtracting 1 from the
+                # predicted label will give us the column index for the
+                # probability for that label. The following code uses some
+                # numpy magic to use the _predictions array as column indexes
+                # for each row of the 'prob' array we just computed.
+                self._probabilities[video][identity] = prob[
+                    np.arange(len(prob)),
+                    self._predictions[video][identity] - 1
+                ]
+
+                # save the indexes for the predicted frames
+                self._frame_indexes[video][identity] = unlabeled_features['frame_indexes']
 
         self._set_prediction_vis()
 
     def _set_prediction_vis(self):
+        """
+        update data being displayed by the prediction visualization widget
+        :return: None
+        """
 
         if self._loaded_video is None:
             return

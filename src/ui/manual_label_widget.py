@@ -8,7 +8,7 @@ from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
 
 class ManualLabelWidget(QWidget):
     """
-    widget used to show labels for a range of frames arount the current frame
+    widget used to show labels for a range of frames around the current frame
     """
 
     _BORDER_COLOR = QColor(212, 212, 212)
