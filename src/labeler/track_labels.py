@@ -56,7 +56,8 @@ class TrackLabels:
         """
         return self._array_to_blocks(self._labels[start:end+1])
 
-    def downsample(self, size):
+    @classmethod
+    def downsample(cls, labels, size):
         """
         Downsample the label array for a "zoomed out" view. We use a custom
         downsampling algorithm. Each element in the downsampled array is
@@ -67,16 +68,16 @@ class TrackLabels:
             Label.MIX: bin contains Label.BEHAVIOR and Label.NOT_BEHAVIOR
             Label.PAD: bin consists entirely of padding added to input array to
             make it evenly divisible by output size
+        :param labels: numpy label array
         :param size: size of the resulting downsampled label array
         :return: numpy array of size 'size' with downsampled values
         """
         # we may need to pad the label array if it is not evenly divisible by
         # the new size
-        pad_size = math.ceil(
-            self._labels.size / size) * size - self._labels.size
+        pad_size = math.ceil(labels.size / size) * size - labels.size
 
         # create the padded array, repeating the last value for any padding
-        padded = np.append(self._labels, np.full(pad_size, self.Label.PAD))
+        padded = np.append(labels, np.full(pad_size, cls.Label.PAD))
 
         # split the padded array into 'size' bins each with 'bin_size' values
         bin_size = padded.size // size
@@ -89,15 +90,15 @@ class TrackLabels:
         for i in range(size):
             counts = np.bincount(binned[i], minlength=3)
             if counts[0] != 0 and counts[1] == 0 and counts[2] == 0:
-                downsampled[i] = self.Label.NONE
+                downsampled[i] = cls.Label.NONE
             elif counts[1] != 0 and counts[2] == 0:
-                downsampled[i] = self.Label.BEHAVIOR
+                downsampled[i] = cls.Label.BEHAVIOR
             elif counts[1] == 0 and counts[2] != 0:
-                downsampled[i] = self.Label.NOT_BEHAVIOR
+                downsampled[i] = cls.Label.NOT_BEHAVIOR
             elif counts[1] != 0 and counts[2] != 0:
-                downsampled[i] = self.Label.MIX
+                downsampled[i] = cls.Label.MIX
             else:
-                downsampled[i] = self.Label.PAD
+                downsampled[i] = cls.Label.PAD
 
         return downsampled
 

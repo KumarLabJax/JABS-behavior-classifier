@@ -10,7 +10,8 @@ from src.ui import (
     TimelineLabelWidget,
     IdentityComboBox,
     FrameLabelsWidget,
-    PredictionVisWidget
+    PredictionVisWidget,
+    GlobalInferenceWidget
 )
 
 
@@ -161,8 +162,9 @@ class CentralWidget(QtWidgets.QWidget):
         self.prediction_vis = PredictionVisWidget()
         self.frame_ticks = FrameLabelsWidget()
 
-        # timeline widget
+        # timeline widgets
         self.timeline_widget = TimelineLabelWidget()
+        self.inference_timeline_widget = GlobalInferenceWidget()
 
         # main layout
         layout = QtWidgets.QGridLayout()
@@ -170,8 +172,9 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
-        layout.addWidget(self.prediction_vis, 3, 0, 1, 2)
-        layout.addWidget(self.frame_ticks, 4, 0, 1, 2)
+        layout.addWidget(self.inference_timeline_widget, 3, 0, 1, 2)
+        layout.addWidget(self.prediction_vis, 4, 0, 1, 2)
+        layout.addWidget(self.frame_ticks, 5, 0, 1, 2)
         self.setLayout(layout)
 
         # classifier
@@ -220,6 +223,9 @@ class CentralWidget(QtWidgets.QWidget):
             self.frame_ticks.set_num_frames(self._player_widget.num_frames())
             self.timeline_widget.set_num_frames(
                 self._player_widget.num_frames())
+            self.inference_timeline_widget.set_num_frames(
+                self._player_widget.num_frames()
+            )
 
             self._loaded_video = path
             self._set_prediction_vis()
@@ -365,6 +371,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.set_current_frame(new_frame)
         self.prediction_vis.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
+        self.inference_timeline_widget.set_current_frame(new_frame)
         self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
@@ -587,12 +594,16 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
+        self.inference_timeline_widget.set_labels(prediction_labels)
+        self.inference_timeline_widget.update_labels()
 
     def _reset_prediction(self):
         self._predictions = {}
         self._probabilities = {}
         self._frame_indexes = {}
         self.prediction_vis.set_predictions(None, None)
+        self.inference_timeline_widget.set_labels(
+            np.zeros(self._player_widget.num_frames(), dtype="uint8"))
 
     def _reset_classifier(self):
         self.classify_button.setEnabled(False)
