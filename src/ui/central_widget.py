@@ -10,6 +10,7 @@ from src.ui import (
     TimelineLabelWidget,
     IdentityComboBox,
     FrameLabelsWidget,
+    PredictionVisWidget
 )
 
 
@@ -36,6 +37,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._project = None
         self._labels = None
+
+        # information about current predictions
+        self._predictions = {}
+        self._probabilities = {}
+        self._frame_indexes = {}
 
         self._selection_start = 0
 
@@ -152,6 +158,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # label widgets
         self.manual_labels = ManualLabelWidget()
+        self.prediction_vis = PredictionVisWidget()
         self.frame_ticks = FrameLabelsWidget()
 
         # timeline widget
@@ -163,12 +170,12 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
-        layout.addWidget(self.frame_ticks,3, 0, 1, 2)
+        layout.addWidget(self.prediction_vis, 3, 0, 1, 2)
+        layout.addWidget(self.frame_ticks, 4, 0, 1, 2)
         self.setLayout(layout)
 
         # classifier
         self._classifier = SklClassifier()
-
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -209,11 +216,13 @@ class CentralWidget(QtWidgets.QWidget):
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
+            self.prediction_vis.set_num_frames(self._player_widget.num_frames())
             self.frame_ticks.set_num_frames(self._player_widget.num_frames())
             self.timeline_widget.set_num_frames(
                 self._player_widget.num_frames())
 
             self._loaded_video = path
+            self._set_prediction_vis()
         except OSError as e:
             # error loading
             self._labels = None
@@ -352,6 +361,7 @@ class CentralWidget(QtWidgets.QWidget):
         called when the video player widget emits its updateFrameNumber signal
         """
         self.manual_labels.set_current_frame(new_frame)
+        self.prediction_vis.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
         self.frame_ticks.set_current_frame(new_frame)
 
@@ -367,6 +377,8 @@ class CentralWidget(QtWidgets.QWidget):
             labels = self._labels.get_track_labels(identity, behavior)
             self.manual_labels.set_labels(labels)
             self.timeline_widget.set_labels(labels)
+
+        self._set_prediction_vis()
 
     def _get_label_track(self):
         """
@@ -475,6 +487,9 @@ class CentralWidget(QtWidgets.QWidget):
             pose_est = self._project.load_pose_est(
                 self._project.video_path(video))
 
+            self._predictions[video] = {}
+            self._probabilities[video] = {}
+            self._frame_indexes[video] = {}
             for identity in pose_est.identities:
                 features = IdentityFeatures(video, identity,
                                             self._project.feature_dir,
@@ -490,11 +505,40 @@ class CentralWidget(QtWidgets.QWidget):
                 # TODO make window radius configurable
                 unlabeled_features = features.get_unlabeled_features(5, labels)
                 data = self._classifier.combine_data(unlabeled_features['per_frame'], unlabeled_features['window'])
-                prediction = self._classifier.predict_proba(data)
+                self._predictions[video][str(identity)] = self._classifier.predict(data)
+                prob = self._classifier.predict_proba(data)
 
+                self._probabilities[video][str(identity)] = prob[np.arange(len(prob)), self._predictions[video][str(identity)]-1]
+                self._frame_indexes[video][str(identity)] = unlabeled_features['frame_indexes']
 
+        self._set_prediction_vis()
 
+    def _set_prediction_vis(self):
 
+        if self._loaded_video is None:
+            return
 
+        video = self._loaded_video.name
+        identity = self.identity_selection.currentText()
+
+        try:
+            indexes = self._frame_indexes[video][identity]
+        except KeyError:
+            return
+
+        labels = self._get_label_track().get_labels()
+        prediction_labels = np.zeros((self._player_widget.num_frames()),
+                                     dtype="uint8")
+        prediction_prob = np.zeros((self._player_widget.num_frames()),
+                                   dtype="float")
+
+        prediction_labels[indexes] = self._predictions[video][identity]
+        prediction_prob[indexes] = self._probabilities[video][identity]
+        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR
+        prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
+        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR
+        prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
+
+        self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
 
 

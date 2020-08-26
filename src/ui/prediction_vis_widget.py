@@ -5,8 +5,10 @@ from PyQt5.QtCore import QSize, Qt
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR, SELECTION_COLOR)
 
+from src.labeler.track_labels import TrackLabels
 
-class ManualLabelWidget(QWidget):
+
+class PredictionVisWidget(QWidget):
     """
     widget used to show labels for a range of frames arount the current frame
     """
@@ -19,7 +21,7 @@ class ManualLabelWidget(QWidget):
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
     def __init__(self, *args, **kwargs):
-        super(ManualLabelWidget, self).__init__(*args, **kwargs)
+        super(PredictionVisWidget, self).__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -31,14 +33,12 @@ class ManualLabelWidget(QWidget):
 
         # current position
         self._current_frame = 0
-        self._selection_start = None
 
-        # information about the video needed to properly render widdget
+        # information about the video needed to properly render wigget
         self._num_frames = 0
-        self._framerate = 0
 
-        # TrackLabels object containing labels for current behavior & identity
-        self._labels = None
+        self._predictions = None
+        self._probabilities = None
 
         self._bar_height = 40
 
@@ -50,8 +50,6 @@ class ManualLabelWidget(QWidget):
         # initialize some brushes and pens once rather than every paintEvent
         self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1,
                                          Qt.SolidLine)
-        self._selection_brush = QBrush(self._SELECTION_COLOR,
-                                       Qt.DiagCrossPattern)
         self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.Dense6Pattern)
 
     def sizeHint(self):
@@ -73,9 +71,9 @@ class ManualLabelWidget(QWidget):
         override QWidget paintEvent
 
         This draws the widget.
-        TODO: this could could be broken up into a few logical steps
         """
 
+        # width of entire widget
         width = self._adjusted_width
 
         # starting and ending frames of the current view
@@ -84,11 +82,6 @@ class ManualLabelWidget(QWidget):
 
         # slice size for grabbing label blocks
         slice_start = max(start, 0)
-
-        if self._labels is not None:
-            label_blocks = self._labels.get_slice_blocks(slice_start, end)
-        else:
-            label_blocks = []
 
         qp = QPainter(self)
         qp.setPen(Qt.NoPen)
@@ -112,53 +105,33 @@ class ManualLabelWidget(QWidget):
             )
 
         # draw background color (will be color for no label)
-        qp.setBrush(self._BACKGROUND_COLOR)
+        qp.setBrush(QColor(255, 255, 255))
         qp.drawRect(self._offset + start_padding_width, 0,
                     width - start_padding_width - (end_padding_frames *
                                                    self._frame_width),
                     self._bar_height)
 
-        # draw label blocks
-        for block in label_blocks:
-            if block['present']:
-                qp.setBrush(self._BEHAVIOR_COLOR)
-            else:
-                qp.setBrush(self._NOT_BEHAVIOR_COLOR)
+        if self._predictions is not None:
+            slice_index = -1
+            for label in self._predictions[slice_start:end+1]:
+                slice_index += 1
 
-            block_width = (block['end'] - block['start'] + 1) \
-                          * self._frame_width
-            offset_x = self._offset + start_padding_width + block['start'] \
-                       * self._frame_width
+                if label == TrackLabels.Label.BEHAVIOR:
+                    color = self._BEHAVIOR_COLOR
+                elif label == TrackLabels.Label.NOT_BEHAVIOR:
+                    color = self._NOT_BEHAVIOR_COLOR
+                else:
+                    continue
+                color.setAlphaF(
+                    self._probabilities[slice_start:end + 1][slice_index])
+                qp.setBrush(color)
 
-            qp.drawRect(offset_x, 0, block_width, self._bar_height)
-
-        # highlight current selection
-        if self._selection_start is not None:
-            qp.setPen(Qt.NoPen)
-            qp.setBrush(self._selection_brush)
-            if self._selection_start < self._current_frame:
-                # other end of selection is left of the current frame
-                selection_start = max(self._selection_start - start, 0)
-                selection_width = (
-                    self._current_frame - max(start, self._selection_start) + 1
-                ) * self._frame_width
-            elif self._selection_start > self._current_frame:
-                # other end of selection is to the right of the current frame
-                selection_start = self._current_frame - start
-                selection_width = (
-                    min(end, self._selection_start) - self._current_frame + 1
-                ) * self._frame_width
-            else:
-                # only the current frame is selected
-                selection_start = self._current_frame - start
-                selection_width = self._frame_width
-
-            qp.drawRect(self._offset + (selection_start * self._frame_width), 0,
-                        selection_width, self._bar_height)
+                offset_x = self._offset + start_padding_width + slice_index * self._frame_width
+                qp.drawRect(offset_x, 0, self._frame_width, self._bar_height)
 
         # draw current position indicator
         qp.setPen(self._position_marker_pen)
-        position_offset = self._offset + (width / 2)  # midpoint of widget in pixels
+        position_offset = self._offset + self._adjusted_width / 2
         qp.drawLine(position_offset, 0, position_offset, self._bar_height - 1)
 
         # draw bounding box
@@ -166,34 +139,12 @@ class ManualLabelWidget(QWidget):
         qp.setBrush(Qt.NoBrush)
         # need to adjust the width and height to account for the pen
         qp.drawRect(self._offset, 0, width - 1, self._bar_height - 1)
-
-        self._draw_second_ticks(qp, start, end)
-
         qp.end()
 
-    def _draw_second_ticks(self, painter, start, end):
-        """
-        draw ticks at one second intervals
-        :param painter: active QPainter
-        :param start: starting frame number
-        :param end: ending frame number
-        """
-
-        # can't draw if we don't know the frame rate yet
-        if self._framerate == 0:
-            return
-
-        painter.setBrush(self._BORDER_COLOR)
-        for i in range(start, end + 1):
-            # we could add i > 0 and i < num_frames to this if test to avoid
-            # drawing ticks in the 'padding' at the start and end of the video
-            if i % self._framerate == 0:
-                offset = (i - start) * self._frame_width + self._offset
-                painter.drawRect(offset, 0, self._frame_width - 1, 4)
-
-    def set_labels(self, labels):
+    def set_predictions(self, predictions, probabilities):
         """ load label track to display """
-        self._labels = labels
+        self._predictions = predictions
+        self._probabilities = probabilities
         self.update()
 
     def set_current_frame(self, current_frame):
@@ -205,22 +156,3 @@ class ManualLabelWidget(QWidget):
     def set_num_frames(self, num_frames):
         """ set number of frames in current video, needed to properly render """
         self._num_frames = num_frames
-
-    def set_framerate(self, fps):
-        """
-        set the frame rate for the currently loaded video, needed to draw the
-        ticks at one second intervals
-        :param fps: frame rate in frames per second
-        """
-        self._framerate = fps
-
-    def start_selection(self, start_frame):
-        """
-        start highlighting selection from start_frame to self._current_frame
-        """
-        self._selection_start = start_frame
-
-    def clear_selection(self):
-        """ stop highlighting selection """
-        self._selection_start = None
-
