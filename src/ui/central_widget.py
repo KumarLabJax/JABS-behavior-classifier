@@ -285,6 +285,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_not_behavior_button.setText(
             f"Not {self.behavior_selection.currentText()}")
         self._set_label_track()
+        self._reset_prediction()
+        self._reset_classifier()
 
     def _start_selection(self, pressed):
         """
@@ -586,4 +588,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
 
+    def _reset_prediction(self):
+        self._predictions = {}
+        self._probabilities = {}
+        self._frame_indexes = {}
+        self.prediction_vis.set_predictions(None, None)
 
+    def _reset_classifier(self):
+        self.classify_button.setEnabled(False)
