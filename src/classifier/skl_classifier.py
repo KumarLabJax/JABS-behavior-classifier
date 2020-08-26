@@ -40,7 +40,6 @@ class SklClassifier:
         }
         """
         datasets = []
-        feature_list = []
 
         # add per frame features to our data set
         for feature in sorted(per_frame_features):
@@ -86,28 +85,7 @@ class SklClassifier:
         """
         logo = LeaveOneGroupOut()
 
-        datasets = []
-
-        # iterate over feature sets and add the values to our data set
-        # note, we sort the dictionary keys as we iterate over them so we
-        # have a predictable order
-
-        # add per frame features to our data set
-        for feature in sorted(per_frame_features):
-            datasets.append(per_frame_features[feature])
-
-        # add window features to our data set
-        for feature in sorted(window_features):
-            if feature == 'percent_frames_present':
-                datasets.append(window_features[feature])
-            else:
-                # [source_feature_name][operator_applied] : numpy array
-                # iterate over operator names
-                for op in sorted(window_features[feature]):
-                    # append the numpy array to the dataset
-                    datasets.append(window_features[feature][op])
-
-        x = np.concatenate(datasets, axis=1)
+        x = SklClassifier.combine_data(per_frame_features, window_features)
 
         splits = logo.split(x, labels, groups)
 
@@ -140,6 +118,37 @@ class SklClassifier:
 
         """
         return self._classifier.predict(features)
+
+    def predict_proba(self, features):
+        return self._classifier.predict_proba(features)
+
+    @staticmethod
+    def combine_data(per_frame, window):
+        """
+        iterate over feature sets and combine them to create a dataset with the
+        shape #frames, #features
+        :param per_frame: per frame features dictionary
+        :param window: window feature dictionary
+        :return: numpy array with shape #frames,#features
+        """
+
+        datasets = []
+        # add per frame features to our data set
+        for feature in sorted(per_frame):
+            datasets.append(per_frame[feature])
+
+        # add window features to our data set
+        for feature in sorted(window):
+            if feature == 'percent_frames_present':
+                datasets.append(window[feature])
+            else:
+                # [source_feature_name][operator_applied] : numpy array
+                # iterate over operator names
+                for op in sorted(window[feature]):
+                    # append the numpy array to the dataset
+                    datasets.append(window[feature][op])
+
+        return np.concatenate(datasets, axis=1)
 
     @staticmethod
     def _fit_random_forest(features, labels):
