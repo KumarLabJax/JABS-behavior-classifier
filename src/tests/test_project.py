@@ -102,8 +102,7 @@ class TestProject(unittest.TestCase):
 
     def test_load_annotations_bad_filename(self):
         """
-        attempt to load annotations for a file that doesn't exist, should
-        raise a ValueError
+        test load annotations for a file that doesn't exist raises ValueError
         """
         project = Project(self._EXISTING_PROJ_PATH)
 
@@ -112,8 +111,7 @@ class TestProject(unittest.TestCase):
 
     def test_exception_creating_video_labels(self):
         """
-        Project can't create an empty VideoLabels object for a project avi file
-        because opencv is unable to open the video to get a frame count
+        test OPError raised if unable to open avi file to get num frames
         """
         project = Project(self._EXISTING_PROJ_PATH)
         with self.assertRaises(IOError):
