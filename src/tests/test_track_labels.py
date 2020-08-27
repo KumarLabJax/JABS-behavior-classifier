@@ -65,7 +65,7 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_not_behavior(50, 74)
 
         # downsample into an array of length 3
-        ds = labels.downsample(3)
+        ds = TrackLabels.downsample(labels.get_labels(), 3)
 
         # confirm length
         self.assertEqual(len(ds), 3)
@@ -89,7 +89,7 @@ class TestTrackLabels(unittest.TestCase):
         # downsample into an array of length two
         # ds[0] will be computed from [1, 1, 1, 0, 0]
         # ds[1] will be computed from [0, 0, 0, 0, 0]
-        ds = labels.downsample(2)
+        ds = TrackLabels.downsample(labels.get_labels(), 2)
 
         self.assertEqual(ds[0], TrackLabels.Label.BEHAVIOR)
         self.assertEqual(ds[1], TrackLabels.Label.NONE)
@@ -109,7 +109,7 @@ class TestTrackLabels(unittest.TestCase):
         # downsample into an array of length two
         # ds[0] will be computed from [1, 1, 2, 2, 0]
         # ds[1] will be computed from [0, 0, 0, 0, 0]
-        ds = labels.downsample(2)
+        ds = TrackLabels.downsample(labels.get_labels(), 2)
 
         self.assertEqual(ds[0], TrackLabels.Label.MIX)
         self.assertEqual(ds[1], TrackLabels.Label.NONE)
@@ -121,10 +121,9 @@ class TestTrackLabels(unittest.TestCase):
         """
 
         labels = TrackLabels(100)
-        ds = labels.downsample(33)
+        ds = TrackLabels.downsample(labels.get_labels(), 33)
 
         self.assertEqual(len(ds), 33)
-
 
     def test_export_behavior_blocks(self):
         """ test exporting to list of label block dicts """
