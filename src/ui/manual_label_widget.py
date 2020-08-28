@@ -257,4 +257,3 @@ class ManualLabelWidget(QWidget):
                     })
                 block_start += count
         return blocks
-
