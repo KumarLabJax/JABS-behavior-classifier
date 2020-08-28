@@ -1,4 +1,4 @@
-from PyQt5.QtGui import QPainter, QPixmap
+from PyQt5.QtGui import QPainter, QPixmap, QColor
 from PyQt5.QtCore import Qt
 import numpy as np
 
@@ -35,7 +35,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         qp = QPainter(self._pixmap)
         for x in range(width):
             if downsampled[x] == TrackLabels.Label.NONE:
-                qp.setPen(self._BACKGROUND_COLOR)
+                qp.setPen(QColor(212, 212, 212))
             elif downsampled[x] == TrackLabels.Label.BEHAVIOR:
                 qp.setPen(self._BEHAVIOR_COLOR)
             elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:

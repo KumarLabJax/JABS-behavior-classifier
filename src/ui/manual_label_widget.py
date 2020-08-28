@@ -1,5 +1,7 @@
+from itertools import groupby
+
 from PyQt5.QtWidgets import QWidget, QSizePolicy
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPalette
 from PyQt5.QtCore import QSize, Qt
 
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
@@ -39,6 +41,7 @@ class ManualLabelWidget(QWidget):
 
         # TrackLabels object containing labels for current behavior & identity
         self._labels = None
+        self._identity_mask = None
 
         self._bar_height = 40
 
@@ -84,9 +87,10 @@ class ManualLabelWidget(QWidget):
 
         # slice size for grabbing label blocks
         slice_start = max(start, 0)
+        slice_end = min(end, self._num_frames - 1)
 
         if self._labels is not None:
-            label_blocks = self._labels.get_slice_blocks(slice_start, end)
+            label_blocks = self._labels.get_slice_blocks(slice_start, slice_end)
         else:
             label_blocks = []
 
@@ -96,16 +100,16 @@ class ManualLabelWidget(QWidget):
         # draw start padding if any
         start_padding_width = 0
         if start < 0:
-            start_padding_width = abs(start) * self._frame_width
             qp.setBrush(self._padding_brush)
+            start_padding_width = abs(start) * self._frame_width
             qp.drawRect(self._offset, 0, start_padding_width, self._bar_height)
 
         # draw end padding if any
         end_padding_frames = 0
         if self._num_frames and end >= self._num_frames:
+            qp.setBrush(self._padding_brush)
             end_padding_frames = end - (self._num_frames - 1)
             end_padding_width = end_padding_frames * self._frame_width
-            qp.setBrush(self._padding_brush)
             qp.drawRect(
                 self._offset + (self._nframes - end_padding_frames) * self._frame_width,
                 0, end_padding_width, self._bar_height
@@ -117,6 +121,19 @@ class ManualLabelWidget(QWidget):
                     width - start_padding_width - (end_padding_frames *
                                                    self._frame_width),
                     self._bar_height)
+
+        # draw gap blocks
+        for block in self._get_gap_blocks(slice_start, end):
+            block_width = (block['end'] - block['start'] + 1) \
+                          * self._frame_width
+            offset_x = self._offset + start_padding_width + block['start'] \
+                       * self._frame_width
+
+            # clear background
+            qp.setBrush(self.palette().color(QPalette.Background))
+            qp.drawRect(offset_x, 0, block_width, self._bar_height)
+            qp.setBrush(self._padding_brush)
+            qp.drawRect(offset_x, 0, block_width, self._bar_height)
 
         # draw label blocks
         for block in label_blocks:
@@ -191,9 +208,10 @@ class ManualLabelWidget(QWidget):
                 offset = (i - start) * self._frame_width + self._offset
                 painter.drawRect(offset, 0, self._frame_width - 1, 4)
 
-    def set_labels(self, labels):
+    def set_labels(self, labels, mask=None):
         """ load label track to display """
         self._labels = labels
+        self._identity_mask = mask
         self.update()
 
     def set_current_frame(self, current_frame):
@@ -223,4 +241,19 @@ class ManualLabelWidget(QWidget):
     def clear_selection(self):
         """ stop highlighting selection """
         self._selection_start = None
+
+    def _get_gap_blocks(self, start, end):
+        block_start = 0
+        blocks = []
+
+        if self._identity_mask is not None:
+            for val, group in groupby(self._identity_mask[start:end+1]):
+                count = len([*group])
+                if val == 0:
+                    blocks.append({
+                        'start': block_start,
+                        'end': block_start + count - 1,
+                    })
+                block_start += count
+        return blocks
 

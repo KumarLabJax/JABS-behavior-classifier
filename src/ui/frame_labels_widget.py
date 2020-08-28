@@ -41,10 +41,6 @@ class FrameLabelsWidget(QWidget):
         self._font = QFont("Arial", 12)
         self._font_metrics = QFontMetrics(self._font)
         self._font_height = self._font_metrics.height()
-        self._font_color = QApplication.palette().text().color()
-
-        # make the ticks the same color as the text
-        self._tick_color = self._font_color
 
     def sizeHint(self):
         """
@@ -72,7 +68,8 @@ class FrameLabelsWidget(QWidget):
         end = self._current_frame + self._window_size
 
         qp = QPainter(self)
-        qp.setBrush(self._tick_color)
+        # make the ticks the same color as the text
+        qp.setBrush(QApplication.palette().text().color())
         qp.setFont(self._font)
         self._draw_ticks(qp, start, end)
         qp.end()
@@ -94,7 +91,7 @@ class FrameLabelsWidget(QWidget):
 
                 label_text = f"{i}"
                 label_width = self._font_metrics.width(label_text)
-                painter.setPen(self._font_color)
+                painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width/2 + 1,
                                  self._font_height + 8, label_text)
 

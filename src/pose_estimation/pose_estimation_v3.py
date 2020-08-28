@@ -57,26 +57,34 @@ class PoseEstimationV3:
             self._all_instance_count = vid_grp['instance_count'][:]
             self._all_track_id = vid_grp['instance_track_id'][:]
 
-            self._max_instances = len(self._all_points[0])
+        self._max_instances = len(self._all_points[0])
 
-            # build instance tracks from the HDF5 matrixes and
-            self._track_dict = {}
-            self._build_track_dict()
+        # build instance tracks from the HDF5 matrixes and
+        self._track_dict = {}
+        self._build_track_dict()
 
-            # map track instances to identities
-            self._identities = [*range(self._max_instances)]
+        # map track instances to identities
+        self._identities = [*range(self._max_instances)]
 
-            # maps track instances to identities
-            self._identity_map = {}
-            # for every frame, this array maps track instances to an identity
-            self._identity_to_instance = np.full(
-                (len(self._all_instance_count), self._max_instances), -1,
-                dtype=np.int16)
+        # maps track instances to identities
+        self._identity_map = {}
+        # for every frame, this array maps track instances to an identity
+        self._identity_to_instance = np.full(
+            (len(self._all_instance_count), self._max_instances), -1,
+            dtype=np.int16)
 
-            # populate identity_ma and identity_to_instance
-            self._build_identity_map()
+        # populate identity_map and identity_to_instance
+        self._build_identity_map()
 
-            self._num_frames = len(self._all_points)
+        self._num_frames = len(self._all_points)
+
+        # build a mask for each identity that indicates if it exists or not
+        # in the frame
+
+        init_func = np.vectorize(
+                lambda x, y: 0 if self._identity_to_instance[y][x] == -1 else 1)
+        self._identity_mask = np.fromfunction(
+            init_func, (self._max_instances, self._num_frames), dtype="int")
 
     @property
     def num_frames(self):
@@ -107,6 +115,9 @@ class PoseEstimationV3:
         # find this frame's index in the track and return the points and mask
         track_index = frame_index - track['start_frame']
         return track['points'][track_index], track['point_masks'][track_index]
+
+    def identity_mask(self, identity):
+        return self._identity_mask[identity][:]
 
     def _build_track_dict(self):
         """ iterate through frames and build track dict """

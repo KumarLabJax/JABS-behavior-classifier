@@ -115,5 +115,4 @@ class TestProject(unittest.TestCase):
         """
         project = Project(self._EXISTING_PROJ_PATH)
         with self.assertRaises(IOError):
-            pass
             labels = project.load_annotation_track(self._FILENAMES[1])

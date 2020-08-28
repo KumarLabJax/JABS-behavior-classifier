@@ -48,7 +48,7 @@ class VideoLabels:
     def as_dict(self):
         """
         return dict representation of self, useful for JSON serialization and
-        saving to disk or cacheing in memory when user switches to a different
+        saving to disk or caching in memory when user switches to a different
         video
 
         example return value:
