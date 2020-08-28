@@ -80,7 +80,6 @@ class PoseEstimationV3:
 
         # build a mask for each identity that indicates if it exists or not
         # in the frame
-
         init_func = np.vectorize(
                 lambda x, y: 0 if self._identity_to_instance[y][x] == -1 else 1)
         self._identity_mask = np.fromfunction(
