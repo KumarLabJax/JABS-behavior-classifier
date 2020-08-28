@@ -20,8 +20,6 @@ class TrackLabels:
         MIX = 3
         PAD = 4
 
-        # used only by
-
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)
 
