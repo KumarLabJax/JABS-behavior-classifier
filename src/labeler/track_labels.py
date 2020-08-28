@@ -39,15 +39,16 @@ class TrackLabels:
 
     def _set_labels(self, start, end, label, mask=None):
         """
-
-        :param start:
-        :param end:
-        :param label:
-        :param mask:
-        :return:
+        set label value for a range of frames
+        :param start: start of range, inclusive
+        :param end: end of range, inclusive
+        :param label: label to apply to frames
+        :param mask: optional mask array, if present only set values where
+        the mask array is not zero
+        :return: None
         """
         if mask is not None:
-            self._labels[start:end + 1][mask == 1] = label
+            self._labels[start:end + 1][mask != 0] = label
         else:
             self._labels[start:end+1] = label
 

@@ -243,6 +243,7 @@ class ManualLabelWidget(QWidget):
         self._selection_start = None
 
     def _get_gap_blocks(self, start, end):
+        """ generate blocks for gaps in the current identity track """
         block_start = 0
         blocks = []
 
