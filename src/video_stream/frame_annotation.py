@@ -1,6 +1,5 @@
 import cv2
 from shapely.geometry import MultiPoint
-from itertools import compress
 
 _FRAME_LABEL_COLOR = (215, 222, 0)
 
@@ -19,7 +18,7 @@ def label_identity(img, points, mask):
         # the mid tail and the tip of the tail
 
         # first remove any invalid points (where mask is not True)
-        filtered_points = list(compress(points[:-2], mask[:-2]))
+        filtered_points = points[:-2][mask[:-2] == 1]
 
         # find the center of the remaining points
         center = MultiPoint(filtered_points).convex_hull.centroid
@@ -45,7 +44,7 @@ def label_all_identities(img, pose_est, identities, frame_index):
         points, mask = pose_est.get_points(frame_index, identity)
         if points is not None:
             # first remove any invalid points (where mask is not True)
-            filtered_points = list(compress(points[:-2], mask[:-2]))
+            filtered_points = points[:-2][mask[:-2] == 1]
 
             # find the center of the remaining points
             center = MultiPoint(filtered_points).convex_hull.centroid

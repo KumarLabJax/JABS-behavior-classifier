@@ -95,8 +95,6 @@ class PoseEstimationV3:
         self._identity_mask = np.fromfunction(
             init_func, (self._max_instances, self._num_frames), dtype="int")
 
-
-
     @property
     def num_frames(self):
         return self._num_frames
