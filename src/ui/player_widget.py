@@ -75,7 +75,9 @@ class _PlayerThread(QtCore.QThread):
 
                 if self._label_identities and self._identities:
                     # label all identities mode
-                    label_all_identities(frame['data'], self._pose_est, self._identities, frame['index'])
+                    label_all_identities(frame['data'],
+                                         self._pose_est, self._identities,
+                                         frame['index'])
 
                 elif self._identity is not None:
                     # if active identity set, label it on the frame
@@ -354,7 +356,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
 
-    def set_identity_labels(self, identities):
+    def set_identities(self, identities):
         self._identities = identities
 
     def load_video(self, path):

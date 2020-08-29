@@ -352,7 +352,7 @@ class CentralWidget(QtWidgets.QWidget):
         """ populate the identity_selection combobox """
         self.identity_selection.clear()
         self.identity_selection.addItems([str(i) for i in identities])
-        self._player_widget.set_identity_labels(identities)
+        self._player_widget.set_identities(identities)
 
     def _change_identity(self):
         """ handle changing value of identity_selection """

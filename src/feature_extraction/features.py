@@ -3,7 +3,6 @@ import math
 import numpy as np
 import h5py
 from pathlib import Path
-from itertools import compress
 
 from src.pose_estimation import PoseEstimationV3
 from src.labeler.track_labels import TrackLabels
@@ -135,9 +134,9 @@ class IdentityFeatures:
                 self._per_frame["angles"][frame] = self._compute_angles(points)
 
                 # indicate this identity exists in this frame
-                self._frame_valid[frame] = 1
+        self._frame_valid = pose_est.identity_mask(self._identity)
 
-            self.save_per_frame()
+        self.save_per_frame()
 
     def __load_from_file(self):
         """
@@ -314,7 +313,6 @@ class IdentityFeatures:
             per_frame[feature] = self._per_frame[feature][
                                  filter, :]
 
-
         window = {}
         for key in window_features:
             if key == 'radius':
@@ -391,33 +389,25 @@ class IdentityFeatures:
             frames_in_window = np.count_nonzero(frame_valid)
 
             window_features['percent_frames_present'][i, 0] = frames_in_window / max_window_size
-
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
                 window_values = self._per_frame['angles'][slice_start:slice_end,
-                                angle_index]
-
-                # filter window values
-                filtered_slice = np.array(
-                    list(compress(window_values, frame_valid)))
+                                angle_index][frame_valid]
 
                 for operation in self._window_feature_operations:
                     window_features['angles'][operation][i, angle_index] = \
-                    self._window_feature_operations[operation](filtered_slice)
+                        self._window_feature_operations[operation](window_values)
 
             # compute window features for distances
             for distance_index in range(0, self._num_distances):
                 window_values = self._per_frame['pairwise_distances'][
-                                slice_start:slice_end, distance_index]
-
-                # filter window values
-                filtered_slice = np.array(
-                    list(compress(window_values, frame_valid)))
+                                    slice_start:slice_end,
+                                    distance_index][frame_valid]
 
                 for operation in self._window_feature_operations:
                     window_features['pairwise_distances'][operation][
                         i, distance_index] = self._window_feature_operations[
-                        operation](filtered_slice)
+                        operation](window_values)
 
         return window_features
 
