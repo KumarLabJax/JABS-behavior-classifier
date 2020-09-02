@@ -43,7 +43,7 @@ def label_all_identities(img, pose_est, identities, frame_index):
     for identity in identities:
         points, mask = pose_est.get_points(frame_index, identity)
         if points is not None:
-            # first remove any invalid points (where mask is not True)
+            # first remove any invalid points (where mask is not 1)
             filtered_points = points[:-2][mask[:-2] == 1]
 
             # find the center of the remaining points

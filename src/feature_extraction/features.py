@@ -62,7 +62,8 @@ class IdentityFeatures:
 
     _per_frame_features = [
         'angles',
-        'pairwise_distances'
+        'pairwise_distances',
+        'point_speeds'
     ]
 
     _window_features = [
@@ -98,10 +99,14 @@ class IdentityFeatures:
         for feature in self._per_frame_features:
             if feature == 'pairwise_distances':
                 self._per_frame[feature] = np.empty(
-                    [self._num_frames, self._num_distances], dtype=np.float32)
+                    (self._num_frames, self._num_distances), dtype=np.float32)
             elif feature == 'angles':
                 self._per_frame[feature] = np.empty(
-                    [self._num_frames, self._num_angles], dtype=np.float32)
+                    (self._num_frames, self._num_angles), dtype=np.float32)
+            elif feature == 'point_speeds':
+                self._per_frame[feature] = np.empty(
+                    (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
+                    dtype=np.float32)
 
         try:
             # try to load from an h5 file if it exists
@@ -130,11 +135,13 @@ class IdentityFeatures:
             points, confidence = pose_est.get_points(frame, self._identity)
 
             if points is not None:
-                self._per_frame["pairwise_distances"][frame] = self._compute_pairwise_distance(points)
-                self._per_frame["angles"][frame] = self._compute_angles(points)
+                self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
+                self._per_frame['angles'][frame] = self._compute_angles(points)
 
-                # indicate this identity exists in this frame
+        # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
+
+        self._per_frame['point_speeds'] = self._compute_point_speeds(pose_est)
 
         self.save_per_frame()
 
@@ -151,12 +158,13 @@ class IdentityFeatures:
 
             # load per frame features
             self._frame_valid = features_h5['frame_valid'][:]
-            self._per_frame["pairwise_distances"] = feature_grp['pairwise_distances'][:]
-            self._per_frame["angles"] = feature_grp['angles'][:]
+            self._per_frame['pairwise_distances'] = feature_grp['pairwise_distances'][:]
+            self._per_frame['angles'] = feature_grp['angles'][:]
+            self._per_frame['point_speeds'] = feature_grp['point_speeds'][:]
 
             assert len(self._frame_valid) == self._num_frames
-            assert len(self._per_frame["pairwise_distances"]) == self._num_frames
-            assert len(self._per_frame["angles"]) == self._num_frames
+            assert len(self._per_frame['pairwise_distances']) == self._num_frames
+            assert len(self._per_frame['angles']) == self._num_frames
 
     def save_per_frame(self):
         """ save per frame features to a h5 file """
@@ -174,6 +182,7 @@ class IdentityFeatures:
             grp = features_h5.create_group('features')
             grp.create_dataset('pairwise_distances', data=self._per_frame['pairwise_distances'])
             grp.create_dataset('angles', data=self._per_frame['angles'])
+            grp.create_dataset('point_speeds', data=self._per_frame['point_speeds'])
 
     def save_window_features(self, features, radius):
         """
@@ -283,7 +292,8 @@ class IdentityFeatures:
 
         {
             'pairwise_distances': 2D numpy array,
-            'angles': 2D numpy array
+            'angles': 2D numpy array,
+            'point_speeds': 2D numpy array
         }
         """
         if labels is None:
@@ -292,8 +302,9 @@ class IdentityFeatures:
         else:
             # return only features for labeled frames
             return {
-                "pairwise_distances": self._per_frame["pairwise_distances"][labels != TrackLabels.Label.NONE, :],
-                "angles": self._per_frame["angles"][labels != TrackLabels.Label.NONE, :]
+                'pairwise_distances': self._per_frame['pairwise_distances'][labels != TrackLabels.Label.NONE, :],
+                'angles': self._per_frame['angles'][labels != TrackLabels.Label.NONE, :],
+                'point_speeds': self._per_frame['point_speeds'][labels != TrackLabels.Label.NONE, :]
             }
 
     def get_unlabeled_features(self, radius, labels):
@@ -425,6 +436,8 @@ class IdentityFeatures:
                 feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
             elif feature == 'pairwise_distances':
                 feature_list.extend(IdentityFeatures.get_distance_names())
+            elif feature == 'point_speeds':
+                feature_list.extend([f"{point.name} speed" for point in PoseEstimationV3.KeypointIndex])
 
         for feature in sorted(cls._window_features):
             if feature == 'percent_frames_present':
@@ -460,6 +473,7 @@ class IdentityFeatures:
             'pairwise_distances': np.concatenate(
                 [x['pairwise_distances'] for x in features]),
             'angles': np.concatenate([x['angles'] for x in features]),
+            'point_speeds': np.concatenate([x['point_speeds'] for x in features])
         }
 
     @classmethod
@@ -626,3 +640,42 @@ class IdentityFeatures:
         )
 
         return angles
+
+    def _compute_point_speeds(self, pose_est):
+        """
+        compute point speeds for post currently selected identity
+        :param pose_est: pose estimations
+        :return: numpy array with shape (#frames, #key points)
+        """
+        # get poses and point masks for current identity
+        poses, point_masks = pose_est.get_identity_poses(self._identity)
+
+        # generate an array of indexes so numpy gradient will no spaceing
+        # between values since there may be gaps
+        # TODO convert this to time based values rather than frame numbers
+        indexes = np.arange(pose_est.num_frames)
+        point_velocities = np.zeros(poses.shape)
+
+        # calculate velocities for each point
+        for point in pose_est.KeypointIndex:
+            point_index = point.value
+
+            # grab all of the values for this point
+            points = poses[:, point_index, :]
+
+            # get the mask for each point too
+            masks = point_masks[:, point_index]
+
+            # and the indexes for the frames where the mask == 1
+            valid_indexes = indexes[masks == 1]
+
+            # if there are > 1 frame indexes where this point is valid, compute
+            # the velocities
+            if valid_indexes.shape[0] > 1:
+                point_velocities[masks == 1, point_index, :] = np.gradient(
+                    points[masks == 1], valid_indexes, axis=0)
+
+        # convert the velocities to speed
+        return np.linalg.norm(point_velocities, axis=-1)
+
+

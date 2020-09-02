@@ -120,7 +120,7 @@ class PoseEstimationV3:
             self._point_mask[identity, frame_index, :]
         )
 
-    def get_identity_points(self, identity):
+    def get_identity_poses(self, identity):
         return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
