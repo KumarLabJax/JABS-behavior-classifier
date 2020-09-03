@@ -141,7 +141,7 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        self._per_frame['point_speeds'] = self._compute_point_speeds(pose_est)
+        self._per_frame['point_speeds'] = self._compute_point_speeds(*pose_est.get_identity_poses(self._identity))
 
         self.save_per_frame()
 
@@ -641,24 +641,25 @@ class IdentityFeatures:
 
         return angles
 
-    def _compute_point_speeds(self, pose_est):
+    @staticmethod
+    def _compute_point_speeds(poses, point_masks):
         """
         compute point speeds for post currently selected identity
-        :param pose_est: pose estimations
+        :param poses: pose estimations for an identity
+        :param point_masks: corresponding point masks for poses
         :return: numpy array with shape (#frames, #key points)
         """
-        # get poses and point masks for current identity
-        poses, point_masks = pose_est.get_identity_poses(self._identity)
+
+        num_frames = poses.shape[0]
 
         # generate an array of indexes so numpy gradient will no spaceing
         # between values since there may be gaps
         # TODO convert this to time based values rather than frame numbers
-        indexes = np.arange(pose_est.num_frames)
+        indexes = np.arange(num_frames)
         point_velocities = np.zeros(poses.shape)
 
         # calculate velocities for each point
-        for point in pose_est.KeypointIndex:
-            point_index = point.value
+        for point_index in range(poses.shape[1]):
 
             # grab all of the values for this point
             points = poses[:, point_index, :]
