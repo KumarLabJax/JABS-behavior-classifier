@@ -57,6 +57,10 @@ class TrackLabels:
         """ get the label for a given frame """
         return self._labels[frame_index]
 
+    @property
+    def label_count(self):
+        return np.count_nonzero(self._labels)
+
     def get_blocks(self):
         """
         get blocks for entire label array

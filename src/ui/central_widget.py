@@ -80,6 +80,7 @@ class CentralWidget(QtWidgets.QWidget):
         # classifier controls
         self.train_button = QtWidgets.QPushButton("Train")
         self.train_button.clicked.connect(self._train_button_clicked)
+        self.train_button.setEnabled(False)
         self.classify_button = QtWidgets.QPushButton("Classify")
         self.classify_button.clicked.connect(self._classify_button_clicked)
         self.classify_button.setEnabled(False)
@@ -229,6 +230,7 @@ class CentralWidget(QtWidgets.QWidget):
 
             self._loaded_video = path
             self._set_prediction_vis()
+            self._set_train_button_enabled_state()
         except OSError as e:
             # error loading
             self._labels = None
@@ -292,7 +294,8 @@ class CentralWidget(QtWidgets.QWidget):
             f"Not {self.behavior_selection.currentText()}")
         self._set_label_track()
         self._reset_prediction()
-        self._reset_classifier()
+        self.classify_button.setEnabled(False)
+        self._set_train_button_enabled_state()
 
     def _start_selection(self, pressed):
         """
@@ -325,6 +328,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.clear_selection()
         self.manual_labels.update()
         self.timeline_widget.update_labels()
+        self._set_train_button_enabled_state()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -337,6 +341,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.clear_selection()
         self.manual_labels.update()
         self.timeline_widget.update_labels()
+        self._set_train_button_enabled_state()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
@@ -347,6 +352,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.clear_selection()
         self.manual_labels.update()
         self.timeline_widget.update_labels()
+        self._set_train_button_enabled_state()
 
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
@@ -601,6 +607,10 @@ class CentralWidget(QtWidgets.QWidget):
         self.inference_timeline_widget.update_labels()
 
     def _reset_prediction(self):
+        """
+        clear out the current predictions
+        :return:
+        """
         self._predictions = {}
         self._probabilities = {}
         self._frame_indexes = {}
@@ -608,5 +618,20 @@ class CentralWidget(QtWidgets.QWidget):
         self.inference_timeline_widget.set_labels(
             np.zeros(self._player_widget.num_frames(), dtype="uint8"))
 
-    def _reset_classifier(self):
-        self.classify_button.setEnabled(False)
+    def _set_train_button_enabled_state(self):
+        """
+        set the enabled property of the train button to True or False depending
+        whether the labeling meets some threshold set by the classifier module
+        :return: None
+        """
+        current_behavior = self.behavior_selection.currentText()
+        counts = self._project.label_counts(current_behavior)
+
+        # if the current video has unsaved labels, they won't be reflected in
+        # self._project.label_counts(), so update the counts for the current
+        # video
+        counts[self._loaded_video.name] = self._labels.label_counts(current_behavior)
+        if SklClassifier.label_threshold_met(counts):
+            self.train_button.setEnabled(True)
+        else:
+            self.train_button.setEnabled(False)

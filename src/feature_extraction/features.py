@@ -546,7 +546,6 @@ class IdentityFeatures:
                 distances.append(f"{p1}-{p2}")
         return distances
 
-
     @staticmethod
     def _compute_angle(a, b, c):
         """

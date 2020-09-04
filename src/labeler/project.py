@@ -137,3 +137,16 @@ class Project:
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
         return Path(self._project_dir_path, video_file)
+
+    def label_counts(self, behavior):
+        """
+
+        :return:
+        """
+        counts = {}
+        for video in self._videos:
+            video_track = self.load_annotation_track(video)
+            counts[video] = video_track.label_counts(behavior)
+        return counts
+
+

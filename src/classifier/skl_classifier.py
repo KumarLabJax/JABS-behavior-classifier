@@ -7,6 +7,9 @@ import random
 
 class SklClassifier:
 
+    LABEL_THRESHOLD = 100
+    MIN_GROUPS = 2
+
     class ClassifierType(IntEnum):
         RANDOM_FOREST = 1
         ADABOOST = 2
@@ -177,3 +180,13 @@ class SklClassifier:
         # Print out the feature and importances
         for feature, importance in feature_importances[:limit]:
             print(f"Variable: {feature:20} Importance: {importance}")
+
+    @staticmethod
+    def label_threshold_met(label_counts):
+        group_count = 0
+        for video, counts in label_counts.items():
+            for count in counts:
+                if count[1] >= SklClassifier.LABEL_THRESHOLD:
+                    group_count += 1
+
+        return True if group_count >= SklClassifier.MIN_GROUPS else False

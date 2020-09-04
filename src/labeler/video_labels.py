@@ -45,6 +45,16 @@ class VideoLabels:
         # return TrackLabels object for this identity & behavior
         return self._identity_labels[identity][behavior]
 
+    def label_counts(self, behavior):
+        counts = []
+        for identity in self._identity_labels:
+            if behavior in self._identity_labels[identity]:
+                counts.append(
+                    (identity,
+                     self._identity_labels[identity][behavior].label_count)
+                )
+        return counts
+
     def as_dict(self):
         """
         return dict representation of self, useful for JSON serialization and
