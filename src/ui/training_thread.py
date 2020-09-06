@@ -10,7 +10,12 @@ class TrainingThread(QtCore.QThread):
     Thread used to run the training to keep the Qt main GUI thread responsive.
     """
 
+    # signal so that the main GUI thread can be notified when the training is
+    # complete
     trainingComplete = QtCore.pyqtSignal()
+
+    # allow the thread to send a status string to the main GUI thread so that
+    # we can update a status bar if we want
     currentStatus = QtCore.pyqtSignal(str)
 
     def __init__(self, project, classifier, behavior, current_video,
@@ -55,6 +60,20 @@ class TrainingThread(QtCore.QThread):
         self.trainingComplete.emit()
 
     def _get_labeled_features(self):
+        """
+        the the features for all labeled frames
+        NOTE: this will currently take a very long time to run if the features
+        have not already been computed
+        :return: dict with the following keys:
+        {
+            'window': ,
+            'per_frame': ,
+            'labels': ,
+            'groups': ,
+        }
+        The values of these are suitable to pass as arguments to the
+        SklClassifier.leave_one_group_out() method
+        """
 
         all_per_frame = []
         all_window = []
