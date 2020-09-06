@@ -11,7 +11,8 @@ from src.ui import (
     IdentityComboBox,
     FrameLabelsWidget,
     PredictionVisWidget,
-    GlobalInferenceWidget
+    GlobalInferenceWidget,
+    TrainingThread
 )
 
 
@@ -180,6 +181,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         # classifier
         self._classifier = SklClassifier()
+
+        self._training_thread = None
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -480,27 +483,20 @@ class CentralWidget(QtWidgets.QWidget):
         handle user click on "Train" button
         :return: None
         """
-        features = self._get_labeled_features()
-        data = self._classifier.leave_one_group_out(
-            features['per_frame'],
-            features['window'],
-            features['labels'],
-            features['groups']
-        )
+        self._training_thread = TrainingThread(
+            self._project, self._classifier,
+            self.behavior_selection.currentText(),
+            self._loaded_video, self._labels)
+        self._training_thread.trainingComplete.connect(
+            self._training_thread_complete)
+        self.train_button.setEnabled(False)
+        self.train_button.setText("Training...")
+        self._training_thread.start()
 
-        self._classifier.train(data)
-        predictions = self._classifier.predict(data['test_data'])
-
-        correct = 0
-        for p, truth in zip(predictions, data['test_labels']):
-            if p == truth:
-                correct += 1
-        print(f"accuracy: {correct / len(predictions) * 100:.2f}%")
-
-        self._classifier.print_feature_importance(
-            IdentityFeatures.get_feature_names())
-
+    def _training_thread_complete(self):
         self.classify_button.setEnabled(True)
+        self.train_button.setEnabled(True)
+        self.train_button.setText("Train")
 
     def _classify_button_clicked(self):
         """
