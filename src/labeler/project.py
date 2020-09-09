@@ -62,7 +62,7 @@ class Project:
     def annotation_dir(self):
         return self._annotations_dir
 
-    def load_annotation_track(self, video_name):
+    def load_annotation_track(self, video_name, leave_cached=False):
         """
         load an annotation track from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
@@ -77,7 +77,10 @@ class Project:
 
         # if this has already been opened
         if video_filename in self._unsaved_annotations:
-            annotations = self._unsaved_annotations.pop(video_filename)
+            if leave_cached:
+                annotations = self._unsaved_annotations[video_filename]
+            else:
+                annotations = self._unsaved_annotations.pop(video_filename)
             return VideoLabels.load(annotations)
 
         # if annotations already exist for this video file in the project open
@@ -145,7 +148,7 @@ class Project:
         """
         counts = {}
         for video in self._videos:
-            video_track = self.load_annotation_track(video)
+            video_track = self.load_annotation_track(video, leave_cached=True)
             counts[video] = video_track.label_counts(behavior)
         return counts
 
