@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 
 class PoseEstimation(ABC):
     """
-
+    abstract base class for PoseEstimation objects. Used as the base class for
+    PoseEstimationV2 and PoseEstimationV3
     """
     class KeypointIndex(enum.IntEnum):
         """ enum defining the 12 keypoint indexes """
@@ -28,6 +29,7 @@ class PoseEstimation(ABC):
 
     @property
     def num_frames(self):
+        """ return the number of frames in the pose_est file """
         return self._num_frames
 
     @property
@@ -37,12 +39,30 @@ class PoseEstimation(ABC):
 
     @abstractmethod
     def get_points(self, frame_index, identity):
+        """
+        return points and point masks for an individual frame
+        :param frame_index: frame index of points and masks to be returned
+        :param identity: identity to return points for
+        :return: numpy array of points (12,2), numpy array of point masks (12,)
+        """
         pass
 
     @abstractmethod
     def get_identity_poses(self, identity):
+        """
+        return all points and point masks
+        :param identity: identity to return points for
+        :return: numpy array of points (#frames, 12, 2), numpy array of point
+        masks (#frames, 12)
+        """
         pass
 
     @abstractmethod
     def identity_mask(self, identity):
+        """
+        get the identity mask (indicates if specified identity is present in
+        each frame)
+        :param identity: identity to get masks for
+        :return: numpy array of size (#frames,)
+        """
         pass

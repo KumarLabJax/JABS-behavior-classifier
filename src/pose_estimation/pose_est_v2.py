@@ -7,12 +7,13 @@ from .pose_est import PoseEstimation
 
 class PoseEstimationV2(PoseEstimation):
     """
-
+    read in pose_est_v2.h5 file
     """
+
     def __init__(self, file_path: Path):
         """
-
-        :param path:
+        initialize new object from h5 file
+        :param file_path: path to pose_est_v2.h5 file
         """
 
         # we will make this look like the PoseEstimationV3 but with a single
@@ -43,6 +44,13 @@ class PoseEstimationV2(PoseEstimation):
                                               dtype="int")
 
     def get_points(self, frame_index, identity):
+        """
+        return points and point masks for an individual frame
+        :param frame_index: frame index of points and masks to be returned
+        :param identity: included for compatibility with pose_est_v3. Should
+        always be zero.
+        :return: numpy array of points (12,2), numpy array of point masks (12,)
+        """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
 
@@ -52,11 +60,25 @@ class PoseEstimationV2(PoseEstimation):
         return self._points[frame_index], self._point_mask[frame_index]
 
     def get_identity_poses(self, identity):
+        """
+        return all points and point masks
+        :param identity: included for compatibility with pose_est_v3. Should
+        always be zero.
+        :return: numpy array of points (#frames, 12, 2), numpy array of point
+        masks (#frames, 12)
+        """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
         return self._points, self._point_mask
 
     def identity_mask(self, identity):
+        """
+        get the identity mask (indicates if specified identity is present in
+        each frame)
+        :param identity: included for compatibility with pose_est_v3. Should
+        always be zero.
+        :return: numpy array of size (#frames,)
+        """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
         return self._identity_mask
