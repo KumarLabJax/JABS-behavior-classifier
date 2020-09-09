@@ -1,46 +1,23 @@
-import enum
 import heapq
 import h5py
 import numpy as np
 from pathlib import Path
 
+from .pose_est import PoseEstimation
 
-class PoseEstimationV3:
+
+class PoseEstimationV3(PoseEstimation):
     """
     class for opening and parsing version 3 of the pose estimation HDF5 file
     """
 
-    class KeypointIndex(enum.IntEnum):
-        """ enum defining the 12 keypoint indexes """
-        NOSE = 0
-        LEFT_EAR = 1
-        RIGHT_EAR = 2
-        BASE_NECK = 3
-        LEFT_FRONT_PAW = 4
-        RIGHT_FRONT_PAW = 5
-        CENTER_SPINE = 6
-        LEFT_REAR_PAW = 7
-        RIGHT_REAR_PAW = 8
-        BASE_TAIL = 9
-        MID_TAIL = 10
-        TIP_TAIL = 11
-
-    def __init__(self, _file_path):
+    def __init__(self, file_path: Path):
         """
         :param file_path: Path object representing the location of the pose file
         """
+        super().__init__()
 
-        # make sure the file_path is a Path object
-        file_path = Path(_file_path)
-
-        # Allow the path to the avi file to be passed rather than the path to
-        # the .h5 file. Since we use a standardized naming convention we can
-        # generate the path to the .h5 from the .avi path
-        if file_path.suffix.lower() == '.avi':
-            self._path = file_path.with_name(
-                file_path.with_suffix('').name + '_pose_est_v3.h5')
-        else:
-            self._path = file_path
+        self._path = file_path
 
         # open the hdf5 pose file
         with h5py.File(self._path, 'r') as pose_h5:
@@ -90,19 +67,10 @@ class PoseEstimationV3:
         # build a mask for each identity that indicates if it exists or not
         # in the frame
         init_func = np.vectorize(
-                lambda x, y: 0 if np.sum(self._point_mask[x][y]) == 0 else 1,
+                lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
                 otypes=["uint8"])
         self._identity_mask = np.fromfunction(
             init_func, (self._max_instances, self._num_frames), dtype="int")
-
-    @property
-    def num_frames(self):
-        return self._num_frames
-
-    @property
-    def identities(self):
-        """ return list of integer identities generated from file """
-        return self._identities
 
     def get_points(self, frame_index, identity):
         """

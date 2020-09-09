@@ -1,9 +1,11 @@
 from pathlib import Path
 import json
 
+
+import src.pose_estimation as pose_est
 from .video_labels import VideoLabels
 from src.video_stream.utilities import get_frame_count
-from src.pose_estimation import PoseEstimationV3
+
 
 
 class Project:
@@ -94,7 +96,9 @@ class Project:
         video_filename = Path(video_name).name
         self.check_video_name(video_filename)
 
-        return PoseEstimationV3(self.video_path(video_name))
+
+        pose_path = pose_est.get_pose_path(self.video_path(video_name))
+        return pose_est.PoseEstFactory.open(pose_path)
 
     def check_video_name(self, video_filename):
         # make sure the video name actually matches one in the project
