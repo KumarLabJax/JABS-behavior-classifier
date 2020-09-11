@@ -37,6 +37,10 @@ class PoseEstimation(ABC):
         """ return list of integer identities generated from file """
         return self._identities
 
+    @property
+    def num_identities(self):
+        return len(self._identities)
+
     @abstractmethod
     def get_points(self, frame_index, identity):
         """
@@ -65,4 +69,9 @@ class PoseEstimation(ABC):
         :param identity: identity to get masks for
         :return: numpy array of size (#frames,)
         """
+        pass
+
+    @property
+    @abstractmethod
+    def identity_to_track(self):
         pass

@@ -1,26 +1,27 @@
-from PyQt5 import QtWidgets, QtCore
 import numpy as np
+from PyQt5 import QtWidgets, QtCore
 
+from src.classifier.skl_classifier import SklClassifier
 from src.feature_extraction.features import IdentityFeatures
 from src.labeler.track_labels import TrackLabels
-from src.classifier.skl_classifier import SklClassifier
-from src.ui import (
-    PlayerWidget,
-    ManualLabelWidget,
-    TimelineLabelWidget,
-    IdentityComboBox,
-    FrameLabelsWidget,
-    PredictionVisWidget,
-    GlobalInferenceWidget,
-    TrainingThread,
-    ClassifyThread
-)
+from .classification_thread import ClassifyThread
+from .frame_labels_widget import FrameLabelsWidget
+from .global_inference_widget import GlobalInferenceWidget
+from .identity_combo_box import IdentityComboBox
+from .manual_label_widget import ManualLabelWidget
+from .player_widget import PlayerWidget
+from .prediction_vis_widget import PredictionVisWidget
+from .timeline_label_widget import TimelineLabelWidget
+from .training_thread import TrainingThread
 
 
 class CentralWidget(QtWidgets.QWidget):
     """
     QT Widget implementing our main window contents
     """
+
+    # signal that
+    have_predictions = QtCore.pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super(CentralWidget, self).__init__(*args, **kwargs)
@@ -523,6 +524,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.train_button.setEnabled(True)
         self.classify_button.setEnabled(True)
         self.classify_button.setText("Classify")
+        self.have_predictions.emit(True)
 
     def _set_prediction_vis(self):
         """
@@ -543,9 +545,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         labels = self._get_label_track().get_labels()
         prediction_labels = np.zeros((self._player_widget.num_frames()),
-                                     dtype="uint8")
+                                     dtype=np.uint8)
         prediction_prob = np.zeros((self._player_widget.num_frames()),
-                                   dtype="float")
+                                   dtype=np.float64)
 
         prediction_labels[indexes] = self._predictions[video][identity]
         prediction_prob[indexes] = self._probabilities[video][identity]
@@ -587,3 +589,13 @@ class CentralWidget(QtWidgets.QWidget):
             self.train_button.setEnabled(True)
         else:
             self.train_button.setEnabled(False)
+
+    def save_predictions(self):
+        """
+        save predictions (if the classifier has been run)
+        """
+        if not self._predictions:
+            return
+        self._project.save_predictions(self._predictions, self._probabilities,
+                                       self._frame_indexes,
+                                       self.behavior_selection.currentText())

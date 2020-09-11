@@ -1,7 +1,7 @@
-import unittest
-import shutil
-from pathlib import Path
 import json
+import shutil
+import unittest
+from pathlib import Path
 
 from src.labeler.project import Project
 from src.labeler.video_labels import VideoLabels

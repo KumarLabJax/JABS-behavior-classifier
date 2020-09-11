@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v2 import PoseEstimationV2
+from .pose_est_v3 import PoseEstimationV3
 
 
 class PoseEstFactory:

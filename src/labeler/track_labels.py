@@ -1,6 +1,7 @@
 import enum
 import math
 from itertools import groupby
+
 import numpy as np
 
 

@@ -1,8 +1,9 @@
+import random
+from enum import IntEnum
+
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
-import numpy as np
-from enum import IntEnum
-import random
 
 
 class SklClassifier:
