@@ -160,14 +160,23 @@ class Project:
                 json.dump(self._unsaved_annotations[video], f)
 
     def save_predictions(self, predictions, probabilities,
-                         frame_indexes, behavior):
+                         frame_indexes, behavior: str):
         """
         save predictions for the current project
-        :param predictions:
-        :param probabilities:
-        :param frame_indexes:
-        :param behavior
-        :return:
+        :param predictions: predictions for all videos in project (dictionary
+        with each video name as a key and a numpy array (#identities, #frames))
+        :param probabilities: corresponding prediction probabilities, similar
+        structure to predictions parameter but with floating point values
+        :param frame_indexes: mapping of the predictions to video frames
+        :param behavior: string behavior name
+
+        Because the classifier does not run on every frame for every identity
+        (since an identity may not exist for every frame), we extract just
+        the features for the frames we need to classify. Now we want to map
+        these back to the corresponding frame.
+        predictions[video_name][identity, index] and
+        probabilities[video_name][identity, index] correspond to the frame
+        specified by frame_indexes[video][identity, index]
         """
 
         for video in self._videos:
@@ -184,11 +193,13 @@ class Project:
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
             video_tracks = self.load_annotation_track(video, leave_cached=True)
-            poses = pose_est.PoseEstFactory.open(pose_est.get_pose_path(self.video_path(video)))
+            poses = pose_est.PoseEstFactory.open(
+                pose_est.get_pose_path(self.video_path(video)))
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
-                (poses.num_identities, video_tracks.num_frames), -1, dtype=np.int8)
+                (poses.num_identities, video_tracks.num_frames), -1,
+                dtype=np.int8)
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
             # populate numpy arrays
@@ -199,7 +210,7 @@ class Project:
                 track = video_tracks.get_track_labels(identity, behavior)
                 manual_labels = track.get_labels()
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
+                prediction_labels[identity_index,inferred_indexes] = predictions[video][identity]
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
                 prediction_labels[identity_index,
                     manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR
@@ -209,6 +220,7 @@ class Project:
                 prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = 1.0
 
             # write to h5 file
+            # TODO catch exceptions
             with h5py.File(output_path, 'w') as h5:
                 group = h5.create_group('predictions')
                 group.create_dataset('labels', data=prediction_labels)
