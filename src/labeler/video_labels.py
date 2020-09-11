@@ -10,6 +10,8 @@ class VideoLabels:
     TrackLabels object, which stores labels for each frame in the video. Each
     frame can have one of three label values: TrackLabels.Label.NONE,
     Tracklabels.Label.BEHAVIOR, and TrackLabels.Label.NOT_BEHAVIOR
+
+    TODO stop using str for identities in method parameters, switch to int
     """
     def __init__(self, filename, num_frames):
         self._filename = filename
@@ -20,6 +22,10 @@ class VideoLabels:
     def filename(self):
         """ return filename of video this object represents """
         return self._filename
+
+    @property
+    def num_frames(self):
+        return self._num_frames
 
     def get_track_labels(self, identity, behavior):
         """ return a TrackLabels for an identity & behavior """
@@ -46,6 +52,12 @@ class VideoLabels:
         return self._identity_labels[identity][behavior]
 
     def label_counts(self, behavior):
+        """
+        get the count of labeled frames for each identity in this video for a
+        specified behavior
+        :param behavior: behavior to get label counts for
+        :return: list of (identity, labeled frame count) tuples
+        """
         counts = []
         for identity in self._identity_labels:
             if behavior in self._identity_labels[identity]:
@@ -58,16 +70,16 @@ class VideoLabels:
     def as_dict(self):
         """
         return dict representation of self, useful for JSON serialization and
-        saving to disk or caching in memory when user switches to a different
-        video
+        saving to disk or caching in memory without storing the full
+        numpy label array when user switches to a different video
 
         example return value:
         {
             "file": "filename.avi",
             "num_frames": 100,
             "labels": {
-                "identity name": {
-                    "behavior name": [
+                "identity": {
+                    "behavior": [
                         {
                             "start": 25,
                             "end": 50,

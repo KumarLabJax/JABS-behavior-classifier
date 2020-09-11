@@ -1,8 +1,8 @@
 import numpy as np
 from PyQt5 import QtCore
 
-from src.labeler import TrackLabels
 from src.feature_extraction import IdentityFeatures
+from src.labeler import TrackLabels
 
 
 class TrainingThread(QtCore.QThread):

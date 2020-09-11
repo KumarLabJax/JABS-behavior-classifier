@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v2 import PoseEstimationV2
+from .pose_est_v3 import PoseEstimationV3
 
 
 class PoseEstFactory:
@@ -17,11 +17,17 @@ class PoseEstFactory:
         elif path.name.endswith('v3.h5'):
             return PoseEstimationV3(path)
         else:
-            print(path)
             raise ValueError("not a valid pose estimate filename")
 
 
 def get_pose_path(video_path: Path):
+    """
+    take a path to a video file and return the path to the corresponding
+    pose_est h5 file
+    :param video_path: Path to video file in project
+    :return: Path object representing location of corresponding pose_est h5 file
+    :raises ValueError: if video_path does not have corresponding pose_est file
+    """
 
     file_base = video_path.with_suffix('')
 

@@ -1,11 +1,12 @@
 import enum
 import math
-import numpy as np
-import h5py
 from pathlib import Path
 
-from src.pose_estimation import PoseEstimationV3
+import h5py
+import numpy as np
+
 from src.labeler.track_labels import TrackLabels
+from src.pose_estimation import PoseEstimationV3
 
 
 def n_choose_r(n, r):

@@ -1,7 +1,8 @@
 import heapq
+from pathlib import Path
+
 import h5py
 import numpy as np
-from pathlib import Path
 
 from .pose_est import PoseEstimation
 
@@ -48,13 +49,13 @@ class PoseEstimationV3(PoseEstimation):
 
         self._points = np.zeros(
             (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
-            dtype="uint16")
-        self._point_mask = np.zeros(self._points.shape[:-1], dtype="uint16")
+            dtype=np.uint16)
+        self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
 
         # build numpy arrays of points and point masks organized by identity
-        for track_id, track in self._build_track_dict(
-                all_points, all_confidence, all_instance_count, all_track_id
-        ).items():
+        self._track_dict = self._build_track_dict(
+                all_points, all_confidence, all_instance_count, all_track_id)
+        for track_id, track in self._track_dict.items():
             self._points[
                 self._identity_map[track_id],
                 track['start_frame']:track['stop_frame_exclu'],
@@ -68,9 +69,9 @@ class PoseEstimationV3(PoseEstimation):
         # in the frame
         init_func = np.vectorize(
                 lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
-                otypes=["uint8"])
+                otypes=[np.uint8])
         self._identity_mask = np.fromfunction(
-            init_func, (self._max_instances, self._num_frames), dtype="int")
+            init_func, (self._max_instances, self._num_frames), dtype=np.int_)
 
     def get_points(self, frame_index, identity):
         """
@@ -93,6 +94,15 @@ class PoseEstimationV3(PoseEstimation):
 
     def identity_mask(self, identity):
         return self._identity_mask[identity][:]
+
+    @property
+    def identity_to_track(self):
+        identity_to_track = np.full((self._max_instances, self._num_frames), -1,
+                                    dtype=np.int32)
+        for track in self._track_dict.values():
+            identity = self._identity_map[track['track_id']]
+            identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
+        return identity_to_track
 
     def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """ iterate through frames and build track dict """

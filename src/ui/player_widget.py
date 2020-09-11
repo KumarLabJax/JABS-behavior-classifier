@@ -1,9 +1,10 @@
 import time
 from pathlib import Path
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from src.video_stream import VideoStream, label_identity, label_all_identities
 from src.pose_estimation import PoseEstFactory, get_pose_path
+from src.video_stream import VideoStream, label_identity, label_all_identities
 
 
 class _PlayerThread(QtCore.QThread):

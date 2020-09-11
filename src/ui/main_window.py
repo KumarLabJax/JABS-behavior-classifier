@@ -1,8 +1,8 @@
 from PyQt5 import QtWidgets, QtCore
 
 from src.labeler.project import Project
-from .video_list_widget import VideoListDockWidget
 from .central_widget import CentralWidget
+from .video_list_widget import VideoListDockWidget
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -29,11 +29,20 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menu.addMenu('View')
 
         # save action
-        save_action = QtWidgets.QAction('&Save', self)
+        save_action = QtWidgets.QAction('&Save Labels', self)
         save_action.setShortcut('Ctrl+S')
-        save_action.setStatusTip('Save Project State')
+        save_action.setStatusTip('Save Labels')
         save_action.triggered.connect(self._save_project)
         file_menu.addAction(save_action)
+
+        self._save_predictions_action = QtWidgets.QAction('&Save Predictions',
+                                                          self)
+        self._save_predictions_action.setEnabled(False)
+        self._save_predictions_action.setShortcut('Ctrl+Shift+S')
+        self._save_predictions_action.setStatusTip('Save Labels')
+        self._save_predictions_action.triggered.connect(self._save_predictions)
+        file_menu.addAction(self._save_predictions_action)
+        self.centralWidget().have_predictions.connect(self._set_save_prediction_enabled)
 
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
@@ -121,6 +130,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # save labels for any other videos that have been worked on this session
         self._project.save_cached_annotations()
+
+    def _save_predictions(self):
+        """
+        save the current predictions
+        """
+        self.centralWidget().save_predictions()
+
+    @QtCore.pyqtSlot(bool)
+    def _set_save_prediction_enabled(self, enabled: bool):
+        """
+        set enabled state of the save predictions file menu action in response
+        to a signal from the central widget
+        """
+        self._save_predictions_action.setEnabled(enabled)
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """
