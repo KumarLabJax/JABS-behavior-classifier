@@ -2,7 +2,6 @@ import numpy as np
 from PyQt5 import QtWidgets, QtCore
 
 from src.classifier.skl_classifier import SklClassifier
-from src.feature_extraction.features import IdentityFeatures
 from src.labeler.track_labels import TrackLabels
 from .classification_thread import ClassifyThread
 from .frame_labels_widget import FrameLabelsWidget
@@ -183,9 +182,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         # classifier
         self._classifier = SklClassifier()
-
         self._training_thread = None
         self._classify_thread = None
+
+        # progress bar dialog used when running the training or classify threads
+        self._progress_dialog = None
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -426,110 +427,66 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._player_widget.set_identity_label_mode(visible)
 
-    def _get_labeled_features(self):
-        """
-        get all the labeled data for the current behavior across the entire
-        project
-
-        # TODO move this out of this file, maybe put it into project.py
-        :return:
-        """
-
-        behavior = self.behavior_selection.currentText()
-
-        all_per_frame = []
-        all_window = []
-        all_labels = []
-        all_group_labels = []
-
-        group_id = 0
-        for video in self._project.videos:
-
-            pose_est = self._project.load_pose_est(
-                self._project.video_path(video))
-
-            for identity in pose_est.identities:
-                features = IdentityFeatures(video, identity,
-                                            self._project.feature_dir,
-                                            pose_est)
-
-                if self._project.video_path(video) == self._loaded_video:
-                    labels = self._labels.get_track_labels(
-                        str(identity), behavior).get_labels()
-                else:
-                    labels = self._project.load_annotation_track(
-                        video).get_track_labels(str(identity), behavior).get_labels()
-
-                per_frame_features = features.get_per_frame(labels)
-                # TODO make window size configurable
-                window_features = features.get_window_features(5, labels)
-
-                all_per_frame.append(per_frame_features)
-                all_window.append(window_features)
-                all_labels.append(labels[labels != TrackLabels.Label.NONE])
-
-                # should be a better way to do this, but I'm getting the number
-                # of frames in this group by looking at the shape of one of
-                # the arrays included in the window_features
-                all_group_labels.append(np.full(window_features['percent_frames_present'].shape[0], group_id))
-                group_id += 1
-
-        return {
-            'window': IdentityFeatures.merge_window_features(all_window),
-            'per_frame': IdentityFeatures.merge_per_frame_features(all_per_frame),
-            'labels': np.concatenate(all_labels),
-            'groups': np.concatenate(all_group_labels),
-        }
-
     def _train_button_clicked(self):
-        """
-        handle user click on "Train" button
-        :return: None
-        """
+        """ handle user click on "Train" button """
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self.behavior_selection.currentText(),
             self._loaded_video, self._labels)
         self._training_thread.trainingComplete.connect(
             self._training_thread_complete)
-        self.train_button.setEnabled(False)
-        self.classify_button.setEnabled(False)
-        self.train_button.setText("Training...")
+        self._training_thread.update_progress.connect(
+            self._update_training_progress)
+        self._progress_dialog = QtWidgets.QProgressDialog(
+            'Training', None, 0, self._project.total_project_identities()+1,
+            self)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.reset()
+        self._progress_dialog.show()
+
         self._training_thread.start()
 
     def _training_thread_complete(self):
+        """ enable classify button once the training is complete """
         self.classify_button.setEnabled(True)
-        self.train_button.setEnabled(True)
-        self.classify_button.setEnabled(True)
-        self.train_button.setText("Train")
+
+    def _update_training_progress(self, step):
+        """ update progress bar with the number of completed tasks """
+        self._progress_dialog.setValue(step)
 
     def _classify_button_clicked(self):
-        """
-        handle user click on "Classify" button
-        :return: None
-        """
+        """ handle user click on "Classify" button """
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
             self.behavior_selection.currentText(), self._loaded_video,
             self._labels, self._predictions, self._probabilities,
             self._frame_indexes)
         self._classify_thread.done.connect(self._classify_thread_complete)
-        self.classify_button.setEnabled(False)
-        self.train_button.setEnabled(False)
-        self.classify_button.setText("Classifying...")
+        self._classify_thread.update_progress.connect(
+            self._update_classify_progress)
+        self._progress_dialog = QtWidgets.QProgressDialog(
+            'Predicting', None, 0, self._project.total_project_identities(),
+            self)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.reset()
+        self._progress_dialog.show()
         self._classify_thread.start()
 
     def _classify_thread_complete(self):
+        """ update the gui when the classification is complete """
+        # display the new predictions
         self._set_prediction_vis()
-        self.train_button.setEnabled(True)
-        self.classify_button.setEnabled(True)
-        self.classify_button.setText("Classify")
+        # let the MainWindow know we have predictions so it can enable the
+        # file action to save the predictions to the project directory
         self.have_predictions.emit(True)
+
+    def _update_classify_progress(self, step):
+        """ update progress bar with the number of completed tasks """
+        self._progress_dialog.setValue(step)
 
     def _set_prediction_vis(self):
         """
         update data being displayed by the prediction visualization widget
-        :return: None
         """
 
         if self._loaded_video is None:
@@ -561,10 +518,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.inference_timeline_widget.update_labels()
 
     def _reset_prediction(self):
-        """
-        clear out the current predictions
-        :return:
-        """
+        """ clear out the current predictions """
         self._predictions = {}
         self._probabilities = {}
         self._frame_indexes = {}

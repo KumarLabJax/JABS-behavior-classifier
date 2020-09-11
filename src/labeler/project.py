@@ -7,6 +7,7 @@ import numpy as np
 
 import src.pose_estimation as pose_est
 from src.video_stream.utilities import get_frame_count
+from src.pose_estimation import get_pose_path, instance_count
 from .video_labels import VideoLabels
 
 
@@ -118,8 +119,7 @@ class Project:
         video_filename = Path(video_path).name
         self.check_video_name(video_filename)
 
-        pose_path = pose_est.get_pose_path(video_path)
-        return pose_est.PoseEstFactory.open(pose_path)
+        return pose_est.PoseEstFactory.open(pose_est.get_pose_path(video_path))
 
     def check_video_name(self, video_filename):
         """ make sure the video name actually matches one in the project """
@@ -243,5 +243,17 @@ class Project:
             video_track = self.load_annotation_track(video, leave_cached=True)
             counts[video] = video_track.label_counts(behavior)
         return counts
+
+    def total_project_identities(self):
+        """
+        sum the number of instances across all videos in the project
+        :return: integer sum
+        """
+        total = 0
+        for path in [self.video_path(v) for v in self._videos]:
+            total += instance_count(get_pose_path(path))
+        return total
+
+
 
 
