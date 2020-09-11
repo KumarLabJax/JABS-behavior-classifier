@@ -12,7 +12,7 @@ from .video_labels import VideoLabels
 
 class Project:
     """ represents a labeling project """
-    __ROTTA_DIR = 'rotta'
+    _ROTTA_DIR = 'rotta'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
@@ -26,12 +26,12 @@ class Project:
         # make sure this is a pathlib.Path and not a string
         self._project_dir_path = Path(project_path)
 
-        self._annotations_dir = (self._project_dir_path / self.__ROTTA_DIR /
+        self._annotations_dir = (self._project_dir_path / self._ROTTA_DIR /
                                  "annotations")
-        self._feature_dir = (self._project_dir_path / self.__ROTTA_DIR /
+        self._feature_dir = (self._project_dir_path / self._ROTTA_DIR /
                              "features")
 
-        self._prediction_dir = (self._project_dir_path / self.__ROTTA_DIR /
+        self._prediction_dir = (self._project_dir_path / self._ROTTA_DIR /
                                 "predictions")
 
         # get list of video files in the project directory
@@ -45,8 +45,8 @@ class Project:
 
         # make sure the project subdirectory directory exists to store project
         # metadata and annotations
-        Path(project_path, self.__ROTTA_DIR).mkdir(mode=self.__DEFAULT_UMASK,
-                                                   exist_ok=True)
+        Path(project_path, self._ROTTA_DIR).mkdir(mode=self.__DEFAULT_UMASK,
+                                                  exist_ok=True)
 
         # make sure the project self.__ROTTA_DIR/annotations directory exists
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
