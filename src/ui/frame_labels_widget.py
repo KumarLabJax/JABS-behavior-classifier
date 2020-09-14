@@ -9,7 +9,6 @@ class FrameLabelsWidget(QWidget):
     ManualLabelsWidget
     """
 
-
     def __init__(self, *args, **kwargs):
         super(FrameLabelsWidget, self).__init__(*args, **kwargs)
 
@@ -35,15 +34,13 @@ class FrameLabelsWidget(QWidget):
         self._num_frames = 0
 
         # size each frame takes up in the bar in pixels
-        self._frame_width = self.size().width() / self._nframes
+        self._frame_width = self.size().width() // self._nframes
+        self._adjusted_width = self._nframes * self._frame_width
+        self._offset = (self.size().width() - self._adjusted_width) / 2
 
         self._font = QFont("Arial", 12)
         self._font_metrics = QFontMetrics(self._font)
         self._font_height = self._font_metrics.height()
-        self._font_color = QApplication.palette().text().color()
-
-        # make the ticks the same color as the text
-        self._tick_color = self._font_color
 
     def sizeHint(self):
         """
@@ -55,7 +52,9 @@ class FrameLabelsWidget(QWidget):
         return QSize(400, self._font_height + 10)
 
     def resizeEvent(self, event):
-        self._frame_width = self.size().width() / self._nframes
+        self._frame_width = self.size().width() // self._nframes
+        self._adjusted_width = self._nframes * self._frame_width
+        self._offset = (self.size().width() - self._adjusted_width) / 2
 
     def paintEvent(self, event):
         """
@@ -69,7 +68,8 @@ class FrameLabelsWidget(QWidget):
         end = self._current_frame + self._window_size
 
         qp = QPainter(self)
-        qp.setBrush(self._tick_color)
+        # make the ticks the same color as the text
+        qp.setBrush(QApplication.palette().text().color())
         qp.setFont(self._font)
         self._draw_ticks(qp, start, end)
         qp.end()
@@ -85,13 +85,13 @@ class FrameLabelsWidget(QWidget):
 
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
-                offset = ((i - start + .5) * self._frame_width) - 2
+                offset = self._offset + ((i - start + .5) * self._frame_width) - 1
                 painter.setPen(Qt.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
                 label_text = f"{i}"
                 label_width = self._font_metrics.width(label_text)
-                painter.setPen(self._font_color)
+                painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width/2 + 1,
                                  self._font_height + 8, label_text)
 

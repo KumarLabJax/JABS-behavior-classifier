@@ -376,7 +376,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.setEnabled(True)
 
         # tell main window to populate the identity selection drop down
-        # this will cause _set_active_identity() to be called, which will load
+        # this will cause set_active_identity() to be called, which will load
         # and display the current frame
         self.updateIdentities.emit(self._tracks.identities)
 
@@ -553,7 +553,7 @@ class PlayerWidget(QtWidgets.QWidget):
             frame = self._video_stream.read()
             self._update_frame(frame)
 
-    def _set_active_identity(self, identity):
+    def set_active_identity(self, identity):
         """ set an active identity, which will be labeled in the video """
 
         # don't do anything if a video isn't loaded
@@ -567,6 +567,14 @@ class PlayerWidget(QtWidgets.QWidget):
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
+
+    def get_identity_mask(self):
+        """
+        get an array that indicates if an identity is present in a given
+        frame or not for the currently selected identity
+        :return: numpy uint8 array of length num_frames
+        """
+        return self._tracks.identity_mask(self._active_identity)
 
     def _enable_frame_buttons(self):
         """

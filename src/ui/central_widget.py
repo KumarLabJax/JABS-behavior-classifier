@@ -10,6 +10,8 @@ from src.ui import (
     TimelineLabelWidget,
     IdentityComboBox,
     FrameLabelsWidget,
+    PredictionVisWidget,
+    GlobalInferenceWidget
 )
 
 
@@ -36,6 +38,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._project = None
         self._labels = None
+
+        # information about current predictions
+        self._predictions = {}
+        self._probabilities = {}
+        self._frame_indexes = {}
 
         self._selection_start = 0
 
@@ -152,10 +159,12 @@ class CentralWidget(QtWidgets.QWidget):
 
         # label widgets
         self.manual_labels = ManualLabelWidget()
+        self.prediction_vis = PredictionVisWidget()
         self.frame_ticks = FrameLabelsWidget()
 
-        # timeline widget
+        # timeline widgets
         self.timeline_widget = TimelineLabelWidget()
+        self.inference_timeline_widget = GlobalInferenceWidget()
 
         # main layout
         layout = QtWidgets.QGridLayout()
@@ -163,12 +172,13 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addLayout(control_layout, 0, 1)
         layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
         layout.addWidget(self.manual_labels, 2, 0, 1, 2)
-        layout.addWidget(self.frame_ticks,3, 0, 1, 2)
+        layout.addWidget(self.inference_timeline_widget, 3, 0, 1, 2)
+        layout.addWidget(self.prediction_vis, 4, 0, 1, 2)
+        layout.addWidget(self.frame_ticks, 5, 0, 1, 2)
         self.setLayout(layout)
 
         # classifier
         self._classifier = SklClassifier()
-
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -189,7 +199,12 @@ class CentralWidget(QtWidgets.QWidget):
         return self._labels
 
     def load_video(self, path):
-        """ load new avi file """
+        """
+        load a new video file into self._player_widget
+        :param path: path to video file
+        :return: None
+        :raises: OSError if unable to open video
+        """
 
         # if we have labels loaded, cache them before opening labels for
         # new video
@@ -209,11 +224,16 @@ class CentralWidget(QtWidgets.QWidget):
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
+            self.prediction_vis.set_num_frames(self._player_widget.num_frames())
             self.frame_ticks.set_num_frames(self._player_widget.num_frames())
             self.timeline_widget.set_num_frames(
                 self._player_widget.num_frames())
+            self.inference_timeline_widget.set_num_frames(
+                self._player_widget.num_frames()
+            )
 
             self._loaded_video = path
+            self._set_prediction_vis()
         except OSError as e:
             # error loading
             self._labels = None
@@ -276,6 +296,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_not_behavior_button.setText(
             f"Not {self.behavior_selection.currentText()}")
         self._set_label_track()
+        self._reset_prediction()
+        self._reset_classifier()
 
     def _start_selection(self, pressed):
         """
@@ -300,9 +322,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_behavior(self):
         """ Apply behavior label to currently selected range of frames """
-        label_range = sorted([self._selection_start,
-                              self._player_widget.current_frame()])
-        self._get_label_track().label_behavior(*label_range)
+        start, end = sorted([self._selection_start,
+                             self._player_widget.current_frame()])
+        mask = self._player_widget.get_identity_mask()
+        self._get_label_track().label_behavior(start, end, mask[start:end+1])
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
@@ -310,9 +333,11 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
-        label_range = sorted([self._selection_start,
-                              self._player_widget.current_frame()])
-        self._get_label_track().label_not_behavior(*label_range)
+        start, end = sorted([self._selection_start,
+                             self._player_widget.current_frame()])
+        mask = self._player_widget.get_identity_mask()
+        self._get_label_track().label_not_behavior(start,
+                                                   end, mask[start:end+1])
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
@@ -336,7 +361,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
-        self._player_widget._set_active_identity(
+        self._player_widget.set_active_identity(
             self.identity_selection.currentIndex())
         self._set_label_track()
 
@@ -352,7 +377,9 @@ class CentralWidget(QtWidgets.QWidget):
         called when the video player widget emits its updateFrameNumber signal
         """
         self.manual_labels.set_current_frame(new_frame)
+        self.prediction_vis.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
+        self.inference_timeline_widget.set_current_frame(new_frame)
         self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
@@ -365,8 +392,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         if identity != '' and behavior != '' and self._labels is not None:
             labels = self._labels.get_track_labels(identity, behavior)
-            self.manual_labels.set_labels(labels)
+            self.manual_labels.set_labels(
+                labels, mask=self._player_widget.get_identity_mask())
             self.timeline_widget.set_labels(labels)
+
+        self._set_prediction_vis()
 
     def _get_label_track(self):
         """
@@ -423,7 +453,6 @@ class CentralWidget(QtWidgets.QWidget):
                     labels = self._project.load_annotation_track(
                         video).get_track_labels(str(identity), behavior).get_labels()
 
-
                 per_frame_features = features.get_per_frame(labels)
                 # TODO make window size configurable
                 window_features = features.get_window_features(5, labels)
@@ -446,6 +475,10 @@ class CentralWidget(QtWidgets.QWidget):
         }
 
     def _train_button_clicked(self):
+        """
+        handle user click on "Train" button
+        :return: None
+        """
         features = self._get_labeled_features()
         data = self._classifier.leave_one_group_out(
             features['per_frame'],
@@ -469,32 +502,116 @@ class CentralWidget(QtWidgets.QWidget):
         self.classify_button.setEnabled(True)
 
     def _classify_button_clicked(self):
+        """
+        handle user click on "Classify" button
+        :return: None
+        """
+
+        # get the current behavior
         behavior = self.behavior_selection.currentText()
+
+        # iterate over each video in the project
         for video in self._project.videos:
 
+            # load the poses for this video
             pose_est = self._project.load_pose_est(
                 self._project.video_path(video))
 
-            for identity in pose_est.identities:
-                features = IdentityFeatures(video, identity,
+            # make predictions for each identity in this video
+            self._predictions[video] = {}
+            self._probabilities[video] = {}
+            self._frame_indexes[video] = {}
+            for ident in pose_est.identities:
+
+                # get the features for this identity
+                features = IdentityFeatures(video, ident,
                                             self._project.feature_dir,
                                             pose_est)
+                identity = str(ident)
 
                 if self._project.video_path(video) == self._loaded_video:
+                    # if this is the current video, the labels are loaded
                     labels = self._labels.get_track_labels(
-                        str(identity), behavior).get_labels()
+                        identity, behavior).get_labels()
                 else:
+                    # all other videos, load the labels from the project dir
                     labels = self._project.load_annotation_track(
-                        video).get_track_labels(str(identity), behavior).get_labels()
+                        video).get_track_labels(identity, behavior).get_labels()
 
+                # get the features for all unlabled frames for this identity
                 # TODO make window radius configurable
                 unlabeled_features = features.get_unlabeled_features(5, labels)
-                data = self._classifier.combine_data(unlabeled_features['per_frame'], unlabeled_features['window'])
-                prediction = self._classifier.predict_proba(data)
 
+                # reformat the data in a single 2D numpy array to pass
+                # to the classifier
+                data = self._classifier.combine_data(
+                    unlabeled_features['per_frame'],
+                    unlabeled_features['window']
+                )
 
+                # make predictions
+                self._predictions[video][identity] = self._classifier.predict(data)
 
+                # also get the probabilities
+                prob = self._classifier.predict_proba(data)
+                # Save the probability for the predicted class only.
+                # self._predictions[video][identity] will be an array of
+                # 1s and 2s, since those are our labels. Subtracting 1 from the
+                # predicted label will give us the column index for the
+                # probability for that label. The following code uses some
+                # numpy magic to use the _predictions array as column indexes
+                # for each row of the 'prob' array we just computed.
+                self._probabilities[video][identity] = prob[
+                    np.arange(len(prob)),
+                    self._predictions[video][identity] - 1
+                ]
 
+                # save the indexes for the predicted frames
+                self._frame_indexes[video][identity] = unlabeled_features['frame_indexes']
 
+        self._set_prediction_vis()
 
+    def _set_prediction_vis(self):
+        """
+        update data being displayed by the prediction visualization widget
+        :return: None
+        """
 
+        if self._loaded_video is None:
+            return
+
+        video = self._loaded_video.name
+        identity = self.identity_selection.currentText()
+
+        try:
+            indexes = self._frame_indexes[video][identity]
+        except KeyError:
+            return
+
+        labels = self._get_label_track().get_labels()
+        prediction_labels = np.zeros((self._player_widget.num_frames()),
+                                     dtype="uint8")
+        prediction_prob = np.zeros((self._player_widget.num_frames()),
+                                   dtype="float")
+
+        prediction_labels[indexes] = self._predictions[video][identity]
+        prediction_prob[indexes] = self._probabilities[video][identity]
+        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR
+        prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
+        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR
+        prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
+
+        self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
+        self.inference_timeline_widget.set_labels(prediction_labels)
+        self.inference_timeline_widget.update_labels()
+
+    def _reset_prediction(self):
+        self._predictions = {}
+        self._probabilities = {}
+        self._frame_indexes = {}
+        self.prediction_vis.set_predictions(None, None)
+        self.inference_timeline_widget.set_labels(
+            np.zeros(self._player_widget.num_frames(), dtype="uint8"))
+
+    def _reset_classifier(self):
+        self.classify_button.setEnabled(False)

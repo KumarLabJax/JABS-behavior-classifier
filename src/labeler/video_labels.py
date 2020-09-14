@@ -22,7 +22,15 @@ class VideoLabels:
         return self._filename
 
     def get_track_labels(self, identity, behavior):
-        """ return a TrackLabels for an identity & behavior """
+        """
+        return a TrackLabels for an identity & behavior
+        :param identity: string representation of identity
+        :param behavior: string behavior label
+        :return: TrackLabels object for this identity and behavior
+        :raises: ValueError if identity is not a valid string
+
+        # TODO handle integer identity
+        """
 
         # require identity to be a string for serialization
         if not isinstance(identity, str):
@@ -48,7 +56,7 @@ class VideoLabels:
     def as_dict(self):
         """
         return dict representation of self, useful for JSON serialization and
-        saving to disk or cacheing in memory when user switches to a different
+        saving to disk or caching in memory when user switches to a different
         video
 
         example return value:

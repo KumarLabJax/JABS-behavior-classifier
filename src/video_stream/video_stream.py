@@ -21,6 +21,7 @@ class VideoStream:
 
         :param path: path to video file
         :param frame_buffer_size: max number of frames to buffer
+        :raises: IOError if unable to open video file
         """
         # open video file
         self.stream = cv2.VideoCapture(str(path))
