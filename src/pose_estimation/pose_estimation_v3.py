@@ -76,8 +76,8 @@ class PoseEstimationV3:
 
         # build numpy arrays of points and point masks organized by identity
         for track_id, track in self._build_track_dict(
-                all_points, all_confidence, all_instance_count, all_track_id
-        ).items():
+                all_points, all_confidence, all_instance_count,
+                all_track_id).items():
             self._points[
                 self._identity_map[track_id],
                 track['start_frame']:track['stop_frame_exclu'],
