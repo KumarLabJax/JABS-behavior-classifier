@@ -20,6 +20,7 @@ class TimelineLabelWidget(QWidget):
 
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
+    _MIX_COLOR = QColor(102, 0, 204)
     _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
@@ -82,8 +83,8 @@ class TimelineLabelWidget(QWidget):
     def paintEvent(self, event):
         """ override QWidget paintEvent """
 
-        # don't draw anything if we don't have a label array to draw
-        if self._labels is None:
+        # make sure we have something to draw
+        if self._pixmap is None:
             return
 
         # get the current position
@@ -130,7 +131,7 @@ class TimelineLabelWidget(QWidget):
         height = self.size().height()
         self._pixmap = QPixmap(width, height)
         self._pixmap.fill(Qt.transparent)
-        downsampled = self._labels.downsample(width)
+        downsampled = self._labels.downsample(self._labels.get_labels(), width)
 
         # draw the bar, each pixel along the width corresponds to a value in the
         # down sampled label array
@@ -143,9 +144,8 @@ class TimelineLabelWidget(QWidget):
             elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:
                 qp.setPen(self._NOT_BEHAVIOR_COLOR)
             elif downsampled[x] == TrackLabels.Label.MIX:
-                # bin contains mix of behavior/not behavior labels, color these
-                # as magenta
-                qp.setPen(Qt.magenta)
+                # bin contains mix of behavior/not behavior labels
+                qp.setPen(self._MIX_COLOR)
             else:
                 continue
 
