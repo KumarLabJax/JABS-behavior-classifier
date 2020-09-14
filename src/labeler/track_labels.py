@@ -23,17 +23,32 @@ class TrackLabels:
     def __init__(self, num_frames):
         self._labels = np.zeros(num_frames, dtype=np.uint8)
 
-    def label_behavior(self, start, end):
+    def label_behavior(self, start, end, mask=None):
         """ label range [start, end] as showing behavior """
-        self._labels[start:end+1] = self.Label.BEHAVIOR
+        self._set_labels(start, end, self.Label.BEHAVIOR, mask)
 
-    def label_not_behavior(self, start, end):
+    def label_not_behavior(self, start, end, mask=None):
         """ label range [start, end] of frames as not showing behavior """
-        self._labels[start:end+1] = self.Label.NOT_BEHAVIOR
+        self._set_labels(start, end, self.Label.NOT_BEHAVIOR, mask)
 
     def clear_labels(self, start, end):
         """ clear labels for a range of frames [start, end] """
         self._labels[start:end+1] = self.Label.NONE
+
+    def _set_labels(self, start, end, label, mask=None):
+        """
+        set label value for a range of frames
+        :param start: start of range, inclusive
+        :param end: end of range, inclusive
+        :param label: label to apply to frames
+        :param mask: optional mask array, if present only set values where
+        the mask array is not zero
+        :return: None
+        """
+        if mask is not None:
+            self._labels[start:end + 1][mask != 0] = label
+        else:
+            self._labels[start:end+1] = label
 
     def get_labels(self):
         return self._labels

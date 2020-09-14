@@ -322,9 +322,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_behavior(self):
         """ Apply behavior label to currently selected range of frames """
-        label_range = sorted([self._selection_start,
-                              self._player_widget.current_frame()])
-        self._get_label_track().label_behavior(*label_range)
+        start, end = sorted([self._selection_start,
+                             self._player_widget.current_frame()])
+        mask = self._player_widget.get_identity_mask()
+        self._get_label_track().label_behavior(start, end, mask[start:end+1])
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
@@ -332,9 +333,11 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
-        label_range = sorted([self._selection_start,
-                              self._player_widget.current_frame()])
-        self._get_label_track().label_not_behavior(*label_range)
+        start, end = sorted([self._selection_start,
+                             self._player_widget.current_frame()])
+        mask = self._player_widget.get_identity_mask()
+        self._get_label_track().label_not_behavior(start,
+                                                   end, mask[start:end+1])
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
@@ -358,7 +361,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
-        self._player_widget._set_active_identity(
+        self._player_widget.set_active_identity(
             self.identity_selection.currentIndex())
         self._set_label_track()
 
@@ -389,7 +392,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         if identity != '' and behavior != '' and self._labels is not None:
             labels = self._labels.get_track_labels(identity, behavior)
-            self.manual_labels.set_labels(labels)
+            self.manual_labels.set_labels(
+                labels, mask=self._player_widget.get_identity_mask())
             self.timeline_widget.set_labels(labels)
 
         self._set_prediction_vis()
@@ -448,7 +452,6 @@ class CentralWidget(QtWidgets.QWidget):
                 else:
                     labels = self._project.load_annotation_track(
                         video).get_track_labels(str(identity), behavior).get_labels()
-
 
                 per_frame_features = features.get_per_frame(labels)
                 # TODO make window size configurable
