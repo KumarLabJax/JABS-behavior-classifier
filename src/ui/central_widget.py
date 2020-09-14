@@ -207,7 +207,12 @@ class CentralWidget(QtWidgets.QWidget):
         return self._labels
 
     def load_video(self, path):
-        """ load new avi file """
+        """
+        load a new video file into self._player_widget
+        :param path: path to video file
+        :return: None
+        :raises: OSError if unable to open video
+        """
 
         # if we have labels loaded, cache them before opening labels for
         # new video

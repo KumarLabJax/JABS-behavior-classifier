@@ -122,7 +122,14 @@ class Project:
         return pose_est.PoseEstFactory.open(pose_est.get_pose_path(video_path))
 
     def check_video_name(self, video_filename):
-        """ make sure the video name actually matches one in the project """
+        """
+        make sure the video name actually matches one in the project, this
+        function will raise a ValueError if the video name is not valid,
+        otherwise the function has no effect
+        :param video_filename:
+        :return: None
+        :raises: ValueError if the filename is not a valid video in this project
+        """
         if video_filename not in self._videos:
             raise ValueError(f"{video_filename} not in project")
 
