@@ -17,7 +17,7 @@ def label_identity(img, points, mask):
         # note, we only use the first 10 points (out of 12). We are ignoring
         # the mid tail and the tip of the tail
 
-        # first remove any invalid points (where mask is not True)
+        # first remove any invalid points (where mask is not 1)
         filtered_points = points[:-2][mask[:-2] == 1]
 
         # find the center of the remaining points
