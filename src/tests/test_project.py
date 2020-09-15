@@ -1,14 +1,19 @@
-import unittest
-import shutil
-from pathlib import Path
 import json
+import shutil
+import unittest
+from pathlib import Path
 
 from src.labeler.project import Project
 from src.labeler.video_labels import VideoLabels
 
 
 class TestProject(unittest.TestCase):
-    """ test labeler.project.Project """
+    """
+    test labeler.project.Project
+
+    TODO consider adding test for save_predictions method
+    (save_predictions requires having pose_est file)
+    """
 
     _EXISTING_PROJ_PATH = Path('test_project_with_data')
     _FILENAMES = ['test_file_1.avi', 'test_file_2.avi']
@@ -49,11 +54,16 @@ class TestProject(unittest.TestCase):
         # make sure that the empty project directory was created
         self.assertTrue(project_dir.exists())
 
-        # make sure the .labeler directory was created
-        self.assertTrue((project_dir / 'rotta').exists())
+        # make sure the rotta directory was created
+        self.assertTrue((project_dir / Project._ROTTA_DIR).exists())
 
-        # make sure the .labeler/annotations directory was created
-        self.assertTrue((project_dir / 'rotta' / 'annotations').exists())
+        # make sure the rotta/annotations directory was created
+        self.assertTrue(
+            (project_dir / Project._ROTTA_DIR / 'annotations').exists())
+
+        # make sure the rotta/predictions directory was created
+        self.assertTrue(
+            (project_dir / Project._ROTTA_DIR / 'predictions').exists())
 
         # remove project dir
         shutil.rmtree(project_dir)
@@ -107,7 +117,7 @@ class TestProject(unittest.TestCase):
         project = Project(self._EXISTING_PROJ_PATH)
 
         with self.assertRaises(ValueError):
-            labels = project.load_annotation_track('bad_filename.avi')
+            project.load_annotation_track('bad_filename.avi')
 
     def test_exception_creating_video_labels(self):
         """
@@ -115,4 +125,4 @@ class TestProject(unittest.TestCase):
         """
         project = Project(self._EXISTING_PROJ_PATH)
         with self.assertRaises(IOError):
-            labels = project.load_annotation_track(self._FILENAMES[1])
+            project.load_annotation_track(self._FILENAMES[1])

@@ -1,6 +1,7 @@
 from pathlib import Path
-import numpy as np
+
 import h5py
+import numpy as np
 
 from .pose_est import PoseEstimation
 
@@ -30,18 +31,25 @@ class PoseEstimationV2(PoseEstimation):
 
             # load contents
             self._points = vid_grp['points'][:]
-            self._point_mask = np.zeros(self._points.shape[:-1], dtype="uint16")
+            self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
             self._point_mask[:] = vid_grp['confidence'][:] > 0.3
 
         self._num_frames = self._points.shape[0]
 
         # build an array that indicates if the identity exists for a each frame
-        # require at least a body point
+        # require at least one body point, not just tail
         init_func = np.vectorize(
             lambda x: 0 if np.sum(self._point_mask[x][:-2]) == 0 else 1,
-            otypes=["uint8"])
+            otypes=[np.uint8])
         self._identity_mask = np.fromfunction(init_func, (self._num_frames,),
-                                              dtype="int")
+                                              dtype=np.int_)
+
+    @property
+    def identity_to_track(self):
+        identity_to_track = np.full((1, self._num_frames), -1,
+                                    dtype=np.int32)
+        identity_to_track[0, self._identity_mask == 1] = 0
+        return identity_to_track
 
     def get_points(self, frame_index, identity):
         """
@@ -82,3 +90,7 @@ class PoseEstimationV2(PoseEstimation):
         if identity not in self.identities:
             raise ValueError("Invalid identity")
         return self._identity_mask
+
+    @classmethod
+    def instance_count_from_file(cls, path: Path) -> int:
+        return 1

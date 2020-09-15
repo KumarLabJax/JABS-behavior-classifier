@@ -1,5 +1,6 @@
 import enum
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 
 class PoseEstimation(ABC):
@@ -28,7 +29,7 @@ class PoseEstimation(ABC):
         super().__init__()
 
     @property
-    def num_frames(self):
+    def num_frames(self) -> int:
         """ return the number of frames in the pose_est file """
         return self._num_frames
 
@@ -36,6 +37,10 @@ class PoseEstimation(ABC):
     def identities(self):
         """ return list of integer identities generated from file """
         return self._identities
+
+    @property
+    def num_identities(self) -> int:
+        return len(self._identities)
 
     @abstractmethod
     def get_points(self, frame_index, identity):
@@ -64,5 +69,20 @@ class PoseEstimation(ABC):
         each frame)
         :param identity: identity to get masks for
         :return: numpy array of size (#frames,)
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def identity_to_track(self):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def instance_count_from_file(cls, path: Path) -> int:
+        """
+        peek into a pose_est file to get the number of instances in the file
+        :param path: path to pose_est h5 file
+        :return: integer count
         """
         pass
