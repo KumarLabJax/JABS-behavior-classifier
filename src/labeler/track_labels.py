@@ -1,6 +1,7 @@
 import enum
 import math
 from itertools import groupby
+
 import numpy as np
 
 
@@ -56,6 +57,14 @@ class TrackLabels:
     def get_frame_label(self, frame_index):
         """ get the label for a given frame """
         return self._labels[frame_index]
+
+    @property
+    def label_count(self):
+        """
+        property that returns the count of the number of frames with labels
+        :return: integer count of labeled frames
+        """
+        return np.count_nonzero(self._labels)
 
     def get_blocks(self):
         """

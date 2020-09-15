@@ -1,11 +1,20 @@
+import random
+from enum import IntEnum
+
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
-import numpy as np
-from enum import IntEnum
-import random
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    confusion_matrix
+)
 
 
 class SklClassifier:
+
+    LABEL_THRESHOLD = 100
+    MIN_GROUPS = 2
 
     class ClassifierType(IntEnum):
         RANDOM_FOREST = 1
@@ -123,6 +132,18 @@ class SklClassifier:
         return self._classifier.predict_proba(features)
 
     @staticmethod
+    def accuracy_score(truth, predictions):
+        return accuracy_score(truth, predictions)
+
+    @staticmethod
+    def precision_recall_score(truth, predictions):
+        return precision_recall_fscore_support(truth, predictions)
+
+    @staticmethod
+    def confusion_matrix(truth, predictions):
+        return confusion_matrix(truth, predictions)
+
+    @staticmethod
     def combine_data(per_frame, window):
         """
         iterate over feature sets and combine them to create a dataset with the
@@ -160,7 +181,7 @@ class SklClassifier:
 
     def print_feature_importance(self, feature_list, limit=20):
         """
-
+        print the most important features and their importance
         :param feature_list:
         :param limit:
         :return:
@@ -174,6 +195,18 @@ class SklClassifier:
         # Sort the feature importances by most important first
         feature_importances = sorted(feature_importances, key=lambda x: x[1],
                                      reverse=True)
-        # Print out the feature and importances
+        # Print out the feature and importance
+        print(f"{'Feature Name':30} Importance")
+        print('-' * 50)
         for feature, importance in feature_importances[:limit]:
-            print(f"Variable: {feature:20} Importance: {importance}")
+            print(f"{feature:30} {importance}")
+
+    @staticmethod
+    def label_threshold_met(label_counts):
+        group_count = 0
+        for video, counts in label_counts.items():
+            for count in counts:
+                if count[1] >= SklClassifier.LABEL_THRESHOLD:
+                    group_count += 1
+
+        return True if group_count >= SklClassifier.MIN_GROUPS else False

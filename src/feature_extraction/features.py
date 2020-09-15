@@ -1,11 +1,12 @@
 import enum
 import math
-import numpy as np
-import h5py
 from pathlib import Path
 
-from src.pose_estimation import PoseEstimationV3
+import h5py
+import numpy as np
+
 from src.labeler.track_labels import TrackLabels
+from src.pose_estimation import PoseEstimationV3
 
 
 def n_choose_r(n, r):
@@ -545,7 +546,6 @@ class IdentityFeatures:
             for p2 in point_names[i + 1:]:
                 distances.append(f"{p1}-{p2}")
         return distances
-
 
     @staticmethod
     def _compute_angle(a, b, c):

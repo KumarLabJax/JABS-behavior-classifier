@@ -1,8 +1,13 @@
 h5py==2.10.0
+joblib==0.16.0
 numpy==1.18.1
 opencv-python-headless==4.2.0.32
 PyQt5==5.14.0
 PyQt5-sip==12.7.2
+scikit-learn==0.23.1
+scipy==1.5.1
 Shapely==1.7.0
 six==1.14.0
+sklearn==0.0
+threadpoolctl==2.1.0
 unittest-xml-reporting==3.0.2

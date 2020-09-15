@@ -37,6 +37,7 @@ def label_all_identities(img, pose_est, identities, frame_index):
     :param img: image to draw the labels on
     :param pose_est: pose estimations for this video
     :param identities: list of identity names
+    :param frame_index: index of frame, used to get all poses for frame
     :return: None
     """
 

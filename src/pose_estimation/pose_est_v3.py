@@ -1,46 +1,24 @@
-import enum
 import heapq
-import h5py
-import numpy as np
 from pathlib import Path
 
+import h5py
+import numpy as np
 
-class PoseEstimationV3:
+from .pose_est import PoseEstimation
+
+
+class PoseEstimationV3(PoseEstimation):
     """
     class for opening and parsing version 3 of the pose estimation HDF5 file
     """
 
-    class KeypointIndex(enum.IntEnum):
-        """ enum defining the 12 keypoint indexes """
-        NOSE = 0
-        LEFT_EAR = 1
-        RIGHT_EAR = 2
-        BASE_NECK = 3
-        LEFT_FRONT_PAW = 4
-        RIGHT_FRONT_PAW = 5
-        CENTER_SPINE = 6
-        LEFT_REAR_PAW = 7
-        RIGHT_REAR_PAW = 8
-        BASE_TAIL = 9
-        MID_TAIL = 10
-        TIP_TAIL = 11
-
-    def __init__(self, _file_path):
+    def __init__(self, file_path: Path):
         """
         :param file_path: Path object representing the location of the pose file
         """
+        super().__init__()
 
-        # make sure the file_path is a Path object
-        file_path = Path(_file_path)
-
-        # Allow the path to the avi file to be passed rather than the path to
-        # the .h5 file. Since we use a standardized naming convention we can
-        # generate the path to the .h5 from the .avi path
-        if file_path.suffix.lower() == '.avi':
-            self._path = file_path.with_name(
-                file_path.with_suffix('').name + '_pose_est_v3.h5')
-        else:
-            self._path = file_path
+        self._path = file_path
 
         # open the hdf5 pose file
         with h5py.File(self._path, 'r') as pose_h5:
@@ -71,13 +49,13 @@ class PoseEstimationV3:
 
         self._points = np.zeros(
             (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
-            dtype="uint16")
-        self._point_mask = np.zeros(self._points.shape[:-1], dtype="uint16")
+            dtype=np.uint16)
+        self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
 
         # build numpy arrays of points and point masks organized by identity
-        for track_id, track in self._build_track_dict(
-                all_points, all_confidence, all_instance_count,
-                all_track_id).items():
+        self._track_dict = self._build_track_dict(
+                all_points, all_confidence, all_instance_count, all_track_id)
+        for track_id, track in self._track_dict.items():
             self._points[
                 self._identity_map[track_id],
                 track['start_frame']:track['stop_frame_exclu'],
@@ -90,19 +68,10 @@ class PoseEstimationV3:
         # build a mask for each identity that indicates if it exists or not
         # in the frame
         init_func = np.vectorize(
-                lambda x, y: 0 if np.sum(self._point_mask[x][y]) == 0 else 1,
-                otypes=["uint8"])
+                lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
+                otypes=[np.uint8])
         self._identity_mask = np.fromfunction(
-            init_func, (self._max_instances, self._num_frames), dtype="int")
-
-    @property
-    def num_frames(self):
-        return self._num_frames
-
-    @property
-    def identities(self):
-        """ return list of integer identities generated from file """
-        return self._identities
+            init_func, (self._max_instances, self._num_frames), dtype=np.int_)
 
     def get_points(self, frame_index, identity):
         """
@@ -125,6 +94,33 @@ class PoseEstimationV3:
 
     def identity_mask(self, identity):
         return self._identity_mask[identity][:]
+
+    @property
+    def identity_to_track(self):
+        identity_to_track = np.full((self._max_instances, self._num_frames), -1,
+                                    dtype=np.int32)
+        for track in self._track_dict.values():
+            identity = self._identity_map[track['track_id']]
+            identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
+        return identity_to_track
+
+    @classmethod
+    def instance_count_from_file(cls, path: Path) -> int:
+        """
+        peek into a pose_est file to get the number of instances in the file
+        :param path: path to pose_est h5 file
+        :return: integer count
+        """
+        # open the hdf5 pose file
+        with h5py.File(path, 'r') as pose_h5:
+            # extract data from the HDF5 file
+            vid_grp = pose_h5['poseest']
+            major_version = vid_grp.attrs['version'][0]
+
+            # ensure the major version matches what we expect
+            assert major_version == 3
+
+            return len(vid_grp['points'][0])
 
     def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """ iterate through frames and build track dict """
