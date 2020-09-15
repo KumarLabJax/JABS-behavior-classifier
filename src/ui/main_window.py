@@ -29,11 +29,12 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menu.addMenu('View')
 
         # save action
-        save_action = QtWidgets.QAction('&Save Labels', self)
-        save_action.setShortcut('Ctrl+S')
-        save_action.setStatusTip('Save Labels')
-        save_action.triggered.connect(self._save_project)
-        file_menu.addAction(save_action)
+        self.save_action = QtWidgets.QAction('&Save Labels', self)
+        self.save_action.setShortcut('Ctrl+S')
+        self.save_action.setStatusTip('Save Labels')
+        self.save_action.triggered.connect(self._save_project)
+        self.save_action.setEnabled(False)
+        file_menu.addAction(self.save_action)
 
         self._save_predictions_action = QtWidgets.QAction('&Save Predictions',
                                                           self)
@@ -107,6 +108,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+        self.save_action.setEnabled(True)
 
     def show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
