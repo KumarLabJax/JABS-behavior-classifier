@@ -44,6 +44,13 @@ class PoseEstimationV2(PoseEstimation):
         self._identity_mask = np.fromfunction(init_func, (self._num_frames,),
                                               dtype=np.int_)
 
+    @property
+    def identity_to_track(self):
+        identity_to_track = np.full((1, self._num_frames), -1,
+                                    dtype=np.int32)
+        identity_to_track[0, self._identity_mask == 1] = 0
+        return identity_to_track
+
     def get_points(self, frame_index, identity):
         """
         return points and point masks for an individual frame
@@ -84,8 +91,6 @@ class PoseEstimationV2(PoseEstimation):
             raise ValueError("Invalid identity")
         return self._identity_mask
 
-    @property
-    def identity_to_track(self):
-        identity_to_track = np.full((1, self._num_frames), -1,
-                                    dtype=np.int32)
-        identity_to_track[0, self._identity_mask == 1] = 0
+    @classmethod
+    def instance_count_from_file(cls, path: Path) -> int:
+        return 1

@@ -18,6 +18,8 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     currentStatus = QtCore.pyqtSignal(str)
 
+    update_progress = QtCore.pyqtSignal(int)
+
     def __init__(self, project, classifier, behavior, current_video,
                  current_labels):
         QtCore.QThread.__init__(self)
@@ -26,6 +28,7 @@ class TrainingThread(QtCore.QThread):
         self._behavior = behavior
         self._current_video = current_video
         self._current_labels = current_labels
+        self._tasks_complete = 0
 
     def run(self):
         """
@@ -35,6 +38,7 @@ class TrainingThread(QtCore.QThread):
         and print the most important features
         """
 
+        self._tasks_complete = 0
         features = self._get_labeled_features()
 
         data = self._classifier.leave_one_group_out(
@@ -74,6 +78,8 @@ class TrainingThread(QtCore.QThread):
             IdentityFeatures.get_feature_names(), 10)
 
         # let the parent thread know that we've finished
+        self._tasks_complete += 1
+        self.update_progress.emit(self._tasks_complete)
         self.trainingComplete.emit()
 
     def _get_labeled_features(self):
@@ -131,6 +137,9 @@ class TrainingThread(QtCore.QThread):
                     np.full(window_features['percent_frames_present'].shape[0],
                             group_id))
                 group_id += 1
+
+                self._tasks_complete += 1
+                self.update_progress.emit(self._tasks_complete)
 
         return {
             'window': IdentityFeatures.merge_window_features(all_window),
