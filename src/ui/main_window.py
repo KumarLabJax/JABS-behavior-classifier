@@ -93,7 +93,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Key_Space,
             QtCore.Qt.Key_Z,
             QtCore.Qt.Key_X,
-            QtCore.Qt.Key_C
+            QtCore.Qt.Key_C,
+            QtCore.Qt.Key_Escape
         ]:
             self.centralWidget().keyPressEvent(event)
 

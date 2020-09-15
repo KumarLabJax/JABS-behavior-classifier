@@ -284,6 +284,10 @@ class CentralWidget(QtWidgets.QWidget):
                 self._label_not_behavior()
             else:
                 begin_select_mode()
+        elif key == QtCore.Qt.Key_Escape:
+            if self.select_button.isChecked():
+                self.select_button.setChecked(False)
+                self._start_selection(False)
 
     def _new_label(self):
         """

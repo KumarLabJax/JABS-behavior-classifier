@@ -92,8 +92,9 @@ class IdentityFeatures:
                 str(self._identity)
         )
 
-        # does this identity exist for this frame?
-        self._frame_valid = np.zeros(self._num_frames, dtype=np.int8)
+        # will hold an array that indicates if each frame is valid for this
+        # identity or not
+        self._frame_valid = None
 
         # per frame features
         self._per_frame = {}
