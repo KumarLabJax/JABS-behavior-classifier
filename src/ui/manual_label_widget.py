@@ -1,8 +1,8 @@
 from itertools import groupby
 
-from PyQt5.QtWidgets import QWidget, QSizePolicy
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPalette
 from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPalette
+from PyQt5.QtWidgets import QWidget, QSizePolicy
 
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR, SELECTION_COLOR)

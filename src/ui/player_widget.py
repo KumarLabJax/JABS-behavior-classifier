@@ -1,8 +1,10 @@
 import time
+from pathlib import Path
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from src.pose_estimation import PoseEstFactory, get_pose_path
 from src.video_stream import VideoStream, label_identity, label_all_identities
-from src.pose_estimation import PoseEstimationV3
 
 
 class _PlayerThread(QtCore.QThread):
@@ -359,7 +361,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def set_identities(self, identities):
         self._identities = identities
 
-    def load_video(self, path):
+    def load_video(self, path: Path):
         """
         load a new video source
         :param path: path to video file
@@ -371,7 +373,9 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # load the video and pose file
         self._video_stream = VideoStream(path)
-        self._tracks = PoseEstimationV3(path)
+
+        pose_path = get_pose_path(path)
+        self._tracks = PoseEstFactory.open(pose_path)
 
         # setup the position slider
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
