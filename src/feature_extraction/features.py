@@ -133,7 +133,7 @@ class IdentityFeatures:
         """
 
         for frame in range(pose_est.num_frames):
-            points, confidence = pose_est.get_points(frame, self._identity)
+            points, _ = pose_est.get_points(frame, self._identity)
 
             if points is not None:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
@@ -404,7 +404,7 @@ class IdentityFeatures:
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
                 window_values = self._per_frame['angles'][slice_start:slice_end,
-                                angle_index][frame_valid]
+                                angle_index][frame_valid == 1]
 
                 for operation in self._window_feature_operations:
                     window_features['angles'][operation][i, angle_index] = \
@@ -414,7 +414,7 @@ class IdentityFeatures:
             for distance_index in range(0, self._num_distances):
                 window_values = self._per_frame['pairwise_distances'][
                                     slice_start:slice_end,
-                                    distance_index][frame_valid]
+                                    distance_index][frame_valid == 1]
 
                 for operation in self._window_feature_operations:
                     window_features['pairwise_distances'][operation][

@@ -93,7 +93,7 @@ class PoseEstimationV3(PoseEstimation):
         return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
-        return self._identity_mask[identity][:]
+        return self._identity_mask[identity,:]
 
     @property
     def identity_to_track(self):
