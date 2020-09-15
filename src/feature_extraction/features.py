@@ -652,9 +652,9 @@ class IdentityFeatures:
 
         num_frames = poses.shape[0]
 
-        # generate an array of indexes so numpy gradient will no spaceing
+        # generate an array of indexes so numpy gradient will know the spacing
         # between values since there may be gaps
-        # TODO convert this to time based values rather than frame numbers
+        # should we convert to time based values rather than frame numbers?
         indexes = np.arange(num_frames)
         point_velocities = np.zeros(poses.shape)
 
