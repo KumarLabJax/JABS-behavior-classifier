@@ -27,8 +27,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         # initial behavior labels to list in the drop down selection
         self._behaviors = [
-            'Walking', 'Sleeping', 'Freezing', 'Grooming', 'Following',
-            'Rearing (supported)', 'Rearing (unsupported)'
+            'Walking', 'Turn left', 'Turn right', 'Sleeping', 'Freezing',
+            'Grooming', 'Following', 'Rearing (supported)',
+            'Rearing (unsupported)'
         ]
 
         # video player
