@@ -104,6 +104,24 @@ class PoseEstimationV3(PoseEstimation):
             identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
         return identity_to_track
 
+    @classmethod
+    def instance_count_from_file(cls, path: Path) -> int:
+        """
+        peek into a pose_est file to get the number of instances in the file
+        :param path: path to pose_est h5 file
+        :return: integer count
+        """
+        # open the hdf5 pose file
+        with h5py.File(path, 'r') as pose_h5:
+            # extract data from the HDF5 file
+            vid_grp = pose_h5['poseest']
+            major_version = vid_grp.attrs['version'][0]
+
+            # ensure the major version matches what we expect
+            assert major_version == 3
+
+            return len(vid_grp['points'][0])
+
     def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """ iterate through frames and build track dict """
         all_points_mask = all_confidence > 0

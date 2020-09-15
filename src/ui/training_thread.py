@@ -18,6 +18,8 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     currentStatus = QtCore.pyqtSignal(str)
 
+    update_progress = QtCore.pyqtSignal(int)
+
     def __init__(self, project, classifier, behavior, current_video,
                  current_labels):
         QtCore.QThread.__init__(self)
@@ -26,15 +28,17 @@ class TrainingThread(QtCore.QThread):
         self._behavior = behavior
         self._current_video = current_video
         self._current_labels = current_labels
+        self._tasks_complete = 0
 
     def run(self):
         """
         thread's main function. Will get the feature set for all labeled frames,
         do the leave one group out train/test split, run the training, run the
-        trained classifier on the test data, print the accuracy on the test
-        data, and print the most important features
+        trained classifier on the test data, print some performance metrics,
+        and print the most important features
         """
 
+        self._tasks_complete = 0
         features = self._get_labeled_features()
 
         data = self._classifier.leave_one_group_out(
@@ -44,19 +48,38 @@ class TrainingThread(QtCore.QThread):
             features['groups']
         )
 
+        # train classifier, and then use it to classify our test data
         self._classifier.train(data)
         predictions = self._classifier.predict(data['test_data'])
 
-        correct = 0
-        for p, truth in zip(predictions, data['test_labels']):
-            if p == truth:
-                correct += 1
-        print(f"accuracy: {correct / len(predictions) * 100:.2f}%")
+        # calculate some performance metrics using the classifications of the
+        # test data
+        accuracy = self._classifier.accuracy_score(data['test_labels'],
+                                                   predictions)
+        pr = self._classifier.precision_recall_score(data['test_labels'],
+                                                     predictions)
+        confusion = self._classifier.confusion_matrix(data['test_labels'],
+                                                      predictions)
 
+        # print performance metrics and feature importance to console
+        print('-' * 70)
+        print(f"ACCURACY: {accuracy * 100:.2f}%")
+        print("PRECISION RECALL:")
+        print(f"              {'behavior':12}  not behavior")
+        print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
+        print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
+        print(f"  fbeta score {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
+        print(f"  support     {pr[3][0]:<12}  {pr[3][1]}")
+        print("CONFUSION MATRIX:")
+        print(f"{confusion}")
+        print('-' * 70)
+        print("Top 10 features by importance:")
         self._classifier.print_feature_importance(
-            IdentityFeatures.get_feature_names())
+            IdentityFeatures.get_feature_names(), 10)
 
         # let the parent thread know that we've finished
+        self._tasks_complete += 1
+        self.update_progress.emit(self._tasks_complete)
         self.trainingComplete.emit()
 
     def _get_labeled_features(self):
@@ -114,6 +137,9 @@ class TrainingThread(QtCore.QThread):
                     np.full(window_features['percent_frames_present'].shape[0],
                             group_id))
                 group_id += 1
+
+                self._tasks_complete += 1
+                self.update_progress.emit(self._tasks_complete)
 
         return {
             'window': IdentityFeatures.merge_window_features(all_window),

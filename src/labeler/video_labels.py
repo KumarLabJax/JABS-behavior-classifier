@@ -28,7 +28,15 @@ class VideoLabels:
         return self._num_frames
 
     def get_track_labels(self, identity, behavior):
-        """ return a TrackLabels for an identity & behavior """
+        """
+        return a TrackLabels for an identity & behavior
+        :param identity: string representation of identity
+        :param behavior: string behavior label
+        :return: TrackLabels object for this identity and behavior
+        :raises: ValueError if identity is not a valid string
+
+        # TODO handle integer identity
+        """
 
         # require identity to be a string for serialization
         if not isinstance(identity, str):

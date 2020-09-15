@@ -10,6 +10,7 @@ class ClassifyThread(QtCore.QThread):
     """
 
     done = QtCore.pyqtSignal()
+    update_progress = QtCore.pyqtSignal(int)
 
     def __init__(self, classifier, project, behavior, current_video,
                  current_labels, predictions, probabilities, frame_indexes):
@@ -22,6 +23,7 @@ class ClassifyThread(QtCore.QThread):
         self._predictions = predictions
         self._probabilities = probabilities
         self._frame_indexes = frame_indexes
+        self._tasks_complete = 0
 
     def run(self):
         """
@@ -29,6 +31,7 @@ class ClassifyThread(QtCore.QThread):
         video
         TODO: could use more multi-threading speed up
         """
+        self._tasks_complete = 0
         # iterate over each video in the project
         for video in self._project.videos:
 
@@ -89,4 +92,6 @@ class ClassifyThread(QtCore.QThread):
                 # save the indexes for the predicted frames
                 self._frame_indexes[video][identity] = unlabeled_features[
                     'frame_indexes']
+                self._tasks_complete += 1
+                self.update_progress.emit(self._tasks_complete)
         self.done.emit()
