@@ -119,8 +119,8 @@ class TrainingThread(QtCore.QThread):
                         str(identity), self._behavior).get_labels()
                 else:
                     labels = self._project.load_annotation_track(
-                        video).get_track_labels(str(identity),
-                                                self._behavior).get_labels()
+                        video, leave_cached=True
+                    ).get_track_labels(str(identity), self._behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
                 # TODO make window size configurable

@@ -58,7 +58,8 @@ class ClassifyThread(QtCore.QThread):
                 else:
                     # all other videos, load the labels from the project dir
                     labels = self._project.load_annotation_track(
-                        video).get_track_labels(identity, self._behavior).get_labels()
+                        video, leave_cached=True
+                    ).get_track_labels(identity, self._behavior).get_labels()
 
                 # get the features for all unlabled frames for this identity
                 # TODO make window radius configurable
