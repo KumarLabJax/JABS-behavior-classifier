@@ -19,18 +19,21 @@ class CentralWidget(QtWidgets.QWidget):
     QT Widget implementing our main window contents
     """
 
-    # signal that
+    _DEFAULT_BEHAVIORS = [
+        'Walking', 'Turn left', 'Turn right', 'Sleeping', 'Freezing',
+        'Grooming', 'Following', 'Rearing (supported)',
+        'Rearing (unsupported)'
+    ]
+
+    # signal that we have predictions to display
     have_predictions = QtCore.pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super(CentralWidget, self).__init__(*args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
-        self._behaviors = [
-            'Walking', 'Turn left', 'Turn right', 'Sleeping', 'Freezing',
-            'Grooming', 'Following', 'Rearing (supported)',
-            'Rearing (unsupported)'
-        ]
+        self._behaviors = list(self._DEFAULT_BEHAVIORS)
+        self._behaviors.sort()
 
         # video player
         self._player_widget = PlayerWidget()
@@ -189,15 +192,55 @@ class CentralWidget(QtWidgets.QWidget):
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
 
+    def current_behavior(self):
+        return self.behavior_selection.currentText()
+
+    def custom_behavior_labels(self):
+        return [b for b in self._behaviors if b not in self._DEFAULT_BEHAVIORS]
+
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
+        self.classify_button.setEnabled(False)
 
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
         # labels when we do so (the current labels belong to the previous
         # project)
         self._labels = None
+        self._loaded_video = None
+
+        # get project specific settings
+        settings = project.settings
+
+        # reset list of projects, then add any from the settings
+        self._behaviors = list(self._DEFAULT_BEHAVIORS)
+
+        # we don't need this even handler to be active while we set up the
+        # project (otherwise it gets unnecessarily called multiple times)
+        self.behavior_selection.currentIndexChanged.disconnect()
+
+        behavior_index = 0
+        if 'custom_behaviors' in settings:
+            for b in settings['custom_behaviors']:
+                if b not in self._behaviors:
+                    self._behaviors.append(b)
+            self._behaviors.sort()
+            self.behavior_selection.clear()
+            self.behavior_selection.addItems(self._behaviors)
+        if 'selected_behavior' in settings:
+            try:
+                behavior_index = self._behaviors.index(settings['selected_behavior'])
+            except ValueError:
+                pass
+
+        # set the index to either the first behavior, or if available, the one
+        # that was saved in the project settings
+        self.behavior_selection.setCurrentIndex(behavior_index)
+
+        # re-enable the behavior_selection change signal handler
+        self.behavior_selection.currentIndexChanged.connect(
+            self._change_behavior)
 
     def get_labels(self):
         """
@@ -300,6 +343,7 @@ class CentralWidget(QtWidgets.QWidget):
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self.behavior_selection.addItem(text)
+            self.behavior_selection.setCurrentIndex(self._behaviors.index(text))
 
     def _change_behavior(self):
         """
@@ -529,12 +573,13 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _reset_prediction(self):
         """ clear out the current predictions """
-        self._predictions = {}
-        self._probabilities = {}
-        self._frame_indexes = {}
-        self.prediction_vis.set_predictions(None, None)
-        self.inference_timeline_widget.set_labels(
-            np.zeros(self._player_widget.num_frames(), dtype="uint8"))
+        if len(self._predictions) != 0:
+            self._predictions = {}
+            self._probabilities = {}
+            self._frame_indexes = {}
+            self.prediction_vis.set_predictions(None, None)
+            self.inference_timeline_widget.set_labels(
+                np.zeros(self._player_widget.num_frames(), dtype="uint8"))
 
     def _set_train_button_enabled_state(self):
         """
@@ -542,17 +587,18 @@ class CentralWidget(QtWidgets.QWidget):
         whether the labeling meets some threshold set by the classifier module
         :return: None
         """
-        current_behavior = self.behavior_selection.currentText()
-        counts = self._project.label_counts(current_behavior)
+        counts = self._project.label_counts(self.current_behavior())
 
         # if the current video has unsaved labels, they won't be reflected in
         # self._project.label_counts(), so update the counts for the current
         # video
-        counts[self._loaded_video.name] = self._labels.label_counts(current_behavior)
+        counts[self._loaded_video.name] = self._labels.label_counts(
+            self.current_behavior())
         if SklClassifier.label_threshold_met(counts):
             self.train_button.setEnabled(True)
         else:
             self.train_button.setEnabled(False)
+
 
     def save_predictions(self):
         """
