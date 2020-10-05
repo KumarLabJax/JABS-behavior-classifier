@@ -14,7 +14,7 @@ from .video_labels import VideoLabels
 class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
-    __STATE_FILE = 'rotta.json'
+    __PROJECT_SETTING_FILE = 'rotta.json'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
@@ -37,7 +37,7 @@ class Project:
                                 "predictions")
 
         self._setting_file = (self._project_dir_path / self._ROTTA_DIR /
-                              self.__STATE_FILE)
+                              self.__PROJECT_SETTING_FILE)
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
