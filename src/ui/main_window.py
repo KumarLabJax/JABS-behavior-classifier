@@ -70,6 +70,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
+        self.video_list.setFeatures(
+            QtWidgets.QDockWidget.NoDockWidgetFeatures |
+            QtWidgets.QDockWidget.DockWidgetClosable |
+            QtWidgets.QDockWidget.DockWidgetMovable)
 
         # if the playlist visibility changes, make sure the view_playlists
         # check mark is set correctly
