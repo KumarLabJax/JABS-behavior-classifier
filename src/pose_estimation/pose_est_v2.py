@@ -17,6 +17,8 @@ class PoseEstimationV2(PoseEstimation):
         :param file_path: path to pose_est_v2.h5 file
         """
 
+        super().__init__()
+
         # we will make this look like the PoseEstimationV3 but with a single
         # identity so the main program won't care which type it is
         self._identities = [0]
