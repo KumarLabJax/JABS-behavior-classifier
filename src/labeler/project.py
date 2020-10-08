@@ -14,7 +14,7 @@ from .video_labels import VideoLabels
 class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
-    __PROJECT_SETTING_FILE = 'rotta.json'
+    __PROJECT_SETTING_FILE = 'project_settings.json'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
