@@ -265,9 +265,9 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_Right:
             self._player_widget.next_frame()
         elif key == QtCore.Qt.Key_Up:
-            self._player_widget.previous_frame(self._frame_jump)
-        elif key == QtCore.Qt.Key_Down:
             self._player_widget.next_frame(self._frame_jump)
+        elif key == QtCore.Qt.Key_Down:
+            self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key_Space:
             self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key_Z:
