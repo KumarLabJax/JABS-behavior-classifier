@@ -102,16 +102,18 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_behavior_button.clicked.connect(self._label_behavior)
         self.label_behavior_button.setStyleSheet("""
             QPushButton {
-                background-color: rgb(128, 0, 0);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                   stop: 0 rgb(255, 195, 77),
+                                   stop: 1.0 rgb(255, 159, 0));
                 border-radius: 4px;
                 padding: 2px;
                 color: white;
             }
             QPushButton:pressed {
-                background-color: rgb(255, 0, 0);
+                background-color: rgb(255, 195, 77);
             }
             QPushButton:disabled {
-                background-color: rgb(64, 0, 0);
+                background-color: rgb(229, 143, 0);
                 color: grey;
             }
         """)
@@ -121,16 +123,18 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
         self.label_not_behavior_button.setStyleSheet("""
             QPushButton {
-                background-color: rgb(0, 0, 128);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                   stop: 0 rgb(50, 119, 234),
+                                   stop: 1.0 rgb(0, 86, 229));
                 border-radius: 4px;
                 padding: 2px;
                 color: white;
             }
             QPushButton:pressed {
-                background-color: rgb(0, 0, 255);
+                background-color: rgb(50, 119, 234);
             }
             QPushButton:disabled {
-                background-color: rgb(0, 0, 64);
+                background-color: rgb(0, 77, 206);
                 color: grey;
             }
         """)
