@@ -101,13 +101,14 @@ class PoseEstimation(ABC):
         if identity in self._convex_hull_cache:
             return self._convex_hull_cache[identity]
         else:
-            points = self.get_identity_poses(identity)[:, :-2, :]
-            point_masks = self.get_identity_masks(identity)[:, :-2]
+            points, point_masks = self.get_identity_poses(identity)
+            body_points = points[:, :-2, :]
+            body_point_masks = point_masks[:, :-2]
             convex_hulls = []
 
             for frame_index in range(self.num_frames):
-                if sum(point_masks[frame_index, :]) >= 3:
-                    filtered_points = points[frame_index, point_masks[frame_index, :] == 1, :]
+                if sum(body_point_masks[frame_index, :]) >= 3:
+                    filtered_points = body_points[frame_index, body_point_masks[frame_index, :] == 1, :]
                     convex_hulls.append(MultiPoint(filtered_points).convex_hull)
                 else:
                     convex_hulls.append(None)
