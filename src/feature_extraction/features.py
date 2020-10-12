@@ -91,6 +91,8 @@ class IdentityFeatures:
                 self._video_name.stem /
                 str(self._identity)
         )
+        self._closest_identities = np.full(self._num_frames, -1, dtype=np.int16)
+        self._closest_distances = np.full(self._num_frames, float('nan'), dtype=np.float32)
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -139,6 +141,19 @@ class IdentityFeatures:
             if points is not None:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
                 self._per_frame['angles'][frame] = self._compute_angles(points)
+
+            # find the distance and identity of the closest animal at each frame
+            self_shape = pose_est.get_identity_convex_hulls(self._identity)[frame]
+            if self_shape is not None:
+                closest_dist = None
+                for curr_id in pose_est.identities:
+                    if curr_id != self._identity:
+                        other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
+                        if other_shape is not None:
+                            curr_dist = self_shape.distance(other_shape)
+                            if closest_dist is None or closest_dist > curr_dist:
+                                self._closest_identities[frame] = curr_id
+                                self._closest_distances[frame] = curr_dist
 
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
