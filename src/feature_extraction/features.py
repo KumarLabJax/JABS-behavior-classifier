@@ -64,14 +64,24 @@ class IdentityFeatures:
     _per_frame_features = [
         'angles',
         'pairwise_distances',
-        'point_speeds'
+        'point_speeds',
+        'closest_distances',
+        'closest_fov_distances',
+        'closest_fov_angles'
     ]
 
     _window_features = [
         'percent_frames_present',
         'angles',
-        'pairwise_distances'
+        'pairwise_distances',
+        'closest_distances',
+        'closest_fov_distances',
+        'closest_fov_angles'
     ]
+
+    # TODO  For now this is taken from the ICY paper where the full field of view
+    #       is 240 degrees. Do we want this to be configurable?
+    _half_fov_deg = 120
 
     def __init__(self, video_name, identity, directory, pose_est):
         """
@@ -92,7 +102,7 @@ class IdentityFeatures:
                 str(self._identity)
         )
         self._closest_identities = np.full(self._num_frames, -1, dtype=np.int16)
-        self._closest_distances = np.full(self._num_frames, float('nan'), dtype=np.float32)
+        self._closest_fov_identities = np.full(self._num_frames, -1, dtype=np.int16)
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -111,6 +121,11 @@ class IdentityFeatures:
                 self._per_frame[feature] = np.empty(
                     (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
                     dtype=np.float32)
+            elif feature in ('closest_distances', 'closest_fov_distances', 'closest_fov_angles'):
+                self._per_frame[feature] = np.zeros(self._num_frames, dtype=np.float32)
+            else:
+                raise ValueError('Missing feature initialization for: ' + feature)
+
 
         try:
             # try to load from an h5 file if it exists
@@ -135,25 +150,55 @@ class IdentityFeatures:
         :return: None
         """
 
+        idx = PoseEstimationV3.KeypointIndex
+
         for frame in range(pose_est.num_frames):
-            points, _ = pose_est.get_points(frame, self._identity)
+            points, mask = pose_est.get_points(frame, self._identity)
 
             if points is not None:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
                 self._per_frame['angles'][frame] = self._compute_angles(points)
 
-            # find the distance and identity of the closest animal at each frame
-            self_shape = pose_est.get_identity_convex_hulls(self._identity)[frame]
-            if self_shape is not None:
-                closest_dist = None
-                for curr_id in pose_est.identities:
-                    if curr_id != self._identity:
-                        other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
-                        if other_shape is not None:
-                            curr_dist = self_shape.distance(other_shape)
-                            if closest_dist is None or closest_dist > curr_dist:
-                                self._closest_identities[frame] = curr_id
-                                self._closest_distances[frame] = curr_dist
+                # Find the distance and identity of the closest animal at each frame, as well
+                # as the distance, identity and angle of the closes animal in field of view.
+                # In order to calculate this we require that both animals have a valid
+                # convex hull and the the self identity has a valid nose point and
+                # base neck point (which is used to calculate FoV).
+                self_shape = pose_est.get_identity_convex_hulls(self._identity)[frame]
+                if self_shape is not None and mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
+                    closest_dist = None
+                    closest_fov_dist = None
+                    for curr_id in pose_est.identities:
+                        if curr_id != self._identity:
+                            other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
+
+                            if other_shape is not None:
+                                curr_dist = self_shape.distance(other_shape)
+                                if closest_dist is None or curr_dist < closest_dist:
+                                    self._closest_identities[frame] = curr_id
+                                    self._per_frame['closest_distances'][frame] = curr_dist
+                                    closest_dist = curr_dist
+
+                                self_base_neck_point = points[idx.BASE_NECK, :]
+                                self_nose_point = points[idx.NOSE, :]
+                                other_centroid = np.array(other_shape.centroid)
+
+                                view_angle = self._compute_angle(
+                                    self_nose_point,
+                                    self_base_neck_point,
+                                    other_centroid)
+
+                                # for FoV we want the range of view angle to be [180, -180)
+                                if view_angle > 180:
+                                    view_angle -= 360
+                                
+                                if abs(view_angle) <= self._half_fov_deg:
+                                    # other animal is in FoV
+                                    if closest_fov_dist is None or curr_dist < closest_fov_dist:
+                                        self._closest_fov_identities[frame] = curr_id
+                                        self._per_frame['closest_fov_distances'][frame] = curr_dist
+                                        self._per_frame['closest_fov_angles'][frame] = view_angle
+                                        closest_fov_dist = curr_dist
 
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
