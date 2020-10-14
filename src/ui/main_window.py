@@ -143,7 +143,7 @@ class MainWindow(QtWidgets.QMainWindow):
         central_widget = self.centralWidget()
 
         settings['selected_behavior'] = central_widget.current_behavior()
-        settings['custom_behaviors'] = central_widget.custom_behavior_labels()
+        settings['behaviors'] = central_widget.current_behavior_labels()
 
         self._project.save_project_settings(settings)
 

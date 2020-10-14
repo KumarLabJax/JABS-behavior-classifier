@@ -198,10 +198,17 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = None
 
     def current_behavior(self):
+        """
+        :return: the currently selected behavior
+        """
         return self.behavior_selection.currentText()
 
-    def custom_behavior_labels(self):
-        return [b for b in self._behaviors if b not in self._DEFAULT_BEHAVIORS]
+    def current_behavior_labels(self):
+        """
+        get the current contents of the behavior drop down
+        :return: a copy of the list so private member can't be modified
+        """
+        return list(self._behaviors)
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -226,18 +233,23 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.currentIndexChanged.disconnect()
 
         behavior_index = 0
-        if 'custom_behaviors' in settings:
-            for b in settings['custom_behaviors']:
+        if 'behaviors' in settings:
+            # add behavior labels from project settings that aren't already in
+            # the app default list
+            for b in settings['behaviors']:
                 if b not in self._behaviors:
                     self._behaviors.append(b)
             self._behaviors.sort()
             self.behavior_selection.clear()
             self.behavior_selection.addItems(self._behaviors)
         if 'selected_behavior' in settings:
-            try:
-                behavior_index = self._behaviors.index(settings['selected_behavior'])
-            except ValueError:
-                pass
+            # make sure this behavior is in the behavior selection drop down
+            if settings['selected_behavior'] not in self._behaviors:
+                self._behaviors.append(settings['selected_behavior'])
+                self._behaviors.sort()
+                self.behavior_selection.clear()
+                self.behavior_selection.addItems(self._behaviors)
+            behavior_index = self._behaviors.index(settings['selected_behavior'])
 
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project settings
