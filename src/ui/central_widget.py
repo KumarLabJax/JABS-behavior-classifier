@@ -12,6 +12,7 @@ from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -100,39 +101,43 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
         self.label_behavior_button.clicked.connect(self._label_behavior)
-        self.label_behavior_button.setStyleSheet("""
-            QPushButton {
-                background-color: rgb(128, 0, 0);
+        self.label_behavior_button.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                   stop: 0 rgb(255, 195, 77),
+                                   stop: 1.0 rgb{BEHAVIOR_COLOR});
                 border-radius: 4px;
                 padding: 2px;
                 color: white;
-            }
-            QPushButton:pressed {
-                background-color: rgb(255, 0, 0);
-            }
-            QPushButton:disabled {
-                background-color: rgb(64, 0, 0);
+            }}
+            QPushButton:pressed {{
+                background-color: rgb(255, 195, 77);
+            }}
+            QPushButton:disabled {{
+                background-color: rgb(229, 143, 0);
                 color: grey;
-            }
+            }}
         """)
 
         self.label_not_behavior_button = QtWidgets.QPushButton(
             f"Not {self.behavior_selection.currentText()}")
         self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
-        self.label_not_behavior_button.setStyleSheet("""
-            QPushButton {
-                background-color: rgb(0, 0, 128);
+        self.label_not_behavior_button.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                   stop: 0 rgb(50, 119, 234),
+                                   stop: 1.0 rgb{NOT_BEHAVIOR_COLOR});
                 border-radius: 4px;
                 padding: 2px;
                 color: white;
-            }
-            QPushButton:pressed {
-                background-color: rgb(0, 0, 255);
-            }
-            QPushButton:disabled {
-                background-color: rgb(0, 0, 64);
+            }}
+            QPushButton:pressed {{
+                background-color: rgb(50, 119, 234);
+            }}
+            QPushButton:disabled {{
+                background-color: rgb(0, 77, 206);
                 color: grey;
-            }
+            }}
         """)
 
         self.clear_label_button = QtWidgets.QPushButton("Clear Label")
