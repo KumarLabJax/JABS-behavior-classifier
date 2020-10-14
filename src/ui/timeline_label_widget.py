@@ -20,14 +20,14 @@ class TimelineLabelWidget(QWidget):
 
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
-    _MIX_COLOR = QColor(102, 0, 204)
+    _MIX_COLOR = QColor(144, 102, 132)
     _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
     def __init__(self, *args, **kwargs):
         super(TimelineLabelWidget, self).__init__(*args, **kwargs)
 
-        self._bar_height = 5
+        self._bar_height = 8
         self._bar_padding = 3
         self._height = self._bar_height + 2 * self._bar_padding
         self._window_size = 100
