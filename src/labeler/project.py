@@ -240,7 +240,7 @@ class Project:
 
     def label_counts(self, behavior):
         """
-        get counts of number of frames with labels for a behavior accross
+        get counts of number of frames with labels for a behavior across
         entire project
         :return: dict where keys are video names and values are lists of
         (identity, labeled frame count) tuples

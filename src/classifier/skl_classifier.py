@@ -10,6 +10,8 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
+from src.labeler import TrackLabels
+
 
 class SklClassifier:
 
@@ -96,10 +98,21 @@ class SklClassifier:
 
         x = SklClassifier.combine_data(per_frame_features, window_features)
 
-        splits = logo.split(x, labels, groups)
+        splits = list(logo.split(x, labels, groups))
 
-        # pick random split
-        split = random.choice(list(splits))
+        # pick random split, make sure we pick a split where the test data
+        # has sufficient labels of both classes
+        # if the training button is enabled, then this condition can
+        # be satisfied, and the loop is guaranteed to terminate
+        while True:
+            split = random.choice(splits)
+
+            behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
+            not_behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
+
+            if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
+                    not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
+                break
 
         return {
             'training_labels': labels[split[0]],
@@ -155,14 +168,17 @@ class SklClassifier:
 
         datasets = []
         # add per frame features to our data set
+        # sort the feature names in the dict so the order is consistent
         for feature in sorted(per_frame):
             datasets.append(per_frame[feature])
 
         # add window features to our data set
+        # sort the feature names in the dict so the order is consistent
         for feature in sorted(window):
             if feature == 'percent_frames_present':
                 datasets.append(window[feature])
             else:
+                # these window features are nested with the following structure:
                 # [source_feature_name][operator_applied] : numpy array
                 # iterate over operator names
                 for op in sorted(window[feature]):
@@ -206,7 +222,8 @@ class SklClassifier:
         group_count = 0
         for video, counts in label_counts.items():
             for count in counts:
-                if count[1] >= SklClassifier.LABEL_THRESHOLD:
+                if (count[1][0] >= SklClassifier.LABEL_THRESHOLD and
+                        count[1][1] >= SklClassifier.LABEL_THRESHOLD):
                     group_count += 1
 
         return True if group_count >= SklClassifier.MIN_GROUPS else False
