@@ -368,7 +368,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
 
         # if we already have a video loaded make sure it is stopped
-        self._stop()
+        self.stop()
         self.reset()
 
         # load the video and pose file
@@ -390,7 +390,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
 
-    def _stop(self):
+    def stop(self):
         """
         stop playing and reset the play button to its initial state
         """
@@ -497,7 +497,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._playing:
             # if we are playing, stop
-            self._stop()
+            self.stop()
 
         else:
             # we weren't already playing so start
@@ -667,6 +667,6 @@ class PlayerWidget(QtWidgets.QWidget):
                                             self._active_identity)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
-        self._player_thread.endOfFile.connect(self._stop)
+        self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.start()
         self._playing = True
