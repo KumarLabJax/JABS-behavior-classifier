@@ -500,6 +500,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
+        # make sure video playback is stopped
+        self._player_widget.stop()
+
+        # setup training thread
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self.behavior_selection.currentText(),
@@ -508,6 +512,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
             self._update_training_progress)
+
+        # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
             'Training', None, 0, self._project.total_project_identities()+1,
             self)
@@ -515,6 +521,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog.reset()
         self._progress_dialog.show()
 
+        # start training thread
         self._training_thread.start()
 
     def _training_thread_complete(self):
@@ -527,6 +534,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classify_button_clicked(self):
         """ handle user click on "Classify" button """
+        # make sure video playback is stopped
+        self._player_widget.stop()
+
+        # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
             self.behavior_selection.currentText(), self._loaded_video,
@@ -535,12 +546,16 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
+
+        # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
             'Predicting', None, 0, self._project.total_project_identities(),
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
         self._progress_dialog.show()
+
+        # start classification thread
         self._classify_thread.start()
 
     def _classify_thread_complete(self):
