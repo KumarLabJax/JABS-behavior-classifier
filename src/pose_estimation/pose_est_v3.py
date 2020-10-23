@@ -55,6 +55,7 @@ class PoseEstimationV3(PoseEstimation):
         # build numpy arrays of points and point masks organized by identity
         self._track_dict = self._build_track_dict(
                 all_points, all_confidence, all_instance_count, all_track_id)
+
         for track_id, track in self._track_dict.items():
             self._points[
                 self._identity_map[track_id],
@@ -161,8 +162,11 @@ class PoseEstimationV3(PoseEstimation):
     def _build_identity_map(self, all_instance_count, all_track_id):
         """ map individual tracks to identities """
         free_identities = []
+        identity_track_count = {}
+
         for i in self._identities:
             heapq.heappush(free_identities, i)
+            identity_track_count[i] = 0
 
         last_tracks = []
         for frame_index in range(self._num_frames):
@@ -179,5 +183,44 @@ class PoseEstimationV3(PoseEstimation):
                 if current_tracks[i] not in self._identity_map:
                     identity = heapq.heappop(free_identities)
                     self._identity_map[current_tracks[i]] = identity
+                    identity_track_count[identity] += 1
 
             last_tracks = current_tracks[:]
+
+        # prune the identities if some end up not being used
+        identities = []
+        for ident, count in identity_track_count.items():
+            if count != 0:
+                identities.append(ident)
+
+        # the only identities that get pruned should be at the end of the
+        # identities list
+        assert(identities == self._identities[:len(identities)])
+
+        self._identities = identities
+        self._max_instances = len(identities)
+
+    @staticmethod
+    def get_instance_count(path: Path):
+        """
+        open a pose file and extract the number of identities (pruning ones
+        with no data in case they were extracted from a larger file with
+        more identities)
+        :param path: path to pose file
+        :return: integer count of identities present in file
+        """
+
+        # open the hdf5 pose file
+        with h5py.File(path, 'r') as pose_h5:
+            # extract data from the HDF5 file
+            vid_grp = pose_h5['poseest']
+            major_version = vid_grp.attrs['version'][0]
+
+            # ensure the major version matches what we expect
+            assert major_version == 3
+
+            # load contents
+            all_points = vid_grp['points'][:]
+            all_confidence = vid_grp['confidence'][:]
+            all_instance_count = vid_grp['instance_count'][:]
+            all_track_id = vid_grp['instance_track_id'][:]

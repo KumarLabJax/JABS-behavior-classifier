@@ -515,7 +515,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Training', None, 0, self._project.total_project_identities()+1,
+            'Training', None, 0, self._project.total_project_identities+1,
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
@@ -549,7 +549,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Predicting', None, 0, self._project.total_project_identities(),
+            'Predicting', None, 0, self._project.total_project_identities,
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()

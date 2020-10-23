@@ -7,7 +7,7 @@ import numpy as np
 
 import src.pose_estimation as pose_est
 from src.video_stream.utilities import get_frame_count
-from src.pose_estimation import get_pose_path, instance_count
+from src.pose_estimation import get_pose_path, PoseEstFactory
 from .video_labels import VideoLabels
 
 
@@ -67,6 +67,11 @@ class Project:
 
         # unsaved annotations
         self._unsaved_annotations = {}
+
+        self._total_project_identities = 0
+        for path in [self.video_path(v) for v in self._videos]:
+            pose_file = PoseEstFactory.open(get_pose_path(path))
+            self._total_project_identities += pose_file.num_identities
 
     @property
     def videos(self):
@@ -297,15 +302,13 @@ class Project:
             counts[video] = video_track.label_counts(behavior)
         return counts
 
+    @property
     def total_project_identities(self):
         """
         sum the number of instances across all videos in the project
         :return: integer sum
         """
-        total = 0
-        for path in [self.video_path(v) for v in self._videos]:
-            total += instance_count(get_pose_path(path))
-        return total
+        return self._total_project_identities
 
 
 
