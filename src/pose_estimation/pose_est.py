@@ -79,6 +79,14 @@ class PoseEstimation(ABC):
     def identity_to_track(self):
         pass
 
+    @property
+    @abstractmethod
+    def format_major_version(self):
+        """
+        an integer giving the major version of the format
+        """
+        pass
+
     @classmethod
     @abstractmethod
     def instance_count_from_file(cls, path: Path) -> int:

@@ -53,6 +53,10 @@ class PoseEstimationV2(PoseEstimation):
         identity_to_track[0, self._identity_mask == 1] = 0
         return identity_to_track
 
+    @property
+    def format_major_version(self):
+        return 2
+
     def get_points(self, frame_index, identity):
         """
         return points and point masks for an individual frame
