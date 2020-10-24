@@ -70,8 +70,14 @@ class Project:
 
         self._total_project_identities = 0
         for path in [self.video_path(v) for v in self._videos]:
-            pose_file = PoseEstFactory.open(get_pose_path(path))
-            self._total_project_identities += pose_file.num_identities
+            try:
+                pose_file = PoseEstFactory.open(get_pose_path(path))
+                self._total_project_identities += pose_file.num_identities
+            except ValueError:
+                # this will get handled elsewhere, for now just skip over this
+                # video if it doesn't have a pose file otherwise some of the
+                # automated tests for this class can't run
+                pass
 
     @property
     def videos(self):
