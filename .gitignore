@@ -2,4 +2,3 @@
 *.pyc
 venv
 test-reports
-.DS_Store
