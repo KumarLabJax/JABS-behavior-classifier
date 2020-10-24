@@ -199,28 +199,3 @@ class PoseEstimationV3(PoseEstimation):
 
         self._identities = identities
         self._max_instances = len(identities)
-
-    @staticmethod
-    def get_instance_count(path: Path):
-        """
-        open a pose file and extract the number of identities (pruning ones
-        with no data in case they were extracted from a larger file with
-        more identities)
-        :param path: path to pose file
-        :return: integer count of identities present in file
-        """
-
-        # open the hdf5 pose file
-        with h5py.File(path, 'r') as pose_h5:
-            # extract data from the HDF5 file
-            vid_grp = pose_h5['poseest']
-            major_version = vid_grp.attrs['version'][0]
-
-            # ensure the major version matches what we expect
-            assert major_version == 3
-
-            # load contents
-            all_points = vid_grp['points'][:]
-            all_confidence = vid_grp['confidence'][:]
-            all_instance_count = vid_grp['instance_count'][:]
-            all_track_id = vid_grp['instance_track_id'][:]
