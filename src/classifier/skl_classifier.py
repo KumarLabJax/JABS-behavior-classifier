@@ -95,31 +95,29 @@ class SklClassifier:
         }
         """
         logo = LeaveOneGroupOut()
-
         x = SklClassifier.combine_data(per_frame_features, window_features)
-
         splits = list(logo.split(x, labels, groups))
 
         # pick random split, make sure we pick a split where the test data
         # has sufficient labels of both classes
-        # if the training button is enabled, then this condition can
-        # be satisfied, and the loop is guaranteed to terminate
-        while True:
-            split = random.choice(splits)
+        random.shuffle(splits)
+        for split in splits:
 
             behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
             not_behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
 
             if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
                     not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
-                break
+                return {
+                    'training_labels': labels[split[0]],
+                    'training_data': x[split[0]],
+                    'test_labels': labels[split[1]],
+                    'test_data': x[split[1]]
+                }
 
-        return {
-            'training_labels': labels[split[0]],
-            'training_data': x[split[0]],
-            'test_labels': labels[split[1]],
-            'test_data':  x[split[1]]
-        }
+        raise ValueError("unable to split data")
+
+
 
     def train(self, data):
         """
