@@ -105,6 +105,10 @@ class PoseEstimationV3(PoseEstimation):
             identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
         return identity_to_track
 
+    @property
+    def format_major_version(self):
+        return 3
+
     @classmethod
     def instance_count_from_file(cls, path: Path) -> int:
         """

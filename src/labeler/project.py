@@ -23,6 +23,8 @@ class Project:
         avi files and their corresponding pose_est_v3.h5 files as well as json
         files containing project metadata and annotations.
         :param project_path: path to project directory
+
+        TODO: catch ValueError that this might raise when opening a project
         """
 
         # make sure this is a pathlib.Path and not a string
@@ -72,12 +74,23 @@ class Project:
         for path in [self.video_path(v) for v in self._videos]:
             # this will raise a ValueError if the video does not have a
             # corresponding pose file.
-            # TODO handle this in a sane manner
-            # simple option: have GUI catch exception and display an error
-            # message and refuse to open project until user corrects (either
-            # adds missing pose file, or removes offending video)
             pose_file = PoseEstFactory.open(get_pose_path(path))
             self._total_project_identities += pose_file.num_identities
+
+        # determine if this project relies on social features or not
+        self._has_social_features = False
+        for i, vid in enumerate(self._videos):
+            vid_path = self.video_path(vid)
+            pose_path = pose_est.get_pose_path(vid_path)
+            curr_has_social = pose_path.name.endswith('v3.h5')
+
+            if i == 0:
+                self._has_social_features = curr_has_social
+            else:
+                # here we're just making sure everything is consistent,
+                # otherwise we throw a ValueError
+                if curr_has_social != self._has_social_features:
+                    raise ValueError('Found a pose estimation mismatch in project')
 
     @property
     def videos(self):
@@ -94,6 +107,10 @@ class Project:
     @property
     def annotation_dir(self):
         return self._annotations_dir
+
+    @property
+    def has_social_features(self):
+        return self._has_social_features
 
     @property
     def settings(self):

@@ -1,6 +1,7 @@
 import enum
 from abc import ABC, abstractmethod
 from pathlib import Path
+from shapely.geometry import MultiPoint
 
 
 class PoseEstimation(ABC):
@@ -26,6 +27,7 @@ class PoseEstimation(ABC):
     def __init__(self):
         self._num_frames = 0
         self._identities = []
+        self._convex_hull_cache = dict()
         super().__init__()
 
     @property
@@ -77,6 +79,14 @@ class PoseEstimation(ABC):
     def identity_to_track(self):
         pass
 
+    @property
+    @abstractmethod
+    def format_major_version(self):
+        """
+        an integer giving the major version of the format
+        """
+        pass
+
     @classmethod
     @abstractmethod
     def instance_count_from_file(cls, path: Path) -> int:
@@ -86,3 +96,31 @@ class PoseEstimation(ABC):
         :return: integer count
         """
         pass
+
+    def get_identity_convex_hulls(self, identity):
+        """
+        A list of length #frames containing convex hulls for the given identity.
+        The convex hulls are calculated using all valid points except for the
+        middle of tail and tip of tail points.
+        :param identity: identity to return points for
+        :return: the convex hulls (array elements will be None if there is no
+        valid convex hull for that frame)
+        """
+        if identity in self._convex_hull_cache:
+            return self._convex_hull_cache[identity]
+        else:
+            points, point_masks = self.get_identity_poses(identity)
+            body_points = points[:, :-2, :]
+            body_point_masks = point_masks[:, :-2]
+            convex_hulls = []
+
+            for frame_index in range(self.num_frames):
+                if sum(body_point_masks[frame_index, :]) >= 3:
+                    filtered_points = body_points[frame_index, body_point_masks[frame_index, :] == 1, :]
+                    convex_hulls.append(MultiPoint(filtered_points).convex_hull)
+                else:
+                    convex_hulls.append(None)
+
+            self._convex_hull_cache[identity] = convex_hulls
+
+            return convex_hulls
