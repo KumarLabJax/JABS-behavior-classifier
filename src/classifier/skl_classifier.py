@@ -117,8 +117,6 @@ class SklClassifier:
 
         raise ValueError("unable to split data")
 
-
-
     def train(self, data):
         """
         train the classifier
@@ -173,16 +171,17 @@ class SklClassifier:
         # add window features to our data set
         # sort the feature names in the dict so the order is consistent
         for feature in sorted(window):
-            if feature == 'percent_frames_present':
-                datasets.append(window[feature])
-            else:
-                # these window features are nested with the following structure:
+            if isinstance(window[feature], dict):
                 # [source_feature_name][operator_applied] : numpy array
                 # iterate over operator names
                 for op in sorted(window[feature]):
                     # append the numpy array to the dataset
                     datasets.append(window[feature][op])
+            else:
+                datasets.append(window[feature])
 
+        # expand any 1D features to 2D so that we can concatenate in one call
+        datasets = [(d[:, np.newaxis] if d.ndim == 1 else d) for d in datasets]
         return np.concatenate(datasets, axis=1)
 
     @staticmethod

@@ -1,6 +1,7 @@
 import json
 import shutil
 import unittest
+import gzip
 from pathlib import Path
 
 from src.labeler.project import Project
@@ -18,13 +19,38 @@ class TestProject(unittest.TestCase):
     _EXISTING_PROJ_PATH = Path('test_project_with_data')
     _FILENAMES = ['test_file_1.avi', 'test_file_2.avi']
 
+    # filenames of some compressed sample pose files in the test/data directory.
+    # must be at least as long as _FILENAMES
+    _POSE_FILES = ['identity_with_no_data_pose_est_v3.h5.gz',
+                   'sample_pose_est_v3.h5.gz']
+
     @classmethod
     def setUpClass(cls):
-        # create a project with a video file and annotations
+        # create a project with empty video file and annotations
+
+        test_data_dir = Path(__file__).parent / 'data'
+
+        # make sure the test project dir is gone in case we previously
+        # threw an exception during setup
+        try:
+            shutil.rmtree(cls._EXISTING_PROJ_PATH)
+        except FileNotFoundError:
+            pass
 
         cls._EXISTING_PROJ_PATH.mkdir()
-        for name in cls._FILENAMES:
+
+        for i, name in enumerate(cls._FILENAMES):
+            # make a stub for the .avi file in the project directory
             (cls._EXISTING_PROJ_PATH / name).touch()
+
+            # extract the sample pose_est files
+            pose_filename = name.replace('.avi', '_pose_est_v3.h5')
+            pose_path = cls._EXISTING_PROJ_PATH / pose_filename
+            pose_source = test_data_dir / cls._POSE_FILES[i]
+
+            with gzip.open(pose_source, 'rb') as f_in:
+                with open(pose_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
 
         # create an empty project directory
         Project(cls._EXISTING_PROJ_PATH)

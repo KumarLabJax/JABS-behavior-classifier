@@ -75,7 +75,9 @@ class TrainingThread(QtCore.QThread):
         print('-' * 70)
         print("Top 10 features by importance:")
         self._classifier.print_feature_importance(
-            IdentityFeatures.get_feature_names(), 10)
+            IdentityFeatures.get_feature_names(
+                self._project.has_social_features),
+            10)
 
         # let the parent thread know that we've finished
         self._tasks_complete += 1

@@ -138,6 +138,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # save labels for any other videos that have been worked on this session
         self._project.save_cached_annotations()
 
+        # save other project settings
+        settings = self._project.settings
+        central_widget = self.centralWidget()
+
+        settings['selected_behavior'] = central_widget.current_behavior()
+        settings['behaviors'] = central_widget.current_behavior_labels()
+
+        self._project.save_project_settings(settings)
+
     def _save_predictions(self):
         """
         save the current predictions

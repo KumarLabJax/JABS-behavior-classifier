@@ -7,13 +7,14 @@ import numpy as np
 
 import src.pose_estimation as pose_est
 from src.video_stream.utilities import get_frame_count
-from src.pose_estimation import get_pose_path, instance_count
+from src.pose_estimation import get_pose_path, PoseEstFactory
 from .video_labels import VideoLabels
 
 
 class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
+    __PROJECT_SETTING_FILE = 'project_settings.json'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
@@ -22,6 +23,8 @@ class Project:
         avi files and their corresponding pose_est_v3.h5 files as well as json
         files containing project metadata and annotations.
         :param project_path: path to project directory
+
+        TODO: catch ValueError that this might raise when opening a project
         """
 
         # make sure this is a pathlib.Path and not a string
@@ -34,6 +37,9 @@ class Project:
 
         self._prediction_dir = (self._project_dir_path / self._ROTTA_DIR /
                                 "predictions")
+
+        self._setting_file = (self._project_dir_path / self._ROTTA_DIR /
+                              self.__PROJECT_SETTING_FILE)
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -58,8 +64,33 @@ class Project:
         # make sure the predictions subdirectory exists
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
+        # load any saved project settings
+        self._settings = self.load_project_settings()
+
         # unsaved annotations
         self._unsaved_annotations = {}
+
+        self._total_project_identities = 0
+        for path in [self.video_path(v) for v in self._videos]:
+            # this will raise a ValueError if the video does not have a
+            # corresponding pose file.
+            pose_file = PoseEstFactory.open(get_pose_path(path))
+            self._total_project_identities += pose_file.num_identities
+
+        # determine if this project relies on social features or not
+        self._has_social_features = False
+        for i, vid in enumerate(self._videos):
+            vid_path = self.video_path(vid)
+            pose_path = pose_est.get_pose_path(vid_path)
+            curr_has_social = pose_path.name.endswith('v3.h5')
+
+            if i == 0:
+                self._has_social_features = curr_has_social
+            else:
+                # here we're just making sure everything is consistent,
+                # otherwise we throw a ValueError
+                if curr_has_social != self._has_social_features:
+                    raise ValueError('Found a pose estimation mismatch in project')
 
     @property
     def videos(self):
@@ -77,11 +108,27 @@ class Project:
     def annotation_dir(self):
         return self._annotations_dir
 
+    @property
+    def has_social_features(self):
+        return self._has_social_features
+
+    @property
+    def settings(self):
+        """
+        get the project settings. Returns a copy of the settings dict, so that
+        self._settings can't be modified
+        """
+        return dict(self._settings)
+
     def load_annotation_track(self, video_name, leave_cached=False):
         """
         load an annotation track from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
         :param video_name: filename of the video: string or pathlib.Path
+        :param leave_cached: indicates if the VideoLabels object should be
+        removed from the cache if it is found there. This should be false when
+        switching active videos, but false when getting labels for training or
+        classification
         :return: initialized VideoLabels object
         """
 
@@ -133,7 +180,7 @@ class Project:
         if video_filename not in self._videos:
             raise ValueError(f"{video_filename} not in project")
 
-    def cache_annotations(self, annotations):
+    def cache_annotations(self, annotations: VideoLabels):
         """
         Cache a VideoLabels object after encoding as a JSON serializable dict.
         Used when user switches from one video to another during a labeling
@@ -143,7 +190,7 @@ class Project:
         """
         self._unsaved_annotations[annotations.filename] = annotations.as_dict()
 
-    def save_annotations(self, annotations):
+    def save_annotations(self, annotations: VideoLabels):
         """
         save state of a VideoLabels object to the project directory
         :param annotations: VideoLabels object
@@ -154,6 +201,33 @@ class Project:
 
         with path.open(mode='w', newline='\n') as f:
             json.dump(annotations.as_dict(), f)
+
+    def save_project_settings(self, settings: dict):
+        """
+        save project setting information into the project directory. This may
+        includes things like custom behavior labels added by the user as well
+        as the most recently selected behavior label
+        :param settings: dictionary with state information to save
+        :return: None
+        """
+        with self._setting_file.open(mode='w', newline='\n') as f:
+            json.dump(settings, f, indent=2, sort_keys=True)
+        self._settings = settings
+
+    def load_project_settings(self):
+        """
+        load project settings
+        :return: dictionary of project settings, empty dict if unable to open
+        file (such as when the prject is first created and the file does not
+        exist)
+        """
+        try:
+            with self._setting_file.open(mode='r', newline='\n') as f:
+                settings = json.load(f)
+        except:
+            settings = {}
+
+        return settings
 
     def save_cached_annotations(self):
         """
@@ -251,15 +325,13 @@ class Project:
             counts[video] = video_track.label_counts(behavior)
         return counts
 
+    @property
     def total_project_identities(self):
         """
         sum the number of instances across all videos in the project
         :return: integer sum
         """
-        total = 0
-        for path in [self.video_path(v) for v in self._videos]:
-            total += instance_count(get_pose_path(path))
-        return total
+        return self._total_project_identities
 
 
 

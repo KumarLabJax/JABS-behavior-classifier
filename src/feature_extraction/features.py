@@ -64,14 +64,30 @@ class IdentityFeatures:
     _per_frame_features = [
         'angles',
         'pairwise_distances',
-        'point_speeds'
+        'point_speeds',
+    ]
+
+    _per_frame_social_features = [
+        'closest_distances',
+        'closest_fov_distances',
+        'closest_fov_angles'
     ]
 
     _window_features = [
         'percent_frames_present',
         'angles',
-        'pairwise_distances'
+        'pairwise_distances',
     ]
+
+    _window_social_features = [
+        'closest_distances',
+        'closest_fov_distances',
+        'closest_fov_angles'
+    ]
+
+    # TODO  For now this is taken from the ICY paper where the full field of view
+    #       is 240 degrees. Do we want this to be configurable?
+    _half_fov_deg = 120
 
     def __init__(self, video_name, identity, directory, pose_est):
         """
@@ -91,6 +107,13 @@ class IdentityFeatures:
                 self._video_name.stem /
                 str(self._identity)
         )
+        self._include_social_features = pose_est.format_major_version >= 3
+        if self._include_social_features:
+            self._closest_identities = np.full(self._num_frames, -1, dtype=np.int16)
+            self._closest_fov_identities = np.full(self._num_frames, -1, dtype=np.int16)
+        else:
+            self._closest_identities = None
+            self._closest_fov_identities = None
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -109,6 +132,12 @@ class IdentityFeatures:
                 self._per_frame[feature] = np.empty(
                     (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
                     dtype=np.float32)
+            else:
+                raise ValueError('Missing feature initialization for: ' + feature)
+
+        if self._include_social_features:
+            for feature in self._per_frame_social_features:
+                self._per_frame[feature] = np.zeros(self._num_frames, dtype=np.float32)
 
         try:
             # try to load from an h5 file if it exists
@@ -133,12 +162,56 @@ class IdentityFeatures:
         :return: None
         """
 
+        idx = PoseEstimationV3.KeypointIndex
+
         for frame in range(pose_est.num_frames):
-            points, _ = pose_est.get_points(frame, self._identity)
+            points, mask = pose_est.get_points(frame, self._identity)
 
             if points is not None:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
                 self._per_frame['angles'][frame] = self._compute_angles(points)
+
+                if self._include_social_features:
+                    # Find the distance and identity of the closest animal at each frame, as well
+                    # as the distance, identity and angle of the closes animal in field of view.
+                    # In order to calculate this we require that both animals have a valid
+                    # convex hull and the the self identity has a valid nose point and
+                    # base neck point (which is used to calculate FoV).
+                    self_shape = pose_est.get_identity_convex_hulls(self._identity)[frame]
+                    if self_shape is not None and mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
+                        closest_dist = None
+                        closest_fov_dist = None
+                        for curr_id in pose_est.identities:
+                            if curr_id != self._identity:
+                                other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
+
+                                if other_shape is not None:
+                                    curr_dist = self_shape.distance(other_shape)
+                                    if closest_dist is None or curr_dist < closest_dist:
+                                        self._closest_identities[frame] = curr_id
+                                        self._per_frame['closest_distances'][frame] = curr_dist
+                                        closest_dist = curr_dist
+
+                                    self_base_neck_point = points[idx.BASE_NECK, :]
+                                    self_nose_point = points[idx.NOSE, :]
+                                    other_centroid = np.array(other_shape.centroid)
+
+                                    view_angle = self._compute_angle(
+                                        self_nose_point,
+                                        self_base_neck_point,
+                                        other_centroid)
+
+                                    # for FoV we want the range of view angle to be [180, -180)
+                                    if view_angle > 180:
+                                        view_angle -= 360
+                                    
+                                    if abs(view_angle) <= self._half_fov_deg:
+                                        # other animal is in FoV
+                                        if closest_fov_dist is None or curr_dist < closest_fov_dist:
+                                            self._closest_fov_identities[frame] = curr_id
+                                            self._per_frame['closest_fov_distances'][frame] = curr_dist
+                                            self._per_frame['closest_fov_angles'][frame] = view_angle
+                                            closest_fov_dist = curr_dist
 
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
@@ -168,6 +241,14 @@ class IdentityFeatures:
             assert len(self._per_frame['pairwise_distances']) == self._num_frames
             assert len(self._per_frame['angles']) == self._num_frames
 
+            if self._include_social_features:
+                self._closest_identities = features_h5['closest_identities'][:]
+                self._closest_fov_identities = features_h5['closest_fov_identities'][:]
+
+                for feature in self._per_frame_social_features:
+                    self._per_frame[feature] = feature_grp[feature][:]
+                    assert self._per_frame[feature].shape[0] == self._num_frames
+
     def save_per_frame(self):
         """ save per frame features to a h5 file """
 
@@ -185,6 +266,13 @@ class IdentityFeatures:
             grp.create_dataset('pairwise_distances', data=self._per_frame['pairwise_distances'])
             grp.create_dataset('angles', data=self._per_frame['angles'])
             grp.create_dataset('point_speeds', data=self._per_frame['point_speeds'])
+
+            if self._include_social_features:
+                features_h5['closest_identities'] = self._closest_identities
+                features_h5['closest_fov_identities'] = self._closest_fov_identities
+
+                for feature in self._per_frame_social_features:
+                    grp[feature] = self._per_frame[feature]
 
     def save_window_features(self, features, radius):
         """
@@ -212,6 +300,12 @@ class IdentityFeatures:
 
             grp.create_dataset('percent_frames_present',
                                data=features['percent_frames_present'])
+
+            if self._include_social_features:
+                for feature_name in self._window_social_features:
+                    for op in features[feature_name]:
+                        grp.create_dataset(f'{feature_name}/{op}',
+                                        data=features[feature_name][op])
 
     def _load_window_features(self, radius):
         """
@@ -243,6 +337,13 @@ class IdentityFeatures:
             for op in feature_grp['angles'].keys():
                 window_features['angles'][op] = feature_grp[f'angles/{op}'][:]
                 assert len(window_features['angles'][op]) == self._num_frames
+
+            if self._include_social_features:
+                for feature_name in self._window_social_features:
+                    window_features[feature_name] = {}
+                    for op in feature_grp[feature_name].keys():
+                        window_features[feature_name][op] = feature_grp[f'{feature_name}/{op}'][:]
+                        assert len(window_features[feature_name][op]) == self._num_frames
 
             return window_features
 
@@ -304,9 +405,8 @@ class IdentityFeatures:
         else:
             # return only features for labeled frames
             return {
-                'pairwise_distances': self._per_frame['pairwise_distances'][labels != TrackLabels.Label.NONE, :],
-                'angles': self._per_frame['angles'][labels != TrackLabels.Label.NONE, :],
-                'point_speeds': self._per_frame['point_speeds'][labels != TrackLabels.Label.NONE, :]
+                k: v[labels != TrackLabels.Label.NONE, ...]
+                for k, v in self._per_frame.items()
             }
 
     def get_unlabeled_features(self, radius, labels):
@@ -322,9 +422,15 @@ class IdentityFeatures:
 
         per_frame = {}
         indexes = np.arange(self._num_frames)[filter]
-        for feature in self._per_frame_features:
+        
+        if self._include_social_features:
+            all_features = self._per_frame_features + self._per_frame_social_features
+        else:
+            all_features = self._per_frame_features
+
+        for feature in all_features:
             per_frame[feature] = self._per_frame[feature][
-                                 filter, :]
+                                 filter, ...]
 
         window = {}
         for key in window_features:
@@ -372,7 +478,8 @@ class IdentityFeatures:
 
         window_features = {
             'angles': {},
-            'pairwise_distances': {}
+            'pairwise_distances': {},
+            'point_speeds': {},
         }
 
         # allocate arrays
@@ -384,8 +491,21 @@ class IdentityFeatures:
             window_features['pairwise_distances'][operation] = np.empty(
                 [self._num_frames, self._num_distances], dtype=np.float32)
 
+        for operation in self._window_feature_operations:
+            window_features['point_speeds'][operation] = np.empty(
+                [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
+                dtype=np.float32)
+
         window_features['percent_frames_present'] = np.empty((self._num_frames, 1),
                                                              dtype=np.float32)
+
+        # allocate arrays for 1D features
+        if self._include_social_features:
+            for feature_name in self._window_social_features:
+                window_features[feature_name] = {}
+                for operation in self._window_feature_operations:
+                    window_features[feature_name][operation] = np.empty(
+                        self._num_frames, dtype=np.float32)
 
         # compute window features
         for i in range(self._num_frames):
@@ -422,10 +542,28 @@ class IdentityFeatures:
                         i, distance_index] = self._window_feature_operations[
                         operation](window_values)
 
+            # compute window features for point speeds
+            for kp_index_enum in PoseEstimationV3.KeypointIndex:
+                window_values = self._per_frame['point_speeds'][
+                                    slice_start:slice_end,
+                                    kp_index_enum.value][frame_valid == 1]
+
+                for operation in self._window_feature_operations:
+                    window_features['point_speeds'][operation][
+                        i, kp_index_enum.value] = self._window_feature_operations[
+                        operation](window_values)
+
+            # compute other window features using a general approach for 1D feature shapes
+            if self._include_social_features:
+                for feature_name in self._window_social_features:
+                    window_values = self._per_frame[feature_name][slice_start:slice_end]
+                    for op_name, op in self._window_feature_operations.items():
+                        window_features[feature_name][op_name][i] = op(window_values)
+
         return window_features
 
     @classmethod
-    def get_feature_names(cls):
+    def get_feature_names(cls, include_social_features):
         """
         return list of human readable feature names, starting with per frame
         features followed by window features. feature names in each group are
@@ -438,15 +576,32 @@ class IdentityFeatures:
         :return: list of human readable feature names
         """
         feature_list = []
-        for feature in sorted(cls._per_frame_features):
+        
+        if include_social_features:
+            full_per_frame_features = cls._per_frame_features + cls._per_frame_social_features
+        else:
+            full_per_frame_features = cls._per_frame_features
+
+        for feature in sorted(full_per_frame_features):
             if feature == 'angles':
                 feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
             elif feature == 'pairwise_distances':
                 feature_list.extend(IdentityFeatures.get_distance_names())
             elif feature == 'point_speeds':
                 feature_list.extend([f"{point.name} speed" for point in PoseEstimationV3.KeypointIndex])
+            elif feature == 'closest_distances':
+                feature_list.append("closest social distance")
+            elif feature == 'closest_fov_distances':
+                feature_list.append("closest social distance in FoV")
+            elif feature == 'closest_fov_angles':
+                feature_list.append("angle of closest social distance in FoV")
 
-        for feature in sorted(cls._window_features):
+        if include_social_features:
+            full_window_features = cls._window_features + cls._window_social_features
+        else:
+            full_window_features = cls._window_features
+
+        for feature in sorted(full_window_features):
             if feature == 'percent_frames_present':
                 feature_list.append(feature)
             else:
@@ -460,6 +615,12 @@ class IdentityFeatures:
                     elif feature == 'pairwise_distances':
                         feature_list.extend(
                             [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
+                    elif feature == 'closest_distances':
+                        feature_list.append(f"{op} closest social distance")
+                    elif feature == 'closest_fov_distances':
+                        feature_list.append(f"{op} closest social distance in FoV")
+                    elif feature == 'closest_fov_angles':
+                        feature_list.append(f"{op} angle of closest social distance in FoV")
 
         return feature_list
 
@@ -476,11 +637,14 @@ class IdentityFeatures:
         }
         """
 
+        # determine which features are in common
+        feature_intersection = set(cls._per_frame_features + cls._per_frame_social_features)
+        for feature_dict in features:
+            feature_intersection &= set(feature_dict.keys())
+
         return {
-            'pairwise_distances': np.concatenate(
-                [x['pairwise_distances'] for x in features]),
-            'angles': np.concatenate([x['angles'] for x in features]),
-            'point_speeds': np.concatenate([x['point_speeds'] for x in features])
+            feature_name: np.concatenate([x[feature_name] for x in features])
+            for feature_name in feature_intersection
         }
 
     @classmethod
@@ -509,17 +673,23 @@ class IdentityFeatures:
         }
         """
         merged = {
-            'pairwise_distances': {},
-            'angles': {},
             'percent_frames_present': np.concatenate(
                 [x['percent_frames_present'] for x in features])
         }
 
-        for op in cls._window_feature_operations:
-            merged['pairwise_distances'][op] = np.concatenate(
-                [x['pairwise_distances'][op] for x in features])
-            merged['angles'][op] = np.concatenate(
-                [x['angles'][op] for x in features])
+        # determine which features are in common
+        feature_intersection = set(
+            ['angles', 'pairwise_distances']
+            + cls._window_social_features)
+        for feature_dict in features:
+            feature_intersection &= set(feature_dict.keys())
+
+        for feature_name in feature_intersection:
+            merged[feature_name] = {}
+            for op in cls._window_feature_operations:
+                merged[feature_name][op] = np.concatenate(
+                    [x[feature_name][op] for x in features])
+
         return merged
 
     @staticmethod
@@ -684,5 +854,3 @@ class IdentityFeatures:
 
         # convert the velocities to speed
         return np.linalg.norm(point_velocities, axis=-1)
-
-
