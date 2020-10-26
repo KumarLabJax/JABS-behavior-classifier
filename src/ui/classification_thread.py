@@ -29,7 +29,6 @@ class ClassifyThread(QtCore.QThread):
         """
         thread's main function. runs the classifier for each identity in each
         video
-        TODO: could use more multi-threading speed up
         """
         self._tasks_complete = 0
         # iterate over each video in the project
