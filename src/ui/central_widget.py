@@ -12,6 +12,7 @@ from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
+from .label_count_widget import FrameLabelCountWidget
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 
@@ -166,6 +167,7 @@ class CentralWidget(QtWidgets.QWidget):
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
         control_layout.addWidget(classifier_group)
+        control_layout.addWidget(FrameLabelCountWidget())
         control_layout.addStretch()
         control_layout.addWidget(label_group)
 

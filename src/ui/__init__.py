@@ -9,4 +9,5 @@ from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
+from .label_count_widget import FrameLabelCountWidget
 
