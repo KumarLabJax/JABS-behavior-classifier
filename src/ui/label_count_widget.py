@@ -3,6 +3,11 @@ from PyQt5.QtCore import Qt
 
 
 class FrameLabelCountWidget(QtWidgets.QWidget):
+    """
+    widget to show the number of frames and bouts for behavior, not behavior
+    label classes for the currently selected identity/video as well as
+    project-wide totals
+    """
 
     def __init__(self, *args, **kwargs):
 
@@ -73,23 +78,44 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
 
         self.setLayout(layout)
 
-    def set_counts(self, behavior_current, not_behavior_current,
-                   behavior_project, not_behavior_project):
+    def set_counts(self, frame_behavior_current, frame_not_behavior_current,
+                   frame_behavior_project, frame_not_behavior_project,
+                   bout_behavior_current, bout_not_behavior_current,
+                   bout_behavior_project, bout_not_behavior_project):
         """
+        update counts and redraw widget
 
-        :param behavior_current:
-        :param not_behavior_current:
-        :param behavior_project:
-        :param not_behavior_project:
+        :param frame_behavior_current: #frames labeled behavior for current
+        identity (in current video)
+        :param frame_not_behavior_current: #frames labeled not behavior for
+        current identity (in current video)
+        :param frame_behavior_project:  #frames labeled behavior for project
+        :param frame_not_behavior_project: #frames labeled not behavior for
+        project
+        :param bout_behavior_current: #bouts of behavior for current identity
+        (in current video)
+        :param bout_not_behavior_current: #bouts not behavior for current
+        identity (in current video)
+        :param bout_behavior_project: #bouts behavior for project
+        :param bout_not_behavior_project: #bouts not behavior for project
         :return:
         """
         self._frame_labels['behavior_current'].setText(
-            f"{behavior_current}")
+            f"{frame_behavior_current}")
         self._frame_labels['not_behavior_current'].setText(
-            f"{not_behavior_current}")
+            f"{frame_not_behavior_current}")
         self._frame_labels['behavior_project'].setText(
-            f"{behavior_project}")
+            f"{frame_behavior_project}")
         self._frame_labels['not_behavior_project'].setText(
-            f"{not_behavior_project}")
+            f"{frame_not_behavior_project}")
+
+        self._bout_labels['behavior_current'].setText(
+            f"{bout_behavior_current}")
+        self._bout_labels['not_behavior_current'].setText(
+            f"{bout_not_behavior_current}")
+        self._bout_labels['behavior_project'].setText(
+            f"{bout_behavior_project}")
+        self._bout_labels['not_behavior_project'].setText(
+            f"{bout_not_behavior_project}")
 
         self.update()
