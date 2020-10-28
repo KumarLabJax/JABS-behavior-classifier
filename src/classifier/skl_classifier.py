@@ -10,6 +10,8 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
+from src.labeler import TrackLabels
+
 
 class SklClassifier:
 
@@ -93,20 +95,27 @@ class SklClassifier:
         }
         """
         logo = LeaveOneGroupOut()
-
         x = SklClassifier.combine_data(per_frame_features, window_features)
+        splits = list(logo.split(x, labels, groups))
 
-        splits = logo.split(x, labels, groups)
+        # pick random split, make sure we pick a split where the test data
+        # has sufficient labels of both classes
+        random.shuffle(splits)
+        for split in splits:
 
-        # pick random split
-        split = random.choice(list(splits))
+            behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
+            not_behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
 
-        return {
-            'training_labels': labels[split[0]],
-            'training_data': x[split[0]],
-            'test_labels': labels[split[1]],
-            'test_data':  x[split[1]]
-        }
+            if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
+                    not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
+                return {
+                    'training_labels': labels[split[0]],
+                    'training_data': x[split[0]],
+                    'test_labels': labels[split[1]],
+                    'test_data': x[split[1]]
+                }
+
+        raise ValueError("unable to split data")
 
     def train(self, data):
         """
@@ -155,10 +164,12 @@ class SklClassifier:
 
         datasets = []
         # add per frame features to our data set
+        # sort the feature names in the dict so the order is consistent
         for feature in sorted(per_frame):
             datasets.append(per_frame[feature])
 
         # add window features to our data set
+        # sort the feature names in the dict so the order is consistent
         for feature in sorted(window):
             if isinstance(window[feature], dict):
                 # [source_feature_name][operator_applied] : numpy array
@@ -208,7 +219,8 @@ class SklClassifier:
         group_count = 0
         for video, counts in label_counts.items():
             for count in counts:
-                if count[1] >= SklClassifier.LABEL_THRESHOLD:
+                if (count[1][0] >= SklClassifier.LABEL_THRESHOLD and
+                        count[1][1] >= SklClassifier.LABEL_THRESHOLD):
                     group_count += 1
 
         return True if group_count >= SklClassifier.MIN_GROUPS else False

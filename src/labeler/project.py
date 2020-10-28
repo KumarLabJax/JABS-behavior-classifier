@@ -7,7 +7,7 @@ import numpy as np
 
 import src.pose_estimation as pose_est
 from src.video_stream.utilities import get_frame_count
-from src.pose_estimation import get_pose_path, instance_count
+from src.pose_estimation import get_pose_path, PoseEstFactory
 from .video_labels import VideoLabels
 
 
@@ -23,6 +23,8 @@ class Project:
         avi files and their corresponding pose_est_v3.h5 files as well as json
         files containing project metadata and annotations.
         :param project_path: path to project directory
+
+        TODO: catch ValueError that this might raise when opening a project
         """
 
         # make sure this is a pathlib.Path and not a string
@@ -67,6 +69,13 @@ class Project:
 
         # unsaved annotations
         self._unsaved_annotations = {}
+
+        self._total_project_identities = 0
+        for path in [self.video_path(v) for v in self._videos]:
+            # this will raise a ValueError if the video does not have a
+            # corresponding pose file.
+            pose_file = PoseEstFactory.open(get_pose_path(path))
+            self._total_project_identities += pose_file.num_identities
 
         # determine if this project relies on social features or not
         self._has_social_features = False
@@ -305,7 +314,7 @@ class Project:
 
     def label_counts(self, behavior):
         """
-        get counts of number of frames with labels for a behavior accross
+        get counts of number of frames with labels for a behavior across
         entire project
         :return: dict where keys are video names and values are lists of
         (identity, labeled frame count) tuples
@@ -316,15 +325,13 @@ class Project:
             counts[video] = video_track.label_counts(behavior)
         return counts
 
+    @property
     def total_project_identities(self):
         """
         sum the number of instances across all videos in the project
         :return: integer sum
         """
-        total = 0
-        for path in [self.video_path(v) for v in self._videos]:
-            total += instance_count(get_pose_path(path))
-        return total
+        return self._total_project_identities
 
 
 

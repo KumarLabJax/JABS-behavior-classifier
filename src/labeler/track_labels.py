@@ -61,10 +61,13 @@ class TrackLabels:
     @property
     def label_count(self):
         """
-        property that returns the count of the number of frames with labels
-        :return: integer count of labeled frames
+        property that returns a tuple with the count of the number of frames
+        for each label class
+        :return: (count of frames labeled as showing behavior,
+                  count of frames labeled as not showing behavior)
         """
-        return np.count_nonzero(self._labels)
+        return (np.count_nonzero(self._labels == self.Label.BEHAVIOR),
+                np.count_nonzero(self._labels == self.Label.NOT_BEHAVIOR))
 
     def get_blocks(self):
         """

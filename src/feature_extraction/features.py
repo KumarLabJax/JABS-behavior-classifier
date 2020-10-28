@@ -611,6 +611,11 @@ class IdentityFeatures:
         return list of human readable feature names, starting with per frame
         features followed by window features. feature names in each group are
         sorted
+
+        NOTE: the order of the list that is returned must match the order of
+        the columns in the nframes x nfeatures arrays passed to the training and
+        classification functions. This needs to sort the features the same way
+        as SklClassifier.combine_data()
         :return: list of human readable feature names
         """
         feature_list = []
