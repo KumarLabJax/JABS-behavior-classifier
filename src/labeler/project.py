@@ -317,12 +317,25 @@ class Project:
         get counts of number of frames with labels for a behavior across
         entire project
         :return: dict where keys are video names and values are lists of
-        (identity, labeled frame count) tuples
+        (identity, (behavior count, not behavior count)
         """
         counts = {}
         for video in self._videos:
             video_track = self.load_annotation_track(video, leave_cached=True)
             counts[video] = video_track.label_counts(behavior)
+        return counts
+
+    def bout_counts(self, behavior):
+        """
+        get counts of number of frames with labels for a behavior across
+        entire project
+        :return: dict where keys are video names and values are lists of
+        (identity, (behavior bout count, not behavior bout count) tuples
+        """
+        counts = {}
+        for video in self._videos:
+            video_track = self.load_annotation_track(video, leave_cached=True)
+            counts[video] = video_track.bout_counts(behavior)
         return counts
 
     @property

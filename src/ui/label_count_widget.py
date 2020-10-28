@@ -11,17 +11,17 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         # dict of QLabels to display frame counts for behavior/not behavior
         self._frame_labels = {
             'behavior_current': QtWidgets.QLabel("0"),
-            'behavior_total': QtWidgets.QLabel("0"),
+            'behavior_project': QtWidgets.QLabel("0"),
             'not_behavior_current': QtWidgets.QLabel("0"),
-            'not_behavior_total': QtWidgets.QLabel("0"),
+            'not_behavior_project': QtWidgets.QLabel("0"),
         }
 
         # dict of QLabels to display bout counts for behavior/not behavior
         self._bout_labels = {
             'behavior_current': QtWidgets.QLabel("0"),
-            'behavior_total': QtWidgets.QLabel("0"),
+            'behavior_project': QtWidgets.QLabel("0"),
             'not_behavior_current': QtWidgets.QLabel("0"),
-            'not_behavior_total': QtWidgets.QLabel("0"),
+            'not_behavior_project': QtWidgets.QLabel("0"),
         }
 
         font = QtGui.QFont("Courier New", 14)
@@ -56,19 +56,40 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         # add labels containing counts to grid
         layout.addWidget(self._frame_labels['behavior_current'], 2, 1,
                          alignment=Qt.AlignRight)
-        layout.addWidget(self._frame_labels['behavior_total'], 2, 2,
+        layout.addWidget(self._frame_labels['behavior_project'], 2, 2,
                          alignment=Qt.AlignRight)
         layout.addWidget(self._frame_labels['not_behavior_current'], 3, 1,
                          alignment=Qt.AlignRight)
-        layout.addWidget(self._frame_labels['not_behavior_total'], 3, 2,
+        layout.addWidget(self._frame_labels['not_behavior_project'], 3, 2,
                          alignment=Qt.AlignRight)
         layout.addWidget(self._bout_labels['behavior_current'], 5, 1,
                          alignment=Qt.AlignRight)
-        layout.addWidget(self._bout_labels['behavior_total'], 5, 2,
+        layout.addWidget(self._bout_labels['behavior_project'], 5, 2,
                          alignment=Qt.AlignRight)
         layout.addWidget(self._bout_labels['not_behavior_current'], 6, 1,
                          alignment=Qt.AlignRight)
-        layout.addWidget(self._bout_labels['not_behavior_total'], 6, 2,
+        layout.addWidget(self._bout_labels['not_behavior_project'], 6, 2,
                          alignment=Qt.AlignRight)
 
         self.setLayout(layout)
+
+    def set_counts(self, behavior_current, not_behavior_current,
+                   behavior_project, not_behavior_project):
+        """
+
+        :param behavior_current:
+        :param not_behavior_current:
+        :param behavior_project:
+        :param not_behavior_project:
+        :return:
+        """
+        self._frame_labels['behavior_current'].setText(
+            f"{behavior_current}")
+        self._frame_labels['not_behavior_current'].setText(
+            f"{not_behavior_current}")
+        self._frame_labels['behavior_project'].setText(
+            f"{behavior_project}")
+        self._frame_labels['not_behavior_project'].setText(
+            f"{not_behavior_project}")
+
+        self.update()

@@ -161,13 +161,16 @@ class CentralWidget(QtWidgets.QWidget):
         label_group = QtWidgets.QGroupBox("Label")
         label_group.setLayout(label_layout)
 
+        # summary of number of frames / bouts for each class
+        self._frame_counts = FrameLabelCountWidget()
+
         # control layout
         control_layout = QtWidgets.QVBoxLayout()
         control_layout.setSpacing(25)
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
         control_layout.addWidget(classifier_group)
-        control_layout.addWidget(FrameLabelCountWidget())
+        control_layout.addWidget(self._frame_counts)
         control_layout.addStretch()
         control_layout.addWidget(label_group)
 
@@ -306,6 +309,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._loaded_video = path
             self._set_prediction_vis()
             self._set_train_button_enabled_state()
+            self._update_label_counts()
         except OSError as e:
             # error loading
             self._labels = None
@@ -409,6 +413,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.update()
         self.timeline_widget.update_labels()
         self._set_train_button_enabled_state()
+        self._update_label_counts()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -422,6 +427,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.update()
         self.timeline_widget.update_labels()
         self._set_train_button_enabled_state()
+        self._update_label_counts()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
@@ -433,6 +439,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.update()
         self.timeline_widget.update_labels()
         self._set_train_button_enabled_state()
+        self._update_label_counts()
 
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
@@ -445,6 +452,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.set_active_identity(
             self.identity_selection.currentIndex())
         self._set_label_track()
+        self._update_label_counts()
 
     def _disable_label_buttons(self):
         """ disable labeling buttons that require a selected range of frames """
@@ -633,6 +641,42 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self.train_button.setEnabled(False)
 
+    def _update_label_counts(self):
+        """
+        update the widget with the labeled frame / bout counts
+
+        TODO: this should cache data and only update changes to the current label track
+
+        :return: None
+        """
+
+        if self._loaded_video is None:
+            return
+
+        label_counts = self._project.label_counts(self.current_behavior())
+        bout_counts = self._project.bout_counts(self.current_behavior())
+
+        label_behavior_current = 0
+        label_not_behavior_current = 0
+        label_behavior_project = 0
+        label_not_behavior_project = 0
+        bout_behavior_current = 0
+        bout_not_behavior_current = 0
+        bout_behavior_project = 0
+        bout_not_behavior_project = 0
+
+        for video, video_counts in label_counts.items():
+            for identity_counts in video_counts:
+                label_behavior_project += identity_counts[1][0]
+                label_not_behavior_project += identity_counts[1][1]
+                if video == self._loaded_video.name and identity_counts[0] == self.identity_selection.currentText():
+                    label_behavior_current += identity_counts[1][0]
+                    label_not_behavior_current += identity_counts[1][1]
+
+        self._frame_counts.set_counts(label_behavior_current,
+                                      label_not_behavior_current,
+                                      label_behavior_project,
+                                      label_not_behavior_project)
 
     def save_predictions(self):
         """
