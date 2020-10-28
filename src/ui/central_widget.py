@@ -422,7 +422,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
         self._set_train_button_enabled_state()
 
-
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
         start, end = sorted([self._selection_start,
@@ -656,7 +655,8 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        # update counts for the current video
+        # update counts for the current video -- we could be more efficient
+        # by only updating the current identity in the current video
         self._label_counts[self._loaded_video.name] = self._labels.label_counts(
             self.current_behavior())
         self._bout_counts[self._loaded_video.name] = self._labels.bout_counts(
