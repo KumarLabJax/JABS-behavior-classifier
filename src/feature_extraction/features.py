@@ -45,7 +45,17 @@ class IdentityFeatures:
     per frame and window features for a single identity
     """
 
+    # For social interaction we will consider a subset
+    # of points to capture just the most important
+    # information for social.
+    _social_point_subset = [
+        PoseEstimationV3.KeypointIndex.NOSE,
+        PoseEstimationV3.KeypointIndex.BASE_NECK,
+        PoseEstimationV3.KeypointIndex.BASE_TAIL,
+    ]
+
     _num_distances = n_choose_r(len(PoseEstimationV3.KeypointIndex), 2)
+    _num_social_distances = len(_social_point_subset) ** 2
     _num_angles = len(AngleIndex)
     _version = "1.0.0"
 
@@ -70,7 +80,8 @@ class IdentityFeatures:
     _per_frame_social_features = [
         'closest_distances',
         'closest_fov_distances',
-        'closest_fov_angles'
+        'closest_fov_angles',
+        'social_pairwise_distances',
     ]
 
     _window_features = [
@@ -82,7 +93,8 @@ class IdentityFeatures:
     _window_social_features = [
         'closest_distances',
         'closest_fov_distances',
-        'closest_fov_angles'
+        'closest_fov_angles',
+        'social_pairwise_distances',
     ]
 
     # TODO  For now this is taken from the ICY paper where the full field of view
@@ -137,7 +149,14 @@ class IdentityFeatures:
 
         if self._include_social_features:
             for feature in self._per_frame_social_features:
-                self._per_frame[feature] = np.zeros(self._num_frames, dtype=np.float32)
+                if feature == 'social_pairwise_distances':
+                    self._per_frame[feature] = np.zeros(
+                        (self._num_frames, self._num_social_distances),
+                        dtype=np.float32)
+                else:
+                    self._per_frame[feature] = np.zeros(
+                        self._num_frames,
+                        dtype=np.float32)
 
         try:
             # try to load from an h5 file if it exists
@@ -212,6 +231,15 @@ class IdentityFeatures:
                                             self._per_frame['closest_fov_distances'][frame] = curr_dist
                                             self._per_frame['closest_fov_angles'][frame] = view_angle
                                             closest_fov_dist = curr_dist
+
+                        if self._closest_identities[frame] != -1:
+                            closest_points, _ = pose_est.get_points(
+                                frame, self._closest_identities[frame])
+                            social_pt_indexes = [idx.value for idx in self._social_point_subset]
+                            social_pairwise_distances = self._compute_social_pairwise_distance(
+                                points[social_pt_indexes, ...],
+                                closest_points[social_pt_indexes, ...])
+                            self._per_frame['social_pairwise_distances'][frame] = social_pairwise_distances
 
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
@@ -499,13 +527,19 @@ class IdentityFeatures:
         window_features['percent_frames_present'] = np.empty((self._num_frames, 1),
                                                              dtype=np.float32)
 
-        # allocate arrays for 1D features
+        # allocate arrays for social
         if self._include_social_features:
             for feature_name in self._window_social_features:
                 window_features[feature_name] = {}
-                for operation in self._window_feature_operations:
-                    window_features[feature_name][operation] = np.empty(
-                        self._num_frames, dtype=np.float32)
+                if feature_name == 'social_pairwise_distances':
+                    for operation in self._window_feature_operations:
+                        window_features[feature_name][operation] = np.empty(
+                            (self._num_frames, self._num_social_distances),
+                            dtype=np.float32)
+                else:
+                    for operation in self._window_feature_operations:
+                        window_features[feature_name][operation] = np.empty(
+                            self._num_frames, dtype=np.float32)
 
         # compute window features
         for i in range(self._num_frames):
@@ -553,12 +587,21 @@ class IdentityFeatures:
                         i, kp_index_enum.value] = self._window_feature_operations[
                         operation](window_values)
 
-            # compute other window features using a general approach for 1D feature shapes
+            # compute social window features using a general approach for 1D and 2D feature shapes
             if self._include_social_features:
                 for feature_name in self._window_social_features:
-                    window_values = self._per_frame[feature_name][slice_start:slice_end]
-                    for op_name, op in self._window_feature_operations.items():
-                        window_features[feature_name][op_name][i] = op(window_values)
+                    window_values = self._per_frame[feature_name][slice_start:slice_end, ...]
+
+                    assert window_values.ndim == 1 or window_values.ndim == 2
+                    if window_values.ndim == 1:
+                        for op_name, op in self._window_feature_operations.items():
+                            window_features[feature_name][op_name][i] = op(
+                                window_values[frame_valid == 1])
+                    else:
+                        for j in range(window_values.shape[1]):
+                            for op_name, op in self._window_feature_operations.items():
+                                window_features[feature_name][op_name][i, j] = op(
+                                    window_values[:, j][frame_valid == 1])
 
         return window_features
 
@@ -590,6 +633,8 @@ class IdentityFeatures:
                 feature_list.append("closest social distance in FoV")
             elif feature == 'closest_fov_angles':
                 feature_list.append("angle of closest social distance in FoV")
+            elif feature == 'social_pairwise_distances':
+                feature_list.extend(IdentityFeatures.get_social_distance_names())
 
         if include_social_features:
             full_window_features = cls._window_features + cls._window_social_features
@@ -616,6 +661,10 @@ class IdentityFeatures:
                         feature_list.append(f"{op} closest social distance in FoV")
                     elif feature == 'closest_fov_angles':
                         feature_list.append(f"{op} angle of closest social distance in FoV")
+                    elif feature == 'social_pairwise_distances':
+                        feature_list.extend([
+                            f"{op} {sdn}"
+                            for sdn in IdentityFeatures.get_social_distance_names()])
 
         return feature_list
 
@@ -703,6 +752,24 @@ class IdentityFeatures:
         return distances
 
     @staticmethod
+    def _compute_social_pairwise_distance(points1, points2):
+        """
+        compute distances between all pairs of points
+        :param points1: 1st collection of points
+        :param points2: 2st collection of points
+        :return: list of distances between all pairwise combinations of points
+            from points1 and points2
+        """
+        distances = []
+
+        for p1 in points1:
+            for p2 in points2:
+                dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
+                distances.append(dist)
+
+        return distances
+
+    @staticmethod
     def get_distance_names():
         """
         get list of human readable names for each value computed by
@@ -717,6 +784,20 @@ class IdentityFeatures:
             for p2 in point_names[i + 1:]:
                 distances.append(f"{p1}-{p2}")
         return distances
+
+    @classmethod
+    def get_social_distance_names(cls):
+        """
+        get list of human readable names for each value computed by
+        _compute_social_pairwise_distance
+        :return: list of distance names where each is a string of the form
+        "distance_name_1-distance_name_2"
+        """
+        dist_names = []
+        for kpi1 in cls._social_point_subset:
+            for kpi2 in cls._social_point_subset:
+                dist_names.append(f"social dist. {kpi1.name}-{kpi2.name}")
+        return dist_names
 
     @staticmethod
     def _compute_angle(a, b, c):
