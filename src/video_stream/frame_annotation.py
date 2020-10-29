@@ -4,7 +4,7 @@ from shapely.geometry import MultiPoint
 _FRAME_LABEL_COLOR = (215, 222, 0)
 
 
-def label_identity(img, points, mask):
+def label_identity(img, points, mask, color=_FRAME_LABEL_COLOR):
     """
     label the identity on an image
     :param img: image to label
@@ -25,9 +25,9 @@ def label_identity(img, points, mask):
 
         # draw a marker at this location. this is a filled in circle and then
         # a larger unfilled circle
-        cv2.circle(img, (int(center.y), int(center.x)), 3, _FRAME_LABEL_COLOR,
+        cv2.circle(img, (int(center.y), int(center.x)), 3, color,
                    -1, lineType=cv2.LINE_AA)
-        cv2.circle(img, (int(center.y), int(center.x)), 6, _FRAME_LABEL_COLOR,
+        cv2.circle(img, (int(center.y), int(center.x)), 6, color,
                    1, lineType=cv2.LINE_AA)
 
 
@@ -54,4 +54,3 @@ def label_all_identities(img, pose_est, identities, frame_index):
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),
                         cv2.FONT_HERSHEY_PLAIN, 1, _FRAME_LABEL_COLOR, 1,
                         lineType=cv2.LINE_AA)
-

@@ -101,7 +101,7 @@ class IdentityFeatures:
 
     # TODO  For now this is taken from the ICY paper where the full field of view
     #       is 240 degrees. Do we want this to be configurable?
-    _half_fov_deg = 120
+    half_fov_deg = 120
 
     def __init__(self, video_name, identity, directory, pose_est):
         """
@@ -217,7 +217,7 @@ class IdentityFeatures:
                                     self_nose_point = points[idx.NOSE, :]
                                     other_centroid = np.array(other_shape.centroid)
 
-                                    view_angle = self._compute_angle(
+                                    view_angle = self.compute_angle(
                                         self_nose_point,
                                         self_base_neck_point,
                                         other_centroid)
@@ -226,7 +226,7 @@ class IdentityFeatures:
                                     if view_angle > 180:
                                         view_angle -= 360
                                     
-                                    if abs(view_angle) <= self._half_fov_deg:
+                                    if abs(view_angle) <= self.half_fov_deg:
                                         # other animal is in FoV
                                         if closest_fov_dist is None or curr_dist < closest_fov_dist:
                                             self._closest_fov_identities[frame] = curr_id
@@ -826,7 +826,7 @@ class IdentityFeatures:
         return dist_names
 
     @staticmethod
-    def _compute_angle(a, b, c):
+    def compute_angle(a, b, c):
         """
         compute angle created by three connected points
         :param a: point
@@ -851,67 +851,67 @@ class IdentityFeatures:
         idx = PoseEstimationV3.KeypointIndex
         angles = np.empty(cls._num_angles, dtype=np.float32)
 
-        angles[AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW] = cls._compute_angle(
+        angles[AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW] = cls.compute_angle(
             keypoints[idx.NOSE],
             keypoints[idx.BASE_NECK],
             keypoints[idx.RIGHT_FRONT_PAW]
         )
 
-        angles[AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW] = cls._compute_angle(
+        angles[AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW] = cls.compute_angle(
             keypoints[idx.NOSE],
             keypoints[idx.BASE_NECK],
             keypoints[idx.LEFT_FRONT_PAW]
         )
 
-        angles[AngleIndex.RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls._compute_angle(
+        angles[AngleIndex.RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls.compute_angle(
             keypoints[idx.RIGHT_FRONT_PAW],
             keypoints[idx.BASE_NECK],
             keypoints[idx.CENTER_SPINE]
         )
 
-        angles[AngleIndex.LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls._compute_angle(
+        angles[AngleIndex.LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls.compute_angle(
             keypoints[idx.LEFT_FRONT_PAW],
             keypoints[idx.BASE_NECK],
             keypoints[idx.CENTER_SPINE]
         )
 
-        angles[AngleIndex.BASE_NECK_CENTER_SPINE_BASE_TAIL] = cls._compute_angle(
+        angles[AngleIndex.BASE_NECK_CENTER_SPINE_BASE_TAIL] = cls.compute_angle(
             keypoints[idx.BASE_NECK],
             keypoints[idx.CENTER_SPINE],
             keypoints[idx.BASE_TAIL]
         )
 
-        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls._compute_angle(
+        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls.compute_angle(
             keypoints[idx.RIGHT_REAR_PAW],
             keypoints[idx.BASE_TAIL],
             keypoints[idx.CENTER_SPINE]
         )
 
-        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls._compute_angle(
+        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls.compute_angle(
             keypoints[idx.LEFT_REAR_PAW],
             keypoints[idx.BASE_TAIL],
             keypoints[idx.CENTER_SPINE]
         )
 
-        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls._compute_angle(
+        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls.compute_angle(
             keypoints[idx.RIGHT_REAR_PAW],
             keypoints[idx.BASE_TAIL],
             keypoints[idx.MID_TAIL]
         )
 
-        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls._compute_angle(
+        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls.compute_angle(
             keypoints[idx.LEFT_REAR_PAW],
             keypoints[idx.BASE_TAIL],
             keypoints[idx.MID_TAIL]
         )
 
-        angles[AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL] = cls._compute_angle(
+        angles[AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL] = cls.compute_angle(
             keypoints[idx.CENTER_SPINE],
             keypoints[idx.BASE_TAIL],
             keypoints[idx.MID_TAIL]
         )
 
-        angles[AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL] = cls._compute_angle(
+        angles[AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL] = cls.compute_angle(
             keypoints[idx.BASE_TAIL],
             keypoints[idx.MID_TAIL],
             keypoints[idx.TIP_TAIL]

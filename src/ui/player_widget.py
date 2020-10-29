@@ -1,10 +1,64 @@
 import time
 from pathlib import Path
 
+import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from src.pose_estimation import PoseEstFactory, get_pose_path
+from src.feature_extraction.features import IdentityFeatures
+from src.pose_estimation import PoseEstimationV3, PoseEstFactory, get_pose_path
 from src.video_stream import VideoStream, label_identity, label_all_identities
+
+
+_CLOSEST_LABEL_COLOR = (255, 0, 0)
+_CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
+
+
+def _get_closest_animal_id(ref_id, frame_index, pose_est, half_fov_deg=None):
+
+    idx = PoseEstimationV3.KeypointIndex
+    closest_id = None
+    closest_dist = None
+    ref_shape = pose_est.get_identity_convex_hulls(ref_id)[frame_index]
+    if ref_shape is not None:
+        for curr_id in pose_est.identities:
+            if curr_id != ref_id:
+                other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame_index]
+
+                if other_shape is not None:
+
+                    curr_dist = ref_shape.distance(other_shape)
+                    if half_fov_deg is None or half_fov_deg >= 180:
+
+                        # we can ignore FoV angle and just worry about distance
+                        if closest_dist is None or curr_dist < closest_dist:
+                            closest_id = curr_id
+                            closest_dist = curr_dist
+                    else:
+                        # we need to account for FoV angle
+                        points, mask = pose_est.get_points(frame_index, ref_id)
+
+                        # we need nose and base neck to figure out view angle
+                        if mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
+                            ref_base_neck_point = points[idx.BASE_NECK, :]
+                            ref_nose_point = points[idx.NOSE, :]
+                            other_centroid = np.array(other_shape.centroid)
+
+                            view_angle = IdentityFeatures.compute_angle(
+                                ref_nose_point,
+                                ref_base_neck_point,
+                                other_centroid)
+
+                            # for FoV we want the range of view angle to be [180, -180)
+                            if view_angle > 180:
+                                view_angle -= 360
+
+                            if abs(view_angle) <= half_fov_deg:
+                                # other animal is in FoV
+                                if closest_dist is None or curr_dist < closest_dist:
+                                    closest_id = curr_id
+                                    closest_dist = curr_dist
+
+    return closest_id
 
 
 class _PlayerThread(QtCore.QThread):
@@ -86,6 +140,23 @@ class _PlayerThread(QtCore.QThread):
                     label_identity(frame['data'],
                                    *self._pose_est.get_points(frame['index'],
                                                               self._identity))
+
+                    closest_fov_id = _get_closest_animal_id(
+                        self._identity, frame['index'],
+                        self._pose_est, IdentityFeatures.half_fov_deg)
+                    if closest_fov_id is not None:
+                        label_identity(
+                            frame['data'],
+                            *self._pose_est.get_points(frame['index'], closest_fov_id),
+                            color=_CLOSEST_FOV_LABEL_COLOR)
+
+                    closest_id = _get_closest_animal_id(
+                        self._identity, frame['index'], self._pose_est)
+                    if closest_id is not None and closest_id != closest_fov_id:
+                        label_identity(
+                            frame['data'],
+                            *self._pose_est.get_points(frame['index'], closest_id),
+                            color=_CLOSEST_LABEL_COLOR)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -609,6 +680,22 @@ class PlayerWidget(QtWidgets.QWidget):
                 label_identity(frame['data'],
                                *self._tracks.get_points(frame['index'],
                                                         self._active_identity))
+                closest_fov_id = _get_closest_animal_id(
+                    self._active_identity, frame['index'],
+                    self._tracks, IdentityFeatures.half_fov_deg)
+                if closest_fov_id is not None:
+                    label_identity(
+                        frame['data'],
+                        *self._tracks.get_points(frame['index'], closest_fov_id),
+                        color=_CLOSEST_FOV_LABEL_COLOR)
+
+                closest_id = _get_closest_animal_id(
+                    self._active_identity, frame['index'], self._tracks)
+                if closest_id is not None and closest_id != closest_fov_id:
+                    label_identity(
+                        frame['data'],
+                        *self._tracks.get_points(frame['index'], closest_id),
+                        color=_CLOSEST_LABEL_COLOR)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
