@@ -163,6 +163,10 @@ class CentralWidget(QtWidgets.QWidget):
 
         # summary of number of frames / bouts for each class
         self._frame_counts = FrameLabelCountWidget()
+        label_count_layout = QtWidgets.QVBoxLayout()
+        label_count_layout.addWidget(self._frame_counts)
+        label_count_group = QtWidgets.QGroupBox("Label Summary")
+        label_count_group.setLayout(label_count_layout)
 
         # control layout
         control_layout = QtWidgets.QVBoxLayout()
@@ -170,7 +174,7 @@ class CentralWidget(QtWidgets.QWidget):
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
         control_layout.addWidget(classifier_group)
-        control_layout.addWidget(self._frame_counts)
+        control_layout.addWidget(label_count_group)
         control_layout.addStretch()
         control_layout.addWidget(label_group)
 

@@ -37,12 +37,8 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         for l in self._bout_labels.values():
             l.setFont(font)
 
-        frame_header = QtWidgets.QLabel("Frames Labeled")
-        bout_header = QtWidgets.QLabel("Bouts Labeled")
-        font = frame_header.font()
-        font.setPointSize(16)
-        frame_header.setFont(font)
-        bout_header.setFont(font)
+        frame_header = QtWidgets.QLabel("Frames")
+        bout_header = QtWidgets.QLabel("Bouts")
 
         layout = QtWidgets.QGridLayout()
 
