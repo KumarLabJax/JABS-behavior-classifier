@@ -64,7 +64,7 @@ class VideoLabels:
         get the count of labeled frames for each identity in this video for a
         specified behavior
         :param behavior: behavior to get label counts for
-        :return: list of (identity, labeled frame count) tuples
+        :return: list of (identity, (behavior frame count, not behavior frame count))
         """
         counts = []
         for identity in self._identity_labels:
@@ -72,6 +72,21 @@ class VideoLabels:
                 counts.append(
                     (identity,
                      self._identity_labels[identity][behavior].label_count)
+                )
+        return counts
+
+    def bout_counts(self, behavior):
+        """
+        return bout counts for all of the videos
+        :param behavior:
+        :return:
+        """
+        counts = []
+        for identity in self._identity_labels:
+            if behavior in self._identity_labels[identity]:
+                counts.append(
+                    (identity,
+                     self._identity_labels[identity][behavior].bout_count)
                 )
         return counts
 

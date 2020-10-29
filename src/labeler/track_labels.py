@@ -69,6 +69,19 @@ class TrackLabels:
         return (np.count_nonzero(self._labels == self.Label.BEHAVIOR),
                 np.count_nonzero(self._labels == self.Label.NOT_BEHAVIOR))
 
+    @property
+    def bout_count(self):
+        blocks = self._array_to_blocks(self._labels)
+        bouts_behavior = 0
+        bouts_not_behavior = 0
+
+        for b in blocks:
+            if b['present']:
+                bouts_behavior += 1
+            else:
+                bouts_not_behavior += 1
+        return bouts_behavior, bouts_not_behavior
+
     def get_blocks(self):
         """
         get blocks for entire label array
