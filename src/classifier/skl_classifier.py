@@ -16,7 +16,6 @@ from src.labeler import TrackLabels
 class SklClassifier:
 
     LABEL_THRESHOLD = 100
-    MIN_GROUPS = 2
 
     class ClassifierType(IntEnum):
         RANDOM_FOREST = 1
@@ -101,6 +100,7 @@ class SklClassifier:
         # pick random split, make sure we pick a split where the test data
         # has sufficient labels of both classes
         random.shuffle(splits)
+        count = 0
         for split in splits:
 
             behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
@@ -108,14 +108,25 @@ class SklClassifier:
 
             if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
                     not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
-                return {
+                count += 1
+                yield {
                     'training_labels': labels[split[0]],
                     'training_data': x[split[0]],
                     'test_labels': labels[split[1]],
-                    'test_data': x[split[1]]
+                    'test_data': x[split[1]],
                 }
 
-        raise ValueError("unable to split data")
+        # number of splits exhausted
+        if count == 0:
+            raise ValueError("unable to split data")
+
+    @staticmethod
+    def logo_n_splits(groups):
+        """
+        return the number of splits for the leave one group out cross validation
+        """
+        logo = LeaveOneGroupOut()
+        return logo.get_n_splits(groups=groups)
 
     def train(self, data):
         """
@@ -215,7 +226,7 @@ class SklClassifier:
             print(f"{feature:30} {importance}")
 
     @staticmethod
-    def label_threshold_met(label_counts):
+    def label_threshold_met(label_counts, min_groups):
         group_count = 0
         for video, counts in label_counts.items():
             for count in counts:
@@ -223,4 +234,4 @@ class SklClassifier:
                         count[1][1] >= SklClassifier.LABEL_THRESHOLD):
                     group_count += 1
 
-        return True if group_count >= SklClassifier.MIN_GROUPS else False
+        return True if 1 < group_count >= min_groups else False

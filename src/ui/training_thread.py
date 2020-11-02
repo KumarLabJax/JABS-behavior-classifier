@@ -1,5 +1,7 @@
+import itertools
 import numpy as np
 from PyQt5 import QtCore
+from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
 from src.labeler import TrackLabels
@@ -21,7 +23,7 @@ class TrainingThread(QtCore.QThread):
     update_progress = QtCore.pyqtSignal(int)
 
     def __init__(self, project, classifier, behavior, current_video,
-                 current_labels):
+                 current_labels, k=1):
         QtCore.QThread.__init__(self)
         self._project = project
         self._classifier = classifier
@@ -29,6 +31,7 @@ class TrainingThread(QtCore.QThread):
         self._current_video = current_video
         self._current_labels = current_labels
         self._tasks_complete = 0
+        self._k = k
 
     def run(self):
         """
@@ -41,47 +44,78 @@ class TrainingThread(QtCore.QThread):
         self._tasks_complete = 0
         features = self._get_labeled_features()
 
-        data = self._classifier.leave_one_group_out(
+        data_generator = self._classifier.leave_one_group_out(
             features['per_frame'],
             features['window'],
             features['labels'],
             features['groups']
         )
 
-        # train classifier, and then use it to classify our test data
-        self._classifier.train(data)
-        predictions = self._classifier.predict(data['test_data'])
+        table_rows = []
+        accuracies = []
+        fbeta_behavior = []
+        fbeta_notbehavior = []
 
-        # calculate some performance metrics using the classifications of the
-        # test data
-        accuracy = self._classifier.accuracy_score(data['test_labels'],
-                                                   predictions)
-        pr = self._classifier.precision_recall_score(data['test_labels'],
-                                                     predictions)
-        confusion = self._classifier.confusion_matrix(data['test_labels'],
-                                                      predictions)
+        for data, i in zip(itertools.islice(data_generator, self._k),
+                           range(self._k)):
 
-        # print performance metrics and feature importance to console
+            # train classifier, and then use it to classify our test data
+            self._classifier.train(data)
+            predictions = self._classifier.predict(data['test_data'])
+
+            # calculate some performance metrics using the classifications of the
+            # test data
+            accuracy = self._classifier.accuracy_score(data['test_labels'],
+                                                       predictions)
+            pr = self._classifier.precision_recall_score(data['test_labels'],
+                                                         predictions)
+            confusion = self._classifier.confusion_matrix(data['test_labels'],
+                                                          predictions)
+
+            table_rows.append([accuracy, pr[0][0], pr[0][1], pr[1][0], pr[1][1],
+                               pr[2][0], pr[2][1]])
+            accuracies.append(accuracy)
+            fbeta_behavior.append(pr[2][0])
+            fbeta_notbehavior.append(pr[2][1])
+
+
+            # print performance metrics and feature importance to console
+            print('-' * 70)
+            print(f"training iteration {i}")
+            print(f"ACCURACY: {accuracy * 100:.2f}%")
+            print("PRECISION RECALL:")
+            print(f"              {'behavior':12}  not behavior")
+            print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
+            print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
+            print(f"  fbeta score {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
+            print(f"  support     {pr[3][0]:<12}  {pr[3][1]}")
+            print("CONFUSION MATRIX:")
+            print(f"{confusion}")
+            print('-' * 70)
+            print("Top 10 features by importance:")
+            self._classifier.print_feature_importance(
+                IdentityFeatures.get_feature_names(
+                    self._project.has_social_features),
+                10)
+
+            # let the parent thread know that we've finished
+            self._tasks_complete += 1
+            self.update_progress.emit(self._tasks_complete)
+
+        print('\n' + '=' * 70)
+        print("SUMMARY\n")
+        print(tabulate(table_rows, showindex="always", headers=[
+            "accuracy", "precision\n(behavior)",
+            "precision\n(not behavior)", "recall\n(behavior)",
+            "recall\n(not behavior)", "f beta score\n(behavior)",
+            "f beta score\n(not behavior)"]))
+
+        print(f"\nmean accuracy: {np.mean(accuracies):.5}")
+        print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
+        print("mean fbeta score (not behavior): "
+              f"{np.mean(fbeta_notbehavior):.5}")
         print('-' * 70)
-        print(f"ACCURACY: {accuracy * 100:.2f}%")
-        print("PRECISION RECALL:")
-        print(f"              {'behavior':12}  not behavior")
-        print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
-        print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
-        print(f"  fbeta score {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
-        print(f"  support     {pr[3][0]:<12}  {pr[3][1]}")
-        print("CONFUSION MATRIX:")
-        print(f"{confusion}")
-        print('-' * 70)
-        print("Top 10 features by importance:")
-        self._classifier.print_feature_importance(
-            IdentityFeatures.get_feature_names(
-                self._project.has_social_features),
-            10)
 
-        # let the parent thread know that we've finished
-        self._tasks_complete += 1
-        self.update_progress.emit(self._tasks_complete)
         self.trainingComplete.emit()
 
     def _get_labeled_features(self):

@@ -13,6 +13,7 @@ from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
 from .label_count_widget import FrameLabelCountWidget
+from .k_fold_slider_widget import KFoldSliderWidget
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 
@@ -92,9 +93,12 @@ class CentralWidget(QtWidgets.QWidget):
         self.classify_button = QtWidgets.QPushButton("Classify")
         self.classify_button.clicked.connect(self._classify_button_clicked)
         self.classify_button.setEnabled(False)
-        classfier_layout = QtWidgets.QVBoxLayout()
-        classfier_layout.addWidget(self.train_button)
-        classfier_layout.addWidget(self.classify_button)
+        self._kslider = KFoldSliderWidget()
+        self._kslider.valueChanged.connect(self._kfold_changed)
+        classfier_layout = QtWidgets.QGridLayout()
+        classfier_layout.addWidget(self.train_button, 0, 0)
+        classfier_layout.addWidget(self.classify_button, 0, 1)
+        classfier_layout.addWidget(self._kslider, 1, 0, 1, 2)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classfier_layout)
 
@@ -528,7 +532,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self.behavior_selection.currentText(),
-            self._loaded_video, self._labels)
+            self._loaded_video, self._labels, self._kslider.value())
         self._training_thread.trainingComplete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
@@ -536,7 +540,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Training', None, 0, self._project.total_project_identities+1,
+            'Training', None, 0,
+            self._project.total_project_identities + self._kslider.value(),
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
@@ -547,6 +552,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
+        self._progress_dialog.reset()
         self.classify_button.setEnabled(True)
 
     def _update_training_progress(self, step):
@@ -644,7 +650,8 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if SklClassifier.label_threshold_met(self._label_counts):
+        if SklClassifier.label_threshold_met(self._label_counts,
+                                             self._kslider.value()):
             self.train_button.setEnabled(True)
         else:
             self.train_button.setEnabled(False)
@@ -701,6 +708,9 @@ class CentralWidget(QtWidgets.QWidget):
                                       bout_not_behavior_current,
                                       bout_behavior_project,
                                       bout_not_behavior_project)
+
+    def _kfold_changed(self):
+        self._set_train_button_enabled_state()
 
     def save_predictions(self):
         """
