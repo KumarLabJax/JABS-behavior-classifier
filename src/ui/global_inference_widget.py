@@ -13,7 +13,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
     """
 
     def __init__(self):
-        TimelineLabelWidget.__init__(self)
+        super().__init__()
 
     def _update_bar(self):
         """

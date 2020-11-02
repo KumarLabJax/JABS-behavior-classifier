@@ -21,7 +21,7 @@ class PredictionVisWidget(QWidget):
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
     def __init__(self, *args, **kwargs):
-        super(PredictionVisWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._bar_height = 40
 

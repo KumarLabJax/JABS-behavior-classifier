@@ -7,7 +7,7 @@ class _VideoListWidget(QtWidgets.QListWidget):
     without selecting a new row
     """
     def __init__(self):
-        super(_VideoListWidget, self).__init__()
+        super().__init__()
         # only allow one selection
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.setSortingEnabled(True)
@@ -40,7 +40,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
     selectionChanged = QtCore.pyqtSignal(str)
 
     def __init__(self):
-        super(VideoListDockWidget, self).__init__()
+        super().__init__()
         self.setWindowTitle("Project Videos")
         self.file_list = _VideoListWidget()
         self.setWidget(self.file_list)

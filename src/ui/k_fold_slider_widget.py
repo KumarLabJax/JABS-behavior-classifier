@@ -5,12 +5,15 @@ from PyQt5.QtCore import Qt, pyqtSignal
 class KFoldSliderWidget(QtWidgets.QWidget):
     """
     widget to allow user to select k parameter for k-fold cross validation
+
+    basically consists of a QSlider and three QLabel widgets with
+    no spacing/margins
     """
 
     valueChanged = pyqtSignal(int)
 
     def __init__(self, kmax=10, *args, **kwargs):
-        super(KFoldSliderWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._slider = QtWidgets.QSlider(Qt.Horizontal)
         self._slider.setMinimum(1)

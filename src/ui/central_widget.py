@@ -32,7 +32,7 @@ class CentralWidget(QtWidgets.QWidget):
     have_predictions = QtCore.pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
-        super(CentralWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
         self._behaviors = list(self._DEFAULT_BEHAVIORS)

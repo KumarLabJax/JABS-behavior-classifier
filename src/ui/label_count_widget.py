@@ -11,7 +11,7 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
 
     def __init__(self, *args, **kwargs):
 
-        super(FrameLabelCountWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # dict of QLabels to display frame counts for behavior/not behavior
         self._frame_labels = {

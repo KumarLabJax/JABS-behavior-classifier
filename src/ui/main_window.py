@@ -10,7 +10,7 @@ class MainWindow(QtWidgets.QMainWindow):
     loadVideoAsyncSignal = QtCore.pyqtSignal(str)
 
     def __init__(self, *args, **kwargs):
-        super(MainWindow, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.setWindowTitle("Behavior Classifier")
         self.setCentralWidget(CentralWidget())

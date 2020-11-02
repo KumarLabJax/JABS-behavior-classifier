@@ -25,7 +25,7 @@ class TrainingThread(QtCore.QThread):
 
     def __init__(self, project, classifier, behavior, current_video,
                  current_labels, k=1):
-        QtCore.QThread.__init__(self)
+        super().__init__()
         self._project = project
         self._classifier = classifier
         self._behavior = behavior
