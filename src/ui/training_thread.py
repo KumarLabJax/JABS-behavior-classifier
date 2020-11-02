@@ -1,4 +1,5 @@
 import itertools
+
 import numpy as np
 from PyQt5 import QtCore
 from tabulate import tabulate

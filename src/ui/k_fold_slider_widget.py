@@ -20,6 +20,7 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self._slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
         self._slider.valueChanged.connect(self.valueChanged)
 
+        # slider range labels
         label_min = QtWidgets.QLabel("1", alignment=Qt.AlignLeft)
         label_max = QtWidgets.QLabel(f"{kmax}", alignment=Qt.AlignRight)
 
@@ -28,7 +29,7 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         slider_hbox.setContentsMargins(0, 0, 0, 0)
         slider_vbox.setContentsMargins(0, 0, 0, 0)
         slider_vbox.setSpacing(0)
-        slider_vbox.addWidget(QtWidgets.QLabel("Cross Validation K:"))
+        slider_vbox.addWidget(QtWidgets.QLabel("Cross Validation k:"))
         slider_vbox.addWidget(self._slider)
         slider_vbox.addLayout(slider_hbox)
         slider_hbox.addWidget(label_min, Qt.AlignLeft)
@@ -37,4 +38,5 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self.setLayout(slider_vbox)
 
     def value(self):
+        """ return the slider value """
         return self._slider.value()
