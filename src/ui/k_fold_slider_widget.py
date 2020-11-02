@@ -4,9 +4,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 class KFoldSliderWidget(QtWidgets.QWidget):
     """
-    widget to show the number of frames and bouts for behavior, not behavior
-    label classes for the currently selected identity/video as well as
-    project-wide totals
+    widget to allow user to select k parameter for k-fold cross validation
     """
 
     valueChanged = pyqtSignal(int)
