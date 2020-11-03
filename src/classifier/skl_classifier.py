@@ -67,7 +67,8 @@ class SklClassifier:
                     datasets.append(window_features[feature][op])
 
         # split labeled data and labels
-        split_data = train_test_split(np.concatenate(datasets, axis=1), label_data)
+        split_data = train_test_split(np.concatenate(datasets, axis=1),
+                                      label_data)
 
         return {
             'test_labels': split_data.pop(),
@@ -114,19 +115,14 @@ class SklClassifier:
                     'training_data': x[split[0]],
                     'test_labels': labels[split[1]],
                     'test_data': x[split[1]],
+                    'test_group': groups[split[1]][0]
                 }
 
-        # number of splits exhausted
+        # number of splits exhausted without finding at least one that meets
+        # criteria
+        # the UI won't allow us to reach this case
         if count == 0:
             raise ValueError("unable to split data")
-
-    @staticmethod
-    def logo_n_splits(groups):
-        """
-        return the number of splits for the leave one group out cross validation
-        """
-        logo = LeaveOneGroupOut()
-        return logo.get_n_splits(groups=groups)
 
     def train(self, data):
         """
