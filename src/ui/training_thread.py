@@ -43,7 +43,7 @@ class TrainingThread(QtCore.QThread):
         """
 
         self._tasks_complete = 0
-        features = self._get_labeled_features()
+        features, group_mapping = self._get_labeled_features()
 
         data_generator = self._classifier.leave_one_group_out(
             features['per_frame'],
@@ -60,6 +60,8 @@ class TrainingThread(QtCore.QThread):
         for data, i in zip(itertools.islice(data_generator, self._k),
                            range(self._k)):
 
+            test_info = group_mapping[data['test_group']]
+
             # train classifier, and then use it to classify our test data
             self._classifier.train(data)
             predictions = self._classifier.predict(data['test_data'])
@@ -74,7 +76,8 @@ class TrainingThread(QtCore.QThread):
                                                           predictions)
 
             table_rows.append([accuracy, pr[0][0], pr[0][1], pr[1][0], pr[1][1],
-                               pr[2][0], pr[2][1]])
+                               pr[2][0], pr[2][1],
+                               f"{test_info['video']} [{test_info['identity']}]"])
             accuracies.append(accuracy)
             fbeta_behavior.append(pr[2][0])
             fbeta_notbehavior.append(pr[2][1])
@@ -83,6 +86,9 @@ class TrainingThread(QtCore.QThread):
             # print performance metrics and feature importance to console
             print('-' * 70)
             print(f"training iteration {i}")
+            print("TEST DATA:")
+            print(f"\tVideo: {test_info['video']}")
+            print(f"\tIdentity: {test_info['identity']}")
             print(f"ACCURACY: {accuracy * 100:.2f}%")
             print("PRECISION RECALL:")
             print(f"              {'behavior':12}  not behavior")
@@ -109,7 +115,8 @@ class TrainingThread(QtCore.QThread):
             "accuracy", "precision\n(behavior)",
             "precision\n(not behavior)", "recall\n(behavior)",
             "recall\n(not behavior)", "f beta score\n(behavior)",
-            "f beta score\n(not behavior)"]))
+            "f beta score\n(not behavior)",
+            "test - leave one out:\n(video [identity])"]))
 
         print(f"\nmean accuracy: {np.mean(accuracies):.5}")
         print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
@@ -124,21 +131,38 @@ class TrainingThread(QtCore.QThread):
         the the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
-        :return: dict with the following keys:
+
+        :return: two dicts: features, group_mappings
+
+        The first dict contains features for all labeled frames and has the
+        following keys:
+
         {
             'window': ,
             'per_frame': ,
             'labels': ,
             'groups': ,
         }
-        The values of these are suitable to pass as arguments to the
-        SklClassifier.leave_one_group_out() method
+
+        The values contained in the first dict are suitable to pass as
+        arguments to the SklClassifier.leave_one_group_out() method.
+
+        The second dict in the tuple has group ids as the keys, and the
+        values are a dict containing the video and identity that corresponds to
+        that group id:
+
+        {
+          <group id>: {'video': <video filename>, 'identity': <identity},
+          ...
+        }
         """
 
         all_per_frame = []
         all_window = []
         all_labels = []
         all_group_labels = []
+
+        group_mapping = {}
 
         group_id = 0
         for video in self._project.videos:
@@ -147,6 +171,8 @@ class TrainingThread(QtCore.QThread):
                 self._project.video_path(video))
 
             for identity in pose_est.identities:
+                group_mapping[group_id] = {'video': video, 'identity': identity}
+
                 features = IdentityFeatures(video, identity,
                                             self._project.feature_dir,
                                             pose_est)
@@ -184,4 +210,4 @@ class TrainingThread(QtCore.QThread):
                 all_per_frame),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_group_labels),
-        }
+        }, group_mapping
