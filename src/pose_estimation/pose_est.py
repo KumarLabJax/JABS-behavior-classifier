@@ -65,6 +65,15 @@ class PoseEstimation(ABC):
         pass
 
     @abstractmethod
+    def get_identity_point_mask(self, identity):
+        """
+        get the point mask array for a given identity
+        :param identity: identity to return point mask for
+        :return: array of point masks (#frames, 12)
+        """
+        pass
+
+    @abstractmethod
     def identity_mask(self, identity):
         """
         get the identity mask (indicates if specified identity is present in
