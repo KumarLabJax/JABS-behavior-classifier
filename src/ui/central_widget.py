@@ -48,6 +48,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._project = None
         self._labels = None
 
+        #  classifier
+        self._classifier = SklClassifier()
+        self._training_thread = None
+        self._classify_thread = None
+
         # information about current predictions
         self._predictions = {}
         self._probabilities = {}
@@ -87,12 +92,6 @@ class CentralWidget(QtWidgets.QWidget):
         identity_group.setLayout(identity_layout)
 
         # classifier controls
-
-        #  classifier
-        self._classifier = SklClassifier()
-        self._training_thread = None
-        self._classify_thread = None
-
         #  buttons
         self.train_button = QtWidgets.QPushButton("Train")
         self.train_button.clicked.connect(self._train_button_clicked)
