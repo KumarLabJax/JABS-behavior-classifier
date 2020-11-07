@@ -87,20 +87,40 @@ class CentralWidget(QtWidgets.QWidget):
         identity_group.setLayout(identity_layout)
 
         # classifier controls
+
+        #  classifier
+        self._classifier = SklClassifier()
+        self._training_thread = None
+        self._classify_thread = None
+
+        #  buttons
         self.train_button = QtWidgets.QPushButton("Train")
         self.train_button.clicked.connect(self._train_button_clicked)
         self.train_button.setEnabled(False)
         self.classify_button = QtWidgets.QPushButton("Classify")
         self.classify_button.clicked.connect(self._classify_button_clicked)
         self.classify_button.setEnabled(False)
+
+        #  drop down to select type of classifier to use
+        self._classifier_selection = QtWidgets.QComboBox()
+        self._classifier_selection.currentIndexChanged.connect(self._classifier_changed)
+
+        for classifier, name in self._classifier.classifier_choices().items():
+            self._classifier_selection.addItem(name, userData=classifier)
+
+        #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
         self._kslider.valueChanged.connect(self._kfold_changed)
-        classfier_layout = QtWidgets.QGridLayout()
-        classfier_layout.addWidget(self.train_button, 0, 0)
-        classfier_layout.addWidget(self.classify_button, 0, 1)
-        classfier_layout.addWidget(self._kslider, 1, 0, 1, 2)
+
+        #  classifier control layout
+        classifier_layout = QtWidgets.QGridLayout()
+        classifier_layout.addWidget(self.train_button, 0, 0)
+        classifier_layout.addWidget(self.classify_button, 0, 1)
+        classifier_layout.addWidget(QtWidgets.QLabel("Classifier: "), 1, 0)
+        classifier_layout.addWidget(self._classifier_selection, 2, 0, 1, 2)
+        classifier_layout.addWidget(self._kslider, 3, 0, 1, 2)
         classifier_group = QtWidgets.QGroupBox("Classifier")
-        classifier_group.setLayout(classfier_layout)
+        classifier_group.setLayout(classifier_layout)
 
         # label components
         label_layout = QtWidgets.QVBoxLayout()
@@ -202,29 +222,28 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addWidget(self.frame_ticks, 5, 0, 1, 2)
         self.setLayout(layout)
 
-        # classifier
-        self._classifier = SklClassifier()
-        self._training_thread = None
-        self._classify_thread = None
-
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
 
         self._label_counts = None
         self._bout_counts = None
 
-    def current_behavior(self):
+    def behavior(self):
         """
         :return: the currently selected behavior
         """
         return self.behavior_selection.currentText()
 
-    def current_behavior_labels(self):
+    def behavior_labels(self):
         """
         get the current contents of the behavior drop down
         :return: a copy of the list so private member can't be modified
         """
         return list(self._behaviors)
+
+    def classifier_type(self):
+        """ get the current classifier type """
+        return self._classifier.classifier_type
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -240,6 +259,19 @@ class CentralWidget(QtWidgets.QWidget):
 
         # get project specific settings
         settings = project.settings
+
+        # try to select the classifier type specified in the project settings
+        try:
+            classifier_type = SklClassifier.ClassifierType[settings['classifier']]
+
+            index = self._classifier_selection.findData(classifier_type)
+            if index != -1:
+                self._classifier_selection.setCurrentIndex(index)
+        except KeyError:
+            # either no classifier was specified in the settings file, or
+            # unable to use the classifier specified in the settings file.
+            # use the default
+            pass
 
         # reset list of projects, then add any from the settings
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
@@ -272,8 +304,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.setCurrentIndex(behavior_index)
 
         # get label/bout counts for the current project
-        self._label_counts = self._project.label_counts(self.current_behavior())
-        self._bout_counts = self._project.bout_counts(self.current_behavior())
+        self._label_counts = self._project.label_counts(self.behavior())
+        self._bout_counts = self._project.bout_counts(self.behavior())
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
@@ -669,9 +701,9 @@ class CentralWidget(QtWidgets.QWidget):
         # update counts for the current video -- we could be more efficient
         # by only updating the current identity in the current video
         self._label_counts[self._loaded_video.name] = self._labels.label_counts(
-            self.current_behavior())
+            self.behavior())
         self._bout_counts[self._loaded_video.name] = self._labels.bout_counts(
-            self.current_behavior())
+            self.behavior())
 
         identity = self.identity_selection.currentText()
 
@@ -710,12 +742,15 @@ class CentralWidget(QtWidgets.QWidget):
                                       bout_not_behavior_project)
 
     def _kfold_changed(self):
+        """ handle kfold slider change event """
         self._set_train_button_enabled_state()
 
+    def _classifier_changed(self):
+        """ handle classifier selection change """
+        self._classifier.set_classifier(self._classifier_selection.currentData())
+
     def save_predictions(self):
-        """
-        save predictions (if the classifier has been run)
-        """
+        """ save predictions (if the classifier has been run) """
         if not self._predictions:
             return
         self._project.save_predictions(self._predictions, self._probabilities,
