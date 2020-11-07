@@ -34,7 +34,6 @@ class SklClassifier:
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST):
         """
-        initialize a new
         :param classifier: type of classifier to use. Must be ClassifierType
         enum value. Defaults to ClassifierType.RANDOM_FOREST
         """
