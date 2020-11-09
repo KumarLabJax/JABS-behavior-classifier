@@ -1,8 +1,12 @@
 import random
 from enum import IntEnum
+from importlib import import_module
 
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    GradientBoostingClassifier
+)
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from sklearn.metrics import (
     accuracy_score,
@@ -16,20 +20,57 @@ from src.labeler import TrackLabels
 class SklClassifier:
 
     LABEL_THRESHOLD = 100
-    MIN_GROUPS = 2
 
     class ClassifierType(IntEnum):
         RANDOM_FOREST = 1
-        ADABOOST = 2
+        GRADIENT_BOOSTING = 2
+        XGBOOST = 3
+
+    _classifier_names = {
+        ClassifierType.RANDOM_FOREST: "Random Forest",
+        ClassifierType.GRADIENT_BOOSTING: "Gradient Boosting",
+        ClassifierType.XGBOOST: "XGBoost"
+    }
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST):
         """
-        initialize a new
-        :param classifier:
+        :param classifier: type of classifier to use. Must be ClassifierType
+        enum value. Defaults to ClassifierType.RANDOM_FOREST
         """
 
         self._classifier_type = classifier
         self._classifier = None
+
+        self._classifier_choices = [
+            self.ClassifierType.RANDOM_FOREST,
+            self.ClassifierType.GRADIENT_BOOSTING
+        ]
+
+        try:
+            self._xgboost = import_module("xgboost")
+            # we were able to import xgboost, make it available as an option:
+            self._classifier_choices.append(self.ClassifierType.XGBOOST)
+        except Exception:
+            # we were unable to import the xgboost module. It's either not
+            # installed (it should be if the user used our requirements.txt)
+            # or it may have been unable to be imported due to a missing
+            # libomp. Either way, we won't add it to the available choices and
+            # we can otherwise ignore this exception
+            self._xgboost = None
+
+        # make sure the value passed for the classifier parameter is valid
+        if classifier not in self._classifier_choices:
+            raise ValueError("Invalid classifier type")
+
+    @property
+    def classifier_name(self):
+        """ return the name of the classifier used as a string """
+        return self._classifier_names[self._classifier_type]
+
+    @property
+    def classifier_type(self):
+        """ return classifier type (SklClassifier.ClassifierType enum value) """
+        return self._classifier_type
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -68,7 +109,8 @@ class SklClassifier:
                     datasets.append(window_features[feature][op])
 
         # split labeled data and labels
-        split_data = train_test_split(np.concatenate(datasets, axis=1), label_data)
+        split_data = train_test_split(np.concatenate(datasets, axis=1),
+                                      label_data)
 
         return {
             'test_labels': split_data.pop(),
@@ -101,6 +143,7 @@ class SklClassifier:
         # pick random split, make sure we pick a split where the test data
         # has sufficient labels of both classes
         random.shuffle(splits)
+        count = 0
         for split in splits:
 
             behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
@@ -108,14 +151,42 @@ class SklClassifier:
 
             if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
                     not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
-                return {
+                count += 1
+                yield {
                     'training_labels': labels[split[0]],
                     'training_data': x[split[0]],
                     'test_labels': labels[split[1]],
-                    'test_data': x[split[1]]
+                    'test_data': x[split[1]],
+                    'test_group': groups[split[1]][0]
                 }
 
-        raise ValueError("unable to split data")
+        # number of splits exhausted without finding at least one that meets
+        # criteria
+        # the UI won't allow us to reach this case
+        if count == 0:
+            raise ValueError("unable to split data")
+
+    def set_classifier(self, classifier):
+        """ change the type of the classifier being used """
+        if classifier not in self._classifier_choices:
+            raise ValueError("Invalid Classifier Type")
+        self._classifier_type = classifier
+
+    def classifier_choices(self):
+        """
+        get the available classifier types
+        :return: dict where keys are ClassifierType enum values, and the
+        values are string names for the classifiers. example:
+
+        {
+            <ClassifierType.RANDOM_FOREST: 1>: 'Random Forest',
+            <ClassifierType.GRADIENT_BOOSTING: 2>: 'Gradient Boosting',
+            <ClassifierType.XGBOOST: 3>: 'XGBoost'
+        }
+        """
+        return {
+            d: self._classifier_names[d] for d in self._classifier_choices
+        }
 
     def train(self, data):
         """
@@ -129,6 +200,10 @@ class SklClassifier:
 
         if self._classifier_type == self.ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels)
+        elif self._classifier_type == self.ClassifierType.GRADIENT_BOOSTING:
+            self._classifier = self._fit_gradient_boost(features, labels)
+        elif self._classifier_type == self.ClassifierType.XGBOOST:
+            self._classifier = self._fit_xgboost(features, labels)
 
     def predict(self, features):
         """
@@ -186,10 +261,17 @@ class SklClassifier:
 
     @staticmethod
     def _fit_random_forest(features, labels):
-
         classifier = RandomForestClassifier()
-        classifier.fit(features, labels)
+        return classifier.fit(features, labels)
 
+    @staticmethod
+    def _fit_gradient_boost(features, labels):
+        classifier = GradientBoostingClassifier()
+        return classifier.fit(features, labels)
+
+    def _fit_xgboost(self, features, labels):
+        classifier = self._xgboost.XGBClassifier()
+        classifier.fit(features, labels)
         return classifier
 
     def print_feature_importance(self, feature_list, limit=20):
@@ -215,7 +297,7 @@ class SklClassifier:
             print(f"{feature:30} {importance}")
 
     @staticmethod
-    def label_threshold_met(label_counts):
+    def label_threshold_met(label_counts, min_groups):
         group_count = 0
         for video, counts in label_counts.items():
             for count in counts:
@@ -223,4 +305,4 @@ class SklClassifier:
                         count[1][1] >= SklClassifier.LABEL_THRESHOLD):
                     group_count += 1
 
-        return True if group_count >= SklClassifier.MIN_GROUPS else False
+        return True if 1 < group_count >= min_groups else False

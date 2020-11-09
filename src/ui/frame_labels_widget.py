@@ -10,7 +10,7 @@ class FrameLabelsWidget(QWidget):
     """
 
     def __init__(self, *args, **kwargs):
-        super(FrameLabelsWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

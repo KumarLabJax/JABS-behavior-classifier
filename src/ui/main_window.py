@@ -10,7 +10,7 @@ class MainWindow(QtWidgets.QMainWindow):
     loadVideoAsyncSignal = QtCore.pyqtSignal(str)
 
     def __init__(self, *args, **kwargs):
-        super(MainWindow, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.setWindowTitle("Behavior Classifier")
         self.setCentralWidget(CentralWidget())
@@ -142,8 +142,9 @@ class MainWindow(QtWidgets.QMainWindow):
         settings = self._project.settings
         central_widget = self.centralWidget()
 
-        settings['selected_behavior'] = central_widget.current_behavior()
-        settings['behaviors'] = central_widget.current_behavior_labels()
+        settings['selected_behavior'] = central_widget.behavior()
+        settings['behaviors'] = central_widget.behavior_labels()
+        settings['classifier'] = central_widget.classifier_type().name
 
         self._project.save_project_settings(settings)
 

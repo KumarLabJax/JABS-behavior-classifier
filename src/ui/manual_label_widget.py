@@ -21,7 +21,7 @@ class ManualLabelWidget(QWidget):
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
     def __init__(self, *args, **kwargs):
-        super(ManualLabelWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
