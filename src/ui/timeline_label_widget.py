@@ -25,7 +25,7 @@ class TimelineLabelWidget(QWidget):
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
     def __init__(self, *args, **kwargs):
-        super(TimelineLabelWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._bar_height = 8
         self._bar_padding = 3

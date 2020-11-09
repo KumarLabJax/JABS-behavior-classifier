@@ -11,7 +11,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
     pop_up_visible = QtCore.pyqtSignal(bool)
 
     def __init__(self, parent=None):
-        super(IdentityComboBox, self).__init__(parent=parent)
+        super().__init__(parent=parent)
 
         # these two properties are related to a work around for a bug described
         # in showPopup

@@ -75,6 +75,7 @@ class IdentityFeatures:
         'angles',
         'pairwise_distances',
         'point_speeds',
+        'point_mask'
     ]
 
     _per_frame_social_features = [
@@ -146,6 +147,8 @@ class IdentityFeatures:
                 self._per_frame[feature] = np.empty(
                     (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
                     dtype=np.float32)
+            elif feature == 'point_mask':
+                self._per_frame[feature] = pose_est.get_identity_point_mask(identity)
             else:
                 raise ValueError('Missing feature initialization for: ' + feature)
 
@@ -638,11 +641,13 @@ class IdentityFeatures:
 
         for feature in sorted(full_per_frame_features):
             if feature == 'angles':
-                feature_list.extend([f"angle {angle.name}" for angle in AngleIndex])
+                feature_list.extend([
+                    f"angle {angle.name}" for angle in AngleIndex])
             elif feature == 'pairwise_distances':
                 feature_list.extend(IdentityFeatures.get_distance_names())
             elif feature == 'point_speeds':
-                feature_list.extend([f"{point.name} speed" for point in PoseEstimationV3.KeypointIndex])
+                feature_list.extend([
+                    f"{p.name} speed" for p in PoseEstimationV3.KeypointIndex])
             elif feature == 'closest_distances':
                 feature_list.append("closest social distance")
             elif feature == 'closest_fov_distances':
@@ -657,6 +662,12 @@ class IdentityFeatures:
                 feature_list.extend([
                     f"social fov dist. {sdn}"
                     for sdn in IdentityFeatures.get_social_distance_names()])
+            elif feature == 'point_mask':
+                feature_list.extend([
+                    f"{p.name} point mask" for p in PoseEstimationV3.KeypointIndex
+                ])
+            else:
+                feature_list.extend(feature)
 
         if include_social_features:
             full_window_features = cls._window_features + cls._window_social_features
@@ -691,6 +702,8 @@ class IdentityFeatures:
                         feature_list.extend([
                             f"{op} social fov dist. {sdn}"
                             for sdn in IdentityFeatures.get_social_distance_names()])
+                    else:
+                        feature_list.extend(feature)
 
         return feature_list
 
@@ -702,8 +715,10 @@ class IdentityFeatures:
         :param features: list of per-frame feature instances
         :return: dict of the form
         {
-            'pairwise_distances': 2D numpy array,
-            'angles': 2D numpy array
+            'pairwise_distances':,
+            'angles':,
+            'point_speeds':,
+            'point_masks':
         }
         """
 

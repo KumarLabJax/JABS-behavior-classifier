@@ -14,7 +14,7 @@ class ClassifyThread(QtCore.QThread):
 
     def __init__(self, classifier, project, behavior, current_video,
                  current_labels, predictions, probabilities, frame_indexes):
-        QtCore.QThread.__init__(self)
+        super().__init__()
         self._classifier = classifier
         self._project = project
         self._behavior = behavior

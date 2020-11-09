@@ -75,7 +75,7 @@ class _PlayerThread(QtCore.QThread):
     endOfFile = QtCore.pyqtSignal()
 
     def __init__(self, video_stream, pose_est, identity=None):
-        QtCore.QThread.__init__(self)
+        super().__init__()
         self._stream = video_stream
         self._pose_est = pose_est
         self._identity = identity
@@ -195,7 +195,7 @@ class _FrameWidget(QtWidgets.QLabel):
     full size of the video frame, but then will be resizable after that
     """
     def __init__(self):
-        super(_FrameWidget, self).__init__()
+        super().__init__()
 
         # initially we want the _FrameWidget to expand to the true size of the
         # image
@@ -280,7 +280,7 @@ class PlayerWidget(QtWidgets.QWidget):
     updateIdentities = QtCore.pyqtSignal(list)
 
     def __init__(self, *args, **kwargs):
-        super(PlayerWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # keep track of the current state
         self._playing = False
