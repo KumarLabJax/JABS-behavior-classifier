@@ -105,6 +105,14 @@ class PoseEstimationV3(PoseEstimation):
             identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
         return identity_to_track
 
+    def get_identity_point_mask(self, identity):
+        """
+        get the point mask array for a given identity
+        :param identity: identity to return point mask for
+        :return: array of point masks (#frames, 12)
+        """
+        return self._point_mask[identity, :]
+
     @property
     def format_major_version(self):
         return 3
@@ -161,6 +169,7 @@ class PoseEstimationV3(PoseEstimation):
             track_length = len(track['points'])
             track['length'] = track_length
             track['stop_frame_exclu'] = track_length + track['start_frame']
+
         return track_dict
 
     def _build_identity_map(self, all_instance_count, all_track_id):

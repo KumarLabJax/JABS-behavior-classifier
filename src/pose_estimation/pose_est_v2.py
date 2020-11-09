@@ -97,6 +97,14 @@ class PoseEstimationV2(PoseEstimation):
             raise ValueError("Invalid identity")
         return self._identity_mask
 
+    def get_identity_point_mask(self, identity):
+        """
+        get the point mask array for a given identity
+        :param identity: identity to return point mask for
+        :return: array of point masks (#frames, 12)
+        """
+        return self._point_mask
+
     @classmethod
     def instance_count_from_file(cls, path: Path) -> int:
         return 1
