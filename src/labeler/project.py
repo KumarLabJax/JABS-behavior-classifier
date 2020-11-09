@@ -15,6 +15,7 @@ class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
     __PROJECT_SETTING_FILE = 'project_settings.json'
+    __CLASSIFIER_FILE = 'project_classifier.pickle'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
@@ -40,6 +41,9 @@ class Project:
 
         self._setting_file = (self._project_dir_path / self._ROTTA_DIR /
                               self.__PROJECT_SETTING_FILE)
+
+        self._classifier_file = (self._project_dir_path / self._ROTTA_DIR /
+                              self.__CLASSIFIER_FILE)
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -119,6 +123,10 @@ class Project:
         self._settings can't be modified
         """
         return dict(self._settings)
+
+    @property
+    def classifier_file(self):
+        return self._classifier_file
 
     def load_annotation_track(self, video_name, leave_cached=False):
         """

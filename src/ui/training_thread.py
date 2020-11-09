@@ -50,6 +50,7 @@ class TrainingThread(QtCore.QThread):
 
         # train classifier, and then use it to classify our test data
         self._classifier.train(data)
+        self._classifier.save_classifier(self._project.classifier_file)
         predictions = self._classifier.predict(data['test_data'])
 
         # calculate some performance metrics using the classifications of the

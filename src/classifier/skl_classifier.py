@@ -2,6 +2,7 @@ import random
 from enum import IntEnum
 
 import numpy as np
+import pickle
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from sklearn.metrics import (
@@ -139,6 +140,21 @@ class SklClassifier:
 
     def predict_proba(self, features):
         return self._classifier.predict_proba(features)
+
+    def load_classifier(self, path):
+        with open(path, 'rb') as f:
+            self._classifier = pickle.load(f)
+
+            # we may need to update the classifier type based on
+            # on the type of the loaded object
+            if isinstance(self._classifier, RandomForestClassifier):
+                self._classifier_type = self.ClassifierType.RANDOM_FOREST
+            else:
+                self._classifier_type = self.ClassifierType.ADABOOST
+
+    def save_classifier(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self._classifier, f)
 
     @staticmethod
     def accuracy_score(truth, predictions):

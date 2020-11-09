@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import sys
 from PyQt5 import QtWidgets, QtCore
 
 from src.classifier.skl_classifier import SklClassifier
@@ -225,7 +227,17 @@ class CentralWidget(QtWidgets.QWidget):
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
-        self.classify_button.setEnabled(False)
+
+        classifier_loaded = False
+        if os.path.exists(self._project.classifier_file):
+            try:
+                self._classifier.load_classifier(self._project.classifier_file)
+                classifier_loaded = True
+            except Exception as e:
+                print('failed to load classifier', file=sys.stderr)
+                print(e, file=sys.stderr)
+
+        self.classify_button.setEnabled(classifier_loaded)
 
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
