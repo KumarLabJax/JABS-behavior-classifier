@@ -390,6 +390,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._reset_prediction()
         self.classify_button.setEnabled(False)
+        self._update_label_counts()
         self._set_train_button_enabled_state()
 
     def _start_selection(self, pressed):
