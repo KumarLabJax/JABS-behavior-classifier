@@ -122,6 +122,7 @@ class TrainingThread(QtCore.QThread):
         print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
         print("mean fbeta score (not behavior): "
               f"{np.mean(fbeta_notbehavior):.5}")
+        print(f"Classifier: {self._classifier.classifier_name}")
         print('-' * 70)
 
         self.trainingComplete.emit()
