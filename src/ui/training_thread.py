@@ -108,7 +108,7 @@ class TrainingThread(QtCore.QThread):
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
 
-        self._classifier.save_classifier(self._project.classifier_file)
+        self._project.save_classifier(self._classifier, self._behavior)
 
         print('\n' + '=' * 70)
         print("SUMMARY\n")

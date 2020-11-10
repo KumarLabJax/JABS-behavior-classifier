@@ -224,8 +224,10 @@ class SklClassifier:
             # on the type of the loaded object
             if isinstance(self._classifier, RandomForestClassifier):
                 self._classifier_type = self.ClassifierType.RANDOM_FOREST
+            elif isinstance(self._classifier, GradientBoostingClassifier):
+                self._classifier_type = self.ClassifierType.GRADIENT_BOOSTING
             else:
-                self._classifier_type = self.ClassifierType.ADABOOST
+                self._classifier_type = self.ClassifierType.XGBOOST
 
     def save_classifier(self, path):
         with open(path, 'wb') as f:

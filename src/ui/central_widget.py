@@ -251,13 +251,12 @@ class CentralWidget(QtWidgets.QWidget):
         self._project = project
 
         classifier_loaded = False
-        if os.path.exists(self._project.classifier_file):
-            try:
-                self._classifier.load_classifier(self._project.classifier_file)
-                classifier_loaded = True
-            except Exception as e:
-                print('failed to load classifier', file=sys.stderr)
-                print(e, file=sys.stderr)
+        try:
+            classifier_loaded = self._project.load_classifier(
+                self._classifier, self.behavior())
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
 
         self.classify_button.setEnabled(classifier_loaded)
 
@@ -436,13 +435,22 @@ class CentralWidget(QtWidgets.QWidget):
             f"Not {self.behavior_selection.currentText()}")
         self._set_label_track()
         self._reset_prediction()
-        self.classify_button.setEnabled(False)
+
+        classifier_loaded = False
+        try:
+            classifier_loaded = self._project.load_classifier(
+                self._classifier, self.behavior())
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
+
+        self.classify_button.setEnabled(classifier_loaded)
         self._update_label_counts()
         self._set_train_button_enabled_state()
 
     def _start_selection(self, pressed):
         """
-        handle click on "select" button. If button was previously in "unchecked"
+        handle click on "select" button. If button was previously in "un    checked"
         state, then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
