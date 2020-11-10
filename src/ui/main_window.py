@@ -146,7 +146,7 @@ class MainWindow(QtWidgets.QMainWindow):
         settings['behaviors'] = central_widget.behavior_labels()
         settings['classifier'] = central_widget.classifier_type().name
 
-        self._project.save_project_settings(settings)
+        self._project.save_metadata(settings)
 
     def _save_predictions(self):
         """

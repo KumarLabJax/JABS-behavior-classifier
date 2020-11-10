@@ -65,7 +65,7 @@ class Project:
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         # load any saved project metadata
-        self._metadata = self.load_project_info()
+        self._metadata = self.load_metadata()
 
         # unsaved annotations
         self._unsaved_annotations = {}
@@ -93,7 +93,7 @@ class Project:
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
-        self.save_project_settings({'video_files': video_metadata})
+        self.save_metadata({'video_files': video_metadata})
 
         # determine if this project relies on social features or not
         self._has_social_features = False
@@ -222,10 +222,10 @@ class Project:
         with path.open(mode='w', newline='\n') as f:
             json.dump(annotations.as_dict(), f)
 
-    def save_project_settings(self, data: dict):
+    def save_metadata(self, data: dict):
         """
-        save project setting information into the project directory. This may
-        includes things like custom behavior labels added by the user as well
+        save project settings and metadata into the project directory. This may
+        include things like custom behavior labels added by the user as well
         as the most recently selected behavior label
 
         any keys in the project metadata dict not included in the data, will
@@ -241,7 +241,7 @@ class Project:
         with self._project_file.open(mode='w', newline='\n') as f:
             json.dump(self._metadata, f, indent=2, sort_keys=True)
 
-    def load_project_info(self):
+    def load_metadata(self):
         """
         load project metadata
         :return: dictionary of project metadata, empty dict if unable to open
