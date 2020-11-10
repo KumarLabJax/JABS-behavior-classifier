@@ -100,17 +100,19 @@ class IdentityFeatures:
         'social_pairwise_fov_distances',
     ]
 
-    # TODO  For now this is taken from the ICY paper where the full field of view
-    #       is 240 degrees. Do we want this to be configurable?
+    # TODO  For now this is taken from the ICY paper where the full field of
+    # view is 240 degrees. Do we want this to be configurable?
     half_fov_deg = 120
 
-    def __init__(self, video_name, identity, directory, pose_est):
+    def __init__(self, video_name, identity, directory, pose_est, force=False):
         """
         :param video_name: name of the video file, used for generating filenames
         for saving extracted features into the project directory
         :param identity: identity to extract features for
         :param directory: path of the project directory
         :param pose_est: PoseEstimationV3 object corresponding to this video
+        :param force: force regeneration of per frame features even if the
+        per frame feature .h5 file exists for this video/identity
         """
 
         self._video_name = Path(video_name)
@@ -163,12 +165,15 @@ class IdentityFeatures:
                         self._num_frames,
                         dtype=np.float32)
 
-        try:
-            # try to load from an h5 file if it exists
-            self.__load_from_file()
-        except OSError:
-            # otherwise compute the per frame features and save
+        if force:
             self.__initialize_from_pose_estimation(pose_est)
+        else:
+            try:
+                # try to load from an h5 file if it exists
+                self.__load_from_file()
+            except OSError:
+                # otherwise compute the per frame features and save
+                self.__initialize_from_pose_estimation(pose_est)
 
     @property
     def window_ops(self):
@@ -258,7 +263,8 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        self._per_frame['point_speeds'] = self._compute_point_speeds(*pose_est.get_identity_poses(self._identity))
+        self._per_frame['point_speeds'] = self._compute_point_speeds(
+            *pose_est.get_identity_poses(self._identity))
 
         self.save_per_frame()
 
@@ -389,7 +395,7 @@ class IdentityFeatures:
 
             return window_features
 
-    def get_window_features(self, radius, labels=None):
+    def get_window_features(self, radius, labels=None, force=False):
         """
         get window features for a given window size, computing if not previously
         computed and saved as h5 file
@@ -397,19 +403,25 @@ class IdentityFeatures:
         include in the window
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
+        :param force: force regeneration of the window features even if the
+        h5 file already exists
         :return: window features for given window size. the format is documented
         in the docstring for _compute_window_features
         """
-        path = self._identity_feature_dir / f"window_features_{radius}.h5"
 
-        if path.exists():
-            # h5 file exists for this window size, load it
-            features = self._load_window_features(radius)
-        else:
-            # h5 file does not exist for this window size. compute the features
-            # and return after saving
+        if force:
             features = self._compute_window_features(radius)
             self.save_window_features(features, radius)
+        else:
+
+            try:
+                # h5 file exists for this window size, load it
+                features = self._load_window_features(radius)
+            except OSError:
+                # h5 file does not exist for this window size. compute the features
+                # and return after saving
+                features = self._compute_window_features(radius)
+                self.save_window_features(features, radius)
 
         if labels is None:
             return features
