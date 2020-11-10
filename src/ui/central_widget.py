@@ -256,10 +256,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        # get project specific settings
-        settings = project.settings
+        # get project specific metadata
+        settings = project.metadata
 
-        # try to select the classifier type specified in the project settings
+        # try to select the classifier type specified in the project metadata
         try:
             classifier_type = SklClassifier.ClassifierType[settings['classifier']]
 
@@ -267,12 +267,12 @@ class CentralWidget(QtWidgets.QWidget):
             if index != -1:
                 self._classifier_selection.setCurrentIndex(index)
         except KeyError:
-            # either no classifier was specified in the settings file, or
-            # unable to use the classifier specified in the settings file.
+            # either no classifier was specified in the metadata file, or
+            # unable to use the classifier specified in the metadata file.
             # use the default
             pass
 
-        # reset list of projects, then add any from the settings
+        # reset list of projects, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
 
         # we don't need this even handler to be active while we set up the
@@ -281,7 +281,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         behavior_index = 0
         if 'behaviors' in settings:
-            # add behavior labels from project settings that aren't already in
+            # add behavior labels from project metadata that aren't already in
             # the app default list
             for b in settings['behaviors']:
                 if b not in self._behaviors:
@@ -299,7 +299,7 @@ class CentralWidget(QtWidgets.QWidget):
             behavior_index = self._behaviors.index(settings['selected_behavior'])
 
         # set the index to either the first behavior, or if available, the one
-        # that was saved in the project settings
+        # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
 
         # get label/bout counts for the current project

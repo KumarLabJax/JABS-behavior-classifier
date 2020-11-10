@@ -138,8 +138,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # save labels for any other videos that have been worked on this session
         self._project.save_cached_annotations()
 
-        # save other project settings
-        settings = self._project.settings
+        # save other project metadata
+        settings = self._project.metadata
         central_widget = self.centralWidget()
 
         settings['selected_behavior'] = central_widget.behavior()

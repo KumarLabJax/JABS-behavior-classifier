@@ -14,7 +14,7 @@ from .video_labels import VideoLabels
 class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
-    __PROJECT_SETTING_FILE = 'project_settings.json'
+    __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
 
     def __init__(self, project_path):
@@ -38,8 +38,8 @@ class Project:
         self._prediction_dir = (self._project_dir_path / self._ROTTA_DIR /
                                 "predictions")
 
-        self._setting_file = (self._project_dir_path / self._ROTTA_DIR /
-                              self.__PROJECT_SETTING_FILE)
+        self._project_file = (self._project_dir_path / self._ROTTA_DIR /
+                              self.__PROJECT_FILE)
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -64,18 +64,36 @@ class Project:
         # make sure the predictions subdirectory exists
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
-        # load any saved project settings
-        self._settings = self.load_project_settings()
+        # load any saved project metadata
+        self._metadata = self.load_project_info()
 
         # unsaved annotations
         self._unsaved_annotations = {}
 
         self._total_project_identities = 0
-        for path in [self.video_path(v) for v in self._videos]:
-            # this will raise a ValueError if the video does not have a
-            # corresponding pose file.
-            pose_file = PoseEstFactory.open(get_pose_path(path))
-            self._total_project_identities += pose_file.num_identities
+
+        video_metadata = self._metadata.get('video_files', {})
+        for video in self._videos:
+            vinfo = {}
+            if video in video_metadata:
+                nidentities = video_metadata[video].get('identities', None)
+                vinfo = video_metadata[video]
+            else:
+                nidentities = None
+
+            # if the number of identities is not cached in the project metadata,
+            # open the pose file to get it
+            if nidentities is None:
+                # this will raise a ValueError if the video does not have a
+                # corresponding pose file.
+                pose_file = PoseEstFactory.open(
+                    get_pose_path(self.video_path(video)))
+                nidentities = pose_file.num_identities
+                vinfo['identities'] = nidentities
+
+            self._total_project_identities += nidentities
+            video_metadata[video] = vinfo
+        self.save_project_settings({'video_files': video_metadata})
 
         # determine if this project relies on social features or not
         self._has_social_features = False
@@ -113,12 +131,14 @@ class Project:
         return self._has_social_features
 
     @property
-    def settings(self):
+    def metadata(self):
         """
-        get the project settings. Returns a copy of the settings dict, so that
-        self._settings can't be modified
+        get the project metadata and preferences.
+
+        Returns a copy of the metadata dict, so that self._info can't be
+        modified
         """
-        return dict(self._settings)
+        return dict(self._metadata)
 
     def load_annotation_track(self, video_name, leave_cached=False):
         """
@@ -202,27 +222,34 @@ class Project:
         with path.open(mode='w', newline='\n') as f:
             json.dump(annotations.as_dict(), f)
 
-    def save_project_settings(self, settings: dict):
+    def save_project_settings(self, data: dict):
         """
         save project setting information into the project directory. This may
         includes things like custom behavior labels added by the user as well
         as the most recently selected behavior label
-        :param settings: dictionary with state information to save
+
+        any keys in the project metadata dict not included in the data, will
+        not be modified
+        :param data: dictionary with state information to save
         :return: None
         """
-        with self._setting_file.open(mode='w', newline='\n') as f:
-            json.dump(settings, f, indent=2, sort_keys=True)
-        self._settings = settings
 
-    def load_project_settings(self):
+        # merge data with current metadata
+        self._metadata.update(data)
+
+        # save combined info to file
+        with self._project_file.open(mode='w', newline='\n') as f:
+            json.dump(self._metadata, f, indent=2, sort_keys=True)
+
+    def load_project_info(self):
         """
-        load project settings
-        :return: dictionary of project settings, empty dict if unable to open
+        load project metadata
+        :return: dictionary of project metadata, empty dict if unable to open
         file (such as when the prject is first created and the file does not
         exist)
         """
         try:
-            with self._setting_file.open(mode='r', newline='\n') as f:
+            with self._project_file.open(mode='r', newline='\n') as f:
                 settings = json.load(f)
         except:
             settings = {}
