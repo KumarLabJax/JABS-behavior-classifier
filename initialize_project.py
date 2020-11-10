@@ -34,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--force', action='store_true',
                         help='recompute features even if file already exists')
-    parser.add_argument('-p', default=4, type=int,
+    parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
     parser.add_argument('project_dir')
     args = parser.parse_args()
