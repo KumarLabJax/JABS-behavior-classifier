@@ -418,15 +418,16 @@ class CentralWidget(QtWidgets.QWidget):
         """
         make UI changes to reflect the currently selected behavior
         """
-        self.label_behavior_button.setText(
-            self.behavior_selection.currentText())
+        new_behavior = self.behavior_selection.currentText()
+        self.label_behavior_button.setText(new_behavior)
         self.label_not_behavior_button.setText(
-            f"Not {self.behavior_selection.currentText()}")
+            f"Not {new_behavior}")
         self._set_label_track()
         self._reset_prediction()
         self.classify_button.setEnabled(False)
         self._update_label_counts()
         self._set_train_button_enabled_state()
+        self._project.save_metadata({'selected_behavior': new_behavior})
 
     def _start_selection(self, pressed):
         """
