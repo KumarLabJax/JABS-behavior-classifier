@@ -425,6 +425,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._reset_prediction()
         self.classify_button.setEnabled(False)
+        # get label/bout counts for the current project
+        self._label_counts = self._project.label_counts(new_behavior)
+        self._bout_counts = self._project.bout_counts(new_behavior)
         self._update_label_counts()
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': new_behavior})
