@@ -455,12 +455,7 @@ class CentralWidget(QtWidgets.QWidget):
                              self._player_widget.current_frame()])
         mask = self._player_widget.get_identity_mask()
         self._get_label_track().label_behavior(start, end, mask[start:end+1])
-        self._disable_label_buttons()
-        self.manual_labels.clear_selection()
-        self.manual_labels.update()
-        self.timeline_widget.update_labels()
-        self._update_label_counts()
-        self._set_train_button_enabled_state()
+        self._label_button_common()
 
     def _label_not_behavior(self):
         """ apply _not_ behavior label to currently selected range of frames """
@@ -469,18 +464,22 @@ class CentralWidget(QtWidgets.QWidget):
         mask = self._player_widget.get_identity_mask()
         self._get_label_track().label_not_behavior(start,
                                                    end, mask[start:end+1])
-        self._disable_label_buttons()
-        self.manual_labels.clear_selection()
-        self.manual_labels.update()
-        self.timeline_widget.update_labels()
-        self._update_label_counts()
-        self._set_train_button_enabled_state()
+        self._label_button_common()
 
     def _clear_behavior_label(self):
         """ clear all behavior/not behavior labels from current selection """
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
         self._get_label_track().clear_labels(*label_range)
+        self._label_button_common()
+
+    def _label_button_common(self):
+        """
+        functionality shared between _label_behavior(), _label_not_behavior(),
+        and _clear_behavior_label(). to be called after the labels are changed
+        for the current selection
+        """
+        self._project.save_annotations(self._labels)
         self._disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
