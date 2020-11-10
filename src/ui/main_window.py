@@ -138,15 +138,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # save labels for any other videos that have been worked on this session
         self._project.save_cached_annotations()
 
-        # save other project settings
-        settings = self._project.settings
+        # save other project metadata
+        settings = self._project.metadata
         central_widget = self.centralWidget()
 
         settings['selected_behavior'] = central_widget.behavior()
         settings['behaviors'] = central_widget.behavior_labels()
         settings['classifier'] = central_widget.classifier_type().name
 
-        self._project.save_project_settings(settings)
+        self._project.save_metadata(settings)
 
     def _save_predictions(self):
         """
