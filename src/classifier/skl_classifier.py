@@ -19,7 +19,7 @@ from src.labeler import TrackLabels
 
 class SklClassifier:
 
-    LABEL_THRESHOLD = 100
+    LABEL_THRESHOLD = 20
 
     class ClassifierType(IntEnum):
         RANDOM_FOREST = 1
