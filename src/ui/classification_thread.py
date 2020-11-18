@@ -78,15 +78,12 @@ class ClassifyThread(QtCore.QThread):
                 # also get the probabilities
                 prob = self._classifier.predict_proba(data)
                 # Save the probability for the predicted class only.
-                # self._predictions[video][identity] will be an array of
-                # 1s and 2s, since those are our labels. Subtracting 1 from the
-                # predicted label will give us the column index for the
-                # probability for that label. The following code uses some
+                # The following code uses some
                 # numpy magic to use the _predictions array as column indexes
                 # for each row of the 'prob' array we just computed.
                 self._probabilities[video][identity] = prob[
                     np.arange(len(prob)),
-                    self._predictions[video][identity] - 1
+                    self._predictions[video][identity]
                 ]
 
                 # save the indexes for the predicted frames

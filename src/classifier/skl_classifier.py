@@ -297,9 +297,9 @@ class SklClassifier:
             print(f"{feature:30} {importance}")
 
     @staticmethod
-    def label_threshold_met(label_counts, min_groups):
+    def label_threshold_met(all_counts, min_groups):
         group_count = 0
-        for video, counts in label_counts.items():
+        for video, counts in all_counts.items():
             for count in counts:
                 if (count[1][0] >= SklClassifier.LABEL_THRESHOLD and
                         count[1][1] >= SklClassifier.LABEL_THRESHOLD):

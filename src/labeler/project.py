@@ -318,7 +318,7 @@ class Project:
                 track = video_tracks.get_track_labels(identity, behavior)
                 manual_labels = track.get_labels()
 
-                prediction_labels[identity_index,inferred_indexes] = predictions[video][identity]
+                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
                 prediction_labels[identity_index,
                     manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR
@@ -338,6 +338,44 @@ class Project:
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
         return Path(self._project_dir_path, video_file)
+
+    def _read_counts(self, video, behavior):
+        """
+        read label and bout counts from json file
+        :return:
+        """
+        video_filename = Path(video).name
+        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
+
+        counts = []
+
+        if path.exists():
+            with path.open() as f:
+                labels = json.load(f).get('labels')
+                for identity in labels:
+                    blocks = labels[identity].get(behavior, [])
+                    frames_behavior = 0
+                    frames_not_behavior = 0
+                    bouts_behavior = 0
+                    bouts_not_behavior = 0
+                    for b in blocks:
+                        if b['present']:
+                            bouts_behavior += 1
+                            frames_behavior += b['end'] - b['start'] + 1
+                        else:
+                            bouts_not_behavior += 1
+                            frames_not_behavior += b['end'] - b['start'] + 1
+
+                    counts.append((identity,
+                                   (frames_behavior, frames_not_behavior),
+                                   (bouts_behavior, bouts_not_behavior)))
+        return counts
+
+    def counts(self, behavior):
+        counts = {}
+        for video in self._videos:
+            counts[video] = self._read_counts(video, behavior)
+        return counts
 
     def label_counts(self, behavior):
         """

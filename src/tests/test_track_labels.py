@@ -182,7 +182,7 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_behavior(0, 9, mask=mask)
 
         # make sure locations with mask 0 were not labeled
-        expected_val = np.zeros(10, dtype='int')
+        expected_val = np.full(10, labels.Label.NONE.value, dtype='int')
         expected_val[5:10] = labels.Label.BEHAVIOR
         self.assertListEqual(list(expected_val), list(labels.get_labels()))
 

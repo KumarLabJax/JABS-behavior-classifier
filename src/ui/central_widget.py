@@ -224,8 +224,7 @@ class CentralWidget(QtWidgets.QWidget):
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
 
-        self._label_counts = None
-        self._bout_counts = None
+        self._counts = None
 
     def behavior(self):
         """
@@ -303,8 +302,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.setCurrentIndex(behavior_index)
 
         # get label/bout counts for the current project
-        self._label_counts = self._project.label_counts(self.behavior())
-        self._bout_counts = self._project.bout_counts(self.behavior())
+        self._counts = self._project.counts(self.behavior())
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
@@ -328,6 +326,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # if we have labels loaded, cache them before opening labels for
         # new video
+
         if self._labels is not None:
             self._project.cache_annotations(self._labels)
             self._start_selection(False)
@@ -418,19 +417,17 @@ class CentralWidget(QtWidgets.QWidget):
         """
         make UI changes to reflect the currently selected behavior
         """
-        new_behavior = self.behavior_selection.currentText()
-        self.label_behavior_button.setText(new_behavior)
+        self.label_behavior_button.setText(self.behavior())
         self.label_not_behavior_button.setText(
-            f"Not {new_behavior}")
+            f"Not {self.behavior()}")
         self._set_label_track()
         self._reset_prediction()
         self.classify_button.setEnabled(False)
         # get label/bout counts for the current project
-        self._label_counts = self._project.label_counts(new_behavior)
-        self._bout_counts = self._project.bout_counts(new_behavior)
+        self._counts = self._project.counts(self.behavior())
         self._update_label_counts()
         self._set_train_button_enabled_state()
-        self._project.save_metadata({'selected_behavior': new_behavior})
+        self._project.save_metadata({'selected_behavior': self.behavior()})
 
     def _start_selection(self, pressed):
         """
@@ -649,8 +646,9 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         labels = self._get_label_track().get_labels()
-        prediction_labels = np.zeros((self._player_widget.num_frames()),
-                                     dtype=np.uint8)
+        prediction_labels = np.full((self._player_widget.num_frames()),
+                                    TrackLabels.Label.NONE.value,
+                                    dtype=np.byte)
         prediction_prob = np.zeros((self._player_widget.num_frames()),
                                    dtype=np.float64)
 
@@ -673,7 +671,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._frame_indexes = {}
             self.prediction_vis.set_predictions(None, None)
             self.inference_timeline_widget.set_labels(
-                np.zeros(self._player_widget.num_frames(), dtype="uint8"))
+                np.full(self._player_widget.num_frames(),
+                        TrackLabels.Label.NONE.value, dtype=np.bytes))
 
     def _set_train_button_enabled_state(self):
         """
@@ -685,7 +684,7 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if SklClassifier.label_threshold_met(self._label_counts,
+        if SklClassifier.label_threshold_met(self._counts,
                                              self._kslider.value()):
             self.train_button.setEnabled(True)
         else:
@@ -703,10 +702,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # update counts for the current video -- we could be more efficient
         # by only updating the current identity in the current video
-        self._label_counts[self._loaded_video.name] = self._labels.label_counts(
-            self.behavior())
-        self._bout_counts[self._loaded_video.name] = self._labels.bout_counts(
-            self.behavior())
+        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior())
 
         identity = self.identity_selection.currentText()
 
@@ -719,21 +715,17 @@ class CentralWidget(QtWidgets.QWidget):
         bout_behavior_project = 0
         bout_not_behavior_project = 0
 
-        for video, video_counts in self._label_counts.items():
+        for video, video_counts in self._counts.items():
             for identity_counts in video_counts:
                 label_behavior_project += identity_counts[1][0]
                 label_not_behavior_project += identity_counts[1][1]
+                bout_behavior_project += identity_counts[2][0]
+                bout_not_behavior_project += identity_counts[2][1]
                 if video == self._loaded_video.name and identity_counts[0] == identity:
                     label_behavior_current += identity_counts[1][0]
                     label_not_behavior_current += identity_counts[1][1]
-
-        for video, video_counts in self._bout_counts.items():
-            for identity_counts in video_counts:
-                bout_behavior_project += identity_counts[1][0]
-                bout_not_behavior_project += identity_counts[1][1]
-                if video == self._loaded_video.name and identity_counts[0] == identity:
-                    bout_behavior_current += identity_counts[1][0]
-                    bout_not_behavior_current += identity_counts[1][1]
+                    bout_behavior_current += identity_counts[2][0]
+                    bout_not_behavior_current += identity_counts[2][1]
 
         self._frame_counts.set_counts(label_behavior_current,
                                       label_not_behavior_current,
