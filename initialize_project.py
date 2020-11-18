@@ -60,7 +60,7 @@ def main():
                      prefix=" Computing Features:")
 
     # compute features in parallel
-    pool = Pool(args.p)
+    pool = Pool(args.processes)
     complete = 0
     for _ in pool.imap_unordered(worker, producer()):
         # update progress bar
