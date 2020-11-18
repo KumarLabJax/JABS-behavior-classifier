@@ -72,6 +72,12 @@ class TrackLabels:
 
     @property
     def bout_count(self):
+        """
+        property that returns a tuple with the count of the number of bouts
+        of each label class
+        :return: (count of bouts of behavior,
+                  count of bouts of "not behavior")
+        """
         blocks = self._array_to_blocks(self._labels)
         bouts_behavior = 0
         bouts_not_behavior = 0
@@ -85,6 +91,9 @@ class TrackLabels:
 
     @property
     def counts(self):
+        """
+        return the label and bout counts
+        """
         return self.label_count, self.bout_count
 
     def get_blocks(self):
