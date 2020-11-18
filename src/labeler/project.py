@@ -341,8 +341,14 @@ class Project:
 
     def _read_counts(self, video, behavior):
         """
-        read label and bout counts from json file
-        :return:
+        read labeled frame and bout counts from json file
+        :return: list of labeled frame and bout counts for each identity for the
+        specified behavior. Each element in the list is a tuple of the form
+        (
+            identity,
+            (behavior frame count, not behavior frame count)
+            (behavior bout count, not behavior bout count)
+        )
         """
         video_filename = Path(video).name
         path = self._annotations_dir / Path(video_filename).with_suffix('.json')
@@ -372,6 +378,10 @@ class Project:
         return counts
 
     def counts(self, behavior):
+        """
+        get the labeled frame counts and bout counts for each video in the
+        project
+        """
         counts = {}
         for video in self._videos:
             counts[video] = self._read_counts(video, behavior)
