@@ -297,7 +297,26 @@ class SklClassifier:
             print(f"{feature:30} {importance}")
 
     @staticmethod
-    def label_threshold_met(all_counts, min_groups):
+    def label_threshold_met(all_counts: dict, min_groups: int):
+        """
+        determine if the labeling threshold is met
+        :param all_counts: labeled frame and bout counts for the entire project
+        parameter is a dict with the following form
+        {
+            '<video name>': [
+                (
+                    <identity>,
+                    (behavior frame count, not behavior frame count),
+                    (behavior bout count, not behavior bout count)
+                ),
+            ]
+        }
+
+        :param min_groups: minimum number of groups required (more than one
+        group is always required for the "leave one group out" train/test split,
+        but may be more than 2 for k-fold cross validation if k > 2)
+
+        """
         group_count = 0
         for video, counts in all_counts.items():
             for count in counts:

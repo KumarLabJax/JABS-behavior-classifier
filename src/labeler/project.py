@@ -381,6 +381,12 @@ class Project:
         """
         get the labeled frame counts and bout counts for each video in the
         project
+        :return: dict where keys are video names and values are lists of
+        (
+            identity,
+            (behavior frame count, not behavior frame count),
+            (behavior bout count, not behavior bout count)
+        )
         """
         counts = {}
         for video in self._videos:
