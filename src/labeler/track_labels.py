@@ -10,19 +10,20 @@ class TrackLabels:
     Stores labels for a given identity and behavior. Requires one byte per
     frame to store labels (e.g. approx. 108KB per 1 hour of 30fps video)
     """
+
     class Label(enum.IntEnum):
         """ label values """
-        NONE = 0
+        NONE = -1
+        NOT_BEHAVIOR = 0
         BEHAVIOR = 1
-        NOT_BEHAVIOR = 2
 
         # the following only used in down sampling label array
         # they have special meaning
-        MIX = 3
-        PAD = 4
+        MIX = 2
+        PAD = 3
 
     def __init__(self, num_frames):
-        self._labels = np.zeros(num_frames, dtype=np.uint8)
+        self._labels = np.full(num_frames, self.Label.NONE.value, dtype=np.byte)
 
     def label_behavior(self, start, end, mask=None):
         """ label range [start, end] as showing behavior """
@@ -49,7 +50,7 @@ class TrackLabels:
         if mask is not None:
             self._labels[start:end + 1][mask != 0] = label
         else:
-            self._labels[start:end+1] = label
+            self._labels[start:end + 1] = label
 
     def get_labels(self):
         return self._labels
@@ -71,6 +72,12 @@ class TrackLabels:
 
     @property
     def bout_count(self):
+        """
+        property that returns a tuple with the count of the number of bouts
+        of each label class
+        :return: (count of bouts of behavior,
+                  count of bouts of "not behavior")
+        """
         blocks = self._array_to_blocks(self._labels)
         bouts_behavior = 0
         bouts_not_behavior = 0
@@ -81,6 +88,13 @@ class TrackLabels:
             else:
                 bouts_not_behavior += 1
         return bouts_behavior, bouts_not_behavior
+
+    @property
+    def counts(self):
+        """
+        return the label and bout counts
+        """
+        return self.label_count, self.bout_count
 
     def get_blocks(self):
         """
@@ -112,6 +126,14 @@ class TrackLabels:
         :param size: size of the resulting downsampled label array
         :return: numpy array of size 'size' with downsampled values
         """
+
+        def bincount(array):
+            return {
+                cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE),
+                cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR),
+                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR)
+            }
+
         # we may need to pad the label array if it is not evenly divisible by
         # the new size
         pad_size = math.ceil(labels.size / size) * size - labels.size
@@ -124,18 +146,19 @@ class TrackLabels:
         binned = padded.reshape(-1, bin_size)
 
         # create output array
-        downsampled = np.empty(size, dtype=np.uint8)
+        downsampled = np.empty(size, dtype=np.byte)
 
         # fill output array
         for i in range(size):
-            counts = np.bincount(binned[i], minlength=3)
-            if counts[0] != 0 and counts[1] == 0 and counts[2] == 0:
+            counts = bincount(binned[i])
+
+            if counts[cls.Label.NONE] == len(binned[i]):
                 downsampled[i] = cls.Label.NONE
-            elif counts[1] != 0 and counts[2] == 0:
+            elif counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0:
                 downsampled[i] = cls.Label.BEHAVIOR
-            elif counts[1] == 0 and counts[2] != 0:
+            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0:
                 downsampled[i] = cls.Label.NOT_BEHAVIOR
-            elif counts[1] != 0 and counts[2] != 0:
+            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0:
                 downsampled[i] = cls.Label.MIX
             else:
                 downsampled[i] = cls.Label.PAD

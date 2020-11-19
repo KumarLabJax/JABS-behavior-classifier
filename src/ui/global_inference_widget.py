@@ -55,6 +55,6 @@ class GlobalInferenceWidget(TimelineLabelWidget):
     def set_num_frames(self, num_frames):
         """ set the number of frames in the current video """
         self._num_frames = num_frames
-        self._labels = np.zeros(num_frames, dtype="uint8")
+        self._labels = np.full(num_frames, TrackLabels.Label.NONE.value, dtype=np.byte)
         self._update_scale()
         self._update_bar()
