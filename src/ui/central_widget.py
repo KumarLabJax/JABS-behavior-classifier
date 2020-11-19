@@ -672,7 +672,7 @@ class CentralWidget(QtWidgets.QWidget):
             self.prediction_vis.set_predictions(None, None)
             self.inference_timeline_widget.set_labels(
                 np.full(self._player_widget.num_frames(),
-                        TrackLabels.Label.NONE.value, dtype=np.bytes))
+                        TrackLabels.Label.NONE.value, dtype=np.byte))
 
     def _set_train_button_enabled_state(self):
         """
