@@ -309,10 +309,10 @@ class Project:
         classifier_path = (
             self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
         )
-        if classifier_path.exists():
+        try:
             classifier.load_classifier(classifier_path)
             return True
-        else:
+        except IOError:
             return False
 
     def save_predictions(self, predictions, probabilities,

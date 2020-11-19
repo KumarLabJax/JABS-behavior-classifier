@@ -249,16 +249,6 @@ class CentralWidget(QtWidgets.QWidget):
         """ set the currently opened project """
         self._project = project
 
-        classifier_loaded = False
-        try:
-            classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior())
-        except Exception as e:
-            print('failed to load classifier', file=sys.stderr)
-            print(e, file=sys.stderr)
-
-        self.classify_button.setEnabled(classifier_loaded)
-
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
         # labels when we do so (the current labels belong to the previous
@@ -269,23 +259,7 @@ class CentralWidget(QtWidgets.QWidget):
         # get project specific metadata
         settings = project.metadata
 
-        if classifier_loaded:
-            self._update_classifier_selection()
-        else:
-            # try to select the classifier type specified in the project metadata
-            try:
-                classifier_type = SklClassifier.ClassifierType[settings['classifier']]
-
-                index = self._classifier_selection.findData(classifier_type)
-                if index != -1:
-                    self._classifier_selection.setCurrentIndex(index)
-            except KeyError:
-                # either no classifier was specified in the metadata file, or
-                # unable to use the classifier specified in the metadata file.
-                # use the default
-                pass
-
-        # reset list of projects, then add any from the metadata
+        # reset list of behaviors, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
 
         # we don't need this even handler to be active while we set up the
@@ -309,11 +283,38 @@ class CentralWidget(QtWidgets.QWidget):
                 self._behaviors.sort()
                 self.behavior_selection.clear()
                 self.behavior_selection.addItems(self._behaviors)
-            behavior_index = self._behaviors.index(settings['selected_behavior'])
+            behavior_index = self._behaviors.index(
+                settings['selected_behavior'])
 
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
+
+        classifier_loaded = False
+        try:
+            classifier_loaded = self._project.load_classifier(
+                self._classifier, self.behavior())
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
+
+        self.classify_button.setEnabled(classifier_loaded)
+
+        if classifier_loaded:
+            self._update_classifier_selection()
+        else:
+            # try to select the classifier type specified in project metadata
+            try:
+                classifier_type = SklClassifier.ClassifierType[settings['classifier']]
+
+                index = self._classifier_selection.findData(classifier_type)
+                if index != -1:
+                    self._classifier_selection.setCurrentIndex(index)
+            except KeyError:
+                # either no classifier was specified in the metadata file, or
+                # unable to use the classifier specified in the metadata file.
+                # use the default
+                pass
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior())
