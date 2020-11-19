@@ -57,8 +57,7 @@ class TrainingThread(QtCore.QThread):
         fbeta_behavior = []
         fbeta_notbehavior = []
 
-        for data, i in zip(itertools.islice(data_generator, self._k),
-                           range(self._k)):
+        for i, data in enumerate(itertools.islice(data_generator, self._k)):
 
             test_info = group_mapping[data['test_group']]
 
@@ -108,6 +107,8 @@ class TrainingThread(QtCore.QThread):
             # let the parent thread know that we've finished
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
+        self._project.save_classifier(self._classifier, self._behavior)
 
         print('\n' + '=' * 70)
         print("SUMMARY\n")

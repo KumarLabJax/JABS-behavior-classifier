@@ -14,6 +14,7 @@ from .video_labels import VideoLabels
 class Project:
     """ represents a labeling project """
     _ROTTA_DIR = 'rotta'
+    __PROJECT_SETTING_FILE = 'project_settings.json'
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
 
@@ -40,6 +41,9 @@ class Project:
 
         self._project_file = (self._project_dir_path / self._ROTTA_DIR /
                               self.__PROJECT_FILE)
+
+        self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
+                              'classifiers')
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -139,6 +143,10 @@ class Project:
         modified
         """
         return dict(self._metadata)
+
+    @property
+    def classifier_dir(self):
+        return self._classifier_dir
 
     def load_annotation_track(self, video_name, leave_cached=False):
         """
@@ -267,6 +275,46 @@ class Project:
             with path.open(mode='w', newline='\n') as f:
                 json.dump(self._unsaved_annotations[video], f)
 
+    @staticmethod
+    def _to_safe_name(behavior: str):
+        """
+        Create a version of the given behavior name that
+        should be safe to use in filenames.
+        :param behavior: string behavior name
+        """
+        safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
+        # get rid of consecutive underscores
+        safe_behavior = re.sub('_{2,}', '_', safe_behavior)
+
+        return safe_behavior
+
+    def save_classifier(self, classifier, behavior: str):
+        """
+        Save the classifier for the given behavior
+        :param classifier: the classifier to save
+        :param behavior: string behavior name. This affects the path we save to
+        """
+        self._classifier_dir.mkdir(parents=True, exist_ok=True)
+        classifier.save_classifier(
+            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+        )
+
+    def load_classifier(self, classifier, behavior: str):
+        """
+        Save the classifier for the given behavior
+        :param classifier: the classifier to load
+        :param behavior: string behavior name. This affects the path we save to
+        :return: True if load is successful and False if the file doesn't exist
+        """
+        classifier_path = (
+            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+        )
+        if classifier_path.exists():
+            classifier.load_classifier(classifier_path)
+            return True
+        else:
+            return False
+
     def save_predictions(self, predictions, probabilities,
                          frame_indexes, behavior: str):
         """
@@ -290,11 +338,8 @@ class Project:
         for video in self._videos:
             # setup an ouptut filename based on the behavior and video names
             file_base = Path(video).with_suffix('').name + ".h5"
-            safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
-            # get rid of consecutive underscores
-            safe_behavior = re.sub('_{2,}', '_', safe_behavior)
             # build full path to output file
-            output_path = self._prediction_dir / safe_behavior / file_base
+            output_path = self._prediction_dir / self._to_safe_name(behavior) / file_base
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
 
