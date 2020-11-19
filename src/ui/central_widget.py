@@ -270,18 +270,21 @@ class CentralWidget(QtWidgets.QWidget):
         # get project specific metadata
         settings = project.metadata
 
-        # try to select the classifier type specified in the project metadata
-        try:
-            classifier_type = SklClassifier.ClassifierType[settings['classifier']]
+        if classifier_loaded:
+            self._update_classifier_selection()
+        else:
+            # try to select the classifier type specified in the project metadata
+            try:
+                classifier_type = SklClassifier.ClassifierType[settings['classifier']]
 
-            index = self._classifier_selection.findData(classifier_type)
-            if index != -1:
-                self._classifier_selection.setCurrentIndex(index)
-        except KeyError:
-            # either no classifier was specified in the metadata file, or
-            # unable to use the classifier specified in the metadata file.
-            # use the default
-            pass
+                index = self._classifier_selection.findData(classifier_type)
+                if index != -1:
+                    self._classifier_selection.setCurrentIndex(index)
+            except KeyError:
+                # either no classifier was specified in the metadata file, or
+                # unable to use the classifier specified in the metadata file.
+                # use the default
+                pass
 
         # reset list of projects, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
@@ -445,6 +448,9 @@ class CentralWidget(QtWidgets.QWidget):
             print(e, file=sys.stderr)
 
         self.classify_button.setEnabled(classifier_loaded)
+        if classifier_loaded:
+            self._update_classifier_selection()
+
         # get label/bout counts for the current project
         self._label_counts = self._project.label_counts(new_behavior)
         self._bout_counts = self._project.bout_counts(new_behavior)
@@ -566,6 +572,22 @@ class CentralWidget(QtWidgets.QWidget):
             self.identity_selection.currentText(),
             self.behavior_selection.currentText()
         )
+
+    def _update_classifier_selection(self):
+        """
+        Called when the classifier selection widget should be updated
+        """
+        try:
+            classifier_type = self._classifier.classifier_type
+
+            index = self._classifier_selection.findData(classifier_type)
+            if index != -1:
+                self._classifier_selection.setCurrentIndex(index)
+        except KeyError:
+            # either no classifier was specified in the metadata file, or
+            # unable to use the classifier specified in the metadata file.
+            # use the default
+            pass
 
     @QtCore.pyqtSlot(bool)
     def _identity_popup_visibility_changed(self, visible):

@@ -203,8 +203,10 @@ class SklClassifier:
             self._classifier = self._fit_random_forest(features, labels)
         elif self._classifier_type == self.ClassifierType.GRADIENT_BOOSTING:
             self._classifier = self._fit_gradient_boost(features, labels)
-        elif self._classifier_type == self.ClassifierType.XGBOOST:
+        elif  self._xgboost is not None and self._classifier_type == self.ClassifierType.XGBOOST:
             self._classifier = self._fit_xgboost(features, labels)
+        else:
+            raise ValueError("Unsupported classifier")
 
     def predict(self, features):
         """
