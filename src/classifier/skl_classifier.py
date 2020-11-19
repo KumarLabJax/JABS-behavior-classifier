@@ -3,6 +3,7 @@ from enum import IntEnum
 from importlib import import_module
 
 import numpy as np
+import pickle
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
@@ -202,8 +203,10 @@ class SklClassifier:
             self._classifier = self._fit_random_forest(features, labels)
         elif self._classifier_type == self.ClassifierType.GRADIENT_BOOSTING:
             self._classifier = self._fit_gradient_boost(features, labels)
-        elif self._classifier_type == self.ClassifierType.XGBOOST:
+        elif  self._xgboost is not None and self._classifier_type == self.ClassifierType.XGBOOST:
             self._classifier = self._fit_xgboost(features, labels)
+        else:
+            raise ValueError("Unsupported classifier")
 
     def predict(self, features):
         """
@@ -214,6 +217,23 @@ class SklClassifier:
 
     def predict_proba(self, features):
         return self._classifier.predict_proba(features)
+
+    def load_classifier(self, path):
+        with open(path, 'rb') as f:
+            self._classifier = pickle.load(f)
+
+            # we may need to update the classifier type based on
+            # on the type of the loaded object
+            if isinstance(self._classifier, RandomForestClassifier):
+                self._classifier_type = self.ClassifierType.RANDOM_FOREST
+            elif isinstance(self._classifier, GradientBoostingClassifier):
+                self._classifier_type = self.ClassifierType.GRADIENT_BOOSTING
+            else:
+                self._classifier_type = self.ClassifierType.XGBOOST
+
+    def save_classifier(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self._classifier, f)
 
     @staticmethod
     def accuracy_score(truth, predictions):

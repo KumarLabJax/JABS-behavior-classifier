@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import sys
 from PyQt5 import QtWidgets, QtCore
 
 from src.classifier.skl_classifier import SklClassifier
@@ -243,7 +245,16 @@ class CentralWidget(QtWidgets.QWidget):
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
-        self.classify_button.setEnabled(False)
+
+        classifier_loaded = False
+        try:
+            classifier_loaded = self._project.load_classifier(
+                self._classifier, self.behavior())
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
+
+        self.classify_button.setEnabled(classifier_loaded)
 
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
@@ -255,18 +266,21 @@ class CentralWidget(QtWidgets.QWidget):
         # get project specific metadata
         settings = project.metadata
 
-        # try to select the classifier type specified in the project metadata
-        try:
-            classifier_type = SklClassifier.ClassifierType[settings['classifier']]
+        if classifier_loaded:
+            self._update_classifier_selection()
+        else:
+            # try to select the classifier type specified in the project metadata
+            try:
+                classifier_type = SklClassifier.ClassifierType[settings['classifier']]
 
-            index = self._classifier_selection.findData(classifier_type)
-            if index != -1:
-                self._classifier_selection.setCurrentIndex(index)
-        except KeyError:
-            # either no classifier was specified in the metadata file, or
-            # unable to use the classifier specified in the metadata file.
-            # use the default
-            pass
+                index = self._classifier_selection.findData(classifier_type)
+                if index != -1:
+                    self._classifier_selection.setCurrentIndex(index)
+            except KeyError:
+                # either no classifier was specified in the metadata file, or
+                # unable to use the classifier specified in the metadata file.
+                # use the default
+                pass
 
         # reset list of projects, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
@@ -420,7 +434,22 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_behavior_button.setText(self.behavior())
         self.label_not_behavior_button.setText(
             f"Not {self.behavior()}")
-        self.classify_button.setEnabled(False)
+
+        self._set_label_track()
+        self._reset_prediction()
+
+        classifier_loaded = False
+        try:
+            classifier_loaded = self._project.load_classifier(
+                self._classifier, self.behavior())
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
+
+        self.classify_button.setEnabled(classifier_loaded)
+        if classifier_loaded:
+            self._update_classifier_selection()
+
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior())
         self._update_label_counts()
@@ -437,7 +466,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _start_selection(self, pressed):
         """
-        handle click on "select" button. If button was previously in "unchecked"
+        handle click on "select" button. If button was previously in "un    checked"
         state, then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
@@ -549,6 +578,22 @@ class CentralWidget(QtWidgets.QWidget):
             self.identity_selection.currentText(),
             self.behavior_selection.currentText()
         )
+
+    def _update_classifier_selection(self):
+        """
+        Called when the classifier selection widget should be updated
+        """
+        try:
+            classifier_type = self._classifier.classifier_type
+
+            index = self._classifier_selection.findData(classifier_type)
+            if index != -1:
+                self._classifier_selection.setCurrentIndex(index)
+        except KeyError:
+            # either no classifier was specified in the metadata file, or
+            # unable to use the classifier specified in the metadata file.
+            # use the default
+            pass
 
     @QtCore.pyqtSlot(bool)
     def _identity_popup_visibility_changed(self, visible):
