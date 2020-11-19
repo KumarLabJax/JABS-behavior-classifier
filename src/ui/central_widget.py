@@ -437,7 +437,6 @@ class CentralWidget(QtWidgets.QWidget):
             f"Not {self.behavior()}")
 
         self._set_label_track()
-        self._reset_prediction()
 
         classifier_loaded = False
         try:
