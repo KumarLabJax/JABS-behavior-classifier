@@ -401,7 +401,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._tracks = None
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
-        self.updateIdentities.emit([])
         self._play_button.setEnabled(False)
         self._disable_frame_buttons()
         self._frame_label.setText('')
