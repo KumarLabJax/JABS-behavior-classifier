@@ -1,22 +1,22 @@
-import numpy as np
-import os
 import sys
+
+import numpy as np
 from PyQt5 import QtWidgets, QtCore
 
 from src.classifier.skl_classifier import SklClassifier
 from src.labeler.track_labels import TrackLabels
 from .classification_thread import ClassifyThread
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .frame_labels_widget import FrameLabelsWidget
 from .global_inference_widget import GlobalInferenceWidget
 from .identity_combo_box import IdentityComboBox
+from .k_fold_slider_widget import KFoldSliderWidget
+from .label_count_widget import FrameLabelCountWidget
 from .manual_label_widget import ManualLabelWidget
 from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
-from .label_count_widget import FrameLabelCountWidget
-from .k_fold_slider_widget import KFoldSliderWidget
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -374,6 +374,7 @@ class CentralWidget(QtWidgets.QWidget):
             # error loading
             self._labels = None
             self._loaded_video = None
+            self._set_identities([])
             self._player_widget.reset()
             raise e
 
