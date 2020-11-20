@@ -137,26 +137,23 @@ class _PlayerThread(QtCore.QThread):
 
                 elif self._identity is not None:
                     # if active identity set, label it on the frame
-                    label_identity(frame['data'],
-                                   *self._pose_est.get_points(frame['index'],
-                                                              self._identity))
+                    label_identity(frame['data'], self._pose_est,
+                                   self._identity, frame['index'])
 
                     closest_fov_id = _get_closest_animal_id(
                         self._identity, frame['index'],
                         self._pose_est, IdentityFeatures.half_fov_deg)
                     if closest_fov_id is not None:
-                        label_identity(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'], closest_fov_id),
-                            color=_CLOSEST_FOV_LABEL_COLOR)
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_fov_id, frame['index'],
+                                       color=_CLOSEST_FOV_LABEL_COLOR)
 
                     closest_id = _get_closest_animal_id(
                         self._identity, frame['index'], self._pose_est)
                     if closest_id is not None and closest_id != closest_fov_id:
-                        label_identity(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'], closest_id),
-                            color=_CLOSEST_LABEL_COLOR)
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_id, frame['index'],
+                                       color=_CLOSEST_LABEL_COLOR)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -676,25 +673,22 @@ class PlayerWidget(QtWidgets.QWidget):
                 label_all_identities(frame['data'], self._tracks,
                                      self._identities, frame['index'])
             else:
-                label_identity(frame['data'],
-                               *self._tracks.get_points(frame['index'],
-                                                        self._active_identity))
+                label_identity(frame['data'], self._tracks,
+                               self._active_identity, frame['index'])
                 closest_fov_id = _get_closest_animal_id(
                     self._active_identity, frame['index'],
                     self._tracks, IdentityFeatures.half_fov_deg)
                 if closest_fov_id is not None:
-                    label_identity(
-                        frame['data'],
-                        *self._tracks.get_points(frame['index'], closest_fov_id),
-                        color=_CLOSEST_FOV_LABEL_COLOR)
+                    label_identity(frame['data'], self._tracks, closest_fov_id,
+                                   frame['index'],
+                                   color=_CLOSEST_FOV_LABEL_COLOR)
 
                 closest_id = _get_closest_animal_id(
                     self._active_identity, frame['index'], self._tracks)
                 if closest_id is not None and closest_id != closest_fov_id:
-                    label_identity(
-                        frame['data'],
-                        *self._tracks.get_points(frame['index'], closest_id),
-                        color=_CLOSEST_LABEL_COLOR)
+                    label_identity(frame['data'], self._tracks, closest_id,
+                                   frame['index'],
+                                   color=_CLOSEST_FOV_LABEL_COLOR)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
