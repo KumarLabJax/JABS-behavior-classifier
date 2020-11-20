@@ -37,13 +37,3 @@ def get_pose_path(video_path: Path):
         return video_path.with_name(file_base.name + '_pose_est_v2.h5')
     else:
         raise ValueError("Video does not have pose file")
-
-
-def instance_count(pose_path: Path):
-    if pose_path.name.endswith('v3.h5'):
-        return PoseEstimationV3.instance_count_from_file(pose_path)
-    elif pose_path.name.endswith('v2.h5'):
-        return PoseEstimationV2.instance_count_from_file(pose_path)
-    else:
-        raise ValueError("not valid pose_est path")
-

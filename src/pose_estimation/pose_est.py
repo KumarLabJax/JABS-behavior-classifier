@@ -96,16 +96,6 @@ class PoseEstimation(ABC):
         """
         pass
 
-    @classmethod
-    @abstractmethod
-    def instance_count_from_file(cls, path: Path) -> int:
-        """
-        peek into a pose_est file to get the number of instances in the file
-        :param path: path to pose_est h5 file
-        :return: integer count
-        """
-        pass
-
     def get_identity_convex_hulls(self, identity):
         """
         A list of length #frames containing convex hulls for the given identity.

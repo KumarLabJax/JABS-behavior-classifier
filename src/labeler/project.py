@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+import hashlib
 
 import h5py
 import numpy as np
@@ -8,6 +9,7 @@ import numpy as np
 import src.pose_estimation as pose_est
 from src.video_stream.utilities import get_frame_count
 from src.pose_estimation import get_pose_path, PoseEstFactory
+from src.version import version_str
 from .video_labels import VideoLabels
 
 
@@ -80,10 +82,14 @@ class Project:
         for video in self._videos:
             vinfo = {}
             if video in video_metadata:
-                nidentities = video_metadata[video].get('identities', None)
+                nidentities = video_metadata[video].get('identities')
+                pose_hash = video_metadata[video].get('pose_hash')
+                vid_hash = video_metadata[video].get('vid_hash')
                 vinfo = video_metadata[video]
             else:
                 nidentities = None
+                pose_hash = None
+                vid_hash = None
 
             # if the number of identities is not cached in the project metadata,
             # open the pose file to get it
@@ -94,6 +100,11 @@ class Project:
                     get_pose_path(self.video_path(video)))
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
+            if pose_hash is None:
+                vinfo['pose_hash'] = self.__hash_file(
+                    pose_est.get_pose_path(self.video_path(video)))
+            if vid_hash is None:
+                vinfo['vid_hash'] = self.__hash_file(self.video_path(video))
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
@@ -228,7 +239,12 @@ class Project:
             annotations.filename).with_suffix('.json')
 
         with path.open(mode='w', newline='\n') as f:
-            json.dump(annotations.as_dict(), f)
+            json.dump(annotations.as_dict(), f, indent=2)
+
+        # update the version string in the metadata if necessary
+        version = self._metadata.get('version')
+        if version != version_str():
+            self.save_metadata({'version': version_str()})
 
     def save_metadata(self, data: dict):
         """
@@ -472,6 +488,14 @@ class Project:
         """
         return self._total_project_identities
 
-
-
-
+    @staticmethod
+    def __hash_file(file: Path):
+        """ return hash """
+        chunk_size = 8192
+        with file.open('rb') as f:
+            h = hashlib.blake2b(digest_size=20)
+            c = f.read(chunk_size)
+            while c:
+                h.update(c)
+                c = f.read(chunk_size)
+        return h.hexdigest()
