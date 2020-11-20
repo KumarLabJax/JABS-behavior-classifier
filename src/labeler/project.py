@@ -241,10 +241,8 @@ class Project:
         with path.open(mode='w', newline='\n') as f:
             json.dump(annotations.as_dict(), f, indent=2)
 
-        # update the version string in the metadata if necessary
-        version = self._metadata.get('version')
-        if version != version_str():
-            self.save_metadata({'version': version_str()})
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def save_metadata(self, data: dict):
         """
@@ -260,6 +258,7 @@ class Project:
 
         # merge data with current metadata
         self._metadata.update(data)
+        self._metadata['version'] = version_str()
 
         # save combined info to file
         with self._project_file.open(mode='w', newline='\n') as f:
@@ -289,7 +288,10 @@ class Project:
             path = self._annotations_dir / Path(video).with_suffix('.json')
 
             with path.open(mode='w', newline='\n') as f:
-                json.dump(self._unsaved_annotations[video], f)
+                json.dump(self._unsaved_annotations[video], f, indent=2)
+
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     @staticmethod
     def _to_safe_name(behavior: str):
@@ -314,6 +316,9 @@ class Project:
         classifier.save_classifier(
             self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
         )
+
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def load_classifier(self, classifier, behavior: str):
         """
@@ -395,6 +400,9 @@ class Project:
                 group.create_dataset('labels', data=prediction_labels)
                 group.create_dataset('probabilities', data=prediction_prob)
                 group.create_dataset('identity_to_track', data=poses.identity_to_track)
+
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
@@ -487,6 +495,13 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
+
+    def __update_version(self):
+        """ update the version number saved in project metadata """
+        # only update if the version in the metadata is different from current
+        version = self._metadata.get('version')
+        if version != version_str():
+            self.save_metadata({'version': version_str()})
 
     @staticmethod
     def __hash_file(file: Path):
