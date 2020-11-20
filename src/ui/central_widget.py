@@ -1,22 +1,22 @@
-import numpy as np
-import os
 import sys
+
+import numpy as np
 from PyQt5 import QtWidgets, QtCore
 
 from src.classifier.skl_classifier import SklClassifier
 from src.labeler.track_labels import TrackLabels
 from .classification_thread import ClassifyThread
+from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .frame_labels_widget import FrameLabelsWidget
 from .global_inference_widget import GlobalInferenceWidget
 from .identity_combo_box import IdentityComboBox
+from .k_fold_slider_widget import KFoldSliderWidget
+from .label_count_widget import FrameLabelCountWidget
 from .manual_label_widget import ManualLabelWidget
 from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
-from .label_count_widget import FrameLabelCountWidget
-from .k_fold_slider_widget import KFoldSliderWidget
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -29,9 +29,6 @@ class CentralWidget(QtWidgets.QWidget):
         'Grooming', 'Following', 'Rearing (supported)',
         'Rearing (unsupported)'
     ]
-
-    # signal that we have predictions to display
-    have_predictions = QtCore.pyqtSignal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -319,6 +316,10 @@ class CentralWidget(QtWidgets.QWidget):
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior())
 
+        # load saved predictions
+        self._predictions, self._probabilities, self._frame_indexes = \
+            self._project.load_predictions(self.behavior())
+
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
@@ -353,7 +354,6 @@ class CentralWidget(QtWidgets.QWidget):
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_annotation_track(path)
-            self._set_label_track()
 
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
@@ -367,13 +367,14 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
             self._loaded_video = path
-            self._set_prediction_vis()
+            self._set_label_track()
             self._update_label_counts()
             self._set_train_button_enabled_state()
         except OSError as e:
             # error loading
             self._labels = None
             self._loaded_video = None
+            self._set_identities([])
             self._player_widget.reset()
             raise e
 
@@ -435,8 +436,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_behavior_button.setText(self.behavior())
         self.label_not_behavior_button.setText(
             f"Not {self.behavior()}")
+
         self._set_label_track()
-        self._reset_prediction()
 
         classifier_loaded = False
         try:
@@ -453,6 +454,14 @@ class CentralWidget(QtWidgets.QWidget):
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior())
         self._update_label_counts()
+
+        # load saved predictions
+        self._predictions, self._probabilities, self._frame_indexes = \
+            self._project.load_predictions(self.behavior())
+
+        # display labels and predictions for new behavior
+        self._set_label_track()
+
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior()})
 
@@ -664,9 +673,8 @@ class CentralWidget(QtWidgets.QWidget):
         """ update the gui when the classification is complete """
         # display the new predictions
         self._set_prediction_vis()
-        # let the MainWindow know we have predictions so it can enable the
-        # file action to save the predictions to the project directory
-        self.have_predictions.emit(True)
+        # save predictions
+        self.save_predictions()
 
     def _update_classify_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -686,6 +694,10 @@ class CentralWidget(QtWidgets.QWidget):
         try:
             indexes = self._frame_indexes[video][identity]
         except KeyError:
+            self.prediction_vis.set_predictions(None, None)
+            self.inference_timeline_widget.set_labels(
+                np.full(self._player_widget.num_frames(),
+                        TrackLabels.Label.NONE.value, dtype=np.byte))
             return
 
         labels = self._get_label_track().get_labels()
@@ -705,17 +717,6 @@ class CentralWidget(QtWidgets.QWidget):
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
         self.inference_timeline_widget.set_labels(prediction_labels)
         self.inference_timeline_widget.update_labels()
-
-    def _reset_prediction(self):
-        """ clear out the current predictions """
-        if len(self._predictions) != 0:
-            self._predictions = {}
-            self._probabilities = {}
-            self._frame_indexes = {}
-            self.prediction_vis.set_predictions(None, None)
-            self.inference_timeline_widget.set_labels(
-                np.full(self._player_widget.num_frames(),
-                        TrackLabels.Label.NONE.value, dtype=np.byte))
 
     def _set_train_button_enabled_state(self):
         """

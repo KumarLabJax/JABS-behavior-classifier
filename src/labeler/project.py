@@ -1,15 +1,16 @@
+import hashlib
 import json
 import re
+import sys
 from pathlib import Path
-import hashlib
 
 import h5py
 import numpy as np
 
 import src.pose_estimation as pose_est
-from src.video_stream.utilities import get_frame_count
 from src.pose_estimation import get_pose_path, PoseEstFactory
 from src.version import version_str
+from src.video_stream.utilities import get_frame_count
 from .video_labels import VideoLabels
 
 
@@ -19,6 +20,8 @@ class Project:
     __PROJECT_SETTING_FILE = 'project_settings.json'
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
+
+    __PREDICTION_FILE_VERSION = 1
 
     def __init__(self, project_path):
         """
@@ -194,6 +197,18 @@ class Project:
             nframes = get_frame_count(str(video_path))
             return VideoLabels(video_filename, nframes)
 
+    @staticmethod
+    def _to_safe_name(behavior: str):
+        """
+        Create a version of the given behavior name that
+        should be safe to use in filenames.
+        :param behavior: string behavior name
+        """
+        safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
+        # get rid of consecutive underscores
+        safe_behavior = re.sub('_{2,}', '_', safe_behavior)
+        return safe_behavior
+
     def load_pose_est(self, video_path: Path):
         """
         return a PoseEstimation object for a given video path
@@ -293,19 +308,6 @@ class Project:
         # update app version saved in project metadata if necessary
         self.__update_version()
 
-    @staticmethod
-    def _to_safe_name(behavior: str):
-        """
-        Create a version of the given behavior name that
-        should be safe to use in filenames.
-        :param behavior: string behavior name
-        """
-        safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
-        # get rid of consecutive underscores
-        safe_behavior = re.sub('_{2,}', '_', safe_behavior)
-
-        return safe_behavior
-
     def save_classifier(self, classifier, behavior: str):
         """
         Save the classifier for the given behavior
@@ -359,8 +361,9 @@ class Project:
         for video in self._videos:
             # setup an ouptut filename based on the behavior and video names
             file_base = Path(video).with_suffix('').name + ".h5"
-            # build full path to output file
-            output_path = self._prediction_dir / self._to_safe_name(behavior) / file_base
+            output_path = self._prediction_dir / self._to_safe_name(
+                behavior) / file_base
+
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
 
@@ -386,23 +389,87 @@ class Project:
 
                 prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
+
+                # manual labels are saved with the predictions, but the
+                # probability is set to -1 to indicate that the class was
+                # manually assigned by the user and not inferred
                 prediction_labels[identity_index,
                     manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR
-                prediction_prob[identity_index, manual_labels == track.Label.NOT_BEHAVIOR] = 1.0
+                prediction_prob[identity_index, manual_labels == track.Label.NOT_BEHAVIOR] = -1.0
                 prediction_labels[identity_index,
                     manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR
-                prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = 1.0
+                prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = -1.0
 
             # write to h5 file
             # TODO catch exceptions
             with h5py.File(output_path, 'w') as h5:
+                h5.attrs['version'] = self.__PREDICTION_FILE_VERSION
                 group = h5.create_group('predictions')
-                group.create_dataset('labels', data=prediction_labels)
+                group.create_dataset('predicted_class', data=prediction_labels)
                 group.create_dataset('probabilities', data=prediction_prob)
                 group.create_dataset('identity_to_track', data=poses.identity_to_track)
 
         # update app version saved in project metadata if necessary
         self.__update_version()
+
+    def load_predictions(self, behavior: str):
+        """
+        load previously saved predictions if they are present
+        :param behavior: behavior to load predictions for
+        :return: tuple of three dicts. For each dict, the first key is the video
+         name. The value for that key is another dict with identities as keys.
+         the predictions dict stores the inferred classes for each identity,
+         the probabilities dict stores the probabilities of the inferences
+         the frame_indexes dict stores the frame indexes the inferences
+         correspond to
+        """
+        predictions = {}
+        probabilities = {}
+        frame_indexes = {}
+        for video in self._videos:
+            file_base = Path(video).with_suffix('').name + ".h5"
+            path = self._prediction_dir / self._to_safe_name(behavior) / file_base
+
+            nident = self._metadata['video_files'][video]['identities']
+
+            try:
+                with h5py.File(path, 'r') as h5:
+                    assert h5.attrs['version'] == self.__PREDICTION_FILE_VERSION
+                    group = h5['predictions']
+                    assert group['predicted_class'].shape[0] == nident
+                    assert group['probabilities'].shape[0] == nident
+                    predictions[video] = {}
+                    probabilities[video] = {}
+                    frame_indexes[video] = {}
+                    for i in range(nident):
+                        identity = str(i)
+                        indexes = np.asarray(range(group['predicted_class'].shape[1]))
+
+                        # first, exclude any probability of -1 as that indicates
+                        # a user label, not a inferred class
+                        classes = group['predicted_class'][i, group['probabilities'][i] != -1.0]
+                        prob = group['probabilities'][i, group['probabilities'][i] != -1.0]
+                        indexes = indexes[group['probabilities'][i] != -1]
+
+                        # now excludes a class of -1 as that indicates the
+                        # identity isn't present
+                        prob = prob[classes != -1]
+                        indexes = indexes[classes != -1]
+                        classes = classes[classes != -1]
+
+                        # we're left with classes/probabilities for frames that
+                        # were inferred and their frame indexes
+                        predictions[video][identity] = classes
+                        probabilities[video][identity] = prob
+                        frame_indexes[video][identity] = indexes
+
+            except IOError:
+                # no saved predictions for this video
+                pass
+            except (AssertionError, KeyError) as e:
+                print(f"unable to open saved inferences for {video}", file=sys.stderr)
+
+        return predictions, probabilities, frame_indexes
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
