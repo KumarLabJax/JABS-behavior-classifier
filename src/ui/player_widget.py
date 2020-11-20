@@ -5,7 +5,7 @@ import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.features import IdentityFeatures
-from src.pose_estimation import PoseEstimationV3, PoseEstFactory, get_pose_path
+from src.pose_estimation import PoseEstimationV3, open_pose_file, get_pose_path
 from src.video_stream import VideoStream, label_identity, label_all_identities
 
 
@@ -445,7 +445,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoStream(path)
 
         pose_path = get_pose_path(path)
-        self._tracks = PoseEstFactory.open(pose_path)
+        self._tracks = open_pose_file(pose_path)
 
         # setup the position slider
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)

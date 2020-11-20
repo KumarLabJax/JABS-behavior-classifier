@@ -6,8 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-import src.pose_estimation as pose_est
-from src.pose_estimation import get_pose_path, PoseEstFactory
+from src.pose_estimation import get_pose_path, open_pose_file
 from src.video_stream.utilities import get_frame_count
 from .video_labels import VideoLabels
 
@@ -93,8 +92,7 @@ class Project:
             if nidentities is None:
                 # this will raise a ValueError if the video does not have a
                 # corresponding pose file.
-                pose_file = PoseEstFactory.open(
-                    get_pose_path(self.video_path(video)))
+                pose_file = open_pose_file(get_pose_path(self.video_path(video)))
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
 
@@ -106,7 +104,7 @@ class Project:
         self._has_social_features = False
         for i, vid in enumerate(self._videos):
             vid_path = self.video_path(vid)
-            pose_path = pose_est.get_pose_path(vid_path)
+            pose_path = get_pose_path(vid_path)
             curr_has_social = pose_path.name.endswith('v3.h5')
 
             if i == 0:
@@ -209,7 +207,7 @@ class Project:
         video_filename = Path(video_path).name
         self.check_video_name(video_filename)
 
-        return pose_est.PoseEstFactory.open(pose_est.get_pose_path(video_path))
+        return open_pose_file(get_pose_path(video_path))
 
     def check_video_name(self, video_filename):
         """
@@ -362,8 +360,7 @@ class Project:
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
             video_tracks = self.load_annotation_track(video, leave_cached=True)
-            poses = pose_est.PoseEstFactory.open(
-                pose_est.get_pose_path(self.video_path(video)))
+            poses = open_pose_file(get_pose_path(self.video_path(video)))
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(

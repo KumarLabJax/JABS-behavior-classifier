@@ -4,20 +4,17 @@ from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 
 
-class PoseEstFactory:
+def open_pose_file(path: Path):
     """
-    class that can take a h5 file path and instantiate the correct object
-    based on the version
+    open a pose file using the correct PoseEstimation subclass based on
+    the version implied by the filename
     """
-
-    @staticmethod
-    def open(path: Path):
-        if path.name.endswith('v2.h5'):
-            return PoseEstimationV2(path)
-        elif path.name.endswith('v3.h5'):
-            return PoseEstimationV3(path)
-        else:
-            raise ValueError("not a valid pose estimate filename")
+    if path.name.endswith('v2.h5'):
+        return PoseEstimationV2(path)
+    elif path.name.endswith('v3.h5'):
+        return PoseEstimationV3(path)
+    else:
+        raise ValueError("not a valid pose estimate filename")
 
 
 def get_pose_path(video_path: Path):
