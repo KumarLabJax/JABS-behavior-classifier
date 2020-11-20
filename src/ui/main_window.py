@@ -36,15 +36,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_action.setEnabled(False)
         file_menu.addAction(self.save_action)
 
-        self._save_predictions_action = QtWidgets.QAction('&Save Predictions',
-                                                          self)
-        self._save_predictions_action.setEnabled(False)
-        self._save_predictions_action.setShortcut('Ctrl+Shift+S')
-        self._save_predictions_action.setStatusTip('Save Labels')
-        self._save_predictions_action.triggered.connect(self._save_predictions)
-        file_menu.addAction(self._save_predictions_action)
-        self.centralWidget().have_predictions.connect(self._set_save_prediction_enabled)
-
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
         open_action.setShortcut('Ctrl+O')
@@ -147,20 +138,6 @@ class MainWindow(QtWidgets.QMainWindow):
         settings['classifier'] = central_widget.classifier_type().name
 
         self._project.save_metadata(settings)
-
-    def _save_predictions(self):
-        """
-        save the current predictions
-        """
-        self.centralWidget().save_predictions()
-
-    @QtCore.pyqtSlot(bool)
-    def _set_save_prediction_enabled(self, enabled: bool):
-        """
-        set enabled state of the save predictions file menu action in response
-        to a signal from the central widget
-        """
-        self._save_predictions_action.setEnabled(enabled)
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """
