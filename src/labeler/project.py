@@ -47,6 +47,9 @@ class Project:
         self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
                               'classifiers')
 
+        self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
+                           'cache')
+
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
         self._videos = [f.name for f in self._project_dir_path.glob("*.avi")]
@@ -61,14 +64,11 @@ class Project:
         Path(project_path, self._ROTTA_DIR).mkdir(mode=self.__DEFAULT_UMASK,
                                                   exist_ok=True)
 
-        # make sure the project self.__ROTTA_DIR/annotations directory exists
+        # make sure other project directories exist
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        # make sure the self.__ROTTA_DIR/features directory exists
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        # make sure the predictions subdirectory exists
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+        self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         # load any saved project metadata
         self._metadata = self.load_metadata()
@@ -92,7 +92,7 @@ class Project:
             if nidentities is None:
                 # this will raise a ValueError if the video does not have a
                 # corresponding pose file.
-                pose_file = open_pose_file(get_pose_path(self.video_path(video)))
+                pose_file = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
 
@@ -207,7 +207,7 @@ class Project:
         video_filename = Path(video_path).name
         self.check_video_name(video_filename)
 
-        return open_pose_file(get_pose_path(video_path))
+        return open_pose_file(get_pose_path(video_path), self._cache_dir)
 
     def check_video_name(self, video_filename):
         """
@@ -360,7 +360,7 @@ class Project:
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
             video_tracks = self.load_annotation_track(video, leave_cached=True)
-            poses = open_pose_file(get_pose_path(self.video_path(video)))
+            poses = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(

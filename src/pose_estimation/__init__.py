@@ -1,10 +1,11 @@
+import typing
 from pathlib import Path
 
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 
 
-def open_pose_file(path: Path):
+def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
     """
     open a pose file using the correct PoseEstimation subclass based on
     the version implied by the filename
@@ -12,7 +13,7 @@ def open_pose_file(path: Path):
     if path.name.endswith('v2.h5'):
         return PoseEstimationV2(path)
     elif path.name.endswith('v3.h5'):
-        return PoseEstimationV3(path)
+        return PoseEstimationV3(path, cache_dir)
     else:
         raise ValueError("not a valid pose estimate filename")
 

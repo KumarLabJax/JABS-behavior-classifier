@@ -19,7 +19,6 @@ def label_identity(img, pose_est, identity, frame_index,
     shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
 
     if shape is not None:
-        # find the center of the remaining points
         center = shape.centroid
 
         # draw a marker at this location. this is a filled in circle and then
@@ -41,13 +40,9 @@ def label_all_identities(img, pose_est, identities, frame_index):
     """
 
     for identity in identities:
-        points, mask = pose_est.get_points(frame_index, identity)
-        if points is not None:
-            # first remove any invalid points (where mask is not 1)
-            filtered_points = points[:-2][mask[:-2] == 1]
-
-            # find the center of the remaining points
-            center = MultiPoint(filtered_points).convex_hull.centroid
+        shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
+        if shape is not None:
+            center = shape.centroid
 
             # write the identity at that location
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),

@@ -350,7 +350,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         try:
             # open the video
-            self._player_widget.load_video(path)
+            self._player_widget.load_video(path,
+                                           self._project.load_pose_est(path))
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_annotation_track(path)
