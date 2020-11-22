@@ -432,6 +432,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         load a new video source
         :param path: path to video file
+        :param pose_est: pose file for this video
         """
 
         # if we already have a video loaded make sure it is stopped

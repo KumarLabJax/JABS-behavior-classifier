@@ -11,7 +11,7 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
     the version implied by the filename
     """
     if path.name.endswith('v2.h5'):
-        return PoseEstimationV2(path)
+        return PoseEstimationV2(path, cache_dir)
     elif path.name.endswith('v3.h5'):
         return PoseEstimationV3(path, cache_dir)
     else:

@@ -123,18 +123,25 @@ class PoseEstimation(ABC):
         if identity in self._convex_hull_cache:
             return self._convex_hull_cache[identity]
         else:
-            path = (self._cache_dir /
-                    "convex_hulls" /
-                    self._path.with_suffix('').name /
-                    f"convex_hulls_{identity}.pickle")
-            path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
+            convex_hulls = None
+            path = None
+            if self._cache_dir is not None:
+                path = (self._cache_dir /
+                        "convex_hulls" /
+                        self._path.with_suffix('').name /
+                        f"convex_hulls_{identity}.pickle")
+                path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
 
-            try:
+                try:
 
-                with path.open('rb') as f:
-                    convex_hulls = pickle.load(f)
+                    with path.open('rb') as f:
+                        convex_hulls = pickle.load(f)
+                except:
+                    # we weren't able to read in the cached convex hulls,
+                    # just ignore the exception and we'll generate them
+                    pass
 
-            except:
+            if convex_hulls is None:
                 points, point_masks = self.get_identity_poses(identity)
                 body_points = points[:, :-2, :]
                 body_point_masks = point_masks[:, :-2]
@@ -147,8 +154,9 @@ class PoseEstimation(ABC):
                     else:
                         convex_hulls.append(None)
 
-                with path.open('wb') as f:
-                    pickle.dump(convex_hulls, f)
+                if path:
+                    with path.open('wb') as f:
+                        pickle.dump(convex_hulls, f)
 
             self._convex_hull_cache[identity] = convex_hulls
             return convex_hulls
