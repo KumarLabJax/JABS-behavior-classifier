@@ -3,8 +3,10 @@
 main program for Rotta video labeler and classifier
 takes one positional argument: path to video file
 """
-import sys
+
 import argparse
+import sys
+
 from PyQt5 import QtWidgets
 
 from src.ui import MainWindow
@@ -13,7 +15,7 @@ from src.ui import MainWindow
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
-    main_window = MainWindow()
+    main_window = MainWindow(app_name="Rotta")
 
     parser = argparse.ArgumentParser()
 
@@ -24,7 +26,7 @@ def main():
         try:
             main_window.open_project(args.project_dir)
         except Exception as e:
-            sys.exit(f"Error loading file:  {e}")
+            sys.exit(f"Error opening project:  {e}")
 
     main_window.show()
     sys.exit(app.exec_())

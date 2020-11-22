@@ -1,6 +1,8 @@
 from PyQt5 import QtWidgets, QtCore
 
 from src.labeler.project import Project
+from src.version import version_str
+from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
 
@@ -9,11 +11,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     loadVideoAsyncSignal = QtCore.pyqtSignal(str)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, app_name="Behavior Classifier", *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.setWindowTitle("Behavior Classifier")
+        self.setWindowTitle(f"{app_name} ({version_str()})")
         self.setCentralWidget(CentralWidget())
+        self._app_name = app_name
 
         self.setUnifiedTitleAndToolBarOnMac(True)
 
@@ -24,7 +27,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         menu = self.menuBar()
 
-        app_menu = menu.addMenu('Behavior Classifier')
+        app_menu = menu.addMenu(self._app_name)
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
 
@@ -40,8 +43,14 @@ class MainWindow(QtWidgets.QMainWindow):
         open_action = QtWidgets.QAction('&Open Project', self)
         open_action.setShortcut('Ctrl+O')
         open_action.setStatusTip('Open Project')
-        open_action.triggered.connect(self.show_project_open_dialog)
+        open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
+
+        # about app
+        about_action = QtWidgets.QAction(f' &About {self._app_name}', self)
+        about_action.setStatusTip('About this application')
+        about_action.triggered.connect(self._show_about_dialog)
+        app_menu.addAction(about_action)
 
         # exit action
         exit_action = QtWidgets.QAction(' &Exit', self)
@@ -105,7 +114,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.set_project(self._project)
         self.save_action.setEnabled(True)
 
-    def show_project_open_dialog(self):
+    def _show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
         options = QtWidgets.QFileDialog.Options()
         options |= QtWidgets.QFileDialog.DontUseNativeDialog
@@ -115,6 +124,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if directory:
             self.open_project(directory)
+
+    def _show_about_dialog(self):
+        dialog = AboutDialog(self._app_name)
+        dialog.exec_()
 
     def _save_project(self):
         """
