@@ -105,7 +105,3 @@ class PoseEstimationV2(PoseEstimation):
         :return: array of point masks (#frames, 12)
         """
         return self._point_mask
-
-    @classmethod
-    def instance_count_from_file(cls, path: Path) -> int:
-        return 1

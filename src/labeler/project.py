@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import sys
@@ -7,6 +8,7 @@ import h5py
 import numpy as np
 
 from src.pose_estimation import get_pose_path, open_pose_file
+from src.version import version_str
 from src.video_stream.utilities import get_frame_count
 from .video_labels import VideoLabels
 
@@ -85,10 +87,14 @@ class Project:
         for video in self._videos:
             vinfo = {}
             if video in video_metadata:
-                nidentities = video_metadata[video].get('identities', None)
+                nidentities = video_metadata[video].get('identities')
+                pose_hash = video_metadata[video].get('pose_hash')
+                vid_hash = video_metadata[video].get('vid_hash')
                 vinfo = video_metadata[video]
             else:
                 nidentities = None
+                pose_hash = None
+                vid_hash = None
 
             # if the number of identities is not cached in the project metadata,
             # open the pose file to get it
@@ -99,6 +105,11 @@ class Project:
                     get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
+            if pose_hash is None:
+                vinfo['pose_hash'] = self.__hash_file(
+                    get_pose_path(self.video_path(video)))
+            if vid_hash is None:
+                vinfo['vid_hash'] = self.__hash_file(self.video_path(video))
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
@@ -245,7 +256,10 @@ class Project:
             annotations.filename).with_suffix('.json')
 
         with path.open(mode='w', newline='\n') as f:
-            json.dump(annotations.as_dict(), f)
+            json.dump(annotations.as_dict(), f, indent=2)
+
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def save_metadata(self, data: dict):
         """
@@ -261,6 +275,7 @@ class Project:
 
         # merge data with current metadata
         self._metadata.update(data)
+        self._metadata['version'] = version_str()
 
         # save combined info to file
         with self._project_file.open(mode='w', newline='\n') as f:
@@ -290,20 +305,10 @@ class Project:
             path = self._annotations_dir / Path(video).with_suffix('.json')
 
             with path.open(mode='w', newline='\n') as f:
-                json.dump(self._unsaved_annotations[video], f)
+                json.dump(self._unsaved_annotations[video], f, indent=2)
 
-    @staticmethod
-    def _to_safe_name(behavior: str):
-        """
-        Create a version of the given behavior name that
-        should be safe to use in filenames.
-        :param behavior: string behavior name
-        """
-        safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
-        # get rid of consecutive underscores
-        safe_behavior = re.sub('_{2,}', '_', safe_behavior)
-
-        return safe_behavior
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def save_classifier(self, classifier, behavior: str):
         """
@@ -315,6 +320,9 @@ class Project:
         classifier.save_classifier(
             self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
         )
+
+        # update app version saved in project metadata if necessary
+        self.__update_version()
 
     def load_classifier(self, classifier, behavior: str):
         """
@@ -402,6 +410,9 @@ class Project:
                 group.create_dataset('probabilities', data=prediction_prob)
                 group.create_dataset('identity_to_track', data=poses.identity_to_track)
 
+        # update app version saved in project metadata if necessary
+        self.__update_version()
+
     def load_predictions(self, behavior: str):
         """
         load previously saved predictions if they are present
@@ -457,7 +468,6 @@ class Project:
                 # no saved predictions for this video
                 pass
             except (AssertionError, KeyError) as e:
-                print(e)
                 print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
         return predictions, probabilities, frame_indexes
@@ -553,3 +563,22 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
+
+    def __update_version(self):
+        """ update the version number saved in project metadata """
+        # only update if the version in the metadata is different from current
+        version = self._metadata.get('version')
+        if version != version_str():
+            self.save_metadata({'version': version_str()})
+
+    @staticmethod
+    def __hash_file(file: Path):
+        """ return hash """
+        chunk_size = 8192
+        with file.open('rb') as f:
+            h = hashlib.blake2b(digest_size=20)
+            c = f.read(chunk_size)
+            while c:
+                h.update(c)
+                c = f.read(chunk_size)
+        return h.hexdigest()
