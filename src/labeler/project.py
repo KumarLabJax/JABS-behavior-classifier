@@ -20,7 +20,7 @@ class Project:
 
     __PREDICTION_FILE_VERSION = 1
 
-    def __init__(self, project_path):
+    def __init__(self, project_path, use_cache=True):
         """
         Open a project at a given path. A project is a directory that contains
         avi files and their corresponding pose_est_v3.h5 files as well as json
@@ -47,8 +47,11 @@ class Project:
         self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
                               'classifiers')
 
-        self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
-                           'cache')
+        if use_cache:
+            self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
+                               'cache')
+        else:
+            self._cache_dir = None
 
         # get list of video files in the project directory
         # TODO: we could check to see if the matching .h5 file exists
@@ -59,12 +62,12 @@ class Project:
         # parent directory must exist.
         Path(project_path).mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
-        # make sure the project subdirectory directory exists to store project
+        # make sure the app subdirectory directory exists to store project
         # metadata and annotations
         Path(project_path, self._ROTTA_DIR).mkdir(mode=self.__DEFAULT_UMASK,
                                                   exist_ok=True)
 
-        # make sure other project directories exist
+        # make sure other app directories exist
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
@@ -92,7 +95,8 @@ class Project:
             if nidentities is None:
                 # this will raise a ValueError if the video does not have a
                 # corresponding pose file.
-                pose_file = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
+                pose_file = open_pose_file(
+                    get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
 

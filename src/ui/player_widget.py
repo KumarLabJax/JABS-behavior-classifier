@@ -70,7 +70,7 @@ class _PlayerThread(QtCore.QThread):
     """
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.pyqtSignal('QImage')
+    newImage = QtCore.pyqtSignal(dict)
     updatePosition = QtCore.pyqtSignal(int)
     endOfFile = QtCore.pyqtSignal()
 
@@ -173,7 +173,7 @@ class _PlayerThread(QtCore.QThread):
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
                 if not self._stream.stopped:
-                    self.newImage.emit(image)
+                    self.newImage.emit({'image': image, 'source': self})
                     self.updatePosition.emit(frame['index'])
 
                 # update timestamp for when should the next frame be shown
@@ -282,6 +282,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # keep track of the current state
         self._playing = False
         self._seeking = False
+        self._loading = False
 
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
@@ -436,7 +437,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
 
         # if we already have a video loaded make sure it is stopped
-        self.stop()
+        self.stop(flush=False)
         self.reset()
 
         # load the video and pose file
@@ -457,7 +458,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
 
-    def stop(self):
+    def stop(self, flush=True):
         """
         stop playing and reset the play button to its initial state
         """
@@ -467,17 +468,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # if we have an active player thread, terminate
         if self._player_thread:
-            self._player_thread.terminate()
-            self._player_thread.wait()
-            self._player_thread = None
-
-        # seek to the current position of the slider -- it's possible a
-        # player thread had read a frame or two beyond that but the frames
-        # were discarded when they arrived at the UI thread after playback
-        # stopped. This makes sure we don't skip over those frames when
-        # playback resumes.
-        self._video_stream.seek(self._position_slider.value())
-        self._update_frame(self._video_stream.read())
+            self._stop_player_thread()
+            if flush:
+                # seek to the current position of the slider -- it's possible a
+                # player thread had read a frame or two beyond that but the
+                # frames were discarded when they arrived at the UI thread
+                # after playback stopped. This makes sure we don't skip over
+                # those frames when playback resumes.
+                # this also has the effect of flushing the read buffer
+                self._video_stream.seek(self._position_slider.value())
+                self._update_frame(self._video_stream.read())
 
         # change the icon to play
         self._play_button.setIcon(
@@ -488,6 +488,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._enable_frame_buttons()
         self._playing = False
+
+    def _stop_player_thread(self):
+        self._player_thread.terminate()
+        self._player_thread.wait()
+        self._player_thread = None
 
     def _position_slider_clicked(self):
         """
@@ -505,9 +510,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # if the video is playing, we stop the player thread and wait for it
         # to terminate
         if self._player_thread:
-            self._player_thread.terminate()
-            self._player_thread.wait()
-            self._player_thread = None
+            self._stop_player_thread()
 
         # seek to the slider position and update the displayed frame
         self._video_stream.seek(pos)
@@ -693,7 +696,7 @@ class PlayerWidget(QtWidgets.QWidget):
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
-            self._display_image(image)
+            self._display_image({'image': image})
             self.updateFrameNumber.emit(frame['index'])
             self._update_time_display(frame['index'])
 
@@ -708,20 +711,32 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText(
             self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.pyqtSlot(QtGui.QImage)
-    def _display_image(self, image):
+    @QtCore.pyqtSlot(dict)
+    def _display_image(self, data: dict):
         """
         display a new QImage sent from the player thread
         :param image: QImage to display as next frame
         """
+        image = data['image']
+        source = data.get('source')
         # make sure the video stream hasn't been closed since this signal
         # was sent
         if self._video_stream is None:
             return
+
+        # if the frame came from a player thread, the data dict also includes
+        # a reference to the player thread object that sent it.
+        # We want to ignore frames being sent by a player thread other than
+        # self._player_thread. When switching videos, it's possible for the
+        # previous player thread to send it's last frame before terminating
+        # and have that frame overwrite the first frame of the newly loaded vid
+        if source and source != self._player_thread:
+            return
+
         self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.pyqtSlot(int)
-    def _set_position(self, frame_number):
+    def _set_position(self, frame_number: int):
         """
         update the value of the position slider to the frame number sent from
         the player thread
