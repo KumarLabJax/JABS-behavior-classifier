@@ -1,11 +1,33 @@
+import gzip
 import json
+import os
+import sys
 import shutil
 import unittest
-import gzip
+from contextlib import contextmanager
 from pathlib import Path
 
 from src.labeler.project import Project
 from src.labeler.video_labels import VideoLabels
+
+
+@contextmanager
+def redirect_stderr():
+    fd = sys.stderr.fileno()
+
+    # copy fd before it is overwritten
+    with os.fdopen(os.dup(fd), 'wb') as copied:
+        sys.stderr.flush()
+
+        # open destination
+        with open(os.devnull, 'wb') as fout:
+            os.dup2(fout.fileno(), fd)
+        try:
+            yield fd
+        finally:
+            # restore stderr to its previous value
+            sys.stderr.flush()
+            os.dup2(copied.fileno(), fd)
 
 
 class TestProject(unittest.TestCase):
@@ -52,8 +74,8 @@ class TestProject(unittest.TestCase):
                 with open(pose_path, 'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-        # create an empty project directory
-        Project(cls._EXISTING_PROJ_PATH)
+        # setup a project directory with annotations
+        Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
 
         # create an annotation
         labels = VideoLabels(cls._FILENAMES[0], 10000)
@@ -96,13 +118,13 @@ class TestProject(unittest.TestCase):
 
     def test_get_video_list(self):
         """ get list of video files in an existing project """
-        project = Project(self._EXISTING_PROJ_PATH)
+        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         self.assertListEqual(project.videos, self._FILENAMES)
 
     def test_load_annotations(self):
         """ test loading annotations from a saved project """
 
-        project = Project(self._EXISTING_PROJ_PATH)
+        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
 
         labels = project.load_annotation_track(self._FILENAMES[0])
 
@@ -118,7 +140,7 @@ class TestProject(unittest.TestCase):
 
     def test_save_annotations(self):
         """ test saving annotations """
-        project = Project(self._EXISTING_PROJ_PATH)
+        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         labels = project.load_annotation_track(self._FILENAMES[0])
         walking_labels = labels.get_track_labels('0', 'Walking')
 
@@ -140,7 +162,7 @@ class TestProject(unittest.TestCase):
         """
         test load annotations for a file that doesn't exist raises ValueError
         """
-        project = Project(self._EXISTING_PROJ_PATH)
+        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
 
         with self.assertRaises(ValueError):
             project.load_annotation_track('bad_filename.avi')
@@ -149,6 +171,12 @@ class TestProject(unittest.TestCase):
         """
         test OPError raised if unable to open avi file to get num frames
         """
-        project = Project(self._EXISTING_PROJ_PATH)
+        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         with self.assertRaises(IOError):
-            project.load_annotation_track(self._FILENAMES[1])
+            with redirect_stderr():
+                project.load_annotation_track(self._FILENAMES[1])
+
+    def test_bad_video_file(self):
+        with self.assertRaises(IOError):
+            with redirect_stderr():
+                _ = Project(self._EXISTING_PROJ_PATH)

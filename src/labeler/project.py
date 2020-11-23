@@ -23,7 +23,7 @@ class Project:
 
     __PREDICTION_FILE_VERSION = 1
 
-    def __init__(self, project_path, use_cache=True):
+    def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
         Open a project at a given path. A project is a directory that contains
         avi files and their corresponding pose_est_v3.h5 files as well as json
@@ -55,11 +55,6 @@ class Project:
                                'cache')
         else:
             self._cache_dir = None
-
-        # get list of video files in the project directory
-        # TODO: we could check to see if the matching .h5 file exists
-        self._videos = [f.name for f in self._project_dir_path.glob("*.avi")]
-        self._videos.sort()
 
         # if project directory doesn't exist, create it (empty project)
         # parent directory must exist.
@@ -98,17 +93,18 @@ class Project:
         if err:
             raise ValueError("Project missing pose file for one or more video")
 
-        err = False
-        for v in self.videos:
-            path = get_pose_path(self.video_path(v))
-            pose_frames = get_frames_from_file(path)
-            vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
-            if pose_frames != vid_frames:
-                print(f"{v}: video and pose file have different number of frames",
-                      file=sys.stderr)
-                err = True
-        if err:
-            raise ValueError("Video and Pose File frame counts differ")
+        if enable_video_check:
+            err = False
+            for v in self.videos:
+                path = get_pose_path(self.video_path(v))
+                pose_frames = get_frames_from_file(path)
+                vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
+                if pose_frames != vid_frames:
+                    print(f"{v}: video and pose file have different number of frames",
+                          file=sys.stderr)
+                    err = True
+            if err:
+                raise ValueError("Video and Pose File frame counts differ")
 
         video_metadata = self._metadata.get('video_files', {})
         for video in self._videos:

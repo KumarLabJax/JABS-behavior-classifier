@@ -65,6 +65,7 @@ def validate_video_worker(params: dict):
 
 
 def match_to_pose(video: str, project_dir: Path):
+    """ make sure a video has a corresponding h5 file """
     path = project_dir / video
 
     try:
