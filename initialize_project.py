@@ -40,17 +40,21 @@ def validate_video(params: dict):
     """ worker function for validating project video """
 
     vid_path = params['project_dir'] / params['video']
+
+    # make sure we can open the video
     try:
         vid_frames = VideoStream.get_nframes_from_file(vid_path)
     except:
         return {'video': params['video'], 'okay': False,
                 'message': "Unable to open video"}
 
+    # make sure the video and pose file have the same number of frames
     pose_path = src.pose_estimation.get_pose_path(vid_path)
     if src.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
         return {'video': params['video'], 'okay': False,
                 'message': "Video and Pose File frame counts differ"}
 
+    # make sure we can initialize a PoseEstimation object from this pose file
     try:
         _ = src.pose_estimation.open_pose_file(pose_path)
     except:
@@ -93,7 +97,8 @@ def main():
     cli_progress_bar(0, len(videos),
                      prefix=" Checking for pose files:")
 
-    # iterate over each vido and try to pair it with an h5 file
+    # iterate over each video and try to pair it with an h5 file
+    # this test is quick, don't bother to parallelize
     complete = 0
     results = []
     for result in [match_to_pose(v, args.project_dir) for v in videos]:
@@ -112,6 +117,9 @@ def main():
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
 
+    # check project other errors such as being unable to open pose files,
+    # pose file and video frame number missmatch, etc
+
     def validation_job_producer():
         for video in videos:
             yield({
@@ -125,6 +133,8 @@ def main():
 
     complete = 0
     results = []
+    # do work in parallel (not really necessary for this test, but we already
+    # have the work pool for generating features)
     for result in pool.imap_unordered(validate_video,
                                       validation_job_producer()):
         # update progress bar
@@ -142,11 +152,10 @@ def main():
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
 
-    # do additional project validation
+    # generate features -- this might be very slow
     project = Project(args.project_dir)
     total_identities = project.total_project_identities
 
-    # generate features / cache files for the project
     def feature_job_producer():
         """ producer for Pool.imap_unordered """
         for video in project.videos:
