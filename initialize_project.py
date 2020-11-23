@@ -38,25 +38,24 @@ def generate_files_worker(params: dict):
 
 def validate_video(params: dict):
     """ worker function for validating project video """
-    project = params['project']
 
+    vid_path = params['project_dir'] / params['video']
     try:
-        pose_est = project.load_pose_est(
-            project.video_path(params['video']))
-    except:
-        return {'video': params['video'], 'okay': False,
-                'message': "Unable to open pose file"}
-
-
-    try:
-        vid = VideoStream(project.video_path(params['video']))
+        vid_frames = VideoStream.get_nframes_from_file(vid_path)
     except:
         return {'video': params['video'], 'okay': False,
                 'message': "Unable to open video"}
 
-    if pose_est.num_frames != vid.num_frames:
+    pose_path = src.pose_estimation.get_pose_path(vid_path)
+    if src.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
         return {'video': params['video'], 'okay': False,
                 'message': "Video and Pose File frame counts differ"}
+
+    try:
+        _ = src.pose_estimation.open_pose_file(pose_path)
+    except:
+        return {'video': params['video'], 'okay': False,
+                'message': "Unable to open pose file"}
 
     return {'video': params['video'], 'okay': True}
 
@@ -113,20 +112,15 @@ def main():
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
 
-    # do additional project validation
-    project = Project(args.project_dir)
-    total_identities = project.total_project_identities
-    total_videos = len(project.videos)
-
     def validation_job_producer():
-        for video in project.videos:
+        for video in videos:
             yield({
                 'video': video,
-                'project': project
+                'project_dir': args.project_dir
             })
 
     # print the initial progress bar with 0% complete
-    cli_progress_bar(0, total_videos,
+    cli_progress_bar(0, len(videos),
                      prefix=" Validating Project:")
 
     complete = 0
@@ -135,7 +129,7 @@ def main():
                                       validation_job_producer()):
         # update progress bar
         complete += 1
-        cli_progress_bar(complete, total_videos,
+        cli_progress_bar(complete, len(videos),
                          prefix=" Validating Project:")
         results.append(result)
 
@@ -147,6 +141,10 @@ def main():
         for f in failures:
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
+
+    # do additional project validation
+    project = Project(args.project_dir)
+    total_identities = project.total_project_identities
 
     # generate features / cache files for the project
     def feature_job_producer():
