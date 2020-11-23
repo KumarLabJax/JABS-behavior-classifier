@@ -36,7 +36,7 @@ def generate_files_worker(params: dict):
         _ = pose_est.get_identity_convex_hulls(identity)
 
 
-def validate_video(params: dict):
+def validate_video_worker(params: dict):
     """ worker function for validating project video """
 
     vid_path = params['project_dir'] / params['video']
@@ -135,7 +135,7 @@ def main():
     results = []
     # do work in parallel (not really necessary for this test, but we already
     # have the work pool for generating features)
-    for result in pool.imap_unordered(validate_video,
+    for result in pool.imap_unordered(validate_video_worker,
                                       validation_job_producer()):
         # update progress bar
         complete += 1
