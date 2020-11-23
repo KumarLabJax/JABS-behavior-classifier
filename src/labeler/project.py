@@ -73,7 +73,9 @@ class Project:
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-        self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+
+        if use_cache:
+            self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         # load any saved project metadata
         self._metadata = self.load_metadata()

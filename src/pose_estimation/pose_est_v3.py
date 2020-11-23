@@ -27,21 +27,28 @@ class PoseEstimationV3(PoseEstimation):
         if cache_dir is not None:
             filename = self._path.name.replace('.h5', '_cache.h5')
             cache_file_path = self._cache_dir / filename
+            use_cache = True
+
+            try:
+                with h5py.File(cache_file_path, 'r') as cache_h5:
+                    assert cache_h5.attrs['version'] == self.__CACHE_FILE_VERSION
+                    pose_grp = cache_h5['poseest']
+                    self._points = pose_grp['points'][:]
+                    self._point_mask = pose_grp['point_mask'][:]
+                    self._identity_mask = pose_grp['identity_mask'][:]
+                    self._identity_to_track = pose_grp['identity_to_track'][:]
+                    self._max_instances = self._points.shape[0]
+                    self._num_frames = self._points.shape[1]
+                    self._identities = [*range(self._max_instances)]
+            except (IOError, KeyError):
+                # unable to open or read pose cache file, revert to source pose
+                # file
+                use_cache = False
         else:
+            use_cache = False
             cache_file_path = None
 
-        try:
-            with h5py.File(cache_file_path, 'r') as cache_h5:
-                assert cache_h5.attrs['version'] == self.__CACHE_FILE_VERSION
-                pose_grp = cache_h5['poseest']
-                self._points = pose_grp['points'][:]
-                self._point_mask = pose_grp['point_mask'][:]
-                self._identity_mask = pose_grp['identity_mask'][:]
-                self._identity_to_track = pose_grp['identity_to_track'][:]
-                self._max_instances = self._points.shape[0]
-                self._num_frames = self._points.shape[1]
-                self._identities = [*range(self._max_instances)]
-        except (IOError, KeyError) as e:
+        if not use_cache:
             # open the hdf5 pose file
             with h5py.File(self._path, 'r') as pose_h5:
                 # extract data from the HDF5 file
