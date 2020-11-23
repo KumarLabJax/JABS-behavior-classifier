@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import h5py
+
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 
@@ -37,3 +39,11 @@ def get_pose_path(video_path: Path):
         return video_path.with_name(file_base.name + '_pose_est_v2.h5')
     else:
         raise ValueError("Video does not have pose file")
+
+
+def get_frames_from_file(path: Path):
+    """ peak into a pose_est file to count number of frames """
+
+    with h5py.File(path, 'r') as pose_h5:
+        vid_grp = pose_h5['poseest']
+        return vid_grp['points'].shape[0]

@@ -74,6 +74,19 @@ class PoseEstimationV3(PoseEstimation):
         self._identity_mask = np.fromfunction(
             init_func, (self._max_instances, self._num_frames), dtype=np.int_)
 
+    @property
+    def identity_to_track(self):
+        identity_to_track = np.full((self._max_instances, self._num_frames), -1,
+                                    dtype=np.int32)
+        for track in self._track_dict.values():
+            identity = self._identity_map[track['track_id']]
+            identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
+        return identity_to_track
+
+    @property
+    def format_major_version(self):
+        return 3
+
     def get_points(self, frame_index, identity):
         """
         get points and mask for an identity for a given frame
@@ -96,15 +109,6 @@ class PoseEstimationV3(PoseEstimation):
     def identity_mask(self, identity):
         return self._identity_mask[identity,:]
 
-    @property
-    def identity_to_track(self):
-        identity_to_track = np.full((self._max_instances, self._num_frames), -1,
-                                    dtype=np.int32)
-        for track in self._track_dict.values():
-            identity = self._identity_map[track['track_id']]
-            identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
-        return identity_to_track
-
     def get_identity_point_mask(self, identity):
         """
         get the point mask array for a given identity
@@ -112,10 +116,6 @@ class PoseEstimationV3(PoseEstimation):
         :return: array of point masks (#frames, 12)
         """
         return self._point_mask[identity, :]
-
-    @property
-    def format_major_version(self):
-        return 3
 
     def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """ iterate through frames and build track dict """
