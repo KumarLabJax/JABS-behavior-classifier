@@ -1,4 +1,5 @@
 import heapq
+import typing
 from pathlib import Path
 
 import h5py
@@ -12,76 +13,115 @@ class PoseEstimationV3(PoseEstimation):
     class for opening and parsing version 3 of the pose estimation HDF5 file
     """
 
-    def __init__(self, file_path: Path):
+    __CACHE_FILE_VERSION = 1
+
+    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
         """
         :param file_path: Path object representing the location of the pose file
         """
-        super().__init__()
+        super().__init__(file_path, cache_dir)
 
-        self._path = file_path
+        self._identity_to_track = None
+        self._identity_map = None
 
-        # open the hdf5 pose file
-        with h5py.File(self._path, 'r') as pose_h5:
-            # extract data from the HDF5 file
-            vid_grp = pose_h5['poseest']
-            major_version = vid_grp.attrs['version'][0]
+        if cache_dir is not None:
+            filename = self._path.name.replace('.h5', '_cache.h5')
+            cache_file_path = self._cache_dir / filename
+            use_cache = True
 
-            # ensure the major version matches what we expect
-            assert major_version == 3
+            try:
+                with h5py.File(cache_file_path, 'r') as cache_h5:
+                    assert cache_h5.attrs['version'] == self.__CACHE_FILE_VERSION
+                    pose_grp = cache_h5['poseest']
+                    self._points = pose_grp['points'][:]
+                    self._point_mask = pose_grp['point_mask'][:]
+                    self._identity_mask = pose_grp['identity_mask'][:]
+                    self._identity_to_track = pose_grp['identity_to_track'][:]
+                    self._max_instances = self._points.shape[0]
+                    self._num_frames = self._points.shape[1]
+                    self._identities = [*range(self._max_instances)]
+            except (IOError, KeyError):
+                # unable to open or read pose cache file, revert to source pose
+                # file
+                use_cache = False
+        else:
+            use_cache = False
+            cache_file_path = None
 
-            # load contents
-            all_points = vid_grp['points'][:]
-            all_confidence = vid_grp['confidence'][:]
-            all_instance_count = vid_grp['instance_count'][:]
-            all_track_id = vid_grp['instance_track_id'][:]
+        if not use_cache:
+            # open the hdf5 pose file
+            with h5py.File(self._path, 'r') as pose_h5:
+                # extract data from the HDF5 file
+                vid_grp = pose_h5['poseest']
+                major_version = vid_grp.attrs['version'][0]
 
-        self._num_frames = len(all_points)
-        self._max_instances = len(all_points[0])
+                # ensure the major version matches what we expect
+                assert major_version == 3
 
-        # map track instances to identities
-        self._identities = [*range(self._max_instances)]
+                # load contents
+                all_points = vid_grp['points'][:]
+                all_confidence = vid_grp['confidence'][:]
+                all_instance_count = vid_grp['instance_count'][:]
+                all_track_id = vid_grp['instance_track_id'][:]
 
-        # maps track instances to identities
-        self._identity_map = {}
+            self._num_frames = len(all_points)
+            self._max_instances = len(all_points[0])
 
-        # populate identity_map and identity_to_instance
-        self._build_identity_map(all_instance_count, all_track_id)
+            # generate list of identities based on the max number of instances in
+            # the pose file
+            self._identities = [*range(self._max_instances)]
 
-        self._points = np.zeros(
-            (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
-            dtype=np.uint16)
-        self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
+            # maps track instances to identities
+            # populate identity_map and identity_to_instance
+            self._identity_map = self._build_identity_map(
+                all_instance_count, all_track_id)
 
-        # build numpy arrays of points and point masks organized by identity
-        self._track_dict = self._build_track_dict(
-                all_points, all_confidence, all_instance_count, all_track_id)
+            self._points = np.zeros(
+                (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
+                dtype=np.uint16)
+            self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
 
-        for track_id, track in self._track_dict.items():
-            self._points[
-                self._identity_map[track_id],
-                track['start_frame']:track['stop_frame_exclu'],
-                :] = track['points']
-            self._point_mask[
-                self._identity_map[track_id],
-                track['start_frame']:track['stop_frame_exclu'],
-                :] = track['point_masks']
+            # build numpy arrays of points and point masks organized by identity
+            self._track_dict = self._build_track_dict(
+                    all_points, all_confidence, all_instance_count, all_track_id)
 
-        # build a mask for each identity that indicates if it exists or not
-        # in the frame
-        init_func = np.vectorize(
-                lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
-                otypes=[np.uint8])
-        self._identity_mask = np.fromfunction(
-            init_func, (self._max_instances, self._num_frames), dtype=np.int_)
+            for track_id, track in self._track_dict.items():
+                self._points[
+                    self._identity_map[track_id],
+                    track['start_frame']:track['stop_frame_exclu'],
+                    :] = track['points']
+                self._point_mask[
+                    self._identity_map[track_id],
+                    track['start_frame']:track['stop_frame_exclu'],
+                    :] = track['point_masks']
+
+            # build a mask for each identity that indicates if it exists or not
+            # in the frame
+            init_func = np.vectorize(
+                    lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
+                    otypes=[np.uint8])
+            self._identity_mask = np.fromfunction(
+                init_func, (self._max_instances, self._num_frames), dtype=np.int_)
+
+            if self._cache_dir is not None:
+                with h5py.File(cache_file_path, 'w') as cache_h5:
+                    cache_h5.attrs['version'] = self.__CACHE_FILE_VERSION
+                    group = cache_h5.create_group('poseest')
+                    group.create_dataset('points', data=self._points)
+                    group.create_dataset('point_mask', data=self._point_mask)
+                    group.create_dataset('identity_mask', data=self._identity_mask)
+                    group.create_dataset('identity_to_track',
+                                         data=self.identity_to_track)
 
     @property
     def identity_to_track(self):
-        identity_to_track = np.full((self._max_instances, self._num_frames), -1,
-                                    dtype=np.int32)
-        for track in self._track_dict.values():
-            identity = self._identity_map[track['track_id']]
-            identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
-        return identity_to_track
+        if self._identity_to_track is None:
+            self._identity_to_track = np.full(
+                (self._max_instances, self._num_frames), -1, dtype=np.int32)
+            for track in self._track_dict.values():
+                identity = self._identity_map[track['track_id']]
+                self._identity_to_track[identity, track['start_frame']:track['stop_frame_exclu']] = track['track_id']
+        return self._identity_to_track
 
     @property
     def format_major_version(self):
@@ -158,6 +198,7 @@ class PoseEstimationV3(PoseEstimation):
         """ map individual tracks to identities """
         free_identities = []
         identity_track_count = {}
+        identity_map = {}
 
         for i in self._identities:
             heapq.heappush(free_identities, i)
@@ -171,13 +212,13 @@ class PoseEstimationV3(PoseEstimation):
             # add identities back to the pool for any tracks that terminated
             for track in last_tracks:
                 if track not in current_tracks:
-                    heapq.heappush(free_identities, self._identity_map[track])
+                    heapq.heappush(free_identities, identity_map[track])
 
             # if this is the first time we see the track grab a new identity
             for i in range(len(current_tracks)):
-                if current_tracks[i] not in self._identity_map:
+                if current_tracks[i] not in identity_map:
                     identity = heapq.heappop(free_identities)
-                    self._identity_map[current_tracks[i]] = identity
+                    identity_map[current_tracks[i]] = identity
                     identity_track_count[identity] += 1
 
             last_tracks = current_tracks[:]
@@ -194,3 +235,4 @@ class PoseEstimationV3(PoseEstimation):
 
         self._identities = identities
         self._max_instances = len(identities)
+        return identity_map

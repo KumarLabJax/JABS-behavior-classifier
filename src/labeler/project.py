@@ -7,8 +7,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-import src.pose_estimation as pose_est
-from src.pose_estimation import get_pose_path, PoseEstFactory
+from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
 from src.video_stream.utilities import get_frame_count
 from src.video_stream import VideoStream
@@ -24,7 +23,7 @@ class Project:
 
     __PREDICTION_FILE_VERSION = 1
 
-    def __init__(self, project_path):
+    def __init__(self, project_path, use_cache=True):
         """
         Open a project at a given path. A project is a directory that contains
         avi files and their corresponding pose_est_v3.h5 files as well as json
@@ -51,23 +50,33 @@ class Project:
         self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
                               'classifiers')
 
+        if use_cache:
+            self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
+                               'cache')
+        else:
+            self._cache_dir = None
+
+        # get list of video files in the project directory
+        # TODO: we could check to see if the matching .h5 file exists
+        self._videos = [f.name for f in self._project_dir_path.glob("*.avi")]
+        self._videos.sort()
+
         # if project directory doesn't exist, create it (empty project)
         # parent directory must exist.
         Path(project_path).mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
-        # make sure the project subdirectory directory exists to store project
+        # make sure the app subdirectory directory exists to store project
         # metadata and annotations
         Path(project_path, self._ROTTA_DIR).mkdir(mode=self.__DEFAULT_UMASK,
                                                   exist_ok=True)
 
-        # make sure the project self.__ROTTA_DIR/annotations directory exists
+        # make sure other app directories exist
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        # make sure the self.__ROTTA_DIR/features directory exists
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        # make sure the predictions subdirectory exists
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+
+        if use_cache:
+            self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         # load any saved project metadata
         self._metadata = self.load_metadata()
@@ -91,8 +100,8 @@ class Project:
 
         err = False
         for v in self.videos:
-            path = pose_est.get_pose_path(self.video_path(v))
-            pose_frames = pose_est.get_frames_from_file(path)
+            path = get_pose_path(self.video_path(v))
+            pose_frames = get_frames_from_file(path)
             vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
             if pose_frames != vid_frames:
                 print(f"{v}: video and pose file have different number of frames",
@@ -119,13 +128,13 @@ class Project:
             if nidentities is None:
                 # this will raise a ValueError if the video does not have a
                 # corresponding pose file.
-                pose_file = PoseEstFactory.open(
-                    get_pose_path(self.video_path(video)))
+                pose_file = open_pose_file(
+                    get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
             if pose_hash is None:
                 vinfo['pose_hash'] = self.__hash_file(
-                    pose_est.get_pose_path(self.video_path(video)))
+                    get_pose_path(self.video_path(video)))
             if vid_hash is None:
                 vinfo['vid_hash'] = self.__hash_file(self.video_path(video))
 
@@ -137,7 +146,7 @@ class Project:
         self._has_social_features = False
         for i, vid in enumerate(self._videos):
             vid_path = self.video_path(vid)
-            pose_path = pose_est.get_pose_path(vid_path)
+            pose_path = get_pose_path(vid_path)
             curr_has_social = pose_path.name.endswith('v3.h5')
 
             if i == 0:
@@ -240,7 +249,7 @@ class Project:
         video_filename = Path(video_path).name
         self.check_video_name(video_filename)
 
-        return pose_est.PoseEstFactory.open(pose_est.get_pose_path(video_path))
+        return open_pose_file(get_pose_path(video_path), self._cache_dir)
 
     def check_video_name(self, video_filename):
         """
@@ -390,8 +399,7 @@ class Project:
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
             video_tracks = self.load_annotation_track(video, leave_cached=True)
-            poses = pose_est.PoseEstFactory.open(
-                pose_est.get_pose_path(self.video_path(video)))
+            poses = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
@@ -612,7 +620,7 @@ class Project:
         path = self._project_dir_path / vid
 
         try:
-            pose_est.get_pose_path(path)
+            get_pose_path(path)
         except ValueError:
             return False
         return True

@@ -32,6 +32,9 @@ def generate_files_worker(params: dict):
     # TODO, allow user to specify different window size
     _ = features.get_window_features(5, force=params['force'])
 
+    for identity in pose_est.identities:
+        _ = pose_est.get_identity_convex_hulls(identity)
+
 
 def validate_video(params: dict):
     """ worker function for validating project video """

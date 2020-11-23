@@ -1,4 +1,6 @@
 import enum
+import typing
+import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -25,11 +27,13 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(self):
+    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
+        super().__init__()
         self._num_frames = 0
         self._identities = []
         self._convex_hull_cache = dict()
-        super().__init__()
+        self._path = file_path
+        self._cache_dir = cache_dir
 
     @property
     def num_frames(self) -> int:
@@ -106,21 +110,44 @@ class PoseEstimation(ABC):
         :return: the convex hulls (array elements will be None if there is no
         valid convex hull for that frame)
         """
+
         if identity in self._convex_hull_cache:
             return self._convex_hull_cache[identity]
         else:
-            points, point_masks = self.get_identity_poses(identity)
-            body_points = points[:, :-2, :]
-            body_point_masks = point_masks[:, :-2]
-            convex_hulls = []
+            convex_hulls = None
+            path = None
+            if self._cache_dir is not None:
+                path = (self._cache_dir /
+                        "convex_hulls" /
+                        self._path.with_suffix('').name /
+                        f"convex_hulls_{identity}.pickle")
+                path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
 
-            for frame_index in range(self.num_frames):
-                if sum(body_point_masks[frame_index, :]) >= 3:
-                    filtered_points = body_points[frame_index, body_point_masks[frame_index, :] == 1, :]
-                    convex_hulls.append(MultiPoint(filtered_points).convex_hull)
-                else:
-                    convex_hulls.append(None)
+                try:
+
+                    with path.open('rb') as f:
+                        convex_hulls = pickle.load(f)
+                except:
+                    # we weren't able to read in the cached convex hulls,
+                    # just ignore the exception and we'll generate them
+                    pass
+
+            if convex_hulls is None:
+                points, point_masks = self.get_identity_poses(identity)
+                body_points = points[:, :-2, :]
+                body_point_masks = point_masks[:, :-2]
+                convex_hulls = []
+
+                for frame_index in range(self.num_frames):
+                    if sum(body_point_masks[frame_index, :]) >= 3:
+                        filtered_points = body_points[frame_index, body_point_masks[frame_index, :] == 1, :]
+                        convex_hulls.append(MultiPoint(filtered_points).convex_hull)
+                    else:
+                        convex_hulls.append(None)
+
+                if path:
+                    with path.open('wb') as f:
+                        pickle.dump(convex_hulls, f)
 
             self._convex_hull_cache[identity] = convex_hulls
-
             return convex_hulls
