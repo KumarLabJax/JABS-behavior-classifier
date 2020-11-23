@@ -350,7 +350,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         try:
             # open the video
-            self._player_widget.load_video(path)
+            self._player_widget.load_video(path,
+                                           self._project.load_pose_est(path))
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_annotation_track(path)
@@ -532,6 +533,11 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
+        # don't do anything when the identity drop down is cleared when
+        # loading a new video
+        if self.identity_selection.currentIndex() < 0:
+            return
+
         self._player_widget.set_active_identity(
             self.identity_selection.currentIndex())
         self._set_label_track()

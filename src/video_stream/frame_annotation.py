@@ -4,24 +4,22 @@ from shapely.geometry import MultiPoint
 _FRAME_LABEL_COLOR = (215, 222, 0)
 
 
-def label_identity(img, points, mask, color=_FRAME_LABEL_COLOR):
+def label_identity(img, pose_est, identity, frame_index,
+                   color=_FRAME_LABEL_COLOR):
     """
     label the identity on an image
     :param img: image to label
-    :param points: array of 12 keypoints that define the pose
-    :param mask: mask that indicates if each point is valid or not (sometimes
-    pose will be missing points)
+    :param pose_est: pose estimations for this video
+    :param identity: identity to label
+    :param frame_index: index of frame to label
+    :param color: color to use for label
     :return: None
     """
-    if points is not None:
-        # note, we only use the first 10 points (out of 12). We are ignoring
-        # the mid tail and the tip of the tail
 
-        # first remove any invalid points (where mask is not 1)
-        filtered_points = points[:-2][mask[:-2] == 1]
+    shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
 
-        # find the center of the remaining points
-        center = MultiPoint(filtered_points).convex_hull.centroid
+    if shape is not None:
+        center = shape.centroid
 
         # draw a marker at this location. this is a filled in circle and then
         # a larger unfilled circle
@@ -42,13 +40,9 @@ def label_all_identities(img, pose_est, identities, frame_index):
     """
 
     for identity in identities:
-        points, mask = pose_est.get_points(frame_index, identity)
-        if points is not None:
-            # first remove any invalid points (where mask is not 1)
-            filtered_points = points[:-2][mask[:-2] == 1]
-
-            # find the center of the remaining points
-            center = MultiPoint(filtered_points).convex_hull.centroid
+        shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
+        if shape is not None:
+            center = shape.centroid
 
             # write the identity at that location
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),

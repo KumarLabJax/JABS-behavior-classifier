@@ -1,19 +1,20 @@
+import pickle
 import random
 from enum import IntEnum
 from importlib import import_module
+from pathlib import Path
 
 import numpy as np
-import pickle
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
 )
-from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
     confusion_matrix
 )
+from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
 from src.labeler import TrackLabels
 
@@ -218,8 +219,8 @@ class SklClassifier:
     def predict_proba(self, features):
         return self._classifier.predict_proba(features)
 
-    def load_classifier(self, path):
-        with open(path, 'rb') as f:
+    def load_classifier(self, path: Path):
+        with path.open('rb') as f:
             self._classifier = pickle.load(f)
 
             # we may need to update the classifier type based on
@@ -231,8 +232,8 @@ class SklClassifier:
             else:
                 self._classifier_type = self.ClassifierType.XGBOOST
 
-    def save_classifier(self, path):
-        with open(path, 'wb') as f:
+    def save_classifier(self, path: Path):
+        with path.open('wb') as f:
             pickle.dump(self._classifier, f)
 
     @staticmethod

@@ -5,7 +5,7 @@ import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.features import IdentityFeatures
-from src.pose_estimation import PoseEstimationV3, PoseEstFactory, get_pose_path
+from src.pose_estimation import PoseEstimationV3
 from src.video_stream import VideoStream, label_identity, label_all_identities
 
 
@@ -70,7 +70,7 @@ class _PlayerThread(QtCore.QThread):
     """
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.pyqtSignal('QImage')
+    newImage = QtCore.pyqtSignal(dict)
     updatePosition = QtCore.pyqtSignal(int)
     endOfFile = QtCore.pyqtSignal()
 
@@ -137,26 +137,23 @@ class _PlayerThread(QtCore.QThread):
 
                 elif self._identity is not None:
                     # if active identity set, label it on the frame
-                    label_identity(frame['data'],
-                                   *self._pose_est.get_points(frame['index'],
-                                                              self._identity))
+                    label_identity(frame['data'], self._pose_est,
+                                   self._identity, frame['index'])
 
                     closest_fov_id = _get_closest_animal_id(
                         self._identity, frame['index'],
                         self._pose_est, IdentityFeatures.half_fov_deg)
                     if closest_fov_id is not None:
-                        label_identity(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'], closest_fov_id),
-                            color=_CLOSEST_FOV_LABEL_COLOR)
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_fov_id, frame['index'],
+                                       color=_CLOSEST_FOV_LABEL_COLOR)
 
                     closest_id = _get_closest_animal_id(
                         self._identity, frame['index'], self._pose_est)
                     if closest_id is not None and closest_id != closest_fov_id:
-                        label_identity(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'], closest_id),
-                            color=_CLOSEST_LABEL_COLOR)
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_id, frame['index'],
+                                       color=_CLOSEST_LABEL_COLOR)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -176,7 +173,7 @@ class _PlayerThread(QtCore.QThread):
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
                 if not self._stream.stopped:
-                    self.newImage.emit(image)
+                    self.newImage.emit({'image': image, 'source': self})
                     self.updatePosition.emit(frame['index'])
 
                 # update timestamp for when should the next frame be shown
@@ -285,12 +282,13 @@ class PlayerWidget(QtWidgets.QWidget):
         # keep track of the current state
         self._playing = False
         self._seeking = False
+        self._loading = False
 
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
 
         # track annotation
-        self._tracks = None
+        self._pose_est = None
 
         self._label_all_identities = False
         self._identities = []
@@ -398,7 +396,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def reset(self):
         """ reset video player """
         self._video_stream = None
-        self._tracks = None
+        self._pose_est = None
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
         self._play_button.setEnabled(False)
@@ -431,21 +429,21 @@ class PlayerWidget(QtWidgets.QWidget):
     def set_identities(self, identities):
         self._identities = identities
 
-    def load_video(self, path: Path):
+    def load_video(self, path: Path, pose_est):
         """
         load a new video source
         :param path: path to video file
+        :param pose_est: pose file for this video
         """
 
         # if we already have a video loaded make sure it is stopped
-        self.stop()
+        self.stop(flush=False)
         self.reset()
 
         # load the video and pose file
         self._video_stream = VideoStream(path)
 
-        pose_path = get_pose_path(path)
-        self._tracks = PoseEstFactory.open(pose_path)
+        self._pose_est = pose_est
 
         # setup the position slider
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
@@ -454,13 +452,13 @@ class PlayerWidget(QtWidgets.QWidget):
         # tell main window to populate the identity selection drop down
         # this will cause set_active_identity() to be called, which will load
         # and display the current frame
-        self.updateIdentities.emit(self._tracks.identities)
+        self.updateIdentities.emit(self._pose_est.identities)
 
         # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
 
-    def stop(self):
+    def stop(self, flush=True):
         """
         stop playing and reset the play button to its initial state
         """
@@ -470,17 +468,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # if we have an active player thread, terminate
         if self._player_thread:
-            self._player_thread.terminate()
-            self._player_thread.wait()
-            self._player_thread = None
-
-        # seek to the current position of the slider -- it's possible a
-        # player thread had read a frame or two beyond that but the frames
-        # were discarded when they arrived at the UI thread after playback
-        # stopped. This makes sure we don't skip over those frames when
-        # playback resumes.
-        self._video_stream.seek(self._position_slider.value())
-        self._update_frame(self._video_stream.read())
+            self._stop_player_thread()
+            if flush:
+                # seek to the current position of the slider -- it's possible a
+                # player thread had read a frame or two beyond that but the
+                # frames were discarded when they arrived at the UI thread
+                # after playback stopped. This makes sure we don't skip over
+                # those frames when playback resumes.
+                # this also has the effect of flushing the read buffer
+                self._video_stream.seek(self._position_slider.value())
+                self._update_frame(self._video_stream.read())
 
         # change the icon to play
         self._play_button.setIcon(
@@ -491,6 +488,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._enable_frame_buttons()
         self._playing = False
+
+    def _stop_player_thread(self):
+        self._player_thread.terminate()
+        self._player_thread.wait()
+        self._player_thread = None
 
     def _position_slider_clicked(self):
         """
@@ -508,9 +510,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # if the video is playing, we stop the player thread and wait for it
         # to terminate
         if self._player_thread:
-            self._player_thread.terminate()
-            self._player_thread.wait()
-            self._player_thread = None
+            self._stop_player_thread()
 
         # seek to the slider position and update the displayed frame
         self._video_stream.seek(pos)
@@ -650,7 +650,7 @@ class PlayerWidget(QtWidgets.QWidget):
         frame or not for the currently selected identity
         :return: numpy uint8 array of length num_frames
         """
-        return self._tracks.identity_mask(self._active_identity)
+        return self._pose_est.identity_mask(self._active_identity)
 
     def _enable_frame_buttons(self):
         """
@@ -673,33 +673,30 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         if frame['index'] != -1:
             if self._label_all_identities:
-                label_all_identities(frame['data'], self._tracks,
+                label_all_identities(frame['data'], self._pose_est,
                                      self._identities, frame['index'])
             else:
-                label_identity(frame['data'],
-                               *self._tracks.get_points(frame['index'],
-                                                        self._active_identity))
+                label_identity(frame['data'], self._pose_est,
+                               self._active_identity, frame['index'])
                 closest_fov_id = _get_closest_animal_id(
                     self._active_identity, frame['index'],
-                    self._tracks, IdentityFeatures.half_fov_deg)
+                    self._pose_est, IdentityFeatures.half_fov_deg)
                 if closest_fov_id is not None:
-                    label_identity(
-                        frame['data'],
-                        *self._tracks.get_points(frame['index'], closest_fov_id),
-                        color=_CLOSEST_FOV_LABEL_COLOR)
+                    label_identity(frame['data'], self._pose_est, closest_fov_id,
+                                   frame['index'],
+                                   color=_CLOSEST_FOV_LABEL_COLOR)
 
                 closest_id = _get_closest_animal_id(
-                    self._active_identity, frame['index'], self._tracks)
+                    self._active_identity, frame['index'], self._pose_est)
                 if closest_id is not None and closest_id != closest_fov_id:
-                    label_identity(
-                        frame['data'],
-                        *self._tracks.get_points(frame['index'], closest_id),
-                        color=_CLOSEST_LABEL_COLOR)
+                    label_identity(frame['data'], self._pose_est, closest_id,
+                                   frame['index'],
+                                   color=_CLOSEST_LABEL_COLOR)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
                                  QtGui.QImage.Format_RGB888).rgbSwapped()
-            self._display_image(image)
+            self._display_image({'image': image})
             self.updateFrameNumber.emit(frame['index'])
             self._update_time_display(frame['index'])
 
@@ -714,20 +711,32 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText(
             self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.pyqtSlot(QtGui.QImage)
-    def _display_image(self, image):
+    @QtCore.pyqtSlot(dict)
+    def _display_image(self, data: dict):
         """
         display a new QImage sent from the player thread
         :param image: QImage to display as next frame
         """
+        image = data['image']
+        source = data.get('source')
         # make sure the video stream hasn't been closed since this signal
         # was sent
         if self._video_stream is None:
             return
+
+        # if the frame came from a player thread, the data dict also includes
+        # a reference to the player thread object that sent it.
+        # We want to ignore frames being sent by a player thread other than
+        # self._player_thread. When switching videos, it's possible for the
+        # previous player thread to send it's last frame before terminating
+        # and have that frame overwrite the first frame of the newly loaded vid
+        if source and source != self._player_thread:
+            return
+
         self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.pyqtSlot(int)
-    def _set_position(self, frame_number):
+    def _set_position(self, frame_number: int):
         """
         update the value of the position slider to the frame number sent from
         the player thread
@@ -749,7 +758,7 @@ class PlayerWidget(QtWidgets.QWidget):
         start a new player thread and connect it to the UI components
         """
         self._player_thread = _PlayerThread(self._video_stream,
-                                            self._tracks,
+                                            self._pose_est,
                                             self._active_identity)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
