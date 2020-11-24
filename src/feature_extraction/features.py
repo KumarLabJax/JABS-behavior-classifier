@@ -158,13 +158,13 @@ class IdentityFeatures:
         self._per_frame = {}
         for feature in self._per_frame_features:
             if feature == 'pairwise_distances':
-                self._per_frame[feature] = np.empty(
+                self._per_frame[feature] = np.zeros(
                     (self._num_frames, self._num_distances), dtype=np.float32)
             elif feature == 'angles':
-                self._per_frame[feature] = np.empty(
+                self._per_frame[feature] = np.zeros(
                     (self._num_frames, self._num_angles), dtype=np.float32)
             elif feature == 'point_speeds':
-                self._per_frame[feature] = np.empty(
+                self._per_frame[feature] = np.zeros(
                     (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
                     dtype=np.float32)
             elif feature == 'point_mask':
@@ -555,19 +555,19 @@ class IdentityFeatures:
 
         # allocate arrays
         for operation in self._window_feature_operations:
-            window_features['angles'][operation] = np.empty(
+            window_features['angles'][operation] = np.zeros(
                 [self._num_frames, self._num_angles], dtype=np.float32)
 
         for operation in self._window_feature_operations:
-            window_features['pairwise_distances'][operation] = np.empty(
+            window_features['pairwise_distances'][operation] = np.zeros(
                 [self._num_frames, self._num_distances], dtype=np.float32)
 
         for operation in self._window_feature_operations:
-            window_features['point_speeds'][operation] = np.empty(
+            window_features['point_speeds'][operation] = np.zeros(
                 [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
                 dtype=np.float32)
 
-        window_features['percent_frames_present'] = np.empty((self._num_frames, 1),
+        window_features['percent_frames_present'] = np.zeros((self._num_frames, 1),
                                                              dtype=np.float32)
 
         # allocate arrays for social
@@ -576,12 +576,12 @@ class IdentityFeatures:
                 window_features[feature_name] = {}
                 if feature_name in ('social_pairwise_distances', 'social_pairwise_fov_distances'):
                     for operation in self._window_feature_operations:
-                        window_features[feature_name][operation] = np.empty(
+                        window_features[feature_name][operation] = np.zeros(
                             (self._num_frames, self._num_social_distances),
                             dtype=np.float32)
                 else:
                     for operation in self._window_feature_operations:
-                        window_features[feature_name][operation] = np.empty(
+                        window_features[feature_name][operation] = np.zeros(
                             self._num_frames, dtype=np.float32)
 
         # compute window features
