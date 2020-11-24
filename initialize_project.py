@@ -112,8 +112,8 @@ def main():
     failures = [r for r in results if r['okay'] is False]
 
     if failures:
-        print(" The following errors were encountered. "
-              "Please correct and run this script again:")
+        print(" The following errors were encountered, "
+              "please correct and run this script again:")
         for f in failures:
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
@@ -147,8 +147,8 @@ def main():
     failures = [r for r in results if r['okay'] is False]
 
     if failures:
-        print(" The following errors were encountered. "
-              "Please correct and run this script again:")
+        print(" The following errors were encountered, "
+              "please correct and run this script again:")
         for f in failures:
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
