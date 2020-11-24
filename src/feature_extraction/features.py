@@ -75,9 +75,9 @@ class IdentityFeatures:
     # a copy of the above operations, but used for values that are circular
     # (e.g. angles)
     _window_feature_operations_circular = {
-        "mean": lambda x: scipy.stats.circmean(np.radians(x)),
+        "mean": lambda x: scipy.stats.circmean(x, high=360),
         "median": lambda x: np.median(x), #scipy.stats does not have a circular version of median
-        "std_dev": lambda x: scipy.stats.circstd(np.radians(x)),
+        "std_dev": lambda x: scipy.stats.circstd(x, high=360),
         "max": lambda x: np.amax(x),
         "min": lambda x: np.amin(x)
     }
