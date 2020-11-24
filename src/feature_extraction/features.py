@@ -605,9 +605,8 @@ class IdentityFeatures:
                 window_values = self._per_frame['angles'][slice_start:slice_end,
                                 angle_index][frame_valid == 1]
 
-                for operation in self._window_feature_operations_circular:
-                    window_features['angles'][operation][i, angle_index] = \
-                        self._window_feature_operations[operation](window_values)
+                for op_name, op in self._window_feature_operations_circular.items():
+                    window_features['angles'][op_name][i, angle_index] = op(window_values)
 
             # compute window features for distances
             for distance_index in range(0, self._num_distances):
