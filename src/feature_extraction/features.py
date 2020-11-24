@@ -8,6 +8,7 @@ import scipy.stats
 
 from src.labeler.track_labels import TrackLabels
 from src.pose_estimation import PoseEstimationV3
+from src.utils import hide_stderr
 
 
 def n_choose_r(n, r):
@@ -606,7 +607,23 @@ class IdentityFeatures:
                                 angle_index][frame_valid == 1]
 
                 for op_name, op in self._window_feature_operations_circular.items():
-                    window_features['angles'][op_name][i, angle_index] = op(window_values)
+                    if op_name == 'std_dev':
+                        # XXX
+                        # scipy.stats.circstd has a bug that can result in nan
+                        # and a warning message to stderr if passed an array of
+                        # identical values
+                        # this will be fixed when 1.6.0 is released, so this
+                        # work-around can be removed once we require scipy 1.6.0
+                        # our work around is to suppress the warning and replace
+                        # the nan with 0
+                        with hide_stderr():
+                            val = op(window_values)
+                        if np.isnan(val):
+                            window_features['angles'][op_name][i, angle_index] = 0.0
+                        else:
+                            window_features['angles'][op_name][i, angle_index] = val
+                    else:
+                        window_features['angles'][op_name][i, angle_index] = op(window_values)
 
             # compute window features for distances
             for distance_index in range(0, self._num_distances):
@@ -645,8 +662,19 @@ class IdentityFeatures:
                         for j in range(window_values.shape[1]):
                             if feature_name == 'closest_fov_angles':
                                 for op_name, op in self._window_feature_operations_circular.items():
-                                    window_features[feature_name][op_name][i, j] = op(
-                                        window_values[:, j][frame_valid == 1])
+                                    if op_name == 'std_dev':
+                                        # XXX see comment above for explanation
+                                        with hide_stderr():
+                                            val = op(window_values[:, j][frame_valid == 1])
+                                        if np.isnan(val):
+                                            window_features[feature_name][
+                                                op_name][i, j] = 0
+                                        else:
+                                            window_features[feature_name][
+                                                op_name][i, j] = val
+                                    else:
+                                        window_features[feature_name][op_name][i, j] = op(
+                                            window_values[:, j][frame_valid == 1])
                             else:
                                 for op_name, op in self._window_feature_operations.items():
                                     window_features[feature_name][op_name][i, j] = op(
