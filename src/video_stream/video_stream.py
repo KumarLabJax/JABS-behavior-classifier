@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 from queue import Queue
 from threading import Thread
 
@@ -231,3 +232,12 @@ class VideoStream:
                         'duration': self._duration
                     })
                     self._frame_index += 1
+
+    @classmethod
+    def get_nframes_from_file(cls, path: Path):
+        # open video file
+        stream = cv2.VideoCapture(str(path))
+        if not stream.isOpened():
+            raise IOError(f"unable to open {path}")
+
+        return int(stream.get(cv2.CAP_PROP_FRAME_COUNT))

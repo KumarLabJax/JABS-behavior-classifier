@@ -7,9 +7,10 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from src.pose_estimation import get_pose_path, open_pose_file
+from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
 from src.video_stream.utilities import get_frame_count
+from src.video_stream import VideoStream
 from .video_labels import VideoLabels
 
 
@@ -22,7 +23,7 @@ class Project:
 
     __PREDICTION_FILE_VERSION = 1
 
-    def __init__(self, project_path, use_cache=True):
+    def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
         Open a project at a given path. A project is a directory that contains
         avi files and their corresponding pose_est_v3.h5 files as well as json
@@ -55,11 +56,6 @@ class Project:
         else:
             self._cache_dir = None
 
-        # get list of video files in the project directory
-        # TODO: we could check to see if the matching .h5 file exists
-        self._videos = [f.name for f in self._project_dir_path.glob("*.avi")]
-        self._videos.sort()
-
         # if project directory doesn't exist, create it (empty project)
         # parent directory must exist.
         Path(project_path).mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
@@ -84,6 +80,31 @@ class Project:
         self._unsaved_annotations = {}
 
         self._total_project_identities = 0
+
+        # get list of video files in the project directory
+        self._videos = self.get_videos(self._project_dir_path)
+        self._videos.sort()
+
+        err = False
+        for v in self.videos:
+            if self.__has_pose(v) is False:
+                print(f"{v} missing pose file", file=sys.stderr)
+                err = True
+        if err:
+            raise ValueError("Project missing pose file for one or more video")
+
+        if enable_video_check:
+            err = False
+            for v in self.videos:
+                path = get_pose_path(self.video_path(v))
+                pose_frames = get_frames_from_file(path)
+                vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
+                if pose_frames != vid_frames:
+                    print(f"{v}: video and pose file have different number of frames",
+                          file=sys.stderr)
+                    err = True
+            if err:
+                raise ValueError("Video and Pose File frame counts differ")
 
         video_metadata = self._metadata.get('video_files', {})
         for video in self._videos:
@@ -584,3 +605,18 @@ class Project:
                 h.update(c)
                 c = f.read(chunk_size)
         return h.hexdigest()
+
+    @staticmethod
+    def get_videos(dir_path: Path):
+        """ Get list of video filenames (without path) in a directory """
+        return [f.name for f in dir_path.glob("*.avi")]
+
+    def __has_pose(self, vid: str):
+        """ check to see if a video has a corresponding pose file """
+        path = self._project_dir_path / vid
+
+        try:
+            get_pose_path(path)
+        except ValueError:
+            return False
+        return True
