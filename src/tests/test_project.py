@@ -1,33 +1,12 @@
 import gzip
 import json
-import os
-import sys
 import shutil
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 
 from src.labeler.project import Project
 from src.labeler.video_labels import VideoLabels
-
-
-@contextmanager
-def redirect_stderr():
-    fd = sys.stderr.fileno()
-
-    # copy fd before it is overwritten
-    with os.fdopen(os.dup(fd), 'wb') as copied:
-        sys.stderr.flush()
-
-        # open destination
-        with open(os.devnull, 'wb') as fout:
-            os.dup2(fout.fileno(), fd)
-        try:
-            yield fd
-        finally:
-            # restore stderr to its previous value
-            sys.stderr.flush()
-            os.dup2(copied.fileno(), fd)
+from src.utils import hide_stderr
 
 
 class TestProject(unittest.TestCase):
@@ -173,10 +152,10 @@ class TestProject(unittest.TestCase):
         """
         project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         with self.assertRaises(IOError):
-            with redirect_stderr():
+            with hide_stderr():
                 project.load_annotation_track(self._FILENAMES[1])
 
     def test_bad_video_file(self):
         with self.assertRaises(IOError):
-            with redirect_stderr():
+            with hide_stderr():
                 _ = Project(self._EXISTING_PROJ_PATH)
