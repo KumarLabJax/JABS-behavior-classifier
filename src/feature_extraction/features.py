@@ -72,13 +72,19 @@ class IdentityFeatures:
         "min": lambda x: np.amin(x)
     }
 
+    # a copy of the above operations, but used for values that are circular
+    # (e.g. angles)
     _window_feature_operations_circular = {
         "mean": lambda x: scipy.stats.circmean(np.radians(x)),
-        "median": lambda x: np.median(x),
+        "median": lambda x: np.median(x), #scipy.stats does not have a circular version of median
         "std_dev": lambda x: scipy.stats.circstd(np.radians(x)),
         "max": lambda x: np.amax(x),
         "min": lambda x: np.amin(x)
     }
+
+    # keys should match in the above dicts
+    assert(_window_feature_operations.keys() ==
+           _window_feature_operations_circular.keys())
 
     _per_frame_features = [
         'angles',
@@ -638,9 +644,14 @@ class IdentityFeatures:
                                 window_values[frame_valid == 1])
                     else:
                         for j in range(window_values.shape[1]):
-                            for op_name, op in self._window_feature_operations.items():
-                                window_features[feature_name][op_name][i, j] = op(
-                                    window_values[:, j][frame_valid == 1])
+                            if feature_name == 'closest_fov_angles':
+                                for op_name, op in self._window_feature_operations_circular.items():
+                                    window_features[feature_name][op_name][i, j] = op(
+                                        window_values[:, j][frame_valid == 1])
+                            else:
+                                for op_name, op in self._window_feature_operations.items():
+                                    window_features[feature_name][op_name][i, j] = op(
+                                        window_values[:, j][frame_valid == 1])
 
         return window_features
 
