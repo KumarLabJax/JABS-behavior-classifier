@@ -1,4 +1,5 @@
 import time
+import typing
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,6 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import VideoStream, label_identity, label_all_identities
-
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -79,7 +79,7 @@ class _PlayerThread(QtCore.QThread):
         self._stream = video_stream
         self._pose_est = pose_est
         self._identity = identity
-        self._label_identities = False
+        self._label_closest = False
         self._identities = []
 
     def terminate(self):
@@ -90,18 +90,17 @@ class _PlayerThread(QtCore.QThread):
 
     def set_identity(self, identity):
         """
-        set the active identity -- we will draw a dot to indicate the position
-        of the selected identity
+        set the active identity
         :param identity: new selected identity
         :return: None
         """
         self._identity = identity
 
-    def set_label_identities(self, val):
-        self._label_identities = val
-
-    def set_labels(self, identities):
+    def set_identities(self, identities):
         self._identities = identities
+
+    def label_closest(self, show: bool):
+        self._label_closest = show
 
     def run(self):
         """
@@ -129,31 +128,27 @@ class _PlayerThread(QtCore.QThread):
 
             if frame['data'] is not None:
 
-                if self._label_identities and self._identities:
-                    # label all identities mode
+                if self._identities:
+
+                    if self._label_closest:
+                        closest_fov_id = _get_closest_animal_id(
+                            self._identity, frame['index'],
+                            self._pose_est, IdentityFeatures.half_fov_deg)
+                        if closest_fov_id is not None:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_fov_id, frame['index'],
+                                           color=_CLOSEST_FOV_LABEL_COLOR)
+
+                        closest_id = _get_closest_animal_id(self._identity, frame['index'], self._pose_est)
+                        if closest_id is not None and closest_id != closest_fov_id:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_id, frame['index'],
+                                           color=_CLOSEST_LABEL_COLOR)
+
+                    # label all identities
                     label_all_identities(frame['data'],
                                          self._pose_est, self._identities,
-                                         frame['index'])
-
-                elif self._identity is not None:
-                    # if active identity set, label it on the frame
-                    label_identity(frame['data'], self._pose_est,
-                                   self._identity, frame['index'])
-
-                    closest_fov_id = _get_closest_animal_id(
-                        self._identity, frame['index'],
-                        self._pose_est, IdentityFeatures.half_fov_deg)
-                    if closest_fov_id is not None:
-                        label_identity(frame['data'], self._pose_est,
-                                       closest_fov_id, frame['index'],
-                                       color=_CLOSEST_FOV_LABEL_COLOR)
-
-                    closest_id = _get_closest_animal_id(
-                        self._identity, frame['index'], self._pose_est)
-                    if closest_id is not None and closest_id != closest_fov_id:
-                        label_identity(frame['data'], self._pose_est,
-                                       closest_id, frame['index'],
-                                       color=_CLOSEST_LABEL_COLOR)
+                                         frame['index'], active=self._identity)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -290,7 +285,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # track annotation
         self._pose_est = None
 
-        self._label_all_identities = False
+        self._label_closest = False
         self._identities = []
 
         # currently selected identity -- if set will be labeled in the video
@@ -307,7 +302,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  -- player controls
 
         # current time and frame display
-        font = QtGui.QFont("Courier New", 14)
+        font = QtGui.QFont("Courier New", 12)
         self._time_label = QtWidgets.QLabel("00:00:00")
         self._frame_label = QtWidgets.QLabel("0")
         self._frame_label.setFont(font)
@@ -330,21 +325,25 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
-        self._previous_frame_button = QtWidgets.QPushButton("◀")
-        self._previous_frame_button.setMaximumWidth(35)
+        self._previous_frame_button = QtWidgets.QToolButton()
+        self._previous_frame_button.setText("◀")
+        self._previous_frame_button.setMaximumWidth(20)
+        self._previous_frame_button.setMaximumHeight(20)
         self._previous_frame_button.clicked.connect(
             self._previous_frame_clicked)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
-        self._next_frame_button = QtWidgets.QPushButton("▶")
-        self._next_frame_button.setMaximumWidth(35)
+        self._next_frame_button = QtWidgets.QToolButton()
+        self._next_frame_button.setText("▶")
+        self._next_frame_button.setMaximumWidth(20)
+        self._next_frame_button.setMaximumHeight(20)
         self._next_frame_button.clicked.connect(self._next_frame_clicked)
         self._next_frame_button.setAutoRepeat(True)
 
         # previous/next button layout
         frame_button_layout = QtWidgets.QHBoxLayout()
-        frame_button_layout.setSpacing(0)
+        frame_button_layout.setSpacing(2)
         frame_button_layout.addWidget(self._previous_frame_button)
         frame_button_layout.addWidget(self._next_frame_button)
         # prev/next frame buttons are disabled until a video is loaded
@@ -396,6 +395,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def reset(self):
         """ reset video player """
         self._video_stream = None
+        self._identities = None
         self._pose_est = None
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
@@ -410,24 +410,32 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def set_identity_label_mode(self, enabled):
-        self._label_all_identities = enabled
+    def show_closest(self, enabled: typing.Optional[bool]=None):
+        if enabled is None:
+            self._label_closest = not self._label_closest
+        else:
+            self._label_closest = enabled
 
         # don't do anything else if a video isn't loaded
         if self._video_stream is None:
             return
 
         if self._player_thread:
-            if enabled:
-                self._player_thread.set_labels(self._identities)
-            self._player_thread.set_label_identities(enabled)
+            self._player_thread.label_closest(enabled)
         else:
+            # if not playing, reload the current frame to apply current
+            # labeling state
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
 
     def set_identities(self, identities):
         self._identities = identities
+        if self._player_thread:
+            self._player_thread.set_identities(self._identities)
+        else:
+            self._video_stream.seek(self._position_slider.value())
+            self._update_frame(self._video_stream.read())
 
     def load_video(self, path: Path, pose_est):
         """
@@ -672,26 +680,28 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frame: dict returned by video_stream.read()
         """
         if frame['index'] != -1:
-            if self._label_all_identities:
-                label_all_identities(frame['data'], self._pose_est,
-                                     self._identities, frame['index'])
-            else:
-                label_identity(frame['data'], self._pose_est,
-                               self._active_identity, frame['index'])
-                closest_fov_id = _get_closest_animal_id(
-                    self._active_identity, frame['index'],
-                    self._pose_est, IdentityFeatures.half_fov_deg)
-                if closest_fov_id is not None:
-                    label_identity(frame['data'], self._pose_est, closest_fov_id,
-                                   frame['index'],
-                                   color=_CLOSEST_FOV_LABEL_COLOR)
+            if self._identities:
 
-                closest_id = _get_closest_animal_id(
-                    self._active_identity, frame['index'], self._pose_est)
-                if closest_id is not None and closest_id != closest_fov_id:
-                    label_identity(frame['data'], self._pose_est, closest_id,
-                                   frame['index'],
-                                   color=_CLOSEST_LABEL_COLOR)
+                if self._label_closest:
+                    closest_fov_id = _get_closest_animal_id(
+                        self._active_identity, frame['index'],
+                        self._pose_est, IdentityFeatures.half_fov_deg)
+                    if closest_fov_id is not None:
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_fov_id, frame['index'],
+                                       color=_CLOSEST_FOV_LABEL_COLOR)
+
+                    closest_id = _get_closest_animal_id(self._active_identity,
+                                                        frame['index'],
+                                                        self._pose_est)
+                    if closest_id is not None and closest_id != closest_fov_id:
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_id, frame['index'],
+                                       color=_CLOSEST_LABEL_COLOR)
+
+                label_all_identities(frame['data'], self._pose_est,
+                                     self._identities, frame['index'],
+                                     active=self._active_identity)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
@@ -763,5 +773,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
+        self._player_thread.set_identities(self._identities)
+        self._player_thread.label_closest(self._label_closest)
         self._player_thread.start()
         self._playing = True
