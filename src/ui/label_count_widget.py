@@ -29,7 +29,7 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
             'not_behavior_project': QtWidgets.QLabel("0"),
         }
 
-        font = QtGui.QFont("Courier New", 14)
+        font = QtGui.QFont("Courier New", 12)
 
         for l in self._frame_labels.values():
             l.setFont(font)

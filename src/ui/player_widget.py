@@ -302,7 +302,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  -- player controls
 
         # current time and frame display
-        font = QtGui.QFont("Courier New", 14)
+        font = QtGui.QFont("Courier New", 12)
         self._time_label = QtWidgets.QLabel("00:00:00")
         self._frame_label = QtWidgets.QLabel("0")
         self._frame_label.setFont(font)
@@ -325,21 +325,25 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
-        self._previous_frame_button = QtWidgets.QPushButton("◀")
-        self._previous_frame_button.setMaximumWidth(35)
+        self._previous_frame_button = QtWidgets.QToolButton()
+        self._previous_frame_button.setText("◀")
+        self._previous_frame_button.setMaximumWidth(20)
+        self._previous_frame_button.setMaximumHeight(20)
         self._previous_frame_button.clicked.connect(
             self._previous_frame_clicked)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
-        self._next_frame_button = QtWidgets.QPushButton("▶")
-        self._next_frame_button.setMaximumWidth(35)
+        self._next_frame_button = QtWidgets.QToolButton()
+        self._next_frame_button.setText("▶")
+        self._next_frame_button.setMaximumWidth(20)
+        self._next_frame_button.setMaximumHeight(20)
         self._next_frame_button.clicked.connect(self._next_frame_clicked)
         self._next_frame_button.setAutoRepeat(True)
 
         # previous/next button layout
         frame_button_layout = QtWidgets.QHBoxLayout()
-        frame_button_layout.setSpacing(0)
+        frame_button_layout.setSpacing(2)
         frame_button_layout.addWidget(self._previous_frame_button)
         frame_button_layout.addWidget(self._next_frame_button)
         # prev/next frame buttons are disabled until a video is loaded

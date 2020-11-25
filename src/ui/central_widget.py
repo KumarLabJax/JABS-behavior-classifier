@@ -83,14 +83,14 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(add_label_button)
 
-        behavior_group = QtWidgets.QGroupBox("Behavior Selection")
+        behavior_group = QtWidgets.QGroupBox("Behavior")
         behavior_group.setLayout(behavior_layout)
 
         # identity selection form components
 
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
-        identity_group = QtWidgets.QGroupBox("Identity Selection")
+        identity_group = QtWidgets.QGroupBox("Identity")
         identity_group.setLayout(identity_layout)
 
         # classifier controls
