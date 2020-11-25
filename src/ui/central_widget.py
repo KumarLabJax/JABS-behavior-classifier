@@ -82,7 +82,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.identity_selection = IdentityComboBox()
         self.identity_selection.currentIndexChanged.connect(
             self._change_identity)
-        self.identity_selection.pop_up_visible.connect(self._identity_popup_visibility_changed)
+        #self.identity_selection.pop_up_visible.connect(self._identity_popup_visibility_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
         identity_layout = QtWidgets.QVBoxLayout()

@@ -1,11 +1,12 @@
 import cv2
 from shapely.geometry import MultiPoint
 
-_FRAME_LABEL_COLOR = (215, 222, 0)
+_ID_COLOR = (215, 222, 0)
+_ACTIVE_COLOR = (0, 0, 255)
 
 
 def label_identity(img, pose_est, identity, frame_index,
-                   color=_FRAME_LABEL_COLOR):
+                   color=_ID_COLOR):
     """
     label the identity on an image
     :param img: image to label
@@ -29,7 +30,7 @@ def label_identity(img, pose_est, identity, frame_index,
                    1, lineType=cv2.LINE_AA)
 
 
-def label_all_identities(img, pose_est, identities, frame_index):
+def label_all_identities(img, pose_est, identities, frame_index, active=None):
     """
     label all of the identities in the frame
     :param img: image to draw the labels on
@@ -44,7 +45,11 @@ def label_all_identities(img, pose_est, identities, frame_index):
         if shape is not None:
             center = shape.centroid
 
+            if identity == active:
+                color = _ACTIVE_COLOR
+            else:
+                color = _ID_COLOR
             # write the identity at that location
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),
-                        cv2.FONT_HERSHEY_PLAIN, 1, _FRAME_LABEL_COLOR, 1,
+                        cv2.FONT_HERSHEY_PLAIN, 1, color, 1,
                         lineType=cv2.LINE_AA)
