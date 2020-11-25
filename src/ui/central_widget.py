@@ -68,10 +68,18 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
 
-        add_label_button = QtWidgets.QPushButton("New Behavior")
+        self.identity_selection = IdentityComboBox()
+        self.identity_selection.currentIndexChanged.connect(
+            self._change_identity)
+        self.identity_selection.setEditable(False)
+        self.identity_selection.installEventFilter(self.identity_selection)
+
+        add_label_button = QtWidgets.QToolButton()
+        add_label_button.setText("+")
+        add_label_button.setToolTip("Add a new behavior label")
         add_label_button.clicked.connect(self._new_label)
 
-        behavior_layout = QtWidgets.QVBoxLayout()
+        behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(add_label_button)
 
@@ -79,12 +87,7 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_group.setLayout(behavior_layout)
 
         # identity selection form components
-        self.identity_selection = IdentityComboBox()
-        self.identity_selection.currentIndexChanged.connect(
-            self._change_identity)
-        #self.identity_selection.pop_up_visible.connect(self._identity_popup_visibility_changed)
-        self.identity_selection.setEditable(False)
-        self.identity_selection.installEventFilter(self.identity_selection)
+
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
         identity_group = QtWidgets.QGroupBox("Identity Selection")
@@ -114,14 +117,13 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_layout = QtWidgets.QGridLayout()
         classifier_layout.addWidget(self.train_button, 0, 0)
         classifier_layout.addWidget(self.classify_button, 0, 1)
-        classifier_layout.addWidget(QtWidgets.QLabel("Classifier: "), 1, 0)
-        classifier_layout.addWidget(self._classifier_selection, 2, 0, 1, 2)
-        classifier_layout.addWidget(self._kslider, 3, 0, 1, 2)
+        classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
+        classifier_layout.addWidget(self._kslider, 2, 0, 1, 2)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
 
         # label components
-        label_layout = QtWidgets.QVBoxLayout()
+        label_layout = QtWidgets.QGridLayout()
 
         self.label_behavior_button = QtWidgets.QPushButton()
         self.label_behavior_button.setText(
@@ -176,10 +178,10 @@ class CentralWidget(QtWidgets.QWidget):
         # label buttons are disabled unless user has a range of frames selected
         self._disable_label_buttons()
 
-        label_layout.addWidget(self.label_behavior_button)
-        label_layout.addWidget(self.label_not_behavior_button)
-        label_layout.addWidget(self.clear_label_button)
-        label_layout.addWidget(self.select_button)
+        label_layout.addWidget(self.label_behavior_button, 0, 0, 1, 2)
+        label_layout.addWidget(self.label_not_behavior_button, 1, 0, 1, 2)
+        label_layout.addWidget(self.clear_label_button, 2, 0)
+        label_layout.addWidget(self.select_button, 2, 1)
         label_group = QtWidgets.QGroupBox("Label")
         label_group.setLayout(label_layout)
 
@@ -425,8 +427,8 @@ class CentralWidget(QtWidgets.QWidget):
         callback for the "new behavior" button
         opens a modal dialog to allow the user to enter a new behavior label
         """
-        text, ok = QtWidgets.QInputDialog.getText(None, 'New Label',
-                                                  'New Label Name:')
+        text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
+                                                  'New Behavior Name:')
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self.behavior_selection.addItem(text)

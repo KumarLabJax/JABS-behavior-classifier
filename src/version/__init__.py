@@ -1,5 +1,5 @@
 __MAJOR = 0
-__MINOR = 4
+__MINOR = 5
 __PATCH = 0
 
 
