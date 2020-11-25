@@ -191,6 +191,9 @@ class _FrameWidget(QtWidgets.QLabel):
     widget that implements a resizable pixmap label, will initialize to the
     full size of the video frame, but then will be resizable after that
     """
+
+    clicked = QtCore.pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
 
@@ -199,6 +202,33 @@ class _FrameWidget(QtWidgets.QLabel):
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
+        self._scaled_pix_x = 0
+        self._scaled_pix_y = 0
+        self._scaled_pix_width = 0
+        self._scaled_pix_height = 0
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(event)
+        QtWidgets.QLabel.mousePressEvent(self, event)
+
+    def frame_xy_to_pixmap_xy(self, x, y):
+        pixmap = self.pixmap()
+        if pixmap is not None:
+            if (self._scaled_pix_height == pixmap.height()
+                    and self._scaled_pix_width == pixmap.width()
+                    and self._scaled_pix_x == 0
+                    and self._scaled_pix_y == 0):
+
+                # no coordinate transformation needs to be done
+                return x, y
+
+            else:
+                xform_x = x - self._scaled_pix_x
+                xform_y = y - self._scaled_pix_y
+                xform_x *= pixmap.width() / self._scaled_pix_width
+                xform_y *= pixmap.height() / self._scaled_pix_height
+
+                return xform_x, xform_y
 
     def sizeHint(self):
         """
@@ -245,6 +275,11 @@ class _FrameWidget(QtWidgets.QLabel):
 
             # draw the pixmap starting at the new calculated offset
             painter.drawPixmap(point, pix)
+
+            self._scaled_pix_x = point.x()
+            self._scaled_pix_y = point.y()
+            self._scaled_pix_width = pix.width()
+            self._scaled_pix_height = pix.height()
 
             # after we let the first frame expand the widget
             # switch to the Ignored size policy and we will resize the image to
@@ -303,6 +338,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # custom widget for displaying a resizable image
         self._frame_widget = _FrameWidget()
+        self._frame_widget.clicked.connect(self._frame_widget_clicked)
 
         #  -- player controls
 
@@ -493,6 +529,12 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.terminate()
         self._player_thread.wait()
         self._player_thread = None
+
+    def _frame_widget_clicked(self, event):
+        print(f'click x: {event.x()}, y: {event.y()}')
+        xform_x, xform_y = self._frame_widget.frame_xy_to_pixmap_xy(
+            event.x(), event.y())
+        print(f'xform_x: {xform_x}, xform_y: {xform_y}')
 
     def _position_slider_clicked(self):
         """
