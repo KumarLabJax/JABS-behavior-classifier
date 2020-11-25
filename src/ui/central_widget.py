@@ -94,7 +94,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
-        identity_group = QtWidgets.QGroupBox("Identity")
+        identity_group = QtWidgets.QGroupBox("Subject Identity")
         identity_group.setLayout(identity_layout)
 
         # classifier controls
