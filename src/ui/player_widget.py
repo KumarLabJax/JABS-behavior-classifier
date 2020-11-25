@@ -214,6 +214,11 @@ class _FrameWidget(QtWidgets.QLabel):
         QtWidgets.QLabel.mousePressEvent(self, event)
 
     def _frame_xy_to_pixmap_xy(self, x, y):
+        """
+        Convert the given x, y coordinates from _FrameWidget coordinates
+        to pixmap coordinates. Ie which pixel did the user click on?
+        We account for image scaling and translation
+        """
         pixmap = self.pixmap()
         if pixmap is not None:
 
