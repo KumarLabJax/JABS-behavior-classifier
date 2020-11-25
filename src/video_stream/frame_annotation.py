@@ -49,5 +49,5 @@ def label_all_identities(img, pose_est, identities, frame_index, active=None):
                 color = _ID_COLOR
             # write the identity at that location
             cv2.putText(img, str(identity), (int(center.y), int(center.x)),
-                        cv2.FONT_HERSHEY_PLAIN, 1, color, 1,
+                        cv2.FONT_HERSHEY_PLAIN, 1.25, color, 2,
                         lineType=cv2.LINE_AA)
