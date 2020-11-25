@@ -186,6 +186,9 @@ class _FrameWidget(QtWidgets.QLabel):
     widget that implements a resizable pixmap label, will initialize to the
     full size of the video frame, but then will be resizable after that
     """
+
+    pixmap_clicked = QtCore.pyqtSignal(dict)
+
     def __init__(self):
         super().__init__()
 
@@ -194,6 +197,40 @@ class _FrameWidget(QtWidgets.QLabel):
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
+        self._scaled_pix_x = 0
+        self._scaled_pix_y = 0
+        self._scaled_pix_width = 0
+        self._scaled_pix_height = 0
+
+    def mousePressEvent(self, event):
+        pix_x, pix_y = self._frame_xy_to_pixmap_xy(event.x(), event.y())
+        self.pixmap_clicked.emit({'x': pix_x, 'y': pix_y})
+
+        QtWidgets.QLabel.mousePressEvent(self, event)
+
+    def _frame_xy_to_pixmap_xy(self, x, y):
+        """
+        Convert the given x, y coordinates from _FrameWidget coordinates
+        to pixmap coordinates. Ie which pixel did the user click on?
+        We account for image scaling and translation
+        """
+        pixmap = self.pixmap()
+        if pixmap is not None:
+
+            if (self._scaled_pix_height != pixmap.height()
+                    or self._scaled_pix_width != pixmap.width()
+                    or self._scaled_pix_x != 0
+                    or self._scaled_pix_y != 0):
+
+                if self._scaled_pix_width >= 1 and self._scaled_pix_height >= 1:
+                    # we've done all the checks and it's safe to transform
+                    # the x, y point
+                    x -= self._scaled_pix_x
+                    y -= self._scaled_pix_y
+                    x *= pixmap.width() / self._scaled_pix_width
+                    y *= pixmap.height() / self._scaled_pix_height
+
+        return x, y
 
     def sizeHint(self):
         """
@@ -240,6 +277,11 @@ class _FrameWidget(QtWidgets.QLabel):
 
             # draw the pixmap starting at the new calculated offset
             painter.drawPixmap(point, pix)
+
+            self._scaled_pix_x = point.x()
+            self._scaled_pix_y = point.y()
+            self._scaled_pix_width = pix.width()
+            self._scaled_pix_height = pix.height()
 
             # after we let the first frame expand the widget
             # switch to the Ignored size policy and we will resize the image to
@@ -651,6 +693,10 @@ class PlayerWidget(QtWidgets.QWidget):
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
+
+    @property
+    def pixmap_clicked(self):
+        return self._frame_widget.pixmap_clicked
 
     def get_identity_mask(self):
         """
