@@ -2,6 +2,7 @@ import sys
 
 import numpy as np
 from PyQt5 import QtWidgets, QtCore
+from shapely.geometry import Point
 
 from src.classifier.skl_classifier import SklClassifier
 from src.labeler.track_labels import TrackLabels
@@ -41,11 +42,14 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget = PlayerWidget()
         self._player_widget.updateIdentities.connect(self._set_identities)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
+        self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
+        self._curr_frame_index = 0
 
         self._loaded_video = None
 
         self._project = None
         self._labels = None
+        self._pose_est = None
 
         #  classifier
         self._classifier = SklClassifier()
@@ -350,8 +354,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         try:
             # open the video
-            self._player_widget.load_video(path,
-                                           self._project.load_pose_est(path))
+            self._pose_est = self._project.load_pose_est(path)
+            self._player_widget.load_video(path, self._pose_est)
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_annotation_track(path)
@@ -375,6 +379,7 @@ class CentralWidget(QtWidgets.QWidget):
             # error loading
             self._labels = None
             self._loaded_video = None
+            self._pose_est = None
             self._set_identities([])
             self._player_widget.reset()
             raise e
@@ -554,6 +559,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         called when the video player widget emits its updateFrameNumber signal
         """
+        self._curr_frame_index = new_frame
         self.manual_labels.set_current_frame(new_frame)
         self.prediction_vis.set_current_frame(new_frame)
         self.timeline_widget.set_current_frame(new_frame)
@@ -801,3 +807,15 @@ class CentralWidget(QtWidgets.QWidget):
         self._project.save_predictions(self._predictions, self._probabilities,
                                        self._frame_indexes,
                                        self.behavior_selection.currentText())
+
+    def _pixmap_clicked(self, event):
+        if self._pose_est is not None:
+            # since convex hulls are represented as y, x we need to maintain this
+            # ordering
+            pt = Point(event['y'], event['x'])
+            for i, ident in enumerate(self._pose_est.identities):
+                c_hulls = self._pose_est.get_identity_convex_hulls(ident)
+                curr_c_hull = c_hulls[self._curr_frame_index]
+                if curr_c_hull is not None and curr_c_hull.contains(pt):
+                    self.identity_selection.setCurrentIndex(i)
+                    break

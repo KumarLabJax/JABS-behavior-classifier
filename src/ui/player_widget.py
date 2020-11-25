@@ -192,7 +192,7 @@ class _FrameWidget(QtWidgets.QLabel):
     full size of the video frame, but then will be resizable after that
     """
 
-    clicked = QtCore.pyqtSignal(object)
+    pixmap_clicked = QtCore.pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
@@ -208,10 +208,12 @@ class _FrameWidget(QtWidgets.QLabel):
         self._scaled_pix_height = 0
 
     def mousePressEvent(self, event):
-        self.clicked.emit(event)
+        pix_x, pix_y = self._frame_xy_to_pixmap_xy(event.x(), event.y())
+        self.pixmap_clicked.emit({'x': pix_x, 'y': pix_y})
+
         QtWidgets.QLabel.mousePressEvent(self, event)
 
-    def frame_xy_to_pixmap_xy(self, x, y):
+    def _frame_xy_to_pixmap_xy(self, x, y):
         pixmap = self.pixmap()
         if pixmap is not None:
             if (self._scaled_pix_height == pixmap.height()
@@ -338,7 +340,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # custom widget for displaying a resizable image
         self._frame_widget = _FrameWidget()
-        self._frame_widget.clicked.connect(self._frame_widget_clicked)
 
         #  -- player controls
 
@@ -530,12 +531,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.wait()
         self._player_thread = None
 
-    def _frame_widget_clicked(self, event):
-        print(f'click x: {event.x()}, y: {event.y()}')
-        xform_x, xform_y = self._frame_widget.frame_xy_to_pixmap_xy(
-            event.x(), event.y())
-        print(f'xform_x: {xform_x}, xform_y: {xform_y}')
-
     def _position_slider_clicked(self):
         """
         Click event for position slider.
@@ -685,6 +680,10 @@ class PlayerWidget(QtWidgets.QWidget):
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
+
+    @property
+    def pixmap_clicked(self):
+        return self._frame_widget.pixmap_clicked
 
     def get_identity_mask(self):
         """
