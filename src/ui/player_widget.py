@@ -1,4 +1,5 @@
 import time
+import typing
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,6 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import VideoStream, label_identity, label_all_identities
-
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -79,7 +79,7 @@ class _PlayerThread(QtCore.QThread):
         self._stream = video_stream
         self._pose_est = pose_est
         self._identity = identity
-        self._label_identities = False
+        self._label_closest = False
         self._identities = []
 
     def terminate(self):
@@ -96,8 +96,11 @@ class _PlayerThread(QtCore.QThread):
         """
         self._identity = identity
 
-    def set_labels(self, identities):
+    def set_identities(self, identities):
         self._identities = identities
+
+    def label_closest(self, show: bool):
+        self._label_closest = show
 
     def run(self):
         """
@@ -126,7 +129,23 @@ class _PlayerThread(QtCore.QThread):
             if frame['data'] is not None:
 
                 if self._identities:
-                    # label all identities mode
+
+                    if self._label_closest:
+                        closest_fov_id = _get_closest_animal_id(
+                            self._identity, frame['index'],
+                            self._pose_est, IdentityFeatures.half_fov_deg)
+                        if closest_fov_id is not None:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_fov_id, frame['index'],
+                                           color=_CLOSEST_FOV_LABEL_COLOR)
+
+                        closest_id = _get_closest_animal_id(self._identity, frame['index'], self._pose_est)
+                        if closest_id is not None and closest_id != closest_fov_id:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_id, frame['index'],
+                                           color=_CLOSEST_LABEL_COLOR)
+
+                    # label all identities
                     label_all_identities(frame['data'],
                                          self._pose_est, self._identities,
                                          frame['index'], active=self._identity)
@@ -266,7 +285,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # track annotation
         self._pose_est = None
 
-        self._label_all_identities = False
+        self._label_closest = False
         self._identities = []
 
         # currently selected identity -- if set will be labeled in the video
@@ -387,18 +406,21 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def set_identity_label_mode(self, enabled):
-        self._label_all_identities = enabled
+    def show_closest(self, enabled: typing.Optional[bool]=None):
+        if enabled is None:
+            self._label_closest = not self._label_closest
+        else:
+            self._label_closest = enabled
 
         # don't do anything else if a video isn't loaded
         if self._video_stream is None:
             return
 
         if self._player_thread:
-            if enabled:
-                self._player_thread.set_labels(self._identities)
-            self._player_thread.set_label_identities(enabled)
+            self._player_thread.label_closest(enabled)
         else:
+            # if not playing, reload the current frame to apply current
+            # labeling state
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
@@ -406,7 +428,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def set_identities(self, identities):
         self._identities = identities
         if self._player_thread:
-            self._player_thread.set_labels(self._identities)
+            self._player_thread.set_identities(self._identities)
         else:
             self._video_stream.seek(self._position_slider.value())
             self._update_frame(self._video_stream.read())
@@ -655,6 +677,24 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         if frame['index'] != -1:
             if self._identities:
+
+                if self._label_closest:
+                    closest_fov_id = _get_closest_animal_id(
+                        self._active_identity, frame['index'],
+                        self._pose_est, IdentityFeatures.half_fov_deg)
+                    if closest_fov_id is not None:
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_fov_id, frame['index'],
+                                       color=_CLOSEST_FOV_LABEL_COLOR)
+
+                    closest_id = _get_closest_animal_id(self._active_identity,
+                                                        frame['index'],
+                                                        self._pose_est)
+                    if closest_id is not None and closest_id != closest_fov_id:
+                        label_identity(frame['data'], self._pose_est,
+                                       closest_id, frame['index'],
+                                       color=_CLOSEST_LABEL_COLOR)
+
                 label_all_identities(frame['data'], self._pose_est,
                                      self._identities, frame['index'],
                                      active=self._active_identity)
@@ -729,6 +769,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
-        self._player_thread.set_labels(self._identities)
+        self._player_thread.set_identities(self._identities)
+        self._player_thread.label_closest(self._label_closest)
         self._player_thread.start()
         self._playing = True

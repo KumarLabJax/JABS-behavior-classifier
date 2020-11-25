@@ -417,6 +417,8 @@ class CentralWidget(QtWidgets.QWidget):
             if self.select_button.isChecked():
                 self.select_button.setChecked(False)
                 self._start_selection(False)
+        elif key == QtCore.Qt.Key_L:
+            self._player_widget.show_closest()
 
     def _new_label(self):
         """
@@ -611,7 +613,7 @@ class CentralWidget(QtWidgets.QWidget):
         When visible == False we revert to the normal behavior of only labeling
         the currently selected identity
         """
-        self._player_widget.set_identity_label_mode(visible)
+        self._player_widget.show_closest(visible)
 
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
