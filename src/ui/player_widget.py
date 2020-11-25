@@ -216,21 +216,21 @@ class _FrameWidget(QtWidgets.QLabel):
     def _frame_xy_to_pixmap_xy(self, x, y):
         pixmap = self.pixmap()
         if pixmap is not None:
-            if (self._scaled_pix_height == pixmap.height()
-                    and self._scaled_pix_width == pixmap.width()
-                    and self._scaled_pix_x == 0
-                    and self._scaled_pix_y == 0):
 
-                # no coordinate transformation needs to be done
-                return x, y
+            if (self._scaled_pix_height != pixmap.height()
+                    or self._scaled_pix_width != pixmap.width()
+                    or self._scaled_pix_x != 0
+                    or self._scaled_pix_y != 0):
 
-            else:
-                xform_x = x - self._scaled_pix_x
-                xform_y = y - self._scaled_pix_y
-                xform_x *= pixmap.width() / self._scaled_pix_width
-                xform_y *= pixmap.height() / self._scaled_pix_height
+                if self._scaled_pix_width >= 1 and self._scaled_pix_height >= 1:
+                    # we've done all the checks and it's safe to transform
+                    # the x, y point
+                    x -= self._scaled_pix_x
+                    y -= self._scaled_pix_y
+                    x *= pixmap.width() / self._scaled_pix_width
+                    y *= pixmap.height() / self._scaled_pix_height
 
-                return xform_x, xform_y
+        return x, y
 
     def sizeHint(self):
         """
