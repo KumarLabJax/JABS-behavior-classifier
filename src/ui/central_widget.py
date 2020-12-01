@@ -451,6 +451,9 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_not_behavior_button.setText(
             f"Not {self.behavior()}")
 
+        if self._project is None:
+            return
+
         self._set_label_track()
 
         classifier_loaded = False
