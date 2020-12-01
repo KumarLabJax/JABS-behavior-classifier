@@ -77,6 +77,8 @@ def draw_track(img, pose_est: PoseEstimation, identity: int, frame_index: int,
     if None use center of mass rather than a point. default to nose
     """
 
+    slice_start = max(frame_index-past_points, 0)
+
     if point_index is None:
         convex_hulls = pose_est.get_identity_convex_hulls(identity)
 
@@ -87,7 +89,7 @@ def draw_track(img, pose_est: PoseEstimation, identity: int, frame_index: int,
         future_track_points = [(int(x.y), int(x.x)) for x in centroids]
 
         # get points for 'past' track points
-        hulls = convex_hulls[frame_index-past_points:frame_index+1]
+        hulls = convex_hulls[slice_start:frame_index+1]
         centroids = [x.centroid for x in hulls if x is not None]
         # openCV needs points to be ordered y,x
         past_track_points = [(int(x.y), int(x.x)) for x in centroids]
@@ -104,8 +106,8 @@ def draw_track(img, pose_est: PoseEstimation, identity: int, frame_index: int,
         ]
 
         # get points for 'past' track points
-        past_track_points = points[frame_index-past_points:frame_index+1, point_index]
-        track_point_mask = mask[frame_index-past_points:frame_index+1, point_index]
+        past_track_points = points[slice_start:frame_index+1, point_index]
+        track_point_mask = mask[slice_start:frame_index+1, point_index]
         past_track_points = [
             (p[1], p[0]) for p in past_track_points[track_point_mask != 0]
         ]
