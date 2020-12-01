@@ -425,7 +425,11 @@ class CentralWidget(QtWidgets.QWidget):
                 self.select_button.setChecked(False)
                 self._start_selection(False)
         elif key == QtCore.Qt.Key_L:
+            # show closest with no argument toggles the setting
             self._player_widget.show_closest()
+        elif key == QtCore.Qt.Key_T:
+            # show_track with no argument toggles the setting
+            self._player_widget.show_track()
 
     def _new_label(self):
         """
@@ -814,8 +818,8 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
-            # since convex hulls are represented as y, x we need to maintain this
-            # ordering
+            # since convex hulls are represented as y, x we need to maintain
+            # this ordering
             pt = Point(event['y'], event['x'])
             for i, ident in enumerate(self._pose_est.identities):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
