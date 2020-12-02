@@ -46,11 +46,6 @@ class TimelineLabelWidget(QWidget):
         # event
         self._bin_size = 0
 
-        # scale factor is based on the bin size and is used to determine how
-        # wide to draw the box showing the current window being displayed in
-        # the ManualLabelWidget
-        self._scale_factor = 0
-
         self._pixmap = None
         self._pixmap_offset = 0
 
@@ -94,11 +89,10 @@ class TimelineLabelWidget(QWidget):
 
         # draw a box around what is currently being displayed in the
         # ManualLabelWidget
-        start = mapped_position - (
-                self._window_size * self._scale_factor) + self._pixmap_offset
+        start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
-        qp.drawRect(start, 0, self._frames_in_view * self._scale_factor,
+        qp.drawRect(start, 0, self._frames_in_view // self._bin_size,
                     self.size().height() - 1)
 
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
@@ -163,6 +157,5 @@ class TimelineLabelWidget(QWidget):
             float(self._num_frames) / width) * width - self._num_frames
         self._bin_size = (self._num_frames + pad_size) / width
 
-        self._scale_factor = (width / self._num_frames)
         padding = (self._bin_size * width - self._num_frames) / self._bin_size
         self._pixmap_offset = padding // 2
