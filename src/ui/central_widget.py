@@ -116,6 +116,8 @@ class CentralWidget(QtWidgets.QWidget):
         #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
         self._kslider.valueChanged.connect(self._kfold_changed)
+        #   disabled until project loaded
+        self._kslider.setEnabled(False)
 
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
@@ -178,6 +180,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.select_button = QtWidgets.QPushButton("Select Frames")
         self.select_button.setCheckable(True)
         self.select_button.clicked.connect(self._start_selection)
+        # disabled until a project is loaded
+        self.select_button.setEnabled(False)
 
         # label buttons are disabled unless user has a range of frames selected
         self._disable_label_buttons()
@@ -330,6 +334,10 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
 
+        self.select_button.setEnabled(True)
+        self._kslider.setEnabled(True)
+        self._set_train_button_enabled_state()
+
     def get_labels(self):
         """
         get VideoLabels for currently opened video file
@@ -376,7 +384,6 @@ class CentralWidget(QtWidgets.QWidget):
             self._loaded_video = path
             self._set_label_track()
             self._update_label_counts()
-            self._set_train_button_enabled_state()
         except OSError as e:
             # error loading
             self._labels = None
