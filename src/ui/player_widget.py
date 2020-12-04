@@ -7,7 +7,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import PoseEstimationV3
-from src.video_stream import VideoStream, label_identity, label_all_identities
+from src.video_stream import VideoStream, label_identity, label_all_identities, draw_track
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -80,6 +80,7 @@ class _PlayerThread(QtCore.QThread):
         self._pose_est = pose_est
         self._identity = identity
         self._label_closest = False
+        self._show_track = False
         self._identities = []
 
     def terminate(self):
@@ -101,6 +102,9 @@ class _PlayerThread(QtCore.QThread):
 
     def label_closest(self, show: bool):
         self._label_closest = show
+
+    def show_track(self, show: bool):
+        self._show_track = show
 
     def run(self):
         """
@@ -130,6 +134,10 @@ class _PlayerThread(QtCore.QThread):
 
                 if self._identities:
 
+                    if self._show_track:
+                        draw_track(frame['data'], self._pose_est,
+                                   self._identity, frame['index'])
+
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
                             self._identity, frame['index'],
@@ -139,7 +147,8 @@ class _PlayerThread(QtCore.QThread):
                                            closest_fov_id, frame['index'],
                                            color=_CLOSEST_FOV_LABEL_COLOR)
 
-                        closest_id = _get_closest_animal_id(self._identity, frame['index'], self._pose_est)
+                        closest_id = _get_closest_animal_id(
+                            self._identity, frame['index'], self._pose_est)
                         if closest_id is not None and closest_id != closest_fov_id:
                             label_identity(frame['data'], self._pose_est,
                                            closest_id, frame['index'],
@@ -148,7 +157,7 @@ class _PlayerThread(QtCore.QThread):
                     # label all identities
                     label_all_identities(frame['data'],
                                          self._pose_est, self._identities,
-                                         frame['index'], active=self._identity)
+                                         frame['index'], subject=self._identity)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -324,10 +333,10 @@ class PlayerWidget(QtWidgets.QWidget):
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
 
-        # track annotation
         self._pose_est = None
 
         self._label_closest = False
+        self._show_track = False
         self._identities = []
 
         # currently selected identity -- if set will be labeled in the video
@@ -452,21 +461,39 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def show_closest(self, enabled: typing.Optional[bool]=None):
-        if enabled is None:
+    def show_closest(self, new_val: typing.Optional[bool]=None):
+        if new_val is None:
             self._label_closest = not self._label_closest
         else:
-            self._label_closest = enabled
+            self._label_closest = new_val
 
         # don't do anything else if a video isn't loaded
         if self._video_stream is None:
             return
 
         if self._player_thread:
-            self._player_thread.label_closest(enabled)
+            self._player_thread.label_closest(self._label_closest)
         else:
             # if not playing, reload the current frame to apply current
             # labeling state
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
+            self._update_frame(self._video_stream.read())
+
+    def show_track(self, new_val: typing.Optional[bool]=None):
+        if new_val is None:
+            self._show_track = not self._show_track
+        else:
+            self._show_track = new_val
+
+        # don't do anything else if a video isn't loaded
+        if self._video_stream is None:
+            return
+
+        if self._player_thread:
+            self._player_thread.show_track(self._show_track)
+        else:
+            # if not playing, reload current frame to apply current track state
             self._video_stream.seek(self._position_slider.value())
             self._video_stream.load_next_frame()
             self._update_frame(self._video_stream.read())
@@ -728,6 +755,10 @@ class PlayerWidget(QtWidgets.QWidget):
         if frame['index'] != -1:
             if self._identities:
 
+                if self._show_track:
+                    draw_track(frame['data'], self._pose_est,
+                               self._active_identity, frame['index'])
+
                 if self._label_closest:
                     closest_fov_id = _get_closest_animal_id(
                         self._active_identity, frame['index'],
@@ -747,7 +778,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
                 label_all_identities(frame['data'], self._pose_est,
                                      self._identities, frame['index'],
-                                     active=self._active_identity)
+                                     subject=self._active_identity)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
                                  frame['data'].shape[0],
@@ -821,5 +852,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.endOfFile.connect(self.stop)
         self._player_thread.set_identities(self._identities)
         self._player_thread.label_closest(self._label_closest)
+        self._player_thread.show_track(self._show_track)
         self._player_thread.start()
         self._playing = True

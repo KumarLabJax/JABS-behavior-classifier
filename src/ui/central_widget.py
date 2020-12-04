@@ -116,6 +116,8 @@ class CentralWidget(QtWidgets.QWidget):
         #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
         self._kslider.valueChanged.connect(self._kfold_changed)
+        #   disabled until project loaded
+        self._kslider.setEnabled(False)
 
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
@@ -178,6 +180,8 @@ class CentralWidget(QtWidgets.QWidget):
         self.select_button = QtWidgets.QPushButton("Select Frames")
         self.select_button.setCheckable(True)
         self.select_button.clicked.connect(self._start_selection)
+        # disabled until a project is loaded
+        self.select_button.setEnabled(False)
 
         # label buttons are disabled unless user has a range of frames selected
         self._disable_label_buttons()
@@ -330,6 +334,10 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
 
+        self.select_button.setEnabled(True)
+        self._kslider.setEnabled(True)
+        self._set_train_button_enabled_state()
+
     def get_labels(self):
         """
         get VideoLabels for currently opened video file
@@ -376,7 +384,6 @@ class CentralWidget(QtWidgets.QWidget):
             self._loaded_video = path
             self._set_label_track()
             self._update_label_counts()
-            self._set_train_button_enabled_state()
         except OSError as e:
             # error loading
             self._labels = None
@@ -425,7 +432,11 @@ class CentralWidget(QtWidgets.QWidget):
                 self.select_button.setChecked(False)
                 self._start_selection(False)
         elif key == QtCore.Qt.Key_L:
+            # show closest with no argument toggles the setting
             self._player_widget.show_closest()
+        elif key == QtCore.Qt.Key_T:
+            # show_track with no argument toggles the setting
+            self._player_widget.show_track()
 
     def _new_label(self):
         """
@@ -446,6 +457,9 @@ class CentralWidget(QtWidgets.QWidget):
         self.label_behavior_button.setText(self.behavior())
         self.label_not_behavior_button.setText(
             f"Not {self.behavior()}")
+
+        if self._project is None:
+            return
 
         self._set_label_track()
 
@@ -814,8 +828,8 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
-            # since convex hulls are represented as y, x we need to maintain this
-            # ordering
+            # since convex hulls are represented as y, x we need to maintain
+            # this ordering
             pt = Point(event['y'], event['x'])
             for i, ident in enumerate(self._pose_est.identities):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
