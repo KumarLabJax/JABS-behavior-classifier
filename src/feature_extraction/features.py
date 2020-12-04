@@ -8,7 +8,6 @@ import scipy.stats
 
 from src.labeler.track_labels import TrackLabels
 from src.pose_estimation import PoseEstimationV3
-from src.utils import hide_stderr
 
 
 def n_choose_r(n, r):
@@ -611,12 +610,13 @@ class IdentityFeatures:
                         # XXX
                         # scipy.stats.circstd has a bug that can result in nan
                         # and a warning message to stderr if passed an array of
-                        # identical values
+                        # nearly identical values
                         # this will be fixed when 1.6.0 is released, so this
-                        # work-around can be removed once we require scipy 1.6.0
+                        # work-around can be removed once we can upgrade to
+                        # scipy 1.6.0
                         # our work around is to suppress the warning and replace
                         # the nan with 0
-                        with hide_stderr():
+                        with np.errstate(invalid='ignore'):
                             val = op(window_values)
                         if np.isnan(val):
                             window_features['angles'][op_name][i, angle_index] = 0.0
@@ -664,7 +664,7 @@ class IdentityFeatures:
                                 for op_name, op in self._window_feature_operations_circular.items():
                                     if op_name == 'std_dev':
                                         # XXX see comment above for explanation
-                                        with hide_stderr():
+                                        with np.errstate(invalid='ignore'):
                                             val = op(window_values[:, j][frame_valid == 1])
                                         if np.isnan(val):
                                             window_features[feature_name][

@@ -181,6 +181,8 @@ def main():
         cli_progress_bar(complete, total_identities,
                          prefix=" Computing Features:")
 
+    pool.close()
+
 
 if __name__ == '__main__':
     main()
