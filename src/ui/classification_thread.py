@@ -12,14 +12,12 @@ class ClassifyThread(QtCore.QThread):
     done = QtCore.pyqtSignal()
     update_progress = QtCore.pyqtSignal(int)
 
-    def __init__(self, classifier, project, behavior, current_video,
-                 current_labels, predictions, probabilities, frame_indexes):
+    def __init__(self, classifier, project, behavior, predictions,
+                 probabilities, frame_indexes):
         super().__init__()
         self._classifier = classifier
         self._project = project
         self._behavior = behavior
-        self._current_video = current_video
-        self._current_labels = current_labels
         self._predictions = predictions
         self._probabilities = probabilities
         self._frame_indexes = frame_indexes
@@ -50,15 +48,9 @@ class ClassifyThread(QtCore.QThread):
                                             pose_est)
                 identity = str(ident)
 
-                if self._project.video_path(video) == self._current_video:
-                    # if this is the current video, the labels are loaded
-                    labels = self._current_labels.get_track_labels(
-                        identity, self._behavior).get_labels()
-                else:
-                    # all other videos, load the labels from the project dir
-                    labels = self._project.load_video_labels(
-                        video, leave_cached=True
-                    ).get_track_labels(identity, self._behavior).get_labels()
+                labels = self._project.load_video_labels(
+                    video, leave_cached=True
+                ).get_track_labels(identity, self._behavior).get_labels()
 
                 # get the features for all unlabled frames for this identity
                 # TODO make window radius configurable

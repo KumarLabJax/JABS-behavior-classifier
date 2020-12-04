@@ -681,9 +681,8 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self.behavior_selection.currentText(), self._loaded_video,
-            self._labels, self._predictions, self._probabilities,
-            self._frame_indexes)
+            self.behavior_selection.currentText(), self._predictions,
+            self._probabilities, self._frame_indexes)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)

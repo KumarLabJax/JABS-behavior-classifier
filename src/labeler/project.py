@@ -499,44 +499,6 @@ class Project:
         """ take a video file name and generate the path used to open it """
         return Path(self._project_dir_path, video_file)
 
-    def _read_counts(self, video, behavior):
-        """
-        read labeled frame and bout counts from json file
-        :return: list of labeled frame and bout counts for each identity for the
-        specified behavior. Each element in the list is a tuple of the form
-        (
-            identity,
-            (behavior frame count, not behavior frame count)
-            (behavior bout count, not behavior bout count)
-        )
-        """
-        video_filename = Path(video).name
-        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
-
-        counts = []
-
-        if path.exists():
-            with path.open() as f:
-                labels = json.load(f).get('labels')
-                for identity in labels:
-                    blocks = labels[identity].get(behavior, [])
-                    frames_behavior = 0
-                    frames_not_behavior = 0
-                    bouts_behavior = 0
-                    bouts_not_behavior = 0
-                    for b in blocks:
-                        if b['present']:
-                            bouts_behavior += 1
-                            frames_behavior += b['end'] - b['start'] + 1
-                        else:
-                            bouts_not_behavior += 1
-                            frames_not_behavior += b['end'] - b['start'] + 1
-
-                    counts.append((identity,
-                                   (frames_behavior, frames_not_behavior),
-                                   (bouts_behavior, bouts_not_behavior)))
-        return counts
-
     def counts(self, behavior):
         """
         get the labeled frame counts and bout counts for each video in the
@@ -550,7 +512,7 @@ class Project:
         """
         counts = {}
         for video in self._videos:
-            counts[video] = self._read_counts(video, behavior)
+            counts[video] = self.__read_counts(video, behavior)
         return counts
 
     def label_counts(self, behavior):
@@ -587,6 +549,11 @@ class Project:
         """
         return self._total_project_identities
 
+    @staticmethod
+    def get_videos(dir_path: Path):
+        """ Get list of video filenames (without path) in a directory """
+        return [f.name for f in dir_path.glob("*.avi")]
+
     def __update_version(self):
         """ update the version number saved in project metadata """
         # only update if the version in the metadata is different from current
@@ -606,11 +573,6 @@ class Project:
                 c = f.read(chunk_size)
         return h.hexdigest()
 
-    @staticmethod
-    def get_videos(dir_path: Path):
-        """ Get list of video filenames (without path) in a directory """
-        return [f.name for f in dir_path.glob("*.avi")]
-
     def __has_pose(self, vid: str):
         """ check to see if a video has a corresponding pose file """
         path = self._project_dir_path / vid
@@ -620,3 +582,41 @@ class Project:
         except ValueError:
             return False
         return True
+
+    def __read_counts(self, video, behavior):
+        """
+        read labeled frame and bout counts from json file
+        :return: list of labeled frame and bout counts for each identity for the
+        specified behavior. Each element in the list is a tuple of the form
+        (
+            identity,
+            (behavior frame count, not behavior frame count)
+            (behavior bout count, not behavior bout count)
+        )
+        """
+        video_filename = Path(video).name
+        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
+
+        counts = []
+
+        if path.exists():
+            with path.open() as f:
+                labels = json.load(f).get('labels')
+                for identity in labels:
+                    blocks = labels[identity].get(behavior, [])
+                    frames_behavior = 0
+                    frames_not_behavior = 0
+                    bouts_behavior = 0
+                    bouts_not_behavior = 0
+                    for b in blocks:
+                        if b['present']:
+                            bouts_behavior += 1
+                            frames_behavior += b['end'] - b['start'] + 1
+                        else:
+                            bouts_not_behavior += 1
+                            frames_not_behavior += b['end'] - b['start'] + 1
+
+                    counts.append((identity,
+                                   (frames_behavior, frames_not_behavior),
+                                   (bouts_behavior, bouts_not_behavior)))
+        return counts
