@@ -5,7 +5,6 @@ from PyQt5 import QtCore
 from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
-from src.labeler import TrackLabels
 
 
 class TrainingThread(QtCore.QThread):
@@ -40,7 +39,13 @@ class TrainingThread(QtCore.QThread):
         """
 
         self._tasks_complete = 0
-        features, group_mapping = self._get_labeled_features()
+        def id_processed():
+            self._tasks_complete += 1
+            self.update_progress.emit(self._tasks_complete)
+        features, group_mapping = self._project.get_labeled_features(
+            self._behavior,
+            id_processed,
+        )
 
         data_generator = self._classifier.leave_one_group_out(
             features['per_frame'],
@@ -124,85 +129,3 @@ class TrainingThread(QtCore.QThread):
         print('-' * 70)
 
         self.trainingComplete.emit()
-
-    def _get_labeled_features(self):
-        """
-        the the features for all labeled frames
-        NOTE: this will currently take a very long time to run if the features
-        have not already been computed
-
-        :return: two dicts: features, group_mappings
-
-        The first dict contains features for all labeled frames and has the
-        following keys:
-
-        {
-            'window': ,
-            'per_frame': ,
-            'labels': ,
-            'groups': ,
-        }
-
-        The values contained in the first dict are suitable to pass as
-        arguments to the SklClassifier.leave_one_group_out() method.
-
-        The second dict in the tuple has group ids as the keys, and the
-        values are a dict containing the video and identity that corresponds to
-        that group id:
-
-        {
-          <group id>: {'video': <video filename>, 'identity': <identity},
-          ...
-        }
-        """
-
-        all_per_frame = []
-        all_window = []
-        all_labels = []
-        all_groups = []
-
-        group_mapping = {}
-
-        group_id = 0
-        for video in self._project.videos:
-
-            pose_est = self._project.load_pose_est(
-                self._project.video_path(video))
-
-            for identity in pose_est.identities:
-                group_mapping[group_id] = {'video': video, 'identity': identity}
-
-                features = IdentityFeatures(video, identity,
-                                            self._project.feature_dir,
-                                            pose_est)
-
-                labels = self._project.load_video_labels(
-                    video, leave_cached=True
-                ).get_track_labels(str(identity), self._behavior).get_labels()
-
-                per_frame_features = features.get_per_frame(labels)
-                # TODO make window size configurable
-                window_features = features.get_window_features(5, labels)
-
-                all_per_frame.append(per_frame_features)
-                all_window.append(window_features)
-                all_labels.append(labels[labels != TrackLabels.Label.NONE])
-
-                # should be a better way to do this, but I'm getting the number
-                # of frames in this group by looking at the shape of one of
-                # the arrays included in the window_features
-                all_groups.append(
-                    np.full(window_features['percent_frames_present'].shape[0],
-                            group_id))
-                group_id += 1
-
-                self._tasks_complete += 1
-                self.update_progress.emit(self._tasks_complete)
-
-        return {
-            'window': IdentityFeatures.merge_window_features(all_window),
-            'per_frame': IdentityFeatures.merge_per_frame_features(
-                all_per_frame),
-            'labels': np.concatenate(all_labels),
-            'groups': np.concatenate(all_groups),
-        }, group_mapping
