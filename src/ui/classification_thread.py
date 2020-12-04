@@ -56,7 +56,7 @@ class ClassifyThread(QtCore.QThread):
                         identity, self._behavior).get_labels()
                 else:
                     # all other videos, load the labels from the project dir
-                    labels = self._project.load_annotation_track(
+                    labels = self._project.load_video_labels(
                         video, leave_cached=True
                     ).get_track_labels(identity, self._behavior).get_labels()
 

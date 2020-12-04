@@ -105,7 +105,7 @@ class TestProject(unittest.TestCase):
 
         project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
 
-        labels = project.load_annotation_track(self._FILENAMES[0])
+        labels = project.load_video_labels(self._FILENAMES[0])
 
         with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
@@ -120,7 +120,7 @@ class TestProject(unittest.TestCase):
     def test_save_annotations(self):
         """ test saving annotations """
         project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
-        labels = project.load_annotation_track(self._FILENAMES[0])
+        labels = project.load_video_labels(self._FILENAMES[0])
         walking_labels = labels.get_track_labels('0', 'Walking')
 
         # make some changes
@@ -144,7 +144,7 @@ class TestProject(unittest.TestCase):
         project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
 
         with self.assertRaises(ValueError):
-            project.load_annotation_track('bad_filename.avi')
+            project.load_video_labels('bad_filename.avi')
 
     def test_exception_creating_video_labels(self):
         """
@@ -153,7 +153,7 @@ class TestProject(unittest.TestCase):
         project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         with self.assertRaises(IOError):
             with hide_stderr():
-                project.load_annotation_track(self._FILENAMES[1])
+                project.load_video_labels(self._FILENAMES[1])
 
     def test_bad_video_file(self):
         with self.assertRaises(IOError):

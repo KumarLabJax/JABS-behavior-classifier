@@ -187,9 +187,9 @@ class Project:
     def classifier_dir(self):
         return self._classifier_dir
 
-    def load_annotation_track(self, video_name, leave_cached=False):
+    def load_video_labels(self, video_name, leave_cached=False):
         """
-        load an annotation track from the project directory or from a cached of
+        load labels for a video from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
         :param video_name: filename of the video: string or pathlib.Path
         :param leave_cached: indicates if the VideoLabels object should be
@@ -394,7 +394,7 @@ class Project:
 
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
-            video_tracks = self.load_annotation_track(video, leave_cached=True)
+            video_tracks = self.load_video_labels(video, leave_cached=True)
             poses = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
 
             # allocate numpy arrays to write to h5 file
@@ -562,7 +562,7 @@ class Project:
         """
         counts = {}
         for video in self._videos:
-            video_track = self.load_annotation_track(video, leave_cached=True)
+            video_track = self.load_video_labels(video, leave_cached=True)
             counts[video] = video_track.label_counts(behavior)
         return counts
 
@@ -575,7 +575,7 @@ class Project:
         """
         counts = {}
         for video in self._videos:
-            video_track = self.load_annotation_track(video, leave_cached=True)
+            video_track = self.load_video_labels(video, leave_cached=True)
             counts[video] = video_track.bout_counts(behavior)
         return counts
 
