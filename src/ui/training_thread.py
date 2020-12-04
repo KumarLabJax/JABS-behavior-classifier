@@ -23,14 +23,11 @@ class TrainingThread(QtCore.QThread):
 
     update_progress = QtCore.pyqtSignal(int)
 
-    def __init__(self, project, classifier, behavior, current_video,
-                 current_labels, k=1):
+    def __init__(self, project, classifier, behavior, k=1):
         super().__init__()
         self._project = project
         self._classifier = classifier
         self._behavior = behavior
-        self._current_video = current_video
-        self._current_labels = current_labels
         self._tasks_complete = 0
         self._k = k
 
@@ -162,7 +159,7 @@ class TrainingThread(QtCore.QThread):
         all_per_frame = []
         all_window = []
         all_labels = []
-        all_group_labels = []
+        all_groups = []
 
         group_mapping = {}
 
@@ -179,13 +176,9 @@ class TrainingThread(QtCore.QThread):
                                             self._project.feature_dir,
                                             pose_est)
 
-                if self._project.video_path(video) == self._current_video:
-                    labels = self._current_labels.get_track_labels(
-                        str(identity), self._behavior).get_labels()
-                else:
-                    labels = self._project.load_annotation_track(
-                        video, leave_cached=True
-                    ).get_track_labels(str(identity), self._behavior).get_labels()
+                labels = self._project.load_video_labels(
+                    video, leave_cached=True
+                ).get_track_labels(str(identity), self._behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
                 # TODO make window size configurable
@@ -198,7 +191,7 @@ class TrainingThread(QtCore.QThread):
                 # should be a better way to do this, but I'm getting the number
                 # of frames in this group by looking at the shape of one of
                 # the arrays included in the window_features
-                all_group_labels.append(
+                all_groups.append(
                     np.full(window_features['percent_frames_present'].shape[0],
                             group_id))
                 group_id += 1
@@ -211,5 +204,5 @@ class TrainingThread(QtCore.QThread):
             'per_frame': IdentityFeatures.merge_per_frame_features(
                 all_per_frame),
             'labels': np.concatenate(all_labels),
-            'groups': np.concatenate(all_group_labels),
+            'groups': np.concatenate(all_groups),
         }, group_mapping

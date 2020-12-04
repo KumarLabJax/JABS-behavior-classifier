@@ -368,7 +368,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est)
 
             # load labels for new video and set track for current identity
-            self._labels = self._project.load_annotation_track(path)
+            self._labels = self._project.load_video_labels(path)
 
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
@@ -646,7 +646,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self.behavior_selection.currentText(),
-            self._loaded_video, self._labels, self._kslider.value())
+            self._kslider.value())
         self._training_thread.trainingComplete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
