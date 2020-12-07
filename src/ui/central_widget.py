@@ -71,17 +71,20 @@ class CentralWidget(QtWidgets.QWidget):
         self.behavior_selection.addItems(self._behaviors)
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
+        self.behavior_selection.setFocusPolicy(QtCore.Qt.NoFocus)
 
         self.identity_selection = IdentityComboBox()
         self.identity_selection.currentIndexChanged.connect(
             self._change_identity)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
+        self.identity_selection.setFocusPolicy(QtCore.Qt.NoFocus)
 
         add_label_button = QtWidgets.QToolButton()
         add_label_button.setText("+")
         add_label_button.setToolTip("Add a new behavior label")
         add_label_button.clicked.connect(self._new_label)
+        add_label_button.setFocusPolicy(QtCore.Qt.NoFocus)
 
         behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
@@ -102,13 +105,16 @@ class CentralWidget(QtWidgets.QWidget):
         self.train_button = QtWidgets.QPushButton("Train")
         self.train_button.clicked.connect(self._train_button_clicked)
         self.train_button.setEnabled(False)
+        self.train_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self.classify_button = QtWidgets.QPushButton("Classify")
         self.classify_button.clicked.connect(self._classify_button_clicked)
         self.classify_button.setEnabled(False)
+        self.classify_button.setFocusPolicy(QtCore.Qt.NoFocus)
 
         #  drop down to select type of classifier to use
         self._classifier_selection = QtWidgets.QComboBox()
         self._classifier_selection.currentIndexChanged.connect(self._classifier_changed)
+        self._classifier_selection.setFocusPolicy(QtCore.Qt.NoFocus)
 
         for classifier, name in self._classifier.classifier_choices().items():
             self._classifier_selection.addItem(name, userData=classifier)
@@ -118,6 +124,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._kslider.valueChanged.connect(self._kfold_changed)
         #   disabled until project loaded
         self._kslider.setEnabled(False)
+        self._kslider.setFocusPolicy(QtCore.Qt.NoFocus)
 
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
@@ -132,6 +139,7 @@ class CentralWidget(QtWidgets.QWidget):
         label_layout = QtWidgets.QGridLayout()
 
         self.label_behavior_button = QtWidgets.QPushButton()
+        self.label_behavior_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self.label_behavior_button.setText(
             self.behavior_selection.currentText())
         self.label_behavior_button.clicked.connect(self._label_behavior)
@@ -155,6 +163,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self.label_not_behavior_button = QtWidgets.QPushButton(
             f"Not {self.behavior_selection.currentText()}")
+        self.label_not_behavior_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
         self.label_not_behavior_button.setStyleSheet(f"""
             QPushButton {{
@@ -176,12 +185,14 @@ class CentralWidget(QtWidgets.QWidget):
 
         self.clear_label_button = QtWidgets.QPushButton("Clear Label")
         self.clear_label_button.clicked.connect(self._clear_behavior_label)
+        self.clear_label_button.setFocusPolicy(QtCore.Qt.NoFocus)
 
         self.select_button = QtWidgets.QPushButton("Select Frames")
         self.select_button.setCheckable(True)
         self.select_button.clicked.connect(self._start_selection)
         # disabled until a project is loaded
         self.select_button.setEnabled(False)
+        self.select_button.setFocusPolicy(QtCore.Qt.NoFocus)
 
         # label buttons are disabled unless user has a range of frames selected
         self._disable_label_buttons()
