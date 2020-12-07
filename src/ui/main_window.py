@@ -16,6 +16,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle(f"{app_name} ({version_str()})")
         self.setCentralWidget(CentralWidget())
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._app_name = app_name
 
         self.setUnifiedTitleAndToolBarOnMac(True)
