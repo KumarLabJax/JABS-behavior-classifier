@@ -7,6 +7,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from src.feature_extraction import IdentityFeatures
+from src.labeler import TrackLabels
 from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
 from src.video_stream.utilities import get_frame_count
@@ -560,6 +562,92 @@ class Project:
         version = self._metadata.get('version')
         if version != version_str():
             self.save_metadata({'version': version_str()})
+
+    def get_labeled_features(self, behavior, progress_callable=None):
+        """
+        the the features for all labeled frames
+        NOTE: this will currently take a very long time to run if the features
+        have not already been computed
+
+        :param behavior: the behavior to get labeled features for
+        :param progress_callable: if provided this will be called
+        with no args every time an identity is processed to facilitate
+        progress tracking
+
+        :return: two dicts: features, group_mappings
+
+        The first dict contains features for all labeled frames and has the
+        following keys:
+
+        {
+            'window': ,
+            'per_frame': ,
+            'labels': ,
+            'groups': ,
+        }
+
+        The values contained in the first dict are suitable to pass as
+        arguments to the SklClassifier.leave_one_group_out() method.
+
+        The second dict in the tuple has group ids as the keys, and the
+        values are a dict containing the video and identity that corresponds to
+        that group id:
+
+        {
+          <group id>: {'video': <video filename>, 'identity': <identity},
+          ...
+        }
+        """
+
+        all_per_frame = []
+        all_window = []
+        all_labels = []
+        all_groups = []
+
+        group_mapping = {}
+
+        group_id = 0
+        for video in self.videos:
+
+            pose_est = self.load_pose_est(self.video_path(video))
+
+            for identity in pose_est.identities:
+                group_mapping[group_id] = {'video': video, 'identity': identity}
+
+                features = IdentityFeatures(video, identity,
+                                            self.feature_dir,
+                                            pose_est)
+
+                labels = self.load_video_labels(
+                    video, leave_cached=True
+                ).get_track_labels(str(identity), behavior).get_labels()
+
+                per_frame_features = features.get_per_frame(labels)
+                # TODO make window size configurable
+                window_features = features.get_window_features(5, labels)
+
+                all_per_frame.append(per_frame_features)
+                all_window.append(window_features)
+                all_labels.append(labels[labels != TrackLabels.Label.NONE])
+
+                # should be a better way to do this, but I'm getting the number
+                # of frames in this group by looking at the shape of one of
+                # the arrays included in the window_features
+                all_groups.append(
+                    np.full(window_features['percent_frames_present'].shape[0],
+                            group_id))
+                group_id += 1
+
+                if progress_callable is not None:
+                    progress_callable()
+
+        return {
+            'window': IdentityFeatures.merge_window_features(all_window),
+            'per_frame': IdentityFeatures.merge_per_frame_features(
+                all_per_frame),
+            'labels': np.concatenate(all_labels),
+            'groups': np.concatenate(all_groups),
+        }, group_mapping
 
     @staticmethod
     def __hash_file(file: Path):
