@@ -186,7 +186,7 @@ class IdentityFeatures:
                         self._num_frames,
                         dtype=np.float32)
 
-        if force:
+        if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
         else:
             try:

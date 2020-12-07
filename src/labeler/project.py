@@ -23,7 +23,7 @@ class Project:
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
 
-    __PREDICTION_FILE_VERSION = 1
+    PREDICTION_FILE_VERSION = 1
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
@@ -225,7 +225,7 @@ class Project:
             return VideoLabels(video_filename, nframes)
 
     @staticmethod
-    def _to_safe_name(behavior: str):
+    def to_safe_name(behavior: str):
         """
         Create a version of the given behavior name that
         should be safe to use in filenames.
@@ -343,7 +343,7 @@ class Project:
         """
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
         classifier.save_classifier(
-            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
 
         # update app version saved in project metadata if necessary
@@ -357,7 +357,7 @@ class Project:
         :return: True if load is successful and False if the file doesn't exist
         """
         classifier_path = (
-            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
         try:
             classifier.load_classifier(classifier_path)
@@ -388,7 +388,7 @@ class Project:
         for video in self._videos:
             # setup an ouptut filename based on the behavior and video names
             file_base = Path(video).with_suffix('').name + ".h5"
-            output_path = self._prediction_dir / self._to_safe_name(
+            output_path = self._prediction_dir / self.to_safe_name(
                 behavior) / file_base
 
             # make sure behavior directory exists
@@ -429,7 +429,7 @@ class Project:
             # write to h5 file
             # TODO catch exceptions
             with h5py.File(output_path, 'w') as h5:
-                h5.attrs['version'] = self.__PREDICTION_FILE_VERSION
+                h5.attrs['version'] = self.PREDICTION_FILE_VERSION
                 group = h5.create_group('predictions')
                 group.create_dataset('predicted_class', data=prediction_labels)
                 group.create_dataset('probabilities', data=prediction_prob)
@@ -454,13 +454,13 @@ class Project:
         frame_indexes = {}
         for video in self._videos:
             file_base = Path(video).with_suffix('').name + ".h5"
-            path = self._prediction_dir / self._to_safe_name(behavior) / file_base
+            path = self._prediction_dir / self.to_safe_name(behavior) / file_base
 
             nident = self._metadata['video_files'][video]['identities']
 
             try:
                 with h5py.File(path, 'r') as h5:
-                    assert h5.attrs['version'] == self.__PREDICTION_FILE_VERSION
+                    assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
                     group = h5['predictions']
                     assert group['predicted_class'].shape[0] == nident
                     assert group['probabilities'].shape[0] == nident
