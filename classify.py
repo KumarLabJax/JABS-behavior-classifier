@@ -24,13 +24,35 @@ def get_pose_stem(pose_path: Path):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
-def classify_pose(model_proj_dir, input_pose_file, out_dir):
+def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
     proj = Project(model_proj_dir, use_cache=False, enable_video_check=False)
     classifier_type = SklClassifier.ClassifierType[proj.metadata['classifier']]
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
-    for behavior in proj.metadata['behaviors']:
+    behaviors_from_param = True
+    if behaviors is None:
+        behaviors = proj.metadata['behaviors']
+        behaviors_from_param = False
+
+    for behavior in behaviors:
+
+        # if the behavior is supplied as a parameter we allow it to
+        # be an inexact match (case changes, spaces vs underscores ...)
+        if behaviors_from_param and behavior not in proj.metadata['behaviors']:
+            behavior_matched = False
+            norm_behavior = Project.to_safe_name(behavior).lower()
+            for proj_behavior in proj.metadata['behaviors']:
+                norm_proj_behavior = Project.to_safe_name(proj_behavior).lower()
+                if norm_behavior == norm_proj_behavior:
+                    behavior = proj_behavior
+                    behavior_matched = True
+                    break
+
+            if not behavior_matched:
+                print("Behavior not found in project:", behavior)
+                continue
+
         curr_label_counts = proj.counts(behavior)
         if SklClassifier.label_threshold_met(curr_label_counts, 1):
             print("Training classifier for:", behavior)
@@ -87,6 +109,11 @@ def classify_pose(model_proj_dir, input_pose_file, out_dir):
                 group.create_dataset('probabilities', data=prediction_prob)
                 group.create_dataset('identity_to_track', data=pose_est.identity_to_track)
 
+        else:
+            if behaviors_from_param:
+                print("Behavior has insufficient labels:", behavior)
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -105,6 +132,14 @@ def main():
         help='directory to store classification output',
         required=True,
     )
+    parser.add_argument(
+        '--behaviors',
+        nargs='+',
+        help='an optional list of behaviors to process. If this'
+             ' option is missing we will process all behaviors'
+             ' with sufficient labels.',
+        required=False,
+    )
 
     args = parser.parse_args()
 
@@ -119,7 +154,7 @@ def main():
 
     proj = Project(proj_dir, enable_video_check=False)
 
-    classify_pose(proj_dir, in_pose_path, out_dir)
+    classify_pose(proj_dir, in_pose_path, out_dir, args.behaviors)
 
 
 if __name__ == "__main__":
