@@ -123,21 +123,21 @@ class IdentityFeatures:
     def __init__(self, video_name, identity, directory, pose_est, force=False):
         """
         :param video_name: name of the video file, used for generating filenames
-        for saving extracted features into the project directory
+        for saving extracted features into the project directory. You can use
+        None for this argument if directory is also set to None
         :param identity: identity to extract features for
-        :param directory: path of the project directory
+        :param directory: path of the project directory. A value of None can
+        be given to prevent saving to and loading from a project dir.
         :param pose_est: PoseEstimationV3 object corresponding to this video
         :param force: force regeneration of per frame features even if the
         per frame feature .h5 file exists for this video/identity
         """
 
-        self._video_name = Path(video_name)
         self._num_frames = pose_est.num_frames
         self._identity = identity
-        self._project_feature_directory = Path(directory)
-        self._identity_feature_dir = (
-                self._project_feature_directory /
-                self._video_name.stem /
+        self._identity_feature_dir = None if directory is None else (
+                Path(directory) /
+                Path(video_name).stem /
                 str(self._identity)
         )
         self._include_social_features = pose_est.format_major_version >= 3
@@ -186,7 +186,7 @@ class IdentityFeatures:
                         self._num_frames,
                         dtype=np.float32)
 
-        if force:
+        if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
         else:
             try:
@@ -287,11 +287,14 @@ class IdentityFeatures:
         self._per_frame['point_speeds'] = self._compute_point_speeds(
             *pose_est.get_identity_poses(self._identity))
 
-        self.save_per_frame()
+        if self._identity_feature_dir is not None:
+            self.save_per_frame()
 
     def __load_from_file(self):
         """
         initialize from state previously saved in a h5 file on disk
+        This method will throw an exception if this object
+        was constructed with a value of None for directory
         :return: None
         """
 
@@ -319,7 +322,11 @@ class IdentityFeatures:
                     assert self._per_frame[feature].shape[0] == self._num_frames
 
     def save_per_frame(self):
-        """ save per frame features to a h5 file """
+        """
+        save per frame features to a h5 file
+        This method will throw an exception if this object
+        was constructed with a value of None for directory
+        """
 
         self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True, parents=True)
 
@@ -346,6 +353,8 @@ class IdentityFeatures:
     def save_window_features(self, features, radius):
         """
         save window features to an h5 file
+        This method will throw an exception if this object
+        was constructed with a value of None for directory
         :param features: window features to save
         :param radius:
         :return: None
@@ -377,6 +386,8 @@ class IdentityFeatures:
     def _load_window_features(self, radius):
         """
         load window features from an h5 file
+        This method will throw an exception if this object
+        was constructed with a value of None for directory
         :param radius: window size specified as the number of frames on each
         side of current frame to include in the window
         :return:
@@ -428,9 +439,11 @@ class IdentityFeatures:
         in the docstring for _compute_window_features
         """
 
-        if force:
+        if force or self._identity_feature_dir is None:
             features = self._compute_window_features(radius)
-            self.save_window_features(features, radius)
+
+            if self._identity_feature_dir is not None:
+                self.save_window_features(features, radius)
         else:
 
             try:
@@ -440,7 +453,9 @@ class IdentityFeatures:
                 # h5 file does not exist for this window size. compute the features
                 # and return after saving
                 features = self._compute_window_features(radius)
-                self.save_window_features(features, radius)
+
+                if self._identity_feature_dir is not None:
+                    self.save_window_features(features, radius)
 
         if labels is None:
             return features
