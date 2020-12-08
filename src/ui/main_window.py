@@ -167,8 +167,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project.save_metadata(settings)
 
     def _export_training_data(self):
-        # TODO window_size will become user configurable on a per behavior
-        # basis instead of being hard coded
+        # TODO make window_size configurable
+        # (needs to be set based on user preferences for specific behavior)
         window_size = 5
         export_training_data(self._project, self._central_widget.behavior(),
                              window_size)

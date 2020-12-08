@@ -53,7 +53,7 @@ class ClassifyThread(QtCore.QThread):
                 ).get_track_labels(identity, self._behavior).get_labels()
 
                 # get the features for all unlabled frames for this identity
-                # TODO make window radius configurable
+                # TODO make window_size configurable
                 unlabeled_features = features.get_unlabeled_features(5, labels)
 
                 # reformat the data in a single 2D numpy array to pass

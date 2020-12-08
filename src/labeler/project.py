@@ -627,7 +627,7 @@ class Project:
                 ).get_track_labels(str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
-                # TODO make window size configurable
+                # TODO make window_size configurable
                 window_features = features.get_window_features(5, labels)
 
                 all_per_frame.append(per_frame_features)
