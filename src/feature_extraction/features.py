@@ -9,6 +9,8 @@ import scipy.stats
 from src.labeler.track_labels import TrackLabels
 from src.pose_estimation import PoseEstimationV3
 
+FEATURE_VERSION = 1
+
 
 def n_choose_r(n, r):
     """
@@ -58,7 +60,7 @@ class IdentityFeatures:
     _num_distances = n_choose_r(len(PoseEstimationV3.KeypointIndex), 2)
     _num_social_distances = len(_social_point_subset) ** 2
     _num_angles = len(AngleIndex)
-    _version = "1.0.0"
+    _version = FEATURE_VERSION
 
     # The operations that are performed on windows of per-frame features to
     # generate the window features. This is organized in a dictionary where the
@@ -306,6 +308,7 @@ class IdentityFeatures:
             self._per_frame['angles'] = feature_grp['angles'][:]
             self._per_frame['point_speeds'] = feature_grp['point_speeds'][:]
 
+            # TODO verify file version
             assert len(self._frame_valid) == self._num_frames
             assert len(self._per_frame['pairwise_distances']) == self._num_frames
             assert len(self._per_frame['angles']) == self._num_frames
@@ -343,20 +346,20 @@ class IdentityFeatures:
                 for feature in self._per_frame_social_features:
                     grp[feature] = self._per_frame[feature]
 
-    def save_window_features(self, features, radius):
+    def save_window_features(self, features, window_size):
         """
         save window features to an h5 file
         :param features: window features to save
-        :param radius:
+        :param window_size:
         :return: None
         """
-        path = self._identity_feature_dir / f"window_features_{radius}.h5"
+        path = self._identity_feature_dir / f"window_features_{window_size}.h5"
 
         with h5py.File(path, 'w') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
-            features_h5.attrs['radius'] = radius
+            features_h5.attrs['window_size'] = window_size
 
             grp = features_h5.create_group('features')
 
@@ -374,22 +377,33 @@ class IdentityFeatures:
                         grp.create_dataset(f'{feature_name}/{op}',
                                         data=features[feature_name][op])
 
-    def _load_window_features(self, radius):
+    def _load_window_features(self, window_size):
         """
         load window features from an h5 file
-        :param radius: window size specified as the number of frames on each
-        side of current frame to include in the window
+        :param window_size: window size specified as the number of frames on
+        each side of current frame, in addition to the current frame, to
+        include in the window
+        (so if size=5, the total number of frames in the window is actually 11)
         :return:
         """
-        path = self._identity_feature_dir / f"window_features_{radius}.h5"
+        path = self._identity_feature_dir / f"window_features_{window_size}.h5"
 
         window_features = {}
 
         with h5py.File(path, 'r') as features_h5:
+
+            # early versions of the window feature h5 file called 'window_size'
+            # 'radius', so fall back to that if 'window_size' isn't in the
+            # attributes
+            try:
+                size_attr = features_h5.attrs['window_size']
+            except KeyError:
+                size_attr = features_h5.attrs['radius']
+
             # TODO verify file version
             assert features_h5.attrs['num_frames'] == self._num_frames
             assert features_h5.attrs['identity'] == self._identity
-            assert features_h5.attrs['radius'] == radius
+            assert size_attr == window_size
 
             feature_grp = features_h5['features']
 
@@ -414,11 +428,11 @@ class IdentityFeatures:
 
             return window_features
 
-    def get_window_features(self, radius, labels=None, force=False):
+    def get_window_features(self, window_size, labels=None, force=False):
         """
         get window features for a given window size, computing if not previously
         computed and saved as h5 file
-        :param radius: number of frames on each side of the current frame to
+        :param window_size: number of frames on each side of the current frame to
         include in the window
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
@@ -429,18 +443,18 @@ class IdentityFeatures:
         """
 
         if force:
-            features = self._compute_window_features(radius)
-            self.save_window_features(features, radius)
+            features = self._compute_window_features(window_size)
+            self.save_window_features(features, window_size)
         else:
 
             try:
                 # h5 file exists for this window size, load it
-                features = self._load_window_features(radius)
+                features = self._load_window_features(window_size)
             except OSError:
                 # h5 file does not exist for this window size. compute the features
                 # and return after saving
-                features = self._compute_window_features(radius)
-                self.save_window_features(features, radius)
+                features = self._compute_window_features(window_size)
+                self.save_window_features(features, window_size)
 
         if labels is None:
             return features
@@ -480,15 +494,15 @@ class IdentityFeatures:
                 for k, v in self._per_frame.items()
             }
 
-    def get_unlabeled_features(self, radius, labels):
+    def get_unlabeled_features(self, window_size, labels):
         """
         get features and corresponding frame indexes for unlabeled frames for
         classification
-        :param radius:
+        :param window_size:
         :param labels:
         :return:
         """
-        window_features = self.get_window_features(radius)
+        window_features = self.get_window_features(window_size)
         filter = np.logical_and(self._frame_valid, labels == TrackLabels.Label.NONE)
 
         per_frame = {}
@@ -505,9 +519,7 @@ class IdentityFeatures:
 
         window = {}
         for key in window_features:
-            if key == 'radius':
-                window[key] = window_features[key]
-            elif key == 'percent_frames_present':
+            if key == 'percent_frames_present':
                 window[key] = window_features[key][filter]
             else:
                 window[key] = {}
@@ -520,11 +532,13 @@ class IdentityFeatures:
             'frame_indexes': indexes
         }
 
-    def _compute_window_features(self, radius):
+    def _compute_window_features(self, window_size):
         """
         compute all window features using a given window size
-        :param radius: number of frames on each side of the current frame to
-        include in the window
+        :param window_size: number of frames on each side of the current frame
+        to include in the window
+        (so, for example, if window_size = 5, then the total number of frames
+        in the window is 11)
         :return: dictionary of the form:
         {
             'angles' {
@@ -545,7 +559,7 @@ class IdentityFeatures:
         }
         """
 
-        max_window_size = 2 * radius + 1
+        max_window_size = 2 * window_size + 1
 
         window_features = {
             'angles': {},
@@ -592,8 +606,8 @@ class IdentityFeatures:
             if not self._frame_valid[i]:
                 continue
 
-            slice_start = max(0, i - radius)
-            slice_end = min(i + radius + 1, self._num_frames)
+            slice_start = max(0, i - window_size)
+            slice_end = min(i + window_size + 1, self._num_frames)
 
             frame_valid = self._frame_valid[slice_start:slice_end]
             frames_in_window = np.count_nonzero(frame_valid)

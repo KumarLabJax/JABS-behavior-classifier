@@ -31,6 +31,8 @@ class CentralWidget(QtWidgets.QWidget):
         'Rearing (unsupported)'
     ]
 
+    export_training_status_change = QtCore.pyqtSignal(bool)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -760,8 +762,10 @@ class CentralWidget(QtWidgets.QWidget):
         if Classifier.label_threshold_met(self._counts,
                                           self._kslider.value()):
             self.train_button.setEnabled(True)
+            self.export_training_status_change.emit(True)
         else:
             self.train_button.setEnabled(False)
+            self.export_training_status_change.emit(False)
 
     def _update_label_counts(self):
         """

@@ -6,8 +6,8 @@ from datetime import datetime
 import numpy as np
 
 import src.version
-from .project import Project
-from src.classifier import Classifier
+from src.labeler import Project
+from src.feature_extraction.features import FEATURE_VERSION
 
 
 def export_training_data(project: Project, behavior: str,
@@ -19,11 +19,14 @@ def export_training_data(project: Project, behavior: str,
     tool)
 
     writes exported data to the project directory
-    :param project: Project to export training data for
-    :param behavior:
-    :param window_size:
-    :param out_file
-    :return:
+    :param project: Project from which to export training data
+    :param behavior: Behavior to export
+    :param window_size: Window size used for this behavior
+    :param out_file: optional output path, if None write to project dir
+    with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
+    :return: None
+    :raises: OSError if unable to create output file (e.g. permission denied,
+    no such file or directory, etc)
     """
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -36,21 +39,22 @@ def export_training_data(project: Project, behavior: str,
     string_type = h5py.special_dtype(vlen=str)
 
     with h5py.File(out_file, 'w') as out_h5:
-        out_h5.attrs['file_version'] = Classifier.TRAINING_FILE_VERSION
+        out_h5.attrs['file_version'] = FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['has_social_features'] = project.has_social_features
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
-        for feature, data in features['window'].items():
-            if feature == 'percent_frames_present':
-                feature_group.create_dataset(f'window/{window_size}/{feature}',
-                                             data=data)
-            else:
-                for op, vals in data.items():
+        for feature in features['window']:
+            if isinstance(features['window'][feature], dict):
+                for op, data in features['window'][feature].items():
                     feature_group.create_dataset(
                         f'window/{window_size}/{feature}/{op}',
-                        data=vals)
+                        data=data)
+            else:
+                feature_group.create_dataset(f'window/{window_size}/{feature}',
+                                             data=features['window'][feature])
+
         out_h5.create_dataset('group', data=features['groups'])
         out_h5.create_dataset('labels', data=features['labels'])
 
@@ -62,3 +66,19 @@ def export_training_data(project: Project, behavior: str,
             dset = out_h5.create_dataset(f'group_mapping/{group}/video_name',
                                            (1,), dtype=string_type)
             dset[:] = group_mapping[group]['video']
+
+
+def load_training_data(training_file: Path):
+    """
+    load training data from file
+    :param training_file: path to training h5 file
+    :return: dictionary containing training data with the following format:
+    {
+        'per_frame': {}
+        'window_features': {},
+        'labels': [int],
+        'groups': [int],
+        'window_size': int,
+        'has_social_features': bool
+    }
+    """
