@@ -5,6 +5,7 @@ from PyQt5 import QtCore
 from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
+from src.labeler.export_training import export_training_data
 
 
 class TrainingThread(QtCore.QThread):
@@ -39,9 +40,11 @@ class TrainingThread(QtCore.QThread):
         """
 
         self._tasks_complete = 0
+
         def id_processed():
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
         features, group_mapping = self._project.get_labeled_features(
             self._behavior,
             id_processed,

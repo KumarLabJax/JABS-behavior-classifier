@@ -164,11 +164,15 @@ class Project:
         return self._videos
 
     @property
-    def feature_dir(self):
+    def dir(self) -> Path:
+        return self._project_dir_path
+
+    @property
+    def feature_dir(self) -> Path:
         return self._feature_dir
 
     @property
-    def annotation_dir(self):
+    def annotation_dir(self) -> Path:
         return self._annotations_dir
 
     @property
@@ -225,7 +229,7 @@ class Project:
             return VideoLabels(video_filename, nframes)
 
     @staticmethod
-    def _to_safe_name(behavior: str):
+    def to_safe_name(behavior: str):
         """
         Create a version of the given behavior name that
         should be safe to use in filenames.
@@ -343,7 +347,7 @@ class Project:
         """
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
         classifier.save_classifier(
-            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
 
         # update app version saved in project metadata if necessary
@@ -357,7 +361,7 @@ class Project:
         :return: True if load is successful and False if the file doesn't exist
         """
         classifier_path = (
-            self._classifier_dir / (self._to_safe_name(behavior) + '.pickle')
+            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
         try:
             classifier.load_classifier(classifier_path)
@@ -388,7 +392,7 @@ class Project:
         for video in self._videos:
             # setup an ouptut filename based on the behavior and video names
             file_base = Path(video).with_suffix('').name + ".h5"
-            output_path = self._prediction_dir / self._to_safe_name(
+            output_path = self._prediction_dir / self.to_safe_name(
                 behavior) / file_base
 
             # make sure behavior directory exists
@@ -454,7 +458,7 @@ class Project:
         frame_indexes = {}
         for video in self._videos:
             file_base = Path(video).with_suffix('').name + ".h5"
-            path = self._prediction_dir / self._to_safe_name(behavior) / file_base
+            path = self._prediction_dir / self.to_safe_name(behavior) / file_base
 
             nident = self._metadata['video_files'][video]['identities']
 
@@ -587,7 +591,7 @@ class Project:
         }
 
         The values contained in the first dict are suitable to pass as
-        arguments to the SklClassifier.leave_one_group_out() method.
+        arguments to the Classifier.leave_one_group_out() method.
 
         The second dict in the tuple has group ids as the keys, and the
         values are a dict containing the video and identity that corresponds to
