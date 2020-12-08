@@ -5,7 +5,6 @@ from PyQt5 import QtCore
 from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
-from src.labeler.export_training import export_training_data
 
 
 class TrainingThread(QtCore.QThread):
@@ -70,8 +69,8 @@ class TrainingThread(QtCore.QThread):
             self._classifier.train(data)
             predictions = self._classifier.predict(data['test_data'])
 
-            # calculate some performance metrics using the classifications of the
-            # test data
+            # calculate some performance metrics using the classifications of
+            # the test data
             accuracy = self._classifier.accuracy_score(data['test_labels'],
                                                        predictions)
             pr = self._classifier.precision_recall_score(data['test_labels'],

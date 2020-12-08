@@ -12,7 +12,7 @@ from src.classifier import Classifier
 
 def export_training_data(project: Project, behavior: str,
                          window_size: int,
-                         out_dir: typing.Optional[Path]=None):
+                         out_file: typing.Optional[Path]=None):
     """
     export training data from a project in a format that can be used to
     retrain a classifier elsewhere (for example, by the command line batch
@@ -22,23 +22,20 @@ def export_training_data(project: Project, behavior: str,
     :param project: Project to export training data for
     :param behavior:
     :param window_size:
-    :param out_dir
+    :param out_file
     :return:
     """
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     features, group_mapping = project.get_labeled_features(behavior)
 
-    if out_dir is None:
-        out_dir = project.dir
-
-    h5fn = out_dir / f"{project.to_safe_name(behavior)}_training_{ts}.h5"
-    mapping_fn = (out_dir /
-                  f"{project.to_safe_name(behavior)}_group_mapping_{ts}.json")
+    if out_file is None:
+        out_file = (project.dir /
+                    f"{project.to_safe_name(behavior)}_training_{ts}.h5")
 
     string_type = h5py.special_dtype(vlen=str)
 
-    with h5py.File(h5fn, 'w') as out_h5:
+    with h5py.File(out_file, 'w') as out_h5:
         out_h5.attrs['file_version'] = Classifier.TRAINING_FILE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['has_social_features'] = project.has_social_features
