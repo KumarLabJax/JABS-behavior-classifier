@@ -35,6 +35,12 @@ def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
         behaviors = proj.metadata['behaviors']
         behaviors_from_param = False
 
+    # if we are classifying multiple behaviors we can cache the
+    # features to save compute time
+    feature_cache = None
+    if len(behaviors) > 1:
+        feature_cache = dict()
+
     for behavior in behaviors:
 
         # if the behavior is supplied as a parameter we allow it to
@@ -78,15 +84,22 @@ def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
             for curr_id in pose_est.identities:
                 print("Predicting for", pose_stem, "ID:", curr_id)
 
-                curr_feat = IdentityFeatures(None, curr_id, None, pose_est)
-                per_frame_feat = curr_feat.get_per_frame()
-                # TODO hardcoded radius 5 should come from project
-                window_feat = curr_feat.get_window_features(5)
+                if feature_cache is not None and curr_id in feature_cache:
+                    curr_all_feat = feature_cache[curr_id]
+                else:
+                    curr_feat = IdentityFeatures(None, curr_id, None, pose_est)
+                    per_frame_feat = curr_feat.get_per_frame()
+                    # TODO hardcoded radius 5 should come from project
+                    window_feat = curr_feat.get_window_features(5)
 
-                curr_all_feat = SklClassifier.combine_data(
-                    per_frame_feat,
-                    window_feat,
-                )
+                    curr_all_feat = SklClassifier.combine_data(
+                        per_frame_feat,
+                        window_feat,
+                    )
+
+                    if feature_cache is not None:
+                        feature_cache[curr_id] = curr_all_feat
+
                 pred = classifier.predict(curr_all_feat)
                 pred_prob = classifier.predict_proba(curr_all_feat)
 
