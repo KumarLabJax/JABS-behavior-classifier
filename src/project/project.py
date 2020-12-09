@@ -23,7 +23,7 @@ class Project:
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
 
-    __PREDICTION_FILE_VERSION = 1
+    PREDICTION_FILE_VERSION = 1
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
@@ -433,7 +433,7 @@ class Project:
             # write to h5 file
             # TODO catch exceptions
             with h5py.File(output_path, 'w') as h5:
-                h5.attrs['version'] = self.__PREDICTION_FILE_VERSION
+                h5.attrs['version'] = self.PREDICTION_FILE_VERSION
                 group = h5.create_group('predictions')
                 group.create_dataset('predicted_class', data=prediction_labels)
                 group.create_dataset('probabilities', data=prediction_prob)
@@ -464,7 +464,7 @@ class Project:
 
             try:
                 with h5py.File(path, 'r') as h5:
-                    assert h5.attrs['version'] == self.__PREDICTION_FILE_VERSION
+                    assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
                     group = h5['predictions']
                     assert group['predicted_class'].shape[0] == nident
                     assert group['probabilities'].shape[0] == nident

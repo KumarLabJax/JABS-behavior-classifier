@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import Qt, pyqtSignal
 
 
@@ -22,6 +22,7 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self._slider.setValue(1)
         self._slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
         self._slider.valueChanged.connect(self.valueChanged)
+        self._slider.setFocusPolicy(QtCore.Qt.NoFocus)
 
         # slider range labels
         label_min = QtWidgets.QLabel("1", alignment=Qt.AlignLeft)

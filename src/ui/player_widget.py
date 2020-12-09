@@ -369,6 +369,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # play/pause button
         self._play_button = QtWidgets.QPushButton()
+        self._play_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self._play_button.setCheckable(True)
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
@@ -377,6 +378,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QToolButton()
+        self._previous_frame_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self._previous_frame_button.setText("◀")
         self._previous_frame_button.setMaximumWidth(20)
         self._previous_frame_button.setMaximumHeight(20)
@@ -386,6 +388,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # next frame button
         self._next_frame_button = QtWidgets.QToolButton()
+        self._next_frame_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self._next_frame_button.setText("▶")
         self._next_frame_button.setMaximumWidth(20)
         self._next_frame_button.setMaximumHeight(20)
@@ -402,6 +405,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # position slider
         self._position_slider = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
+        self._position_slider.setFocusPolicy(QtCore.Qt.NoFocus)
         self._position_slider.sliderMoved.connect(self._position_slider_moved,
                                                   QtCore.Qt.QueuedConnection)
         self._position_slider.sliderPressed.connect(

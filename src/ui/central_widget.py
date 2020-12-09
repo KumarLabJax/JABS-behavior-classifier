@@ -237,6 +237,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._counts = None
 
+        # set focus policy of all children widgets, needed to keep controls
+        # from grabbing focus on Windows (which breaks arrow key video nav)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFocusPolicy(QtCore.Qt.NoFocus)
+
     def behavior(self):
         """
         :return: the currently selected behavior
