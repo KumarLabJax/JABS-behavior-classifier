@@ -77,26 +77,24 @@ def load_training_data(training_file: Path):
 
     :param training_file: path to training h5 file
     :return: features, group_mapping
+        features: dict containing training data with the following format:
+        {
+            'per_frame': {}
+            'window_features': {},
+            'labels': [int],
+            'groups': [int],
+            'window_size': int,
+            'has_social_features': bool
+        }
 
-    features: dict containing training data with the following format:
-    {
-        'per_frame': {}
-        'window_features': {},
-        'labels': [int],
-        'groups': [int],
-        'window_size': int,
-        'has_social_features': bool
-    }
-
-    group_mapping: dict containing group to identity/video mapping:
-    {
-        group_id: {
-            'identity': int,
-            'video': str
-        },
-    }
-
-    raises
+        group_mapping: dict containing group to identity/video mapping:
+        {
+            group_id: {
+                'identity': int,
+                'video': str
+            },
+        }
+    :raises: OSError if unable to open h5 file for reading
     """
 
     features = {
@@ -132,6 +130,3 @@ def load_training_data(training_file: Path):
             }
 
     return features, group_mapping
-
-
-
