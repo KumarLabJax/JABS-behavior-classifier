@@ -43,6 +43,7 @@ def export_training_data(project: Project, behavior: str,
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['has_social_features'] = project.has_social_features
         out_h5.attrs['window_size'] = window_size
+        out_h5.attrs['behavior'] = behavior
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
@@ -72,8 +73,6 @@ def export_training_data(project: Project, behavior: str,
 def load_training_data(training_file: Path):
     """
     load training data from file
-    output can be used in place of project.get_labeled_features() for
-    training
 
     :param training_file: path to training h5 file
     :return: features, group_mapping
@@ -84,7 +83,8 @@ def load_training_data(training_file: Path):
             'labels': [int],
             'groups': [int],
             'window_size': int,
-            'has_social_features': bool
+            'has_social_features': bool,
+            'behavior': str
         }
 
         group_mapping: dict containing group to identity/video mapping:
@@ -106,6 +106,7 @@ def load_training_data(training_file: Path):
     with h5py.File(training_file, 'r') as in_h5:
         features['has_social_features'] = in_h5.attrs['has_social_features']
         features['window_size'] = in_h5.attrs['window_size']
+        features['behavior'] = in_h5.attrs['behavior']
         features['labels'] = in_h5['label'][:]
         features['groups'] = in_h5['group'][:]
 
