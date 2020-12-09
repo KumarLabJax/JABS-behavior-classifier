@@ -86,6 +86,7 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(add_label_button)
+        behavior_layout.setContentsMargins(0, 5, 0, 0)
 
         behavior_group = QtWidgets.QGroupBox("Behavior")
         behavior_group.setLayout(behavior_layout)
@@ -94,6 +95,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
+        identity_layout.setContentsMargins(0, 5, 0, 0)
         identity_group = QtWidgets.QGroupBox("Subject Identity")
         identity_group.setLayout(identity_layout)
 
@@ -125,6 +127,7 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self.classify_button, 0, 1)
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
         classifier_layout.addWidget(self._kslider, 2, 0, 1, 2)
+        classifier_layout.setContentsMargins(0, 5, 0, 0)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
 
@@ -190,8 +193,10 @@ class CentralWidget(QtWidgets.QWidget):
         label_layout.addWidget(self.label_not_behavior_button, 1, 0, 1, 2)
         label_layout.addWidget(self.clear_label_button, 2, 0)
         label_layout.addWidget(self.select_button, 2, 1)
+        label_layout.setContentsMargins(0, 5, 0, 0)
         label_group = QtWidgets.QGroupBox("Labeling")
         label_group.setLayout(label_layout)
+
 
         # summary of number of frames / bouts for each class
         self._frame_counts = FrameLabelCountWidget()
@@ -202,7 +207,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # control layout
         control_layout = QtWidgets.QVBoxLayout()
-        control_layout.setSpacing(25)
+        control_layout.setSpacing(20)
         control_layout.addWidget(behavior_group)
         control_layout.addWidget(identity_group)
         control_layout.addWidget(classifier_group)
