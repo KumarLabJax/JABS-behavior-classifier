@@ -1,6 +1,8 @@
+import sys
+
 from PyQt5 import QtWidgets, QtCore
 
-from src.labeler import Project, export_training_data
+from src.labeler import Project, export_training_data, load_training_data
 from src.version import version_str
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
@@ -170,8 +172,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # TODO make window_size configurable
         # (needs to be set based on user preferences for specific behavior)
         window_size = 5
-        export_training_data(self._project, self._central_widget.behavior(),
-                             window_size)
+
+        try:
+            export_training_data(self._project, self._central_widget.behavior(),
+                                 window_size)
+        except OSError as e:
+            print(f"Unable to export training data: {e}", file=sys.stderr)
+
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """

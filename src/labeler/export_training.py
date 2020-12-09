@@ -42,6 +42,7 @@ def export_training_data(project: Project, behavior: str,
         out_h5.attrs['file_version'] = FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['has_social_features'] = project.has_social_features
+        out_h5.attrs['window_size'] = window_size
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
@@ -49,30 +50,35 @@ def export_training_data(project: Project, behavior: str,
             if isinstance(features['window'][feature], dict):
                 for op, data in features['window'][feature].items():
                     feature_group.create_dataset(
-                        f'window/{window_size}/{feature}/{op}',
+                        f'window/{feature}/{op}',
                         data=data)
             else:
-                feature_group.create_dataset(f'window/{window_size}/{feature}',
+                feature_group.create_dataset(f'window/{feature}',
                                              data=features['window'][feature])
 
         out_h5.create_dataset('group', data=features['groups'])
-        out_h5.create_dataset('labels', data=features['labels'])
+        out_h5.create_dataset('label', data=features['labels'])
 
         # store the video/identity to group mapping in the h5 file
         for group in group_mapping:
             dset = out_h5.create_dataset(f'group_mapping/{group}/identity',
-                                           (1,), dtype=np.int)
+                                         (1,), dtype=np.int)
             dset[:] = group_mapping[group]['identity']
             dset = out_h5.create_dataset(f'group_mapping/{group}/video_name',
-                                           (1,), dtype=string_type)
+                                         (1,), dtype=string_type)
             dset[:] = group_mapping[group]['video']
 
 
 def load_training_data(training_file: Path):
     """
     load training data from file
+    output can be used in place of project.get_labeled_features() for
+    training
+
     :param training_file: path to training h5 file
-    :return: dictionary containing training data with the following format:
+    :return: features, group_mapping
+
+    features: dict containing training data with the following format:
     {
         'per_frame': {}
         'window_features': {},
@@ -81,4 +87,51 @@ def load_training_data(training_file: Path):
         'window_size': int,
         'has_social_features': bool
     }
+
+    group_mapping: dict containing group to identity/video mapping:
+    {
+        group_id: {
+            'identity': int,
+            'video': str
+        },
+    }
+
+    raises
     """
+
+    features = {
+        'per_frame': {},
+        'window': {}
+    }
+    group_mapping = {}
+
+    with h5py.File(training_file, 'r') as in_h5:
+        features['has_social_features'] = in_h5.attrs['has_social_features']
+        features['window_size'] = in_h5.attrs['window_size']
+        features['labels'] = in_h5['label'][:]
+        features['groups'] = in_h5['group'][:]
+
+        # grab all per frame features from h5 file
+        for name, val in in_h5['features/per_frame'].items():
+            features['per_frame'][name] = val[:]
+
+        # grab all window features from h5 file
+        for name, val in in_h5['features/window'].items():
+            if isinstance(val, h5py.Dataset):
+                features['window'][name] = val[:]
+            else:
+                features['window'][name] = {}
+                for op, nested_val in val.items():
+                    features['window'][name][op] = nested_val[:]
+
+        # extract the group mapping from h5 file
+        for name, val in in_h5['group_mapping'].items():
+            group_mapping[int(name)] = {
+                'identity': val['identity'][0],
+                'video': val['video_name'][0]
+            }
+
+    return features, group_mapping
+
+
+
