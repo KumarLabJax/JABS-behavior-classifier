@@ -190,7 +190,7 @@ class CentralWidget(QtWidgets.QWidget):
         label_layout.addWidget(self.label_not_behavior_button, 1, 0, 1, 2)
         label_layout.addWidget(self.clear_label_button, 2, 0)
         label_layout.addWidget(self.select_button, 2, 1)
-        label_group = QtWidgets.QGroupBox("Label")
+        label_group = QtWidgets.QGroupBox("Labeling")
         label_group.setLayout(label_layout)
 
         # summary of number of frames / bouts for each class
@@ -222,12 +222,12 @@ class CentralWidget(QtWidgets.QWidget):
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
-        layout.addLayout(control_layout, 0, 1)
-        layout.addWidget(self.timeline_widget, 1, 0, 1, 2)
-        layout.addWidget(self.manual_labels, 2, 0, 1, 2)
-        layout.addWidget(self.inference_timeline_widget, 3, 0, 1, 2)
-        layout.addWidget(self.prediction_vis, 4, 0, 1, 2)
-        layout.addWidget(self.frame_ticks, 5, 0, 1, 2)
+        layout.addLayout(control_layout, 0, 1, 5, 1)
+        layout.addWidget(self.timeline_widget, 1, 0)
+        layout.addWidget(self.manual_labels, 2, 0)
+        layout.addWidget(self.inference_timeline_widget, 3, 0)
+        layout.addWidget(self.prediction_vis, 4, 0)
+        layout.addWidget(self.frame_ticks, 5, 0)
         self.setLayout(layout)
 
         # progress bar dialog used when running the training or classify threads
