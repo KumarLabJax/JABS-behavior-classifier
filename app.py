@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-main program for Rotta video labeler and classifier
+main program for Rotta video project and classifier
 takes one positional argument: path to video file
 """
 

@@ -6,7 +6,7 @@ from datetime import datetime
 import numpy as np
 
 import src.version
-from src.labeler import Project
+from src.project import Project
 from src.feature_extraction.features import FEATURE_VERSION
 
 

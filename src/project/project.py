@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from src.feature_extraction import IdentityFeatures
-from src.labeler import TrackLabels
+from src.project import TrackLabels
 from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
 from src.video_stream.utilities import get_frame_count

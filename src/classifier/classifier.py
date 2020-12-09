@@ -16,7 +16,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.labeler import TrackLabels
+from src.project import TrackLabels
 
 
 class Classifier:

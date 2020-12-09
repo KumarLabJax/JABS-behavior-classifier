@@ -14,7 +14,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import src.pose_estimation
-from src.labeler import Project
+from src.project import Project
 from src.feature_extraction import IdentityFeatures
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream

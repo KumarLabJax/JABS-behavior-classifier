@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import scipy.stats
 
-from src.labeler.track_labels import TrackLabels
+from src.project.track_labels import TrackLabels
 from src.pose_estimation import PoseEstimationV3
 
 FEATURE_VERSION = 1

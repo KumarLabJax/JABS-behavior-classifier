@@ -5,7 +5,7 @@ from PyQt5 import QtWidgets, QtCore
 from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier
-from src.labeler.track_labels import TrackLabels
+from src.project.track_labels import TrackLabels
 from .classification_thread import ClassifyThread
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .frame_labels_widget import FrameLabelsWidget
