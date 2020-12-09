@@ -41,7 +41,7 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         bout_header = QtWidgets.QLabel("Bouts")
 
         layout = QtWidgets.QGridLayout()
-        layout.setSpacing(5)
+        layout.setSpacing(2)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # add static labels to grid
