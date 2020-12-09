@@ -2,7 +2,7 @@ import sys
 
 from PyQt5 import QtWidgets, QtCore
 
-from src.project import Project, export_training_data, load_training_data
+from src.project import Project, export_training_data
 from src.version import version_str
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
