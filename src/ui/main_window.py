@@ -161,11 +161,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # save other project metadata
         settings = self._project.metadata
-        central_widget = self.centralWidget()
 
-        settings['selected_behavior'] = central_widget.behavior()
-        settings['behaviors'] = central_widget.behavior_labels()
-        settings['classifier'] = central_widget.classifier_type().name
+        settings['selected_behavior'] = self._central_widget.behavior()
+        settings['behaviors'] = self._central_widget.behavior_labels()
+        settings['classifier'] = self._central_widget.classifier_type.name
 
         self._project.save_metadata(settings)
 
@@ -176,10 +175,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         try:
             export_training_data(self._project, self._central_widget.behavior(),
-                                 window_size)
+                                 window_size, self._central_widget.c_type)
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
-
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """

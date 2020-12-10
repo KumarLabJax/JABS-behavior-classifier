@@ -2,16 +2,25 @@ import h5py
 import typing
 from pathlib import Path
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 import src.version
-from src.project import Project
+import src.classifier
 from src.feature_extraction.features import FEATURE_VERSION
 
+# these are used for type hints, but cause circular imports
+# TYPE_CHECKING is always false at runtime, so this gets around that
+# also requires enclosing Project and Classifier type hints in quotes
+if TYPE_CHECKING:
+    from src.project import Project
+    from src.classifier import Classifier
 
-def export_training_data(project: Project, behavior: str,
+
+def export_training_data(project: 'Project', behavior: str,
                          window_size: int,
+                         classifier_type: 'Classifier',
                          out_file: typing.Optional[Path]=None):
     """
     export training data from a project in a format that can be used to
@@ -22,6 +31,7 @@ def export_training_data(project: Project, behavior: str,
     :param project: Project from which to export training data
     :param behavior: Behavior to export
     :param window_size: Window size used for this behavior
+    :param classifier_type: Preferred classifier type
     :param out_file: optional output path, if None write to project dir
     with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
     :return: None
@@ -44,6 +54,7 @@ def export_training_data(project: Project, behavior: str,
         out_h5.attrs['has_social_features'] = project.has_social_features
         out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
+        out_h5.attrs['classifier_type'] = classifier_type.value
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
@@ -84,7 +95,8 @@ def load_training_data(training_file: Path):
             'groups': [int],
             'window_size': int,
             'has_social_features': bool,
-            'behavior': str
+            'behavior': str,
+            'classifier':
         }
 
         group_mapping: dict containing group to identity/video mapping:
@@ -109,6 +121,7 @@ def load_training_data(training_file: Path):
         features['behavior'] = in_h5.attrs['behavior']
         features['labels'] = in_h5['label'][:]
         features['groups'] = in_h5['group'][:]
+        features['classifier_type'] = src.classifier.Classifier.ClassifierType(in_h5.attrs['classifier_type'])
 
         # grab all per frame features from h5 file
         for name, val in in_h5['features/per_frame'].items():

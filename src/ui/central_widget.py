@@ -255,6 +255,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return list(self._behaviors)
 
+    @property
     def classifier_type(self):
         """ get the current classifier type """
         return self._classifier.classifier_type

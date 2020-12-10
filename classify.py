@@ -6,10 +6,12 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from src import APP_NAME
+from src.cli import cli_progress_bar
 from src.classifier import Classifier
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
-from src.project import Project
+from src.project import Project, load_training_data
 
 
 def get_pose_stem(pose_path: Path):
@@ -24,115 +26,96 @@ def get_pose_stem(pose_path: Path):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
-def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
-    proj = Project(model_proj_dir, use_cache=False, enable_video_check=False)
-    classifier_type = Classifier.ClassifierType[proj.metadata['classifier']]
+def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
-    behaviors_from_param = True
-    if behaviors is None:
-        behaviors = proj.metadata['behaviors']
-        behaviors_from_param = False
+    try:
+        training_file, _ = load_training_data(training_file)
+    except OSError as e:
+        sys.exit(f"Unable to open training data\n{e}")
 
-    # if we are classifying multiple behaviors we can cache the
-    # features to save compute time
-    feature_cache = None
-    if len(behaviors) > 1:
-        feature_cache = dict()
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        sys.exit(f"Unable to create output directory: {e}")
 
-    for behavior in behaviors:
+    behavior = training_file['behavior']
+    window_size = training_file['window_size']
+    classifier_type = Classifier.ClassifierType(training_file['classifier_type'])
 
-        # if the behavior is supplied as a parameter we allow it to
-        # be an inexact match (case changes, spaces vs underscores ...)
-        if behaviors_from_param and behavior not in proj.metadata['behaviors']:
-            behavior_matched = False
-            norm_behavior = Project.to_safe_name(behavior).lower()
-            for proj_behavior in proj.metadata['behaviors']:
-                norm_proj_behavior = Project.to_safe_name(proj_behavior).lower()
-                if norm_behavior == norm_proj_behavior:
-                    behavior = proj_behavior
-                    behavior_matched = True
-                    break
+    classifier = Classifier()
+    if classifier_type in classifier.classifier_choices():
+        classifier.set_classifier(classifier_type)
+    else:
+        print(f"Classifier specified by training file ({classifier_type.name}) "
+              f"is unavailable, using default "
+              f"({classifier.classifier_type.name})")
 
-            if not behavior_matched:
-                print("Behavior not found in project:", behavior)
-                continue
+    print("Training classifier for:", behavior)
 
-        curr_label_counts = proj.counts(behavior)
-        if Classifier.label_threshold_met(curr_label_counts, 1):
-            print("Training classifier for:", behavior)
+    training_features = classifier.combine_data(training_file['per_frame'],
+                                                training_file['window'])
+    classifier.train({
+        'training_data': training_features,
+        'training_labels': training_file['labels'],
+    })
 
-            lbl_feat, _ = proj.get_labeled_features(behavior)
-            all_feat = Classifier.combine_data(
-                lbl_feat['per_frame'],
-                lbl_feat['window'])
-            classifier = Classifier(classifier_type)
-            classifier.train({
-                'training_data': all_feat,
-                'training_labels': lbl_feat['labels'],
-            })
+    # allocate numpy arrays to write to h5 file
+    prediction_labels = np.full(
+        (pose_est.num_identities, pose_est.num_frames), -1,
+        dtype=np.int8)
+    prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-            out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Classifying {input_pose_file}...")
+    # print the initial progress bar with 0% complete
 
-            # allocate numpy arrays to write to h5 file
-            prediction_labels = np.full(
-                (pose_est.num_identities, pose_est.num_frames), -1,
-                dtype=np.int8)
-            prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
+    # run prediction for each identity
+    for curr_id in pose_est.identities:
+        cli_progress_bar(curr_id, len(pose_est.identities),
+                         complete_as_percent=False, suffix='identities')
+        features = IdentityFeatures(None, curr_id, None, pose_est)
+        per_frame_feat = features.get_per_frame()
+        window_feat = features.get_window_features(window_size)
 
-            for curr_id in pose_est.identities:
-                print("Predicting for", pose_stem, "ID:", curr_id)
+        data = Classifier.combine_data(
+            per_frame_feat,
+            window_feat,
+        )
 
-                if feature_cache is not None and curr_id in feature_cache:
-                    curr_all_feat = feature_cache[curr_id]
-                else:
-                    curr_feat = IdentityFeatures(None, curr_id, None, pose_est)
-                    per_frame_feat = curr_feat.get_per_frame()
-                    # TODO hardcoded radius 5 should come from project
-                    window_feat = curr_feat.get_window_features(5)
+        pred = classifier.predict(data)
+        pred_prob = classifier.predict_proba(data)
 
-                    curr_all_feat = Classifier.combine_data(
-                        per_frame_feat,
-                        window_feat,
-                    )
+        # Keep the probability for the predicted class only.
+        # The following code uses some
+        # numpy magic to use the pred array as column indexes
+        # for each row of the pred_prob array we just computed.
+        pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-                    if feature_cache is not None:
-                        feature_cache[curr_id] = curr_all_feat
+        prediction_labels[curr_id, :] = pred
+        prediction_prob[curr_id, :] = pred_prob
+    cli_progress_bar(len(pose_est.identities), len(pose_est.identities),
+                     complete_as_percent=False, suffix='identities')
 
-                pred = classifier.predict(curr_all_feat)
-                pred_prob = classifier.predict_proba(curr_all_feat)
+    print(f"Writing predictions to {out_dir}")
 
-                # Keep the probability for the predicted class only.
-                # The following code uses some
-                # numpy magic to use the pred array as column indexes
-                # for each row of the pred_prob array we just computed.
-                pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
-
-                prediction_labels[curr_id, :] = pred
-                prediction_prob[curr_id, :] = pred_prob
-
-            behavior_out_dir = out_dir / Project.to_safe_name(behavior)
-            behavior_out_dir.mkdir(parents=True, exist_ok=True)
-            behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
-            with h5py.File(behavior_out_path, 'w') as h5:
-                h5.attrs['version'] = Project.PREDICTION_FILE_VERSION
-                group = h5.create_group('predictions')
-                group.create_dataset('predicted_class', data=prediction_labels)
-                group.create_dataset('probabilities', data=prediction_prob)
-                group.create_dataset('identity_to_track', data=pose_est.identity_to_track)
-
-        else:
-            if behaviors_from_param:
-                print("Behavior has insufficient labels:", behavior)
+    behavior_out_dir = out_dir / Project.to_safe_name(behavior)
+    behavior_out_dir.mkdir(parents=True, exist_ok=True)
+    behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
+    with h5py.File(behavior_out_path, 'w') as h5:
+        h5.attrs['version'] = Project.PREDICTION_FILE_VERSION
+        group = h5.create_group('predictions')
+        group.create_dataset('predicted_class', data=prediction_labels)
+        group.create_dataset('probabilities', data=prediction_prob)
+        group.create_dataset('identity_to_track', data=pose_est.identity_to_track)
 
 
 def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '--proj-dir',
-        help='project directory containing behavior models',
+        '--training',
+        help=f'Training data exported from {APP_NAME}',
         required=True,
     )
     parser.add_argument(
@@ -145,29 +128,14 @@ def main():
         help='directory to store classification output',
         required=True,
     )
-    parser.add_argument(
-        '--behaviors',
-        nargs='+',
-        help='an optional list of behaviors to process. If this'
-             ' option is missing we will process all behaviors'
-             ' with sufficient labels.',
-        required=False,
-    )
 
     args = parser.parse_args()
 
-    proj_dir = Path(args.proj_dir)
+    training = Path(args.training)
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
 
-    # if the project dir isn't at rotta project we should abort
-    if not (proj_dir / 'rotta').exists():
-        print(f'ERROR: "{args.proj_dir}" is not a rotta project directory', file=sys.stderr)
-        exit(1)
-
-    proj = Project(proj_dir, enable_video_check=False)
-
-    classify_pose(proj_dir, in_pose_path, out_dir, args.behaviors)
+    classify_pose(training, in_pose_path, out_dir)
 
 
 if __name__ == "__main__":
