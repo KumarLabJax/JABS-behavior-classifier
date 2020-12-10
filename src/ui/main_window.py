@@ -175,7 +175,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         try:
             export_training_data(self._project, self._central_widget.behavior(),
-                                 window_size, self._central_widget.c_type)
+                                 window_size,
+                                 self._central_widget.classifier_type)
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
