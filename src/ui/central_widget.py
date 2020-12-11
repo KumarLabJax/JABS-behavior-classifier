@@ -455,8 +455,11 @@ class CentralWidget(QtWidgets.QWidget):
                                                   'New Behavior Name:')
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
+            self._behaviors.sort()
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentIndex(self._behaviors.index(text))
+            # save new behaviors
+            self._project.save_metadata({'behaviors': self._behaviors})
 
     def _change_behavior(self):
         """
@@ -629,9 +632,7 @@ class CentralWidget(QtWidgets.QWidget):
             if index != -1:
                 self._classifier_selection.setCurrentIndex(index)
         except KeyError:
-            # either no classifier was specified in the metadata file, or
-            # unable to use the classifier specified in the metadata file.
-            # use the default
+            # unable to use the classifier
             pass
 
     @QtCore.pyqtSlot(bool)
@@ -826,6 +827,8 @@ class CentralWidget(QtWidgets.QWidget):
     def _classifier_changed(self):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
+        if self._project:
+            self._project.save_metadata({'classifier_type': self._classifier.classifier_type.name})
 
     def save_predictions(self):
         """ save predictions (if the classifier has been run) """
