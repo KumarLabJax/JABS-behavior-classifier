@@ -249,17 +249,17 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return self.behavior_selection.currentText()
 
+    @property
+    def classifier_type(self):
+        """ get the current classifier type """
+        return self._classifier.classifier_type
+
     def behavior_labels(self):
         """
         get the current contents of the behavior drop down
         :return: a copy of the list so private member can't be modified
         """
         return list(self._behaviors)
-
-    @property
-    def classifier_type(self):
-        """ get the current classifier type """
-        return self._classifier.classifier_type
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -423,9 +423,9 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_L:
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
-        elif key == QtCore.Qt.Key_T:
-            # show_track with no argument toggles the setting
-            self._player_widget.show_track()
+
+    def show_track(self, show: bool):
+        self._player_widget.show_track(show)
 
     def _new_label(self):
         """
@@ -682,7 +682,9 @@ class CentralWidget(QtWidgets.QWidget):
         # display the new predictions
         self._set_prediction_vis()
         # save predictions
-        self.save_predictions()
+        self._project.save_predictions(self._predictions, self._probabilities,
+                                       self._frame_indexes,
+                                       self.behavior_selection.currentText())
 
     def _update_classify_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -736,8 +738,7 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if Classifier.label_threshold_met(self._counts,
-                                          self._kslider.value()):
+        if Classifier.label_threshold_met(self._counts, self._kslider.value()):
             self.train_button.setEnabled(True)
             self.export_training_status_change.emit(True)
         else:
@@ -797,14 +798,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _classifier_changed(self):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
-
-    def save_predictions(self):
-        """ save predictions (if the classifier has been run) """
-        if not self._predictions:
-            return
-        self._project.save_predictions(self._predictions, self._probabilities,
-                                       self._frame_indexes,
-                                       self.behavior_selection.currentText())
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
