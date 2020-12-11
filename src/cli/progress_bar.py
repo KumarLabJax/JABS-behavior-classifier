@@ -7,14 +7,16 @@ def cli_progress_bar(completed: int, total_iterations: int, length=50,
     Call in a loop to create terminal progress bar. The loop can't print
     any other output to stdout.
 
-    param: completed: number of completed iterations
-    param: total_iterations: total number of iterations in calling loop
-    param: length: length of bar in characters
-    param: fill_char: filled bar character
-    param: padding_char: unfilled bar character
-    param: prefix: prefix string, printed before progress bar
-    param: suffix: suffix string, printed after progress bar
-    param: precision: number of decimals in percent complete
+    :param completed: number of completed iterations
+    :param total_iterations: total number of iterations in calling loop
+    :param length: length of bar in characters
+    :param fill_char: filled bar character
+    :param padding_char: unfilled bar character
+    :param prefix: prefix string, printed before progress bar
+    :param suffix: suffix string, printed after progress bar
+    :param precision: number of decimals in percent complete
+    :param complete_as_percent: if True, print percent complete, if False
+    print "num_complete of total_num"
     """
 
     if len(fill_char) != 1:

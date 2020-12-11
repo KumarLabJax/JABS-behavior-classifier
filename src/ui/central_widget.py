@@ -828,7 +828,7 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
         if self._project:
-            self._project.save_metadata({'classifier_type': self._classifier.classifier_type.name})
+            self._project.save_metadata({'classifier': self._classifier.classifier_type.name})
 
     def save_predictions(self):
         """ save predictions (if the classifier has been run) """
