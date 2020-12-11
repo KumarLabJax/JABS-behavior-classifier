@@ -366,7 +366,7 @@ class Project:
         try:
             classifier.load_classifier(classifier_path)
             return True
-        except IOError:
+        except OSError:
             return False
 
     def save_predictions(self, predictions, probabilities,

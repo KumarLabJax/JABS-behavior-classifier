@@ -35,14 +35,6 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
 
-        # save action
-        self.save_action = QtWidgets.QAction('&Save Labels', self)
-        self.save_action.setShortcut('Ctrl+S')
-        self.save_action.setStatusTip('Save Labels')
-        self.save_action.triggered.connect(self._save_project)
-        self.save_action.setEnabled(False)
-        file_menu.addAction(self.save_action)
-
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
         open_action.setShortcut('Ctrl+O')
@@ -75,8 +67,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view_playlist = QtWidgets.QAction('View Playlist', self,
                                                checkable=True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
-
         view_menu.addAction(self.view_playlist)
+
+        self.show_track = QtWidgets.QAction('Show Track', self, checkable=True)
+        self.show_track.triggered.connect(self._toggle_track)
+        view_menu.addAction(self.show_track)
 
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
@@ -115,10 +110,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Key_X,
             QtCore.Qt.Key_C,
             QtCore.Qt.Key_Escape,
-            QtCore.Qt.Key_L,
-            QtCore.Qt.Key_T
+            QtCore.Qt.Key_L
         ]:
             self.centralWidget().keyPressEvent(event)
+
+        elif key == QtCore.Qt.Key_T:
+            self.show_track.trigger()
 
         else:
             # anything else pass on to the super class keyPressEvent
@@ -129,7 +126,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
-        self.save_action.setEnabled(True)
 
     def _show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
@@ -146,35 +142,13 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = AboutDialog(self._app_name)
         dialog.exec_()
 
-    def _save_project(self):
-        """
-        save current project state. Handles the File->Save menu action triggered
-        signal.
-        """
-
-        # save the labels for the active video
-        current_video_labels = self.centralWidget().get_labels()
-        self._project.save_annotations(current_video_labels)
-
-        # save labels for any other videos that have been worked on this session
-        self._project.save_cached_annotations()
-
-        # save other project metadata
-        settings = self._project.metadata
-
-        settings['selected_behavior'] = self._central_widget.behavior()
-        settings['behaviors'] = self._central_widget.behavior_labels()
-        settings['classifier'] = self._central_widget.classifier_type.name
-
-        self._project.save_metadata(settings)
-
     def _export_training_data(self):
         # TODO make window_size configurable
         # (needs to be set based on user preferences for specific behavior)
         window_size = 5
 
         try:
-            export_training_data(self._project, self._central_widget.behavior(),
+            export_training_data(self._project, self._central_widget.behavior,
                                  window_size,
                                  self._central_widget.classifier_type)
         except OSError as e:
@@ -188,6 +162,10 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # user checked
             self.video_list.show()
+
+    def _toggle_track(self, checked):
+        """ show/hide track overlay for subject """
+        self._central_widget.show_track(checked)
 
     def _video_list_selection(self, filename):
         """
