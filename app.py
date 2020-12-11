@@ -1,21 +1,21 @@
 #!/usr/bin/env python
 """
-main program for Rotta video labeler and classifier
-takes one positional argument: path to video file
+main program for Rotta video labeling and classifier
+takes one optional positional argument: path to project directory
 """
-
 import argparse
 import sys
 
 from PyQt5 import QtWidgets
 
+from src import APP_NAME
 from src.ui import MainWindow
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
-    main_window = MainWindow(app_name="Rotta")
+    main_window = MainWindow(app_name=APP_NAME)
 
     parser = argparse.ArgumentParser()
 

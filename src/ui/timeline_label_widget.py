@@ -4,7 +4,7 @@ from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
 from PyQt5.QtWidgets import QWidget, QSizePolicy
 
-from src.labeler.track_labels import TrackLabels
+from src.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR)
 

@@ -39,9 +39,11 @@ class TrainingThread(QtCore.QThread):
         """
 
         self._tasks_complete = 0
+
         def id_processed():
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
         features, group_mapping = self._project.get_labeled_features(
             self._behavior,
             id_processed,
@@ -67,8 +69,8 @@ class TrainingThread(QtCore.QThread):
             self._classifier.train(data)
             predictions = self._classifier.predict(data['test_data'])
 
-            # calculate some performance metrics using the classifications of the
-            # test data
+            # calculate some performance metrics using the classifications of
+            # the test data
             accuracy = self._classifier.accuracy_score(data['test_labels'],
                                                        predictions)
             pr = self._classifier.precision_recall_score(data['test_labels'],

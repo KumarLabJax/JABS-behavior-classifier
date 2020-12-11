@@ -1,10 +1,10 @@
 import unittest
 
-from src.labeler.video_labels import VideoLabels
+from src.project.video_labels import VideoLabels
 
 
 class TestVideoLabels(unittest.TestCase):
-    """ test labeler.video_labels.VideoLabels """
+    """ test project.video_labels.VideoLabels """
     def test_create(self):
         """ test initializing new VideoLabels """
         labels = VideoLabels('filename.avi', 100)

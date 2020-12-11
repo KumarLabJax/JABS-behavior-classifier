@@ -14,7 +14,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import src.pose_estimation
-from src.labeler import Project
+from src.project import Project
 from src.feature_extraction import IdentityFeatures
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream
@@ -96,7 +96,7 @@ def main():
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
-                     prefix=" Checking for pose files:")
+                     prefix=" Checking for pose files: ")
 
     # iterate over each video and try to pair it with an h5 file
     # this test is quick, don't bother to parallelize
@@ -106,7 +106,7 @@ def main():
         # update progress bar
         complete += 1
         cli_progress_bar(complete, len(videos),
-                         prefix=" Checking for pose files:")
+                         prefix=" Checking for pose files: ")
         results.append(result)
 
     failures = [r for r in results if r['okay'] is False]
@@ -130,7 +130,7 @@ def main():
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
-                     prefix=" Validating Project:")
+                     prefix=" Validating Project: ")
 
     complete = 0
     results = []
@@ -141,7 +141,7 @@ def main():
         # update progress bar
         complete += 1
         cli_progress_bar(complete, len(videos),
-                         prefix=" Validating Project:")
+                         prefix=" Validating Project: ")
         results.append(result)
 
     failures = [r for r in results if r['okay'] is False]
@@ -171,7 +171,7 @@ def main():
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, total_identities,
-                     prefix=" Computing Features:")
+                     prefix=" Computing Features: ")
 
     # compute features in parallel
     complete = 0
@@ -179,7 +179,7 @@ def main():
         # update progress bar
         complete += 1
         cli_progress_bar(complete, total_identities,
-                         prefix=" Computing Features:")
+                         prefix=" Computing Features: ")
 
     pool.close()
 

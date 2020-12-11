@@ -16,11 +16,11 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.labeler import TrackLabels
+from src.project import TrackLabels
 
 
-class SklClassifier:
-
+class Classifier:
+    TRAINING_FILE_VERSION = 1
     LABEL_THRESHOLD = 20
 
     class ClassifierType(IntEnum):
@@ -71,7 +71,7 @@ class SklClassifier:
 
     @property
     def classifier_type(self):
-        """ return classifier type (SklClassifier.ClassifierType enum value) """
+        """ return classifier type (Classifier.ClassifierType enum value) """
         return self._classifier_type
 
     @staticmethod
@@ -139,7 +139,7 @@ class SklClassifier:
         }
         """
         logo = LeaveOneGroupOut()
-        x = SklClassifier.combine_data(per_frame_features, window_features)
+        x = Classifier.combine_data(per_frame_features, window_features)
         splits = list(logo.split(x, labels, groups))
 
         # pick random split, make sure we pick a split where the test data
@@ -151,8 +151,8 @@ class SklClassifier:
             behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
             not_behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
 
-            if (behavior_count >= SklClassifier.LABEL_THRESHOLD and
-                    not_behavior_count >= SklClassifier.LABEL_THRESHOLD):
+            if (behavior_count >= Classifier.LABEL_THRESHOLD and
+                    not_behavior_count >= Classifier.LABEL_THRESHOLD):
                 count += 1
                 yield {
                     'training_labels': labels[split[0]],
@@ -341,8 +341,8 @@ class SklClassifier:
         group_count = 0
         for video, counts in all_counts.items():
             for count in counts:
-                if (count[1][0] >= SklClassifier.LABEL_THRESHOLD and
-                        count[1][1] >= SklClassifier.LABEL_THRESHOLD):
+                if (count[1][0] >= Classifier.LABEL_THRESHOLD and
+                        count[1][1] >= Classifier.LABEL_THRESHOLD):
                     group_count += 1
 
         return True if 1 < group_count >= min_groups else False
