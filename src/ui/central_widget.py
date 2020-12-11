@@ -616,17 +616,6 @@ class CentralWidget(QtWidgets.QWidget):
             # unable to use the classifier
             pass
 
-    @QtCore.pyqtSlot(bool)
-    def _identity_popup_visibility_changed(self, visible):
-        """
-        connected to the IdentityComboBox.pop_up_visible signal. When
-        visible == True, we tell the player widget to overlay all identity
-        labels on the frame.
-        When visible == False we revert to the normal behavior of only labeling
-        the currently selected identity
-        """
-        self._player_widget.show_closest(visible)
-
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
         # make sure video playback is stopped
