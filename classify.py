@@ -1,15 +1,15 @@
 import argparse
-import h5py
-import numpy as np
-from pathlib import Path
 import re
 import sys
-import typing
+from pathlib import Path
 
-from src.classifier.skl_classifier import SklClassifier
+import h5py
+import numpy as np
+
+from src.classifier import Classifier
 from src.feature_extraction.features import IdentityFeatures
-from src.labeler.project import Project
 from src.pose_estimation import open_pose_file
+from src.project import Project
 
 
 def get_pose_stem(pose_path: Path):
@@ -26,7 +26,7 @@ def get_pose_stem(pose_path: Path):
 
 def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
     proj = Project(model_proj_dir, use_cache=False, enable_video_check=False)
-    classifier_type = SklClassifier.ClassifierType[proj.metadata['classifier']]
+    classifier_type = Classifier.ClassifierType[proj.metadata['classifier']]
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -60,14 +60,14 @@ def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
                 continue
 
         curr_label_counts = proj.counts(behavior)
-        if SklClassifier.label_threshold_met(curr_label_counts, 1):
+        if Classifier.label_threshold_met(curr_label_counts, 1):
             print("Training classifier for:", behavior)
 
             lbl_feat, _ = proj.get_labeled_features(behavior)
-            all_feat = SklClassifier.combine_data(
+            all_feat = Classifier.combine_data(
                 lbl_feat['per_frame'],
                 lbl_feat['window'])
-            classifier = SklClassifier(classifier_type)
+            classifier = Classifier(classifier_type)
             classifier.train({
                 'training_data': all_feat,
                 'training_labels': lbl_feat['labels'],
@@ -92,7 +92,7 @@ def classify_pose(model_proj_dir, input_pose_file, out_dir, behaviors):
                     # TODO hardcoded radius 5 should come from project
                     window_feat = curr_feat.get_window_features(5)
 
-                    curr_all_feat = SklClassifier.combine_data(
+                    curr_all_feat = Classifier.combine_data(
                         per_frame_feat,
                         window_feat,
                     )

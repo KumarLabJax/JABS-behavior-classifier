@@ -1,6 +1,8 @@
+import sys
+
 from PyQt5 import QtWidgets, QtCore
 
-from src.labeler.project import Project
+from src.project import Project, export_training_data
 from src.version import version_str
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
@@ -15,7 +17,8 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle(f"{app_name} ({version_str()})")
-        self.setCentralWidget(CentralWidget())
+        self._central_widget = CentralWidget()
+        self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._app_name = app_name
 
@@ -60,6 +63,14 @@ class MainWindow(QtWidgets.QMainWindow):
         exit_action.triggered.connect(QtWidgets.qApp.quit)
         app_menu.addAction(exit_action)
 
+        # export training data action
+        self._export_training = QtWidgets.QAction('Export Training Data', self)
+        self._export_training.setShortcut('Ctrl+T')
+        self._export_training.setStatusTip('Export training data for this classifier')
+        self._export_training.setEnabled(False)
+        self._export_training.triggered.connect(self._export_training_data)
+        file_menu.addAction(self._export_training)
+
         # video playlist menu item
         self.view_playlist = QtWidgets.QAction('View Playlist', self,
                                                checkable=True)
@@ -82,6 +93,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # handle event where user selects a different video in the playlist
         self.video_list.selectionChanged.connect(self._video_list_selection)
+
+        # handle event to set status of File-Export Training Data action
+        self._central_widget.export_training_status_change.connect(self._export_training.setEnabled)
 
     def keyPressEvent(self, event):
         """
@@ -154,6 +168,18 @@ class MainWindow(QtWidgets.QMainWindow):
         settings['classifier'] = central_widget.classifier_type().name
 
         self._project.save_metadata(settings)
+
+    def _export_training_data(self):
+        # TODO make window_size configurable
+        # (needs to be set based on user preferences for specific behavior)
+        window_size = 5
+
+        try:
+            export_training_data(self._project, self._central_widget.behavior(),
+                                 window_size)
+        except OSError as e:
+            print(f"Unable to export training data: {e}", file=sys.stderr)
+
 
     def _toggle_video_list(self, checked):
         """ show/hide video list """

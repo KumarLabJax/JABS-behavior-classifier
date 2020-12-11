@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-main program for Rotta video labeler and classifier
-takes one positional argument: path to video file
+main program for Rotta video labeling and classifier
+takes one optional positional argument: path to project directory
 """
 
 import argparse

@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from src.feature_extraction import IdentityFeatures
-from src.labeler import TrackLabels
+from src.project import TrackLabels
 from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
 from src.video_stream.utilities import get_frame_count
@@ -164,11 +164,15 @@ class Project:
         return self._videos
 
     @property
-    def feature_dir(self):
+    def dir(self) -> Path:
+        return self._project_dir_path
+
+    @property
+    def feature_dir(self) -> Path:
         return self._feature_dir
 
     @property
-    def annotation_dir(self):
+    def annotation_dir(self) -> Path:
         return self._annotations_dir
 
     @property
@@ -501,44 +505,6 @@ class Project:
         """ take a video file name and generate the path used to open it """
         return Path(self._project_dir_path, video_file)
 
-    def _read_counts(self, video, behavior):
-        """
-        read labeled frame and bout counts from json file
-        :return: list of labeled frame and bout counts for each identity for the
-        specified behavior. Each element in the list is a tuple of the form
-        (
-            identity,
-            (behavior frame count, not behavior frame count)
-            (behavior bout count, not behavior bout count)
-        )
-        """
-        video_filename = Path(video).name
-        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
-
-        counts = []
-
-        if path.exists():
-            with path.open() as f:
-                labels = json.load(f).get('labels')
-                for identity in labels:
-                    blocks = labels[identity].get(behavior, [])
-                    frames_behavior = 0
-                    frames_not_behavior = 0
-                    bouts_behavior = 0
-                    bouts_not_behavior = 0
-                    for b in blocks:
-                        if b['present']:
-                            bouts_behavior += 1
-                            frames_behavior += b['end'] - b['start'] + 1
-                        else:
-                            bouts_not_behavior += 1
-                            frames_not_behavior += b['end'] - b['start'] + 1
-
-                    counts.append((identity,
-                                   (frames_behavior, frames_not_behavior),
-                                   (bouts_behavior, bouts_not_behavior)))
-        return counts
-
     def counts(self, behavior):
         """
         get the labeled frame counts and bout counts for each video in the
@@ -552,7 +518,7 @@ class Project:
         """
         counts = {}
         for video in self._videos:
-            counts[video] = self._read_counts(video, behavior)
+            counts[video] = self.__read_counts(video, behavior)
         return counts
 
     def label_counts(self, behavior):
@@ -589,6 +555,11 @@ class Project:
         """
         return self._total_project_identities
 
+    @staticmethod
+    def get_videos(dir_path: Path):
+        """ Get list of video filenames (without path) in a directory """
+        return [f.name for f in dir_path.glob("*.avi")]
+
     def __update_version(self):
         """ update the version number saved in project metadata """
         # only update if the version in the metadata is different from current
@@ -620,7 +591,7 @@ class Project:
         }
 
         The values contained in the first dict are suitable to pass as
-        arguments to the SklClassifier.leave_one_group_out() method.
+        arguments to the Classifier.leave_one_group_out() method.
 
         The second dict in the tuple has group ids as the keys, and the
         values are a dict containing the video and identity that corresponds to
@@ -656,7 +627,7 @@ class Project:
                 ).get_track_labels(str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
-                # TODO make window size configurable
+                # TODO make window_size configurable
                 window_features = features.get_window_features(5, labels)
 
                 all_per_frame.append(per_frame_features)
@@ -694,11 +665,6 @@ class Project:
                 c = f.read(chunk_size)
         return h.hexdigest()
 
-    @staticmethod
-    def get_videos(dir_path: Path):
-        """ Get list of video filenames (without path) in a directory """
-        return [f.name for f in dir_path.glob("*.avi")]
-
     def __has_pose(self, vid: str):
         """ check to see if a video has a corresponding pose file """
         path = self._project_dir_path / vid
@@ -708,3 +674,41 @@ class Project:
         except ValueError:
             return False
         return True
+
+    def __read_counts(self, video, behavior):
+        """
+        read labeled frame and bout counts from json file
+        :return: list of labeled frame and bout counts for each identity for the
+        specified behavior. Each element in the list is a tuple of the form
+        (
+            identity,
+            (behavior frame count, not behavior frame count)
+            (behavior bout count, not behavior bout count)
+        )
+        """
+        video_filename = Path(video).name
+        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
+
+        counts = []
+
+        if path.exists():
+            with path.open() as f:
+                labels = json.load(f).get('labels')
+                for identity in labels:
+                    blocks = labels[identity].get(behavior, [])
+                    frames_behavior = 0
+                    frames_not_behavior = 0
+                    bouts_behavior = 0
+                    bouts_not_behavior = 0
+                    for b in blocks:
+                        if b['present']:
+                            bouts_behavior += 1
+                            frames_behavior += b['end'] - b['start'] + 1
+                        else:
+                            bouts_not_behavior += 1
+                            frames_not_behavior += b['end'] - b['start'] + 1
+
+                    counts.append((identity,
+                                   (frames_behavior, frames_not_behavior),
+                                   (bouts_behavior, bouts_not_behavior)))
+        return counts

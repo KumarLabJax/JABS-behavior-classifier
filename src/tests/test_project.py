@@ -4,14 +4,14 @@ import shutil
 import unittest
 from pathlib import Path
 
-from src.labeler.project import Project
-from src.labeler.video_labels import VideoLabels
+from src.project.project import Project
+from src.project.video_labels import VideoLabels
 from src.utils import hide_stderr
 
 
 class TestProject(unittest.TestCase):
     """
-    test labeler.project.Project
+    test project.project.Project
 
     TODO consider adding test for save_predictions method
     (save_predictions requires having pose_est file)

@@ -2,7 +2,7 @@ import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter, QPixmap, QColor
 
-from src.labeler import TrackLabels
+from src.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
 
 

@@ -2,11 +2,11 @@ import unittest
 
 import numpy as np
 
-from src.labeler.track_labels import TrackLabels
+from src.project.track_labels import TrackLabels
 
 
 class TestTrackLabels(unittest.TestCase):
-    """ test labeler.track_labels.TrackLabels """
+    """ test project.track_labels.TrackLabels """
 
     def test_create(self):
         """

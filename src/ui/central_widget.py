@@ -4,8 +4,8 @@ import numpy as np
 from PyQt5 import QtWidgets, QtCore
 from shapely.geometry import Point
 
-from src.classifier.skl_classifier import SklClassifier
-from src.labeler.track_labels import TrackLabels
+from src.classifier.classifier import Classifier
+from src.project.track_labels import TrackLabels
 from .classification_thread import ClassifyThread
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .frame_labels_widget import FrameLabelsWidget
@@ -31,6 +31,8 @@ class CentralWidget(QtWidgets.QWidget):
         'Rearing (unsupported)'
     ]
 
+    export_training_status_change = QtCore.pyqtSignal(bool)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -52,7 +54,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._pose_est = None
 
         #  classifier
-        self._classifier = SklClassifier()
+        self._classifier = Classifier()
         self._training_thread = None
         self._classify_thread = None
 
@@ -317,7 +319,7 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             # try to select the classifier type specified in project metadata
             try:
-                classifier_type = SklClassifier.ClassifierType[settings['classifier']]
+                classifier_type = Classifier.ClassifierType[settings['classifier']]
 
                 index = self._classifier_selection.findData(classifier_type)
                 if index != -1:
@@ -686,9 +688,8 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self.behavior_selection.currentText(), self._loaded_video,
-            self._labels, self._predictions, self._probabilities,
-            self._frame_indexes)
+            self.behavior_selection.currentText(), self._predictions,
+            self._probabilities, self._frame_indexes)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
@@ -763,11 +764,13 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if SklClassifier.label_threshold_met(self._counts,
-                                             self._kslider.value()):
+        if Classifier.label_threshold_met(self._counts,
+                                          self._kslider.value()):
             self.train_button.setEnabled(True)
+            self.export_training_status_change.emit(True)
         else:
             self.train_button.setEnabled(False)
+            self.export_training_status_change.emit(False)
 
     def _update_label_counts(self):
         """
