@@ -685,7 +685,9 @@ class CentralWidget(QtWidgets.QWidget):
         # display the new predictions
         self._set_prediction_vis()
         # save predictions
-        self.save_predictions()
+        self._project.save_predictions(self._predictions, self._probabilities,
+                                       self._frame_indexes,
+                                       self.behavior_selection.currentText())
 
     def _update_classify_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -739,8 +741,7 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if Classifier.label_threshold_met(self._counts,
-                                          self._kslider.value()):
+        if Classifier.label_threshold_met(self._counts, self._kslider.value()):
             self.train_button.setEnabled(True)
             self.export_training_status_change.emit(True)
         else:
@@ -800,14 +801,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _classifier_changed(self):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
-
-    def save_predictions(self):
-        """ save predictions (if the classifier has been run) """
-        if not self._predictions:
-            return
-        self._project.save_predictions(self._predictions, self._probabilities,
-                                       self._frame_indexes,
-                                       self.behavior_selection.currentText())
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
