@@ -35,14 +35,6 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
 
-        # save action
-        self.save_action = QtWidgets.QAction('&Save Labels', self)
-        self.save_action.setShortcut('Ctrl+S')
-        self.save_action.setStatusTip('Save Labels')
-        self.save_action.triggered.connect(self._save_project)
-        self.save_action.setEnabled(False)
-        file_menu.addAction(self.save_action)
-
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
         open_action.setShortcut('Ctrl+O')
@@ -129,7 +121,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = Project(project_path)
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
-        self.save_action.setEnabled(True)
 
     def _show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
@@ -145,28 +136,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_about_dialog(self):
         dialog = AboutDialog(self._app_name)
         dialog.exec_()
-
-    def _save_project(self):
-        """
-        save current project state. Handles the File->Save menu action triggered
-        signal.
-        """
-
-        # save the labels for the active video
-        current_video_labels = self.centralWidget().get_labels()
-        self._project.save_annotations(current_video_labels)
-
-        # save labels for any other videos that have been worked on this session
-        self._project.save_cached_annotations()
-
-        # save other project metadata
-        settings = self._project.metadata
-
-        settings['selected_behavior'] = self._central_widget.behavior()
-        settings['behaviors'] = self._central_widget.behavior_labels()
-        settings['classifier'] = self._central_widget.classifier_type.name
-
-        self._project.save_metadata(settings)
 
     def _export_training_data(self):
         # TODO make window_size configurable

@@ -315,21 +315,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         self.classify_button.setEnabled(classifier_loaded)
 
+        # if a classifier was loaded, set the drop down to match the type
         if classifier_loaded:
             self._update_classifier_selection()
-        else:
-            # try to select the classifier type specified in project metadata
-            try:
-                classifier_type = Classifier.ClassifierType[settings['classifier']]
-
-                index = self._classifier_selection.findData(classifier_type)
-                if index != -1:
-                    self._classifier_selection.setCurrentIndex(index)
-            except KeyError:
-                # either no classifier was specified in the metadata file, or
-                # unable to use the classifier specified in the metadata file.
-                # use the default
-                pass
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior())
@@ -827,8 +815,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _classifier_changed(self):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
-        if self._project:
-            self._project.save_metadata({'classifier_type': self._classifier.classifier_type.name})
 
     def save_predictions(self):
         """ save predictions (if the classifier has been run) """
