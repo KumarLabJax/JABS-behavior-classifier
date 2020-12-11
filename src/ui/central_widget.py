@@ -242,11 +242,17 @@ class CentralWidget(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.NoFocus)
 
+    @property
     def behavior(self):
         """
         :return: the currently selected behavior
         """
         return self.behavior_selection.currentText()
+
+    @property
+    def classifier_type(self):
+        """ get the current classifier type """
+        return self._classifier.classifier_type
 
     def behavior_labels(self):
         """
@@ -254,11 +260,6 @@ class CentralWidget(QtWidgets.QWidget):
         :return: a copy of the list so private member can't be modified
         """
         return list(self._behaviors)
-
-    @property
-    def classifier_type(self):
-        """ get the current classifier type """
-        return self._classifier.classifier_type
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -308,35 +309,23 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior())
+                self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
 
         self.classify_button.setEnabled(classifier_loaded)
 
+        # if a classifier was loaded, set the drop down to match the type
         if classifier_loaded:
             self._update_classifier_selection()
-        else:
-            # try to select the classifier type specified in project metadata
-            try:
-                classifier_type = Classifier.ClassifierType[settings['classifier']]
-
-                index = self._classifier_selection.findData(classifier_type)
-                if index != -1:
-                    self._classifier_selection.setCurrentIndex(index)
-            except KeyError:
-                # either no classifier was specified in the metadata file, or
-                # unable to use the classifier specified in the metadata file.
-                # use the default
-                pass
 
         # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior())
+        self._counts = self._project.counts(self.behavior)
 
         # load saved predictions
         self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior())
+            self._project.load_predictions(self.behavior)
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
@@ -345,14 +334,6 @@ class CentralWidget(QtWidgets.QWidget):
         self.select_button.setEnabled(True)
         self._kslider.setEnabled(True)
         self._set_train_button_enabled_state()
-
-    def get_labels(self):
-        """
-        get VideoLabels for currently opened video file
-        note: the @property decorator doesn't work with QWidgets so we have
-        not implemented this as a property
-        """
-        return self._labels
 
     def load_video(self, path):
         """
@@ -442,9 +423,9 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_L:
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
-        elif key == QtCore.Qt.Key_T:
-            # show_track with no argument toggles the setting
-            self._player_widget.show_track()
+
+    def show_track(self, show: bool):
+        self._player_widget.show_track(show)
 
     def _new_label(self):
         """
@@ -465,9 +446,9 @@ class CentralWidget(QtWidgets.QWidget):
         """
         make UI changes to reflect the currently selected behavior
         """
-        self.label_behavior_button.setText(self.behavior())
+        self.label_behavior_button.setText(self.behavior)
         self.label_not_behavior_button.setText(
-            f"Not {self.behavior()}")
+            f"Not {self.behavior}")
 
         if self._project is None:
             return
@@ -477,7 +458,7 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior())
+                self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
@@ -487,18 +468,18 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_selection()
 
         # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior())
+        self._counts = self._project.counts(self.behavior)
         self._update_label_counts()
 
         # load saved predictions
         self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior())
+            self._project.load_predictions(self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
 
         self._set_train_button_enabled_state()
-        self._project.save_metadata({'selected_behavior': self.behavior()})
+        self._project.save_metadata({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
         """
@@ -635,17 +616,6 @@ class CentralWidget(QtWidgets.QWidget):
             # unable to use the classifier
             pass
 
-    @QtCore.pyqtSlot(bool)
-    def _identity_popup_visibility_changed(self, visible):
-        """
-        connected to the IdentityComboBox.pop_up_visible signal. When
-        visible == True, we tell the player widget to overlay all identity
-        labels on the frame.
-        When visible == False we revert to the normal behavior of only labeling
-        the currently selected identity
-        """
-        self._player_widget.show_closest(visible)
-
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
         # make sure video playback is stopped
@@ -712,7 +682,9 @@ class CentralWidget(QtWidgets.QWidget):
         # display the new predictions
         self._set_prediction_vis()
         # save predictions
-        self.save_predictions()
+        self._project.save_predictions(self._predictions, self._probabilities,
+                                       self._frame_indexes,
+                                       self.behavior_selection.currentText())
 
     def _update_classify_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -766,8 +738,7 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if Classifier.label_threshold_met(self._counts,
-                                          self._kslider.value()):
+        if Classifier.label_threshold_met(self._counts, self._kslider.value()):
             self.train_button.setEnabled(True)
             self.export_training_status_change.emit(True)
         else:
@@ -786,7 +757,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # update counts for the current video -- we could be more efficient
         # by only updating the current identity in the current video
-        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior())
+        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
         identity = self.identity_selection.currentText()
 
@@ -827,16 +798,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _classifier_changed(self):
         """ handle classifier selection change """
         self._classifier.set_classifier(self._classifier_selection.currentData())
-        if self._project:
-            self._project.save_metadata({'classifier_type': self._classifier.classifier_type.name})
-
-    def save_predictions(self):
-        """ save predictions (if the classifier has been run) """
-        if not self._predictions:
-            return
-        self._project.save_predictions(self._predictions, self._probabilities,
-                                       self._frame_indexes,
-                                       self.behavior_selection.currentText())
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
