@@ -423,9 +423,6 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_L:
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
-        elif key == QtCore.Qt.Key_T:
-            # show_track with no argument toggles the setting
-            self._player_widget.show_track()
 
     def show_track(self, show: bool):
         self._player_widget.show_track(show)
