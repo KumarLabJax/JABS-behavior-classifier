@@ -67,8 +67,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view_playlist = QtWidgets.QAction('View Playlist', self,
                                                checkable=True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
-
         view_menu.addAction(self.view_playlist)
+
+        self.show_track = QtWidgets.QAction('Show Track', self, checkable=True)
+        self.show_track.triggered.connect(self._toggle_track)
+        view_menu.addAction(self.show_track)
 
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
@@ -107,10 +110,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Key_X,
             QtCore.Qt.Key_C,
             QtCore.Qt.Key_Escape,
-            QtCore.Qt.Key_L,
-            QtCore.Qt.Key_T
+            QtCore.Qt.Key_L
         ]:
             self.centralWidget().keyPressEvent(event)
+
+        elif key == QtCore.Qt.Key_T:
+            self.show_track.trigger()
 
         else:
             # anything else pass on to the super class keyPressEvent
@@ -157,6 +162,10 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # user checked
             self.video_list.show()
+
+    def _toggle_track(self, checked):
+        """ show/hide track overlay for subject """
+        self._central_widget.show_track(checked)
 
     def _video_list_selection(self, filename):
         """

@@ -249,17 +249,17 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return self.behavior_selection.currentText()
 
+    @property
+    def classifier_type(self):
+        """ get the current classifier type """
+        return self._classifier.classifier_type
+
     def behavior_labels(self):
         """
         get the current contents of the behavior drop down
         :return: a copy of the list so private member can't be modified
         """
         return list(self._behaviors)
-
-    @property
-    def classifier_type(self):
-        """ get the current classifier type """
-        return self._classifier.classifier_type
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -426,6 +426,9 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_T:
             # show_track with no argument toggles the setting
             self._player_widget.show_track()
+
+    def show_track(self, show: bool):
+        self._player_widget.show_track(show)
 
     def _new_label(self):
         """
