@@ -242,6 +242,7 @@ class CentralWidget(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.NoFocus)
 
+    @property
     def behavior(self):
         """
         :return: the currently selected behavior
@@ -308,7 +309,7 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior())
+                self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
@@ -320,11 +321,11 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_selection()
 
         # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior())
+        self._counts = self._project.counts(self.behavior)
 
         # load saved predictions
         self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior())
+            self._project.load_predictions(self.behavior)
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
@@ -333,14 +334,6 @@ class CentralWidget(QtWidgets.QWidget):
         self.select_button.setEnabled(True)
         self._kslider.setEnabled(True)
         self._set_train_button_enabled_state()
-
-    def get_labels(self):
-        """
-        get VideoLabels for currently opened video file
-        note: the @property decorator doesn't work with QWidgets so we have
-        not implemented this as a property
-        """
-        return self._labels
 
     def load_video(self, path):
         """
@@ -453,9 +446,9 @@ class CentralWidget(QtWidgets.QWidget):
         """
         make UI changes to reflect the currently selected behavior
         """
-        self.label_behavior_button.setText(self.behavior())
+        self.label_behavior_button.setText(self.behavior)
         self.label_not_behavior_button.setText(
-            f"Not {self.behavior()}")
+            f"Not {self.behavior}")
 
         if self._project is None:
             return
@@ -465,7 +458,7 @@ class CentralWidget(QtWidgets.QWidget):
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior())
+                self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
@@ -475,18 +468,18 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_selection()
 
         # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior())
+        self._counts = self._project.counts(self.behavior)
         self._update_label_counts()
 
         # load saved predictions
         self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior())
+            self._project.load_predictions(self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
 
         self._set_train_button_enabled_state()
-        self._project.save_metadata({'selected_behavior': self.behavior()})
+        self._project.save_metadata({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
         """
@@ -774,7 +767,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # update counts for the current video -- we could be more efficient
         # by only updating the current identity in the current video
-        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior())
+        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
         identity = self.identity_selection.currentText()
 

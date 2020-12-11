@@ -143,7 +143,7 @@ class MainWindow(QtWidgets.QMainWindow):
         window_size = 5
 
         try:
-            export_training_data(self._project, self._central_widget.behavior(),
+            export_training_data(self._project, self._central_widget.behavior,
                                  window_size,
                                  self._central_widget.classifier_type)
         except OSError as e:
