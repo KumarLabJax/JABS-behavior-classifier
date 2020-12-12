@@ -1,5 +1,5 @@
-from PyQt5 import QtWidgets, QtGui
-from PyQt5.QtCore import Qt
+from PySide2 import QtWidgets, QtGui
+from PySide2.QtCore import Qt
 
 
 class FrameLabelCountWidget(QtWidgets.QWidget):

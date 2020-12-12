@@ -1,6 +1,7 @@
 import sys
 
-from PyQt5 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore, QtGui
+from PySide2.QtCore import Qt
 
 from src.project import Project, export_training_data
 from src.version import version_str
@@ -11,7 +12,7 @@ from .video_list_widget import VideoListDockWidget
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    loadVideoAsyncSignal = QtCore.pyqtSignal(str)
+    loadVideoAsyncSignal = QtCore.Signal(str)
 
     def __init__(self, app_name="Behavior Classifier", *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -37,7 +38,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
-        open_action.setShortcut('Ctrl+O')
+        open_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_O))
         open_action.setStatusTip('Open Project')
         open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
@@ -50,26 +51,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # exit action
         exit_action = QtWidgets.QAction(' &Exit', self)
-        exit_action.setShortcut('Ctrl+Q')
+        exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_Q))
         exit_action.setStatusTip('Exit application')
-        exit_action.triggered.connect(QtWidgets.qApp.quit)
+        exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
         # export training data action
         self._export_training = QtWidgets.QAction('Export Training Data', self)
-        self._export_training.setShortcut('Ctrl+T')
+        self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_T))
         self._export_training.setStatusTip('Export training data for this classifier')
         self._export_training.setEnabled(False)
         self._export_training.triggered.connect(self._export_training_data)
         file_menu.addAction(self._export_training)
 
         # video playlist menu item
-        self.view_playlist = QtWidgets.QAction('View Playlist', self,
-                                               checkable=True)
+        self.view_playlist = QtWidgets.QAction('View Playlist', self)
+        self.view_playlist.setCheckable(True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
         view_menu.addAction(self.view_playlist)
 
-        self.show_track = QtWidgets.QAction('Show Track', self, checkable=True)
+        self.show_track = QtWidgets.QAction('Show Track', self)
+        self.show_track.setCheckable(True)
         self.show_track.triggered.connect(self._toggle_track)
         view_menu.addAction(self.show_track)
 
@@ -174,7 +176,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         self.loadVideoAsyncSignal.emit(str(filename))
 
-    @QtCore.pyqtSlot(str)
+    @QtCore.Slot(str)
     def _load_video_async(self, filename):
         """ process signal requesting to load a new video file """
         try:

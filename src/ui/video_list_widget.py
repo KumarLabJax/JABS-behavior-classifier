@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
 
 class _VideoListWidget(QtWidgets.QListWidget):
@@ -37,7 +37,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
     dock is floating and can
     """
 
-    selectionChanged = QtCore.pyqtSignal(str)
+    selectionChanged = QtCore.Signal(str)
 
     def __init__(self):
         super().__init__()

@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
 
 class IdentityComboBox(QtWidgets.QComboBox):
@@ -8,7 +8,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
     "label identities mode".
     """
 
-    pop_up_visible = QtCore.pyqtSignal(bool)
+    pop_up_visible = QtCore.Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
