@@ -45,7 +45,7 @@ class PredictionVisWidget(QWidget):
         # size each frame takes up in the bar in pixels
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = int((self.size().width() - self._adjusted_width) / 2)
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
         self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1,
@@ -64,7 +64,7 @@ class PredictionVisWidget(QWidget):
     def resizeEvent(self, event):
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = int((self.size().width() - self._adjusted_width) / 2)
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
     def paintEvent(self, event):
         """
@@ -100,13 +100,13 @@ class PredictionVisWidget(QWidget):
             end_padding_width = end_padding_frames * self._frame_width
             qp.setBrush(self._padding_brush)
             qp.drawRect(
-                int(self._offset + (self._nframes - end_padding_frames) * self._frame_width),
+                self._offset + (self._nframes - end_padding_frames) * self._frame_width,
                 0, end_padding_width, self._bar_height
             )
 
         # draw background color (will be color for no label)
         qp.setBrush(QColor(255, 255, 255))
-        qp.drawRect(int(self._offset + start_padding_width), 0,
+        qp.drawRect(self._offset + start_padding_width, 0,
                     width - start_padding_width - (end_padding_frames *
                                                    self._frame_width),
                     self._bar_height)
@@ -131,7 +131,7 @@ class PredictionVisWidget(QWidget):
 
         # draw current position indicator
         qp.setPen(self._position_marker_pen)
-        position_offset = int(self._offset + self._adjusted_width / 2)
+        position_offset = self._offset + self._adjusted_width // 2
         qp.drawLine(position_offset, 0, position_offset, self._bar_height - 1)
 
         # draw bounding box
