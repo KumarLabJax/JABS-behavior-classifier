@@ -1,3 +1,5 @@
+import sys
+
 from PyQt5 import QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
@@ -29,7 +31,10 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
             'not_behavior_project': QtWidgets.QLabel("0"),
         }
 
-        font = QtGui.QFont("Courier New", 12)
+        if sys.platform == 'darwin':
+            font = QtGui.QFont("Courier New", 12)
+        else:
+            font = QtGui.QFont("Courier New", 10)
 
         for l in self._frame_labels.values():
             l.setFont(font)
@@ -41,7 +46,7 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         bout_header = QtWidgets.QLabel("Bouts")
 
         layout = QtWidgets.QGridLayout()
-        layout.setSpacing(5)
+        layout.setSpacing(2)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # add static labels to grid
