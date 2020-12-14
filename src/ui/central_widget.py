@@ -54,7 +54,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._pose_est = None
 
         #  classifier
-        self._classifier = Classifier()
+        self._classifier = Classifier(n_jobs=4)
         self._training_thread = None
         self._classify_thread = None
 
@@ -634,7 +634,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
             'Training', None, 0,
-            self._project.total_project_identities + self._kslider.value(),
+            self._project.total_project_identities + self._kslider.value() + 1,
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()

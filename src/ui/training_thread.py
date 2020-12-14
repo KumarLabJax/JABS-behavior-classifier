@@ -5,6 +5,7 @@ from PyQt5 import QtCore
 from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
+from src.utils import FINAL_TRAIN_SEED
 
 
 class TrainingThread(QtCore.QThread):
@@ -108,11 +109,10 @@ class TrainingThread(QtCore.QThread):
                     self._project.has_social_features),
                 10)
 
-            # let the parent thread know that we've finished
+            # let the parent thread know that we've finished this iteration
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
 
-        self._project.save_classifier(self._classifier, self._behavior)
 
         print('\n' + '=' * 70)
         print("SUMMARY\n")
@@ -129,5 +129,18 @@ class TrainingThread(QtCore.QThread):
               f"{np.mean(fbeta_notbehavior):.5}")
         print(f"Classifier: {self._classifier.classifier_name}")
         print('-' * 70)
+
+        # retrain with all training data and fixed random seed before saving:
+        self._classifier.train({
+            'training_data': self._classifier.combine_data(
+                features['per_frame'],
+                features['window']
+            ),
+            'training_labels': features['labels'],
+        }, random_seed=FINAL_TRAIN_SEED)
+
+        self._project.save_classifier(self._classifier, self._behavior)
+        self._tasks_complete += 1
+        self.update_progress.emit(self._tasks_complete)
 
         self.trainingComplete.emit()
