@@ -43,7 +43,7 @@ class ManualLabelWidget(QWidget):
         self._labels = None
         self._identity_mask = None
 
-        self._bar_height = 40
+        self._bar_height = 30
 
         # size each frame takes up in the bar in pixels
         self._frame_width = self.size().width() // self._nframes
