@@ -48,7 +48,7 @@ class ManualLabelWidget(QWidget):
         # size each frame takes up in the bar in pixels
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = int((self.size().width() - self._adjusted_width) / 2)
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
         self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1,
@@ -69,7 +69,7 @@ class ManualLabelWidget(QWidget):
     def resizeEvent(self, event):
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = int((self.size().width() - self._adjusted_width) / 2)
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
     def paintEvent(self, event):
         """
@@ -175,7 +175,7 @@ class ManualLabelWidget(QWidget):
 
         # draw current position indicator
         qp.setPen(self._position_marker_pen)
-        position_offset = int(self._offset + (width / 2))  # midpoint of widget in pixels
+        position_offset = self._offset + (width // 2)  # midpoint of widget in pixels
         qp.drawLine(position_offset, 0, position_offset, self._bar_height - 1)
 
         # draw bounding box

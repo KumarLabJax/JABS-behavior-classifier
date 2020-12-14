@@ -435,7 +435,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # make sure we terminate the player thread if it is still active
         # during destruction
         if self._player_thread:
-            self._player_thread.terminate()
+            self._stop_player_thread()
 
     def current_frame(self):
         """ return the current frame """
