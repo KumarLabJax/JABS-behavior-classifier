@@ -59,7 +59,7 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path):
     classifier.train({
         'training_data': training_features,
         'training_labels': training_file['labels'],
-    })
+    }, random_seed=training_file['training_seed'])
 
     # allocate numpy arrays to write to h5 file
     prediction_labels = np.full(

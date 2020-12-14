@@ -4,6 +4,7 @@ from PyQt5 import QtWidgets, QtCore
 
 from src.project import Project, export_training_data
 from src.version import version_str
+from src.utils import FINAL_TRAIN_SEED
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
@@ -150,7 +151,8 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             export_training_data(self._project, self._central_widget.behavior,
                                  window_size,
-                                 self._central_widget.classifier_type)
+                                 self._central_widget.classifier_type,
+                                 FINAL_TRAIN_SEED)
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
