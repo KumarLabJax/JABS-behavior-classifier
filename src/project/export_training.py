@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 
 def export_training_data(project: 'Project', behavior: str,
                          window_size: int,
-                         classifier_type: 'Classifier',
+                         classifier_type: 'Classifier.ClassifierType',
+                         training_seed: int,
                          out_file: typing.Optional[Path]=None):
     """
     export training data from a project in a format that can be used to
@@ -32,6 +33,8 @@ def export_training_data(project: 'Project', behavior: str,
     :param behavior: Behavior to export
     :param window_size: Window size used for this behavior
     :param classifier_type: Preferred classifier type
+    :param training_seed: random seed to use for training to get reproducable
+    results
     :param out_file: optional output path, if None write to project dir
     with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
     :return: None
@@ -55,6 +58,7 @@ def export_training_data(project: 'Project', behavior: str,
         out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
         out_h5.attrs['classifier_type'] = classifier_type.value
+        out_h5.attrs['training_seed'] = training_seed
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
@@ -119,15 +123,17 @@ def load_training_data(training_file: Path):
         features['has_social_features'] = in_h5.attrs['has_social_features']
         features['window_size'] = in_h5.attrs['window_size']
         features['behavior'] = in_h5.attrs['behavior']
+        features['training_seed'] = in_h5.attrs['training_seed']
+        features['classifier_type'] = src.classifier.Classifier.ClassifierType(
+            in_h5.attrs['classifier_type'])
+
         features['labels'] = in_h5['label'][:]
         features['groups'] = in_h5['group'][:]
-        features['classifier_type'] = src.classifier.Classifier.ClassifierType(in_h5.attrs['classifier_type'])
 
-        # grab all per frame features from h5 file
+        # per frame features
         for name, val in in_h5['features/per_frame'].items():
             features['per_frame'][name] = val[:]
-
-        # grab all window features from h5 file
+        # window features
         for name, val in in_h5['features/window'].items():
             if isinstance(val, h5py.Dataset):
                 features['window'][name] = val[:]

@@ -1,5 +1,6 @@
 import pickle
 import random
+import typing
 from enum import IntEnum
 from importlib import import_module
 from pathlib import Path
@@ -190,10 +191,12 @@ class Classifier:
             d: self._classifier_names[d] for d in self._classifier_choices
         }
 
-    def train(self, data):
+    def train(self, data, random_seed: typing.Optional[int]=None):
         """
         train the classifier
         :param data: dict returned from train_test_split()
+        :param random_seed: optional random seed (used when we want reproducible
+        results between trainings)
         :return: None
         """
 
@@ -201,11 +204,14 @@ class Classifier:
         labels = data['training_labels']
 
         if self._classifier_type == self.ClassifierType.RANDOM_FOREST:
-            self._classifier = self._fit_random_forest(features, labels)
+            self._classifier = self._fit_random_forest(features, labels,
+                                                       random_seed=random_seed)
         elif self._classifier_type == self.ClassifierType.GRADIENT_BOOSTING:
-            self._classifier = self._fit_gradient_boost(features, labels)
-        elif  self._xgboost is not None and self._classifier_type == self.ClassifierType.XGBOOST:
-            self._classifier = self._fit_xgboost(features, labels)
+            self._classifier = self._fit_gradient_boost(features, labels,
+                                                        random_seed=random_seed)
+        elif self._xgboost is not None and self._classifier_type == self.ClassifierType.XGBOOST:
+            self._classifier = self._fit_xgboost(features, labels,
+                                                 random_seed=random_seed)
         else:
             raise ValueError("Unsupported classifier")
 
@@ -281,17 +287,29 @@ class Classifier:
         return np.concatenate(datasets, axis=1)
 
     @staticmethod
-    def _fit_random_forest(features, labels):
+    def _fit_random_forest(features, labels,
+                           random_seed: typing.Optional[int]=None):
+        if random_seed is not None:
+            np.random.seed(random_seed)
         classifier = RandomForestClassifier()
         return classifier.fit(features, labels)
 
     @staticmethod
-    def _fit_gradient_boost(features, labels):
+    def _fit_gradient_boost(features, labels,
+                            random_seed: typing.Optional[int]=None):
+        if random_seed is not None:
+            np.random.seed(random_seed)
         classifier = GradientBoostingClassifier()
         return classifier.fit(features, labels)
 
-    def _fit_xgboost(self, features, labels):
-        classifier = self._xgboost.XGBClassifier()
+    def _fit_xgboost(self, features, labels,
+                     random_seed: typing.Optional[int]=None):
+
+        if random_seed is not None:
+            classifier = self._xgboost.XGBClassifier(n_jobs=4,
+                                                     random_state=random_seed)
+        else:
+            classifier = self._xgboost.XGBClassifier(n_jobs=4)
         classifier.fit(features, labels)
         return classifier
 
@@ -312,10 +330,10 @@ class Classifier:
         feature_importances = sorted(feature_importances, key=lambda x: x[1],
                                      reverse=True)
         # Print out the feature and importance
-        print(f"{'Feature Name':30} Importance")
-        print('-' * 50)
+        print(f"{'Feature Name':50} Importance")
+        print('-' * 60)
         for feature, importance in feature_importances[:limit]:
-            print(f"{feature:30} {importance}")
+            print(f"{feature:50} {importance:0.2f}")
 
     @staticmethod
     def label_threshold_met(all_counts: dict, min_groups: int):
