@@ -35,14 +35,17 @@ class Classifier:
         ClassifierType.XGBOOST: "XGBoost"
     }
 
-    def __init__(self, classifier=ClassifierType.RANDOM_FOREST):
+    def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         """
         :param classifier: type of classifier to use. Must be ClassifierType
+        :param n_jobs: number of jobs to use for classifiers that support
+        this parameter for parallelism
         enum value. Defaults to ClassifierType.RANDOM_FOREST
         """
 
         self._classifier_type = classifier
         self._classifier = None
+        self._n_jobs = n_jobs
 
         self._classifier_choices = [
             self.ClassifierType.RANDOM_FOREST,
@@ -306,10 +309,10 @@ class Classifier:
                      random_seed: typing.Optional[int]=None):
 
         if random_seed is not None:
-            classifier = self._xgboost.XGBClassifier(n_jobs=4,
+            classifier = self._xgboost.XGBClassifier(n_jobs=self._n_jobs,
                                                      random_state=random_seed)
         else:
-            classifier = self._xgboost.XGBClassifier(n_jobs=4)
+            classifier = self._xgboost.XGBClassifier(n_jobs=self._n_jobs)
         classifier.fit(features, labels)
         return classifier
 

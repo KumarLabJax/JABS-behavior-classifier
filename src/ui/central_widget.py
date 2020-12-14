@@ -54,7 +54,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._pose_est = None
 
         #  classifier
-        self._classifier = Classifier()
+        self._classifier = Classifier(n_jobs=4)
         self._training_thread = None
         self._classify_thread = None
 
