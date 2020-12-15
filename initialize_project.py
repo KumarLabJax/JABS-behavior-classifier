@@ -103,7 +103,7 @@ def main():
     # worker pool for computing features in parallel
     pool = Pool(args.processes)
 
-    # user didn't specify any window sizes, default to 5
+    # user didn't specify any window sizes, use default
     if args.window_sizes is None:
         window_sizes = [DEFAULT_WINDOW_SIZE]
     else:
