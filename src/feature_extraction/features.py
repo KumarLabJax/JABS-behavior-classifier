@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import scipy.stats
 
-from src.project.track_labels import TrackLabels
+import src.project.track_labels
 from src.pose_estimation import PoseEstimationV3
 
 FEATURE_VERSION = 1
@@ -485,11 +485,11 @@ class IdentityFeatures:
 
             for key in features:
                 if key == 'percent_frames_present':
-                    filtered_features[key] = features[key][labels != TrackLabels.Label.NONE]
+                    filtered_features[key] = features[key][labels != src.project.track_labels.TrackLabels.Label.NONE]
                 else:
                     filtered_features[key] = {}
                     for op in features[key]:
-                        filtered_features[key][op] = features[key][op][labels != TrackLabels.Label.NONE]
+                        filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
             return filtered_features
 
@@ -511,7 +511,7 @@ class IdentityFeatures:
         else:
             # return only features for labeled frames
             return {
-                k: v[labels != TrackLabels.Label.NONE, ...]
+                k: v[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
                 for k, v in self._per_frame.items()
             }
 
@@ -524,7 +524,7 @@ class IdentityFeatures:
         :return:
         """
         window_features = self.get_window_features(window_size)
-        filter = np.logical_and(self._frame_valid, labels == TrackLabels.Label.NONE)
+        filter = np.logical_and(self._frame_valid, labels == src.project.track_labels.TrackLabels.Label.NONE)
 
         per_frame = {}
         indexes = np.arange(self._num_frames)[filter]
