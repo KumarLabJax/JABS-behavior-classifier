@@ -29,8 +29,8 @@ def generate_files_worker(params: dict):
                                 project.feature_dir,
                                 pose_est, force=params['force'])
 
-    # TODO, allow user to specify different window size
-    _ = features.get_window_features(5, force=params['force'])
+    for w in params['window_sizes']:
+        _ = features.get_window_features(w, force=params['force'])
 
     for identity in pose_est.identities:
         _ = pose_est.get_identity_convex_hulls(identity)
@@ -83,11 +83,15 @@ def main():
                         help='recompute features even if file already exists')
     parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
+    parser.add_argument('-w', dest='window_sizes', action='append', type=int, default=[5])
     parser.add_argument('project_dir', type=Path)
     args = parser.parse_args()
 
     # worker pool for computing features in parallel
     pool = Pool(args.processes)
+
+    # convert args.window_sizes into a set to remove duplicates
+    window_sizes = set(args.window_sizes)
 
     print(f"Initializing project directory: {args.project_dir}")
 
@@ -166,7 +170,8 @@ def main():
                     'video': video,
                     'identity': identity,
                     'project': project,
-                    'force': args.force
+                    'force': args.force,
+                    'window_sizes': window_sizes
                 })
 
     # print the initial progress bar with 0% complete
