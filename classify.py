@@ -123,7 +123,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     classifier_group = parser.add_argument_group(
-        "Optionally override the classifier specified in the training file:")
+        "Optionally override the classifier specified in the training file")
     exclusive_group = classifier_group.add_mutually_exclusive_group(required=False)
     for classifer_type, classifier_str in classifier_choices.items():
         exclusive_group.add_argument(
