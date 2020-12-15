@@ -21,14 +21,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget = CentralWidget()
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self._app_name = app_name
-
         self.setUnifiedTitleAndToolBarOnMac(True)
 
+        self._app_name = app_name
         self._project = None
 
         self.loadVideoAsyncSignal.connect(self._load_video_async,
                                           QtCore.Qt.QueuedConnection)
+
+        self._status_bar = QtWidgets.QStatusBar()
+        self.setStatusBar(self._status_bar)
 
         menu = self.menuBar()
 
@@ -128,6 +130,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
 
+    def display_status_message(self, message: str, duration: int=3000):
+        """
+        display a message in the main window status bar
+        :param message: message to display
+        :param duration: duration of the message in milliseconds. Use 0 to
+        display the message until clear_status_bar() is called
+        :return: None
+        """
+        if duration < 0:
+            raise ValueError("duration must be >= 0")
+        self._status_bar.showMessage(message, duration)
+
+    def clear_status_bar(self):
+        """
+        clear the status bar message
+        :return: None
+        """
+        self._status_bar.clearMessage()
+
     def _show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
         options = QtWidgets.QFileDialog.Options()
@@ -153,6 +174,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                  window_size,
                                  self._central_widget.classifier_type,
                                  FINAL_TRAIN_SEED)
+            self.display_status_message("Training data exported")
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
@@ -182,5 +204,4 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             self.centralWidget().load_video(self._project.video_path(filename))
         except OSError as e:
-            # TODO: display a dialog box or status bar message
-            print(e)
+            self.display_status_message(f"Unable to load video: {e}")

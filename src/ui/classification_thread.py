@@ -11,9 +11,10 @@ class ClassifyThread(QtCore.QThread):
 
     done = QtCore.pyqtSignal()
     update_progress = QtCore.pyqtSignal(int)
+    current_status = QtCore.pyqtSignal(str)
 
     def __init__(self, classifier, project, behavior, predictions,
-                 probabilities, frame_indexes):
+                 probabilities, frame_indexes, current_video):
         super().__init__()
         self._classifier = classifier
         self._project = project
@@ -22,6 +23,7 @@ class ClassifyThread(QtCore.QThread):
         self._probabilities = probabilities
         self._frame_indexes = frame_indexes
         self._tasks_complete = 0
+        self._current_video = current_video
 
     def run(self):
         """
@@ -29,6 +31,11 @@ class ClassifyThread(QtCore.QThread):
         video
         """
         self._tasks_complete = 0
+
+        predictions = {}
+        probabilities = {}
+        frame_indexes = {}
+
         # iterate over each video in the project
         for video in self._project.videos:
 
@@ -37,11 +44,13 @@ class ClassifyThread(QtCore.QThread):
                 self._project.video_path(video))
 
             # make predictions for each identity in this video
-            self._predictions[video] = {}
-            self._probabilities[video] = {}
-            self._frame_indexes[video] = {}
+            predictions[video] = {}
+            probabilities[video] = {}
+            frame_indexes[video] = {}
 
             for ident in pose_est.identities:
+                self.current_status.emit(f"Classifying {video} identity={ident}")
+
                 # get the features for this identity
                 features = IdentityFeatures(video, ident,
                                             self._project.feature_dir,
@@ -64,7 +73,7 @@ class ClassifyThread(QtCore.QThread):
                 )
 
                 # make predictions
-                self._predictions[video][identity] = self._classifier.predict(
+                predictions[video][identity] = self._classifier.predict(
                     data)
 
                 # also get the probabilities
@@ -73,14 +82,25 @@ class ClassifyThread(QtCore.QThread):
                 # The following code uses some
                 # numpy magic to use the _predictions array as column indexes
                 # for each row of the 'prob' array we just computed.
-                self._probabilities[video][identity] = prob[
+                probabilities[video][identity] = prob[
                     np.arange(len(prob)),
-                    self._predictions[video][identity]
+                    predictions[video][identity]
                 ]
 
                 # save the indexes for the predicted frames
-                self._frame_indexes[video][identity] = unlabeled_features[
+                frame_indexes[video][identity] = unlabeled_features[
                     'frame_indexes']
                 self._tasks_complete += 1
                 self.update_progress.emit(self._tasks_complete)
+
+        # save predictions
+        self.current_status.emit("Saving Predictions")
+        self._project.save_predictions(predictions,
+                                       probabilities,
+                                       frame_indexes,
+                                       self._behavior)
+
+        self._predictions = predictions[self._current_video]
+        self._probabilities = probabilities[self._current_video]
+        self._frame_indexes = frame_indexes[self._current_video]
         self.done.emit()
