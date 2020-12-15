@@ -7,12 +7,13 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from src.feature_extraction import IdentityFeatures
+import src.feature_extraction as fe
+from src.pose_estimation import get_pose_path, open_pose_file, \
+    get_frames_from_file
 from src.project import TrackLabels
-from src.pose_estimation import get_pose_path, open_pose_file, get_frames_from_file
 from src.version import version_str
-from src.video_stream.utilities import get_frame_count
 from src.video_stream import VideoStream
+from src.video_stream.utilities import get_frame_count
 from .video_labels import VideoLabels
 
 
@@ -618,9 +619,8 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                features = IdentityFeatures(video, identity,
-                                            self.feature_dir,
-                                            pose_est)
+                features = fe.IdentityFeatures(
+                    video, identity, self.feature_dir, pose_est)
 
                 labels = self.load_video_labels(
                     video, leave_cached=True
@@ -646,8 +646,8 @@ class Project:
                     progress_callable()
 
         return {
-            'window': IdentityFeatures.merge_window_features(all_window),
-            'per_frame': IdentityFeatures.merge_per_frame_features(
+            'window': fe.IdentityFeatures.merge_window_features(all_window),
+            'per_frame': fe.IdentityFeatures.merge_per_frame_features(
                 all_per_frame),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),

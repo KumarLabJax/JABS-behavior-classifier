@@ -8,7 +8,7 @@ import numpy as np
 
 import src.version
 import src.classifier
-from src.feature_extraction.features import FEATURE_VERSION
+import src.feature_extraction
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
@@ -52,7 +52,7 @@ def export_training_data(project: 'Project', behavior: str,
     string_type = h5py.special_dtype(vlen=str)
 
     with h5py.File(out_file, 'w') as out_h5:
-        out_h5.attrs['file_version'] = FEATURE_VERSION
+        out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['has_social_features'] = project.has_social_features
         out_h5.attrs['window_size'] = window_size
