@@ -83,7 +83,17 @@ def main():
                         help='recompute features even if file already exists')
     parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
-    parser.add_argument('-w', dest='window_sizes', action='append', type=int, default=[5])
+    parser.add_argument('-w', dest='window_sizes', action='append',
+                        type=int, default=[5], metavar='WINDOW_SIZE',
+                        help="Specify window sizes to use for computing window "
+                             "features. Argument can be repeated to specify "
+                             "multiple sizes (e.g. -w 2 -w 5). Size is number "
+                             "of frames before and after the current frame to "
+                             "include in the window. For example, '-w 2' "
+                             "results in a window size of 5 (2 frames before, "
+                             "2 frames after, plus the current frame). If no "
+                             "window size is specified, a default of 5 will "
+                             "be used.")
     parser.add_argument('project_dir', type=Path)
     args = parser.parse_args()
 
