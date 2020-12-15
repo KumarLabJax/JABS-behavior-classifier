@@ -1,5 +1,4 @@
 import sys
-import datetime
 
 import numpy as np
 from PyQt5 import QtWidgets, QtCore
@@ -374,12 +373,14 @@ class CentralWidget(QtWidgets.QWidget):
                 self._player_widget.num_frames()
             )
 
-            # load saved predictions
+            # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = \
                 self._project.load_predictions(path.name,
                                                self.behavior)
 
             self._loaded_video = path
+
+            # update display with labels/predictions for this video
             self._set_label_track()
             self._update_label_counts()
             self._set_prediction_vis()
