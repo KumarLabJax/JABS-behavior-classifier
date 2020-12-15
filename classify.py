@@ -122,6 +122,16 @@ def main():
 
     parser = argparse.ArgumentParser()
 
+    classifier_group = parser.add_argument_group(
+        "Optionally override the classifier specified in the training file:")
+    exclusive_group = classifier_group.add_mutually_exclusive_group(required=False)
+    for classifer_type, classifier_str in classifier_choices.items():
+        exclusive_group.add_argument(
+            f"--{classifer_type.name.lower().replace('_', '-')}",
+            action='store_const', const=classifer_type,
+            dest='classifier', help=f"{classifier_str}"
+        )
+
     parser.add_argument(
         '--training',
         help=f'Training data exported from {APP_NAME}',
@@ -137,16 +147,6 @@ def main():
         help='directory to store classification output',
         required=True,
     )
-
-    grouping = parser.add_argument_group(
-        None, "Override the classifier specified in the training file:")
-    classifier_group = grouping.add_mutually_exclusive_group(required=False)
-    for classifer_type, classifier_str in classifier_choices.items():
-        classifier_group.add_argument(
-            f"--{classifer_type.name.lower().replace('_', '-')}",
-            action='store_const', const=classifer_type,
-            dest='classifier', help=f"{classifier_str}"
-        )
 
     args = parser.parse_args()
 
