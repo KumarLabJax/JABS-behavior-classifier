@@ -9,15 +9,16 @@ optional regenerate and overwrite existing feature h5 files
 
 import argparse
 import sys
-
 from multiprocessing import Pool
 from pathlib import Path
 
 import src.pose_estimation
-from src.project import Project
-from src.feature_extraction import IdentityFeatures
+import src.feature_extraction
+import src.project
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream
+
+DEFAULT_WINDOW_SIZE = 5
 
 
 def generate_files_worker(params: dict):
@@ -25,12 +26,12 @@ def generate_files_worker(params: dict):
     project = params['project']
     pose_est = project.load_pose_est(
         project.video_path(params['video']))
-    features = IdentityFeatures(params['video'], params['identity'],
+    features = src.feature_extraction.IdentityFeatures(params['video'], params['identity'],
                                 project.feature_dir,
                                 pose_est, force=params['force'])
 
-    # TODO, allow user to specify different window size
-    _ = features.get_window_features(5, force=params['force'])
+    for w in params['window_sizes']:
+        _ = features.get_window_features(w, force=params['force'])
 
     for identity in pose_est.identities:
         _ = pose_est.get_identity_convex_hulls(identity)
@@ -77,22 +78,40 @@ def match_to_pose(video: str, project_dir: Path):
 
 
 def main():
-
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--force', action='store_true',
                         help='recompute features even if file already exists')
     parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
+    parser.add_argument('-w', dest='window_sizes', action='append',
+                        type=int, metavar='WINDOW_SIZE',
+                        help="Specify window sizes to use for computing window "
+                             "features. Argument can be repeated to specify "
+                             "multiple sizes (e.g. -w 2 -w 5). Size is number "
+                             "of frames before and after the current frame to "
+                             "include in the window. For example, '-w 2' "
+                             "results in a window size of 5 (2 frames before, "
+                             "2 frames after, plus the current frame). If no "
+                             "window size is specified, a default of "
+                             f"{DEFAULT_WINDOW_SIZE} will "
+                             "be used.")
     parser.add_argument('project_dir', type=Path)
     args = parser.parse_args()
 
     # worker pool for computing features in parallel
     pool = Pool(args.processes)
 
+    # user didn't specify any window sizes, use default
+    if args.window_sizes is None:
+        window_sizes = [DEFAULT_WINDOW_SIZE]
+    else:
+        # make sure there are no duplicates
+        window_sizes = set(args.window_sizes)
+
     print(f"Initializing project directory: {args.project_dir}")
 
     # first to a quick check to make sure the h5 files exist for each video
-    videos = Project.get_videos(args.project_dir)
+    videos = src.project.Project.get_videos(args.project_dir)
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
@@ -154,7 +173,7 @@ def main():
         sys.exit(1)
 
     # generate features -- this might be very slow
-    project = Project(args.project_dir)
+    project = src.project.Project(args.project_dir)
     total_identities = project.total_project_identities
 
     def feature_job_producer():
@@ -166,7 +185,8 @@ def main():
                     'video': video,
                     'identity': identity,
                     'project': project,
-                    'force': args.force
+                    'force': args.force,
+                    'window_sizes': window_sizes
                 })
 
     # print the initial progress bar with 0% complete
