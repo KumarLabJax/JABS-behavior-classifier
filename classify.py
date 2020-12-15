@@ -1,6 +1,7 @@
 import argparse
 import re
 import sys
+import typing
 from pathlib import Path
 
 import h5py
@@ -26,7 +27,8 @@ def get_pose_stem(pose_path: Path):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
-def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path):
+def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
+                  override_classifier: typing.Optional[Classifier.ClassifierType]=None):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -44,11 +46,14 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path):
     window_size = training_file['window_size']
     classifier_type = Classifier.ClassifierType(training_file['classifier_type'])
 
+    if override_classifier is not None:
+        classifier_type = override_classifier
+
     classifier = Classifier()
     if classifier_type in classifier.classifier_choices():
         classifier.set_classifier(classifier_type)
     else:
-        print(f"Classifier specified by training file ({classifier_type.name}) "
+        print(f"Specified classifier type ({classifier_type.name}) "
               f"is unavailable, using default "
               f"({classifier.classifier_type.name})")
 
@@ -111,6 +116,10 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path):
 
 
 def main():
+
+    # find out which classifiers are supported in this environment
+    classifier_choices = Classifier().classifier_choices()
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -129,13 +138,23 @@ def main():
         required=True,
     )
 
+    grouping = parser.add_argument_group(
+        None, "Override the classifier specified in the training file:")
+    classifier_group = grouping.add_mutually_exclusive_group(required=False)
+    for classifer_type, classifier_str in classifier_choices.items():
+        classifier_group.add_argument(
+            f"--{classifer_type.name.lower().replace('_', '-')}",
+            action='store_const', const=classifer_type,
+            dest='classifier', help=f"{classifier_str}"
+        )
+
     args = parser.parse_args()
 
     training = Path(args.training)
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
 
-    classify_pose(training, in_pose_path, out_dir)
+    classify_pose(training, in_pose_path, out_dir, override_classifier=args.classifier)
 
 
 if __name__ == "__main__":

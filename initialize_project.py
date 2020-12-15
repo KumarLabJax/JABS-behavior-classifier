@@ -9,14 +9,13 @@ optional regenerate and overwrite existing feature h5 files
 
 import argparse
 import sys
-
 from multiprocessing import Pool
 from pathlib import Path
 
 import src.pose_estimation
-from src.project import Project
-from src.feature_extraction import IdentityFeatures
 from src.cli import cli_progress_bar
+from src.feature_extraction import IdentityFeatures
+from src.project import Project
 from src.video_stream import VideoStream
 
 DEFAULT_WINDOW_SIZE = 5
@@ -79,7 +78,6 @@ def match_to_pose(video: str, project_dir: Path):
 
 
 def main():
-
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--force', action='store_true',
                         help='recompute features even if file already exists')
