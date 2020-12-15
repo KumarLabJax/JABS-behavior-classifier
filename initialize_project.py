@@ -19,6 +19,8 @@ from src.feature_extraction import IdentityFeatures
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream
 
+DEFAULT_WINDOW_SIZE = 5
+
 
 def generate_files_worker(params: dict):
     """ worker function used for generating project feature and cache files """
@@ -84,7 +86,7 @@ def main():
     parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
     parser.add_argument('-w', dest='window_sizes', action='append',
-                        type=int, default=[5], metavar='WINDOW_SIZE',
+                        type=int, metavar='WINDOW_SIZE',
                         help="Specify window sizes to use for computing window "
                              "features. Argument can be repeated to specify "
                              "multiple sizes (e.g. -w 2 -w 5). Size is number "
@@ -92,7 +94,8 @@ def main():
                              "include in the window. For example, '-w 2' "
                              "results in a window size of 5 (2 frames before, "
                              "2 frames after, plus the current frame). If no "
-                             "window size is specified, a default of 5 will "
+                             "window size is specified, a default of "
+                             f"{DEFAULT_WINDOW_SIZE} will "
                              "be used.")
     parser.add_argument('project_dir', type=Path)
     args = parser.parse_args()
@@ -100,8 +103,12 @@ def main():
     # worker pool for computing features in parallel
     pool = Pool(args.processes)
 
-    # convert args.window_sizes into a set to remove duplicates
-    window_sizes = set(args.window_sizes)
+    # user didn't specify any window sizes, default to 5
+    if args.window_sizes is None:
+        window_sizes = [DEFAULT_WINDOW_SIZE]
+    else:
+        # make sure there are no duplicates
+        window_sizes = set(args.window_sizes)
 
     print(f"Initializing project directory: {args.project_dir}")
 
