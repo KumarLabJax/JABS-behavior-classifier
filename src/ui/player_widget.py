@@ -281,8 +281,8 @@ class _FrameWidget(QtWidgets.QLabel):
             # because we are maintaining aspect ratio, the scaled frame might
             # not be the same dimensions as the area we are painting it.
             # adjust the start point to center the image in the widget
-            point.setX(int((size.width() - pix.width()) / 2))
-            point.setY(int((size.height() - pix.height()) / 2))
+            point.setX((size.width() - pix.width()) // 2)
+            point.setY((size.height() - pix.height()) // 2)
 
             # draw the pixmap starting at the new calculated offset
             painter.drawPixmap(point, pix)
