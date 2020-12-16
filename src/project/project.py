@@ -564,7 +564,8 @@ class Project:
         if version != version_str():
             self.save_metadata({'version': version_str()})
 
-    def get_labeled_features(self, behavior, window_size, progress_callable=None):
+    def get_labeled_features(self, behavior, window_size,
+                             progress_callable=None):
         """
         the the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
