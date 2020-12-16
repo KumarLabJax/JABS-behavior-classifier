@@ -331,10 +331,6 @@ class CentralWidget(QtWidgets.QWidget):
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
 
-        # load saved predictions
-        self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior)
-
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
             self._change_behavior)
@@ -353,7 +349,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         # if we have labels loaded, cache them before opening labels for
         # new video
-
         if self._labels is not None:
             self._project.cache_annotations(self._labels)
             self._start_selection(False)
@@ -378,9 +373,17 @@ class CentralWidget(QtWidgets.QWidget):
                 self._player_widget.num_frames()
             )
 
+            # load saved predictions for this video
+            self._predictions, self._probabilities, self._frame_indexes = \
+                self._project.load_predictions(path.name,
+                                               self.behavior)
+
             self._loaded_video = path
+
+            # update display with labels/predictions for this video
             self._set_label_track()
             self._update_label_counts()
+            self._set_prediction_vis()
         except OSError as e:
             # error loading
             self._labels = None
@@ -461,8 +464,6 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        self._set_label_track()
-
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
@@ -481,11 +482,10 @@ class CentralWidget(QtWidgets.QWidget):
 
         # load saved predictions
         self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self.behavior)
+            self._project.load_predictions(self._loaded_video.name, self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
-
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior})
 
@@ -634,10 +634,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._project, self._classifier,
             self.behavior_selection.currentText(),
             self._kslider.value())
-        self._training_thread.trainingComplete.connect(
+        self._training_thread.training_complete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
             self._update_training_progress)
+        self._training_thread.current_status.connect(
+            lambda m: self.parent().display_status_message(m, 0))
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
@@ -654,6 +656,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
         self._progress_dialog.reset()
+        self.parent().display_status_message("Training Complete", 3000)
         self.classify_button.setEnabled(True)
 
     def _update_training_progress(self, step):
@@ -669,10 +672,12 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
             self.behavior_selection.currentText(), self._predictions,
-            self._probabilities, self._frame_indexes)
+            self._probabilities, self._frame_indexes, self._loaded_video.name)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
+        self._classify_thread.current_status.connect(
+            lambda m: self.parent().display_status_message(m, 0))
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
@@ -688,11 +693,8 @@ class CentralWidget(QtWidgets.QWidget):
     def _classify_thread_complete(self):
         """ update the gui when the classification is complete """
         # display the new predictions
+        self.parent().display_status_message("Classification Complete")
         self._set_prediction_vis()
-        # save predictions
-        self._project.save_predictions(self._predictions, self._probabilities,
-                                       self._frame_indexes,
-                                       self.behavior_selection.currentText())
 
     def _update_classify_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -706,11 +708,10 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        video = self._loaded_video.name
         identity = self.identity_selection.currentText()
 
         try:
-            indexes = self._frame_indexes[video][identity]
+            indexes = self._frame_indexes[identity]
         except KeyError:
             self.prediction_vis.set_predictions(None, None)
             self.inference_timeline_widget.set_labels(
@@ -725,8 +726,8 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_prob = np.zeros((self._player_widget.num_frames()),
                                    dtype=np.float64)
 
-        prediction_labels[indexes] = self._predictions[video][identity]
-        prediction_prob[indexes] = self._probabilities[video][identity]
+        prediction_labels[indexes] = self._predictions[identity]
+        prediction_prob[indexes] = self._probabilities[identity]
         prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR
         prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
         prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR
