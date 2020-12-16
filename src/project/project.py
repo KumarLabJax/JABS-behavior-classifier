@@ -564,13 +564,14 @@ class Project:
         if version != version_str():
             self.save_metadata({'version': version_str()})
 
-    def get_labeled_features(self, behavior, progress_callable=None):
+    def get_labeled_features(self, behavior, window_size, progress_callable=None):
         """
         the the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
         :param behavior: the behavior to get labeled features for
+        :param window_size: window size to use for computing window features
         :param progress_callable: if provided this will be called
         with no args every time an identity is processed to facilitate
         progress tracking
@@ -623,8 +624,8 @@ class Project:
                 ).get_track_labels(str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
-                # TODO make window_size configurable
-                window_features = features.get_window_features(5, labels)
+                window_features = features.get_window_features(window_size,
+                                                               labels)
 
                 all_per_frame.append(per_frame_features)
                 all_window.append(window_features)

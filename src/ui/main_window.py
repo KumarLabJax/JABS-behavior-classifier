@@ -165,9 +165,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _export_training_data(self):
-        # TODO make window_size configurable
-        # (needs to be set based on user preferences for specific behavior)
-        window_size = 5
+        window_size = self._central_widget.window_size
 
         try:
             export_training_data(self._project, self._central_widget.behavior,

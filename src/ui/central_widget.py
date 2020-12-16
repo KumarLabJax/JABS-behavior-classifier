@@ -6,6 +6,7 @@ from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier
 from src.project.track_labels import TrackLabels
+import src.feature_extraction
 from .classification_thread import ClassifyThread
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .frame_labels_widget import FrameLabelsWidget
@@ -48,7 +49,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._curr_frame_index = 0
 
         self._loaded_video = None
-
         self._project = None
         self._labels = None
         self._pose_est = None
@@ -67,6 +67,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # options
         self._frame_jump = 10
+        self._window_size = src.feature_extraction.DEFAULT_WINDOW_SIZE
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -199,7 +200,6 @@ class CentralWidget(QtWidgets.QWidget):
         label_group = QtWidgets.QGroupBox("Labeling")
         label_group.setLayout(label_layout)
 
-
         # summary of number of frames / bouts for each class
         self._frame_counts = FrameLabelCountWidget()
         label_count_layout = QtWidgets.QVBoxLayout()
@@ -261,6 +261,11 @@ class CentralWidget(QtWidgets.QWidget):
     def classifier_type(self):
         """ get the current classifier type """
         return self._classifier.classifier_type
+
+    @property
+    def window_size(self):
+        """ return current window size """
+        return self._window_size
 
     def behavior_labels(self):
         """
@@ -633,6 +638,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self.behavior_selection.currentText(),
+            self._window_size,
             self._kslider.value())
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
@@ -672,7 +678,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
             self.behavior_selection.currentText(), self._predictions,
-            self._probabilities, self._frame_indexes, self._loaded_video.name)
+            self._probabilities, self._frame_indexes, self._loaded_video.name,
+            self._window_size)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
