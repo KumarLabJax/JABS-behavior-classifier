@@ -177,7 +177,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                             window_size,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
-            self.display_status_message(f"Training data exported: {out_path}")
+            self.display_status_message(f"Training data exported: {out_path}",
+                                        5000)
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
