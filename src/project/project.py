@@ -443,62 +443,58 @@ class Project:
         # update app version saved in project metadata if necessary
         self.__update_version()
 
-    def load_predictions(self, behavior: str):
+    def load_predictions(self, video: str, behavior: str):
         """
-        load previously saved predictions if they are present
+        load predictions for a given video and behavior
+        :param video: name of video to load predictions for
         :param behavior: behavior to load predictions for
-        :return: tuple of three dicts. For each dict, the first key is the video
-         name. The value for that key is another dict with identities as keys.
-         the predictions dict stores the inferred classes for each identity,
-         the probabilities dict stores the probabilities of the inferences
-         the frame_indexes dict stores the frame indexes the inferences
-         correspond to
+        :return: tuple of three dicts: (predictions, probabilities, frame_indexes)
+        each dict has identities present in the video for keys
         """
+
         predictions = {}
         probabilities = {}
         frame_indexes = {}
-        for video in self._videos:
-            file_base = Path(video).with_suffix('').name + ".h5"
-            path = self._prediction_dir / self.to_safe_name(behavior) / file_base
 
-            nident = self._metadata['video_files'][video]['identities']
+        file_base = Path(video).with_suffix('').name + ".h5"
+        path = self._prediction_dir / self.to_safe_name(behavior) / file_base
 
-            try:
-                with h5py.File(path, 'r') as h5:
-                    assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
-                    group = h5['predictions']
-                    assert group['predicted_class'].shape[0] == nident
-                    assert group['probabilities'].shape[0] == nident
-                    predictions[video] = {}
-                    probabilities[video] = {}
-                    frame_indexes[video] = {}
-                    for i in range(nident):
-                        identity = str(i)
-                        indexes = np.asarray(range(group['predicted_class'].shape[1]))
+        nident = self._metadata['video_files'][video]['identities']
 
-                        # first, exclude any probability of -1 as that indicates
-                        # a user label, not a inferred class
-                        classes = group['predicted_class'][i, group['probabilities'][i] != -1.0]
-                        prob = group['probabilities'][i, group['probabilities'][i] != -1.0]
-                        indexes = indexes[group['probabilities'][i] != -1]
+        try:
+            with h5py.File(path, 'r') as h5:
+                assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
+                group = h5['predictions']
+                assert group['predicted_class'].shape[0] == nident
+                assert group['probabilities'].shape[0] == nident
 
-                        # now excludes a class of -1 as that indicates the
-                        # identity isn't present
-                        prob = prob[classes != -1]
-                        indexes = indexes[classes != -1]
-                        classes = classes[classes != -1]
+                for i in range(nident):
+                    identity = str(i)
+                    indexes = np.asarray(range(group['predicted_class'].shape[1]))
 
-                        # we're left with classes/probabilities for frames that
-                        # were inferred and their frame indexes
-                        predictions[video][identity] = classes
-                        probabilities[video][identity] = prob
-                        frame_indexes[video][identity] = indexes
+                    # first, exclude any probability of -1 as that indicates
+                    # a user label, not a inferred class
+                    classes = group['predicted_class'][i, group['probabilities'][i] != -1.0]
+                    prob = group['probabilities'][i, group['probabilities'][i] != -1.0]
+                    indexes = indexes[group['probabilities'][i] != -1]
 
-            except IOError:
-                # no saved predictions for this video
-                pass
-            except (AssertionError, KeyError) as e:
-                print(f"unable to open saved inferences for {video}", file=sys.stderr)
+                    # now excludes a class of -1 as that indicates the
+                    # identity isn't present
+                    prob = prob[classes != -1]
+                    indexes = indexes[classes != -1]
+                    classes = classes[classes != -1]
+
+                    # we're left with classes/probabilities for frames that
+                    # were inferred and their frame indexes
+                    predictions[identity] = classes
+                    probabilities[identity] = prob
+                    frame_indexes[identity] = indexes
+
+        except IOError:
+            # no saved predictions for this video
+            pass
+        except (AssertionError, KeyError) as e:
+            print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
         return predictions, probabilities, frame_indexes
 

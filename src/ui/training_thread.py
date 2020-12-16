@@ -15,12 +15,14 @@ class TrainingThread(QtCore.QThread):
 
     # signal so that the main GUI thread can be notified when the training is
     # complete
-    trainingComplete = QtCore.Signal()
+    training_complete = QtCore.Signal()
 
     # allow the thread to send a status string to the main GUI thread so that
     # we can update a status bar if we want
-    currentStatus = QtCore.Signal(str)
+    current_status = QtCore.Signal(str)
 
+    # allow the thread to send a status string to the main GUI thread so that
+    # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
     def __init__(self, project, classifier, behavior, k=1):
@@ -45,11 +47,13 @@ class TrainingThread(QtCore.QThread):
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
 
+        self.current_status.emit("Extracting Features")
         features, group_mapping = self._project.get_labeled_features(
             self._behavior,
             id_processed,
         )
 
+        self.current_status.emit("Generating train/test splits")
         data_generator = self._classifier.leave_one_group_out(
             features['per_frame'],
             features['window'],
@@ -63,6 +67,7 @@ class TrainingThread(QtCore.QThread):
         fbeta_notbehavior = []
 
         for i, data in enumerate(itertools.islice(data_generator, self._k)):
+            self.current_status.emit(f"cross validation iteration {i}")
 
             test_info = group_mapping[data['test_group']]
 
@@ -139,8 +144,10 @@ class TrainingThread(QtCore.QThread):
             'training_labels': features['labels'],
         }, random_seed=FINAL_TRAIN_SEED)
 
+        self.current_status.emit("Training and saving final classifier")
         self._project.save_classifier(self._classifier, self._behavior)
         self._tasks_complete += 1
         self.update_progress.emit(self._tasks_complete)
 
-        self.trainingComplete.emit()
+        self.current_status.emit("Training Complete")
+        self.training_complete.emit()
