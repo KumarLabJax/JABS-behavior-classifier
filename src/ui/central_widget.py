@@ -806,6 +806,9 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classifier_changed(self):
         """ handle classifier selection change """
+        if self._classifier.classifier_type != self._classifier_selection.currentData():
+            # changing classifier type, disable until retrained
+            self.classify_button.setEnabled(False)
         self._classifier.set_classifier(self._classifier_selection.currentData())
 
     def _pixmap_clicked(self, event):
