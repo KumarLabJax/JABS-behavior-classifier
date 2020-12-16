@@ -134,6 +134,7 @@ class TrainingThread(QtCore.QThread):
         print('-' * 70)
 
         # retrain with all training data and fixed random seed before saving:
+        self.current_status.emit("Training and saving final classifier")
         self._classifier.train({
             'training_data': self._classifier.combine_data(
                 features['per_frame'],
@@ -142,7 +143,6 @@ class TrainingThread(QtCore.QThread):
             'training_labels': features['labels'],
         }, random_seed=FINAL_TRAIN_SEED)
 
-        self.current_status.emit("Training and saving final classifier")
         self._project.save_classifier(self._classifier, self._behavior)
         self._tasks_complete += 1
         self.update_progress.emit(self._tasks_complete)
