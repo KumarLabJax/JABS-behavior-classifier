@@ -177,7 +177,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._labels is not None:
             self._project.cache_annotations(self._labels)
             self._start_selection(False)
-            self.select_button.setChecked(False)
+            self._controls.select_button_set_checked(False)
 
         try:
             # open the video
