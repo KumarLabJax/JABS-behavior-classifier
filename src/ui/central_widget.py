@@ -72,7 +72,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_train_button_enabled_state)
         self._controls.behavior_list_changed.connect(
             lambda b: self._project.save_metadata({'behaviors': b}))
-        self._controls.window_size_changed.connect(self._window_size_changed)
+        self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
 
         # label & prediction vis widgets
@@ -609,6 +609,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event):
+        """
+        handle event where user clicked on the video -- if they click
+        on one of the mice, make that one active
+        """
         if self._pose_est is not None:
             # since convex hulls are represented as y, x we need to maintain
             # this ordering
@@ -620,7 +624,8 @@ class CentralWidget(QtWidgets.QWidget):
                     self._controls.set_identity_index(i)
                     break
 
-    def _window_size_changed(self, new_size):
+    def _window_feature_size_changed(self, new_size):
+        """ handle window feature size change """
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
             # if we change the window size disable the classify button until
@@ -628,4 +633,5 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.classify_button_set_enabled(False)
 
     def _save_window_sizes(self, window_sizes):
+        """ save the window sizes to the project settings """
         self._project.save_metadata({'window_sizes': window_sizes})
