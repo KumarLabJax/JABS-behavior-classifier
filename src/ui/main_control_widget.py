@@ -1,8 +1,7 @@
 import sys
 
-from PyQt5 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
-import src.feature_extraction
 from src.classifier import Classifier
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
@@ -19,19 +18,19 @@ class MainControlWidget(QtWidgets.QWidget):
         'Rearing (unsupported)'
     ]
 
-    label_behavior_clicked = QtCore.pyqtSignal()
-    label_not_behavior_clicked = QtCore.pyqtSignal()
-    clear_label_clicked = QtCore.pyqtSignal()
-    start_selection = QtCore.pyqtSignal(bool)
-    identity_changed = QtCore.pyqtSignal()
-    train_clicked = QtCore.pyqtSignal()
-    classify_clicked = QtCore.pyqtSignal()
-    classifier_changed = QtCore.pyqtSignal()
-    behavior_changed = QtCore.pyqtSignal(str)
-    kfold_changed = QtCore.pyqtSignal()
-    behavior_list_changed = QtCore.pyqtSignal(list)
-    window_size_changed = QtCore.pyqtSignal(int)
-    new_window_sizes = QtCore.pyqtSignal(list)
+    label_behavior_clicked = QtCore.Signal()
+    label_not_behavior_clicked = QtCore.Signal()
+    clear_label_clicked = QtCore.Signal()
+    start_selection = QtCore.Signal(bool)
+    identity_changed = QtCore.Signal()
+    train_clicked = QtCore.Signal()
+    classify_clicked = QtCore.Signal()
+    classifier_changed = QtCore.Signal()
+    behavior_changed = QtCore.Signal(str)
+    kfold_changed = QtCore.Signal()
+    behavior_list_changed = QtCore.Signal(list)
+    window_size_changed = QtCore.Signal(int)
+    new_window_sizes = QtCore.Signal(list)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -410,7 +409,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 self, "Window Size Added",
                 "Window Size Added.\n"
                 "If features have not been computed for "
-                "this window size, they will be computed the first a "
+                "this window size, they will be computed the first time a "
                 "classifier is trained using this window size.\n"
                 "This may be slow.")
 

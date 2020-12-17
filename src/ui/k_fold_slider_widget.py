@@ -1,5 +1,5 @@
-from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtCore import Qt, pyqtSignal
+from PySide2 import QtWidgets, QtCore
+from PySide2.QtCore import Qt, Signal
 
 
 class KFoldSliderWidget(QtWidgets.QWidget):
@@ -10,7 +10,7 @@ class KFoldSliderWidget(QtWidgets.QWidget):
     no spacing/margins
     """
 
-    valueChanged = pyqtSignal(int)
+    valueChanged = Signal(int)
 
     def __init__(self, kmax=10, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -25,8 +25,10 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self._slider.setFocusPolicy(QtCore.Qt.NoFocus)
 
         # slider range labels
-        label_min = QtWidgets.QLabel("1", alignment=Qt.AlignLeft)
-        label_max = QtWidgets.QLabel(f"{kmax}", alignment=Qt.AlignRight)
+        label_min = QtWidgets.QLabel("1")
+        label_min.setAlignment(Qt.AlignLeft)
+        label_max = QtWidgets.QLabel(f"{kmax}")
+        label_max.setAlignment(Qt.AlignRight)
 
         slider_vbox = QtWidgets.QVBoxLayout()
         slider_hbox = QtWidgets.QHBoxLayout()

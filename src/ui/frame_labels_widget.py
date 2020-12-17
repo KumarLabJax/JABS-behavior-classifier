@@ -1,6 +1,6 @@
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QPainter, QFont, QFontMetrics
-from PyQt5.QtWidgets import QWidget, QSizePolicy, QApplication
+from PySide2.QtCore import QSize, Qt
+from PySide2.QtGui import QPainter, QFont, QFontMetrics
+from PySide2.QtWidgets import QWidget, QSizePolicy, QApplication
 
 
 class FrameLabelsWidget(QWidget):

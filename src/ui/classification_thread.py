@@ -1,5 +1,5 @@
 import numpy as np
-from PyQt5 import QtCore
+from PySide2 import QtCore
 
 from src.feature_extraction import IdentityFeatures
 
@@ -9,9 +9,9 @@ class ClassifyThread(QtCore.QThread):
     thread to run the classification to keep the main GUI thread responsive
     """
 
-    done = QtCore.pyqtSignal()
-    update_progress = QtCore.pyqtSignal(int)
-    current_status = QtCore.pyqtSignal(str)
+    done = QtCore.Signal()
+    update_progress = QtCore.Signal(int)
+    current_status = QtCore.Signal(str)
 
     def __init__(self, classifier, project, behavior, predictions,
                  probabilities, frame_indexes, current_video, window_size):

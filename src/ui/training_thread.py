@@ -1,7 +1,7 @@
 import itertools
 
 import numpy as np
-from PyQt5 import QtCore
+from PySide2 import QtCore
 from tabulate import tabulate
 
 from src.feature_extraction import IdentityFeatures
@@ -15,13 +15,15 @@ class TrainingThread(QtCore.QThread):
 
     # signal so that the main GUI thread can be notified when the training is
     # complete
-    training_complete = QtCore.pyqtSignal()
+    training_complete = QtCore.Signal()
 
     # allow the thread to send a status string to the main GUI thread so that
     # we can update a status bar if we want
-    current_status = QtCore.pyqtSignal(str)
+    current_status = QtCore.Signal(str)
 
-    update_progress = QtCore.pyqtSignal(int)
+    # allow the thread to send a status string to the main GUI thread so that
+    # we can update a status bar if we want
+    update_progress = QtCore.Signal(int)
 
     def __init__(self, project, classifier, behavior, window_size, k=1):
         super().__init__()
@@ -117,7 +119,6 @@ class TrainingThread(QtCore.QThread):
             # let the parent thread know that we've finished this iteration
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
-
 
         print('\n' + '=' * 70)
         print("SUMMARY\n")
