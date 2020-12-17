@@ -2,6 +2,7 @@ import sys
 
 from PyQt5 import QtWidgets, QtCore
 
+import src.feature_extraction
 from src.classifier import Classifier
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
@@ -30,6 +31,7 @@ class MainControlWidget(QtWidgets.QWidget):
     kfold_changed = QtCore.pyqtSignal()
     behavior_list_changed = QtCore.pyqtSignal(list)
     window_size_changed = QtCore.pyqtSignal(int)
+    new_window_sizes = QtCore.pyqtSignal(list)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,6 +94,15 @@ class MainControlWidget(QtWidgets.QWidget):
             "times the value of this parameter plus one."
         )
 
+        add_window_size_button = QtWidgets.QToolButton()
+        add_window_size_button.setText("+")
+        add_window_size_button.setToolTip("Add a new window size")
+        add_window_size_button.clicked.connect(self._new_window_size)
+
+        window_size_layout = QtWidgets.QHBoxLayout()
+        window_size_layout.addWidget(self._window_size)
+        window_size_layout.addWidget(add_window_size_button)
+
         #  drop down to select type of classifier to use
         self._classifier_selection = QtWidgets.QComboBox()
         self._classifier_selection.currentIndexChanged.connect(
@@ -113,7 +124,7 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self._classify_button, 0, 1)
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
         classifier_layout.addWidget(QtWidgets.QLabel("Window Size"), 2, 0)
-        classifier_layout.addWidget(self._window_size, 2, 1)
+        classifier_layout.addLayout(window_size_layout, 2, 1)
         classifier_layout.addWidget(self._kslider, 3, 0, 1, 2)
         classifier_layout.setContentsMargins(5, 5, 5, 5)
         classifier_group = QtWidgets.QGroupBox("Classifier")
@@ -308,6 +319,7 @@ class MainControlWidget(QtWidgets.QWidget):
         # update behaviors
         # reset list of behaviors, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
+        self._behaviors.sort()
 
         # we don't need this even handler to be active while we set up the
         # project (otherwise it gets unnecessarily called multiple times)
@@ -340,6 +352,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_not_behavior_button.setText(
             f"Not {self.current_behavior}")
 
+        # use window size last
         window_settings = project_settings.get('window_size_pref', {})
         if self.current_behavior in window_settings:
             self.set_window_size(window_settings[self.current_behavior])
@@ -362,6 +375,8 @@ class MainControlWidget(QtWidgets.QWidget):
             self._window_size.addItem(str(w), userData=w)
 
     def set_window_size(self, size: int):
+        if self._window_size.findData(size) == -1:
+            self._add_window_size(size)
         self._window_size.setCurrentText(str(size))
 
     def _new_label(self):
@@ -378,6 +393,47 @@ class MainControlWidget(QtWidgets.QWidget):
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
             self.behavior_list_changed.emit(self._behaviors)
+
+    def _new_window_size(self):
+        """
+        callback for the "new window size" button
+        opens a modal dialog to allow the user to enter a new window size,
+        if user clicks ok, add that window size and select it
+        """
+        val, ok = QtWidgets.QInputDialog.getInt(
+            self, 'New Window Size', 'Enter a new window size:', min=1, max=10)
+        if ok:
+            if self._window_size.findData(val) == -1:
+                self._add_window_size(val)
+            self.set_window_size(val)
+            QtWidgets.QMessageBox.warning(
+                self, "Window Size Added",
+                "Window Size Added.\n"
+                "If features have not been computed for "
+                "this window size, they will be computed the first a "
+                "classifier is trained using this window size.\n"
+                "This may be slow.")
+
+    def _add_window_size(self, new_size: int):
+        # we clear and reset the contents of the combo box so that we
+        # can re sort it with the new size
+
+        # grab the old sizes, grabbing the data (int) instead of the
+        # text
+        sizes = [self._window_size.itemData(i) for i in
+                 range(self._window_size.count())]
+
+        # add our new value and sort
+        sizes.append(new_size)
+        sizes.sort()
+
+        # clear and add in the new list of sizes
+        self._window_size.clear()
+        for s in sizes:
+            self._window_size.addItem(str(s), userData=s)
+
+        # send a signal that we have an updated list of window sizes
+        self.new_window_sizes.emit(sizes)
 
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)

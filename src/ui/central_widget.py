@@ -73,6 +73,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.behavior_list_changed.connect(
             lambda b: self._project.save_metadata({'behaviors': b}))
         self._controls.window_size_changed.connect(self._window_size_changed)
+        self._controls.new_window_sizes.connect(self._save_window_sizes)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -130,6 +131,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
+        self._controls.classify_button_set_enabled(False)
         self._controls.update_project_settings(project.metadata)
 
         classifier_loaded = False
@@ -140,11 +142,19 @@ class CentralWidget(QtWidgets.QWidget):
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
 
-        self._controls.classify_button_set_enabled(classifier_loaded)
-
         # if a classifier was loaded, set the drop down to match the type
         if classifier_loaded:
             self._update_classifier_selection()
+
+        # fix classify button state
+        # grab the window size preferences
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        # do we have a window size for this behavior?
+        if self.behavior in window_settings:
+            # yes, does it match current window size?
+            if self.window_size == window_settings[self.behavior]:
+                # yes, classify button can be enabled if we loaded a classifier
+                self._controls.classify_button_set_enabled(classifier_loaded)
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
@@ -259,6 +269,8 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        self._controls.classify_button_set_enabled(False)
+
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(
@@ -267,7 +279,6 @@ class CentralWidget(QtWidgets.QWidget):
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
 
-        self._controls.classify_button_set_enabled(classifier_loaded)
         if classifier_loaded:
             self._update_classifier_selection()
 
@@ -284,10 +295,16 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior})
 
-        # use behaviors preferred window size, if set
+        # try to set the window size to the last one used to train this
+        # behavior
         window_settings = self._project.metadata.get('window_size_pref', {})
+        # do we have a window size for this behavior?
         if self.behavior in window_settings:
+            # yes, try to set the window size to match
             self._controls.set_window_size(window_settings[self.behavior])
+            if self.window_size == window_settings[self.behavior]:
+                # success set the classify button if a classifier was loaded
+                self._controls.classify_button_set_enabled(classifier_loaded)
 
     def _start_selection(self, pressed):
         """
@@ -588,7 +605,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._classifier.classifier_type != self._controls.classifier_type:
             # changing classifier type, disable until retrained
             self._controls.classify_button_set_enabled(False)
-        self._classifier.set_classifier(self._controls.classifier_type)
+            self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event):
         if self._pose_est is not None:
@@ -603,18 +620,11 @@ class CentralWidget(QtWidgets.QWidget):
                     break
 
     def _window_size_changed(self, new_size):
-        self._window_size = new_size
+        if new_size is not None and new_size != self._window_size:
+            self._window_size = new_size
+            # if we change the window size disable the classify button until
+            # the classifier is retrained
+            self._controls.classify_button_set_enabled(False)
 
-    def add_window_size(self, size: int):
-        project_settings = self._project.metadata
-        window_sizes = project_settings['window_sizes']
-
-        # add window size if it is missing
-        if size not in window_sizes:
-            window_sizes.append(size)
-            window_sizes.sort()
-            self._project.save_metadata({'window_sizes': window_sizes})
-            self._controls._set_window_sizes(window_sizes)
-
-        # set current window size
-        self._controls.set_window_size(size)
+    def _save_window_sizes(self, window_sizes):
+        self._project.save_metadata({'window_sizes': window_sizes})
