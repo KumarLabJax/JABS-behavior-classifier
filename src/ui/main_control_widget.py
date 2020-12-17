@@ -401,7 +401,7 @@ class MainControlWidget(QtWidgets.QWidget):
         if user clicks ok, add that window size and select it
         """
         val, ok = QtWidgets.QInputDialog.getInt(
-            self, 'New Window Size', 'Enter a new window size:', min=1, max=10)
+            self, 'New Window Size', 'Enter a new window size:', min=1, max=20)
         if ok:
             if self._window_size.findData(val) == -1:
                 self._add_window_size(val)
