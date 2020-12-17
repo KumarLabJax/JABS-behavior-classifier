@@ -29,6 +29,7 @@ class MainControlWidget(QtWidgets.QWidget):
     behavior_changed = QtCore.pyqtSignal(str)
     kfold_changed = QtCore.pyqtSignal()
     behavior_list_changed = QtCore.pyqtSignal(list)
+    window_size_changed = QtCore.pyqtSignal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -79,6 +80,18 @@ class MainControlWidget(QtWidgets.QWidget):
         self._classify_button.clicked.connect(self.classify_clicked)
         self._classify_button.setEnabled(False)
 
+        # drop down to select which window size to use
+        self._window_size = QtWidgets.QComboBox()
+        self._window_size.currentIndexChanged.connect(
+            self._window_size_changed
+        )
+        self._window_size.setToolTip(
+            "Number of frames before and after current frame to include in "
+            "sliding window used to compute window features.\n"
+            "The total number of frames included in the sliding window is two "
+            "times the value of this parameter plus one."
+        )
+
         #  drop down to select type of classifier to use
         self._classifier_selection = QtWidgets.QComboBox()
         self._classifier_selection.currentIndexChanged.connect(
@@ -99,7 +112,9 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self._train_button, 0, 0)
         classifier_layout.addWidget(self._classify_button, 0, 1)
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
-        classifier_layout.addWidget(self._kslider, 2, 0, 1, 2)
+        classifier_layout.addWidget(QtWidgets.QLabel("Window Size"), 2, 0)
+        classifier_layout.addWidget(self._window_size, 2, 1)
+        classifier_layout.addWidget(self._kslider, 3, 0, 1, 2)
         classifier_layout.setContentsMargins(5, 5, 5, 5)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
@@ -280,7 +295,17 @@ class MainControlWidget(QtWidgets.QWidget):
     def set_identity_index(self, i: int):
         self.identity_selection.setCurrentIndex(i)
 
-    def update_behaviors(self, project_settings: dict):
+    def update_project_settings(self, project_settings: dict):
+        """
+        update controls from project settings
+        :param project_settings: dict containing project settings
+        :return: None
+        """
+
+        # update window sizes
+        self._set_window_sizes(project_settings['window_sizes'])
+
+        # update behaviors
         # reset list of behaviors, then add any from the metadata
         self._behaviors = list(self._DEFAULT_BEHAVIORS)
 
@@ -311,15 +336,39 @@ class MainControlWidget(QtWidgets.QWidget):
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
+        self._label_behavior_button.setText(self.current_behavior)
+        self._label_not_behavior_button.setText(
+            f"Not {self.current_behavior}")
+
+        window_settings = project_settings.get('window_size_pref', {})
+        if self.current_behavior in window_settings:
+            self.set_window_size(window_settings[self.current_behavior])
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
             self._behavior_changed)
 
+    def set_identities(self, identities):
+        """ populate the identity_selection combobox """
+        self.identity_selection.currentIndexChanged.disconnect()
+        self.identity_selection.clear()
+        self.identity_selection.currentIndexChanged.connect(
+            self.identity_changed)
+        self.identity_selection.addItems([str(i) for i in identities])
+
+    def _set_window_sizes(self, sizes: [int]):
+        self._window_size.clear()
+        for w in sizes:
+            self._window_size.addItem(str(w), userData=w)
+
+    def set_window_size(self, size: int):
+        self._window_size.setCurrentText(str(size))
+
     def _new_label(self):
         """
         callback for the "new behavior" button
-        opens a modal dialog to allow the user to enter a new behavior label
+        opens a modal dialog to allow the user to enter a new behavior label,
+        if user clicks ok, add that behavior to the combo box, and select it
         """
         text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
                                                   'New Behavior Name:')
@@ -336,9 +385,5 @@ class MainControlWidget(QtWidgets.QWidget):
             f"Not {self.current_behavior}")
         self.behavior_changed.emit(self.current_behavior)
 
-    def set_identities(self, identities):
-        """ populate the identity_selection combobox """
-        self.identity_selection.currentIndexChanged.disconnect()
-        self.identity_selection.clear()
-        self.identity_selection.currentIndexChanged.connect(self.identity_changed)
-        self.identity_selection.addItems([str(i) for i in identities])
+    def _window_size_changed(self):
+        self.window_size_changed.emit(self._window_size.currentData())

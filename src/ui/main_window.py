@@ -37,6 +37,7 @@ class MainWindow(QtWidgets.QMainWindow):
         app_menu = menu.addMenu(self._app_name)
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
+        feature_menu = menu.addMenu('Features')
 
         # open action
         open_action = QtWidgets.QAction('&Open Project', self)
@@ -75,6 +76,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show_track = QtWidgets.QAction('Show Track', self, checkable=True)
         self.show_track.triggered.connect(self._toggle_track)
         view_menu.addAction(self.show_track)
+
+        add_window_action = QtWidgets.QAction('Add Window Size', self)
+        add_window_action.triggered.connect(self._new_window_size)
+        feature_menu.addAction(add_window_action)
 
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
@@ -203,3 +208,21 @@ class MainWindow(QtWidgets.QMainWindow):
             self.centralWidget().load_video(self._project.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
+
+    def _new_window_size(self):
+        """
+        callback for the "new window size" menu
+        opens a modal dialog to allow the user to enter a new window size,
+        if user clicks ok, add that window size and select it
+        """
+        val, ok = QtWidgets.QInputDialog.getInt(
+            self, 'New Window Size', 'Enter a new window size:', min=1, max=10)
+        if ok:
+            self._central_widget.add_window_size(val)
+            QtWidgets.QMessageBox.warning(
+                self, "Window Size Added",
+                "Window Size Added.\n"
+                "If features have not been computed for "
+                "this window size, they will be computed the first a "
+                "classifier is trained using this window size.\n"
+                "This may be slow.")

@@ -50,7 +50,8 @@ class ClassifyThread(QtCore.QThread):
             frame_indexes[video] = {}
 
             for ident in pose_est.identities:
-                self.current_status.emit(f"Classifying {video} identity={ident}")
+                self.current_status.emit(
+                    f"Classifying {video},  Identity {ident}")
 
                 # get the features for this identity
                 features = IdentityFeatures(video, ident,

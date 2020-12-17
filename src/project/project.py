@@ -324,6 +324,9 @@ class Project:
         except:
             settings = {}
 
+        if 'window_sizes' not in settings:
+            settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
+
         return settings
 
     def save_cached_annotations(self):
@@ -468,26 +471,25 @@ class Project:
                 assert group['predicted_class'].shape[0] == nident
                 assert group['probabilities'].shape[0] == nident
 
+                _probabilities = group['probabilities'][:]
+                _classes = group['predicted_class'][:]
+
                 for i in range(nident):
                     identity = str(i)
                     indexes = np.asarray(range(group['predicted_class'].shape[1]))
 
                     # first, exclude any probability of -1 as that indicates
                     # a user label, not a inferred class
-                    classes = group['predicted_class'][i, group['probabilities'][i] != -1.0]
-                    prob = group['probabilities'][i, group['probabilities'][i] != -1.0]
-                    indexes = indexes[group['probabilities'][i] != -1]
+                    indexes = indexes[_probabilities[i] != -1]
 
                     # now excludes a class of -1 as that indicates the
                     # identity isn't present
-                    prob = prob[classes != -1]
-                    indexes = indexes[classes != -1]
-                    classes = classes[classes != -1]
+                    indexes = indexes[_classes[i, indexes] != -1]
 
                     # we're left with classes/probabilities for frames that
                     # were inferred and their frame indexes
-                    predictions[identity] = classes
-                    probabilities[identity] = prob
+                    predictions[identity] = _classes[i, indexes]
+                    probabilities[identity] = _probabilities[i, indexes]
                     frame_indexes[identity] = indexes
 
         except IOError:

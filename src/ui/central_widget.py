@@ -68,8 +68,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._change_behavior)
-        self._controls.kfold_changed.connect(self._kfold_changed)
-        self._controls.behavior_list_changed.connect(lambda b: self._project.save_metadata({'behaviors': b}))
+        self._controls.kfold_changed.connect(
+            self._set_train_button_enabled_state)
+        self._controls.behavior_list_changed.connect(
+            lambda b: self._project.save_metadata({'behaviors': b}))
+        self._controls.window_size_changed.connect(self._window_size_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -103,9 +106,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def behavior(self):
-        """
-        :return: the currently selected behavior
-        """
+        """ get the currently selected behavior """
         return self._controls.current_behavior
 
     @property
@@ -115,15 +116,8 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def window_size(self):
-        """ return current window size """
+        """ get current window size """
         return self._window_size
-
-    def behavior_labels(self):
-        """
-        get the current contents of the behavior drop down
-        :return: a copy of the list so private member can't be modified
-        """
-        return list(self._behaviors)
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -136,10 +130,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        # get project specific metadata
-        settings = project.metadata
-
-        self._controls.update_behaviors(settings)
+        self._controls.update_project_settings(project.metadata)
 
         classifier_loaded = False
         try:
@@ -293,10 +284,15 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior})
 
+        # use behaviors preferred window size, if set
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        if self.behavior in window_settings:
+            self._controls.set_window_size(window_settings[self.behavior])
+
     def _start_selection(self, pressed):
         """
-        handle click on "select" button. If button was previously in "un    checked"
-        state, then grab the current frame to begin selecting a range. If the
+        handle click on "select" button. If button was previously "unchecked"
+        then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
         While selection is in progress, the labeling buttons become active.
@@ -433,6 +429,11 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
+        # save the window size used for this behavior
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        window_settings[self.behavior] = self._window_size
+        self._project.save_metadata({'window_size_pref': window_settings})
+
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
         self._progress_dialog.reset()
@@ -528,7 +529,8 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if Classifier.label_threshold_met(self._counts, self._controls.kfold_value):
+        if Classifier.label_threshold_met(self._counts,
+                                          self._controls.kfold_value):
             self._controls.train_button_enabled = True
             self.export_training_status_change.emit(True)
         else:
@@ -581,10 +583,6 @@ class CentralWidget(QtWidgets.QWidget):
                                         bout_behavior_project,
                                         bout_not_behavior_project)
 
-    def _kfold_changed(self):
-        """ handle kfold slider change event """
-        self._set_train_button_enabled_state()
-
     def _classifier_changed(self):
         """ handle classifier selection change """
         if self._classifier.classifier_type != self._controls.classifier_type:
@@ -603,3 +601,20 @@ class CentralWidget(QtWidgets.QWidget):
                 if curr_c_hull is not None and curr_c_hull.contains(pt):
                     self._controls.set_identity_index(i)
                     break
+
+    def _window_size_changed(self, new_size):
+        self._window_size = new_size
+
+    def add_window_size(self, size: int):
+        project_settings = self._project.metadata
+        window_sizes = project_settings['window_sizes']
+
+        # add window size if it is missing
+        if size not in window_sizes:
+            window_sizes.append(size)
+            window_sizes.sort()
+            self._project.save_metadata({'window_sizes': window_sizes})
+            self._controls._set_window_sizes(window_sizes)
+
+        # set current window size
+        self._controls.set_window_size(size)
