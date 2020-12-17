@@ -146,8 +146,9 @@ class CentralWidget(QtWidgets.QWidget):
         if classifier_loaded:
             self._update_classifier_selection()
 
-        # fix classify button state
-        # grab the window size preferences
+        # set classify button state
+        # it will only get enabled if we loaded a classifier and we know
+        # what window size was used to train it
         window_settings = self._project.metadata.get('window_size_pref', {})
         # do we have a window size for this behavior?
         if self.behavior in window_settings:
@@ -298,12 +299,12 @@ class CentralWidget(QtWidgets.QWidget):
         # try to set the window size to the last one used to train this
         # behavior
         window_settings = self._project.metadata.get('window_size_pref', {})
-        # do we have a window size for this behavior?
+        # do we have a window size in the project settings for this behavior?
         if self.behavior in window_settings:
             # yes, try to set the window size to match
             self._controls.set_window_size(window_settings[self.behavior])
             if self.window_size == window_settings[self.behavior]:
-                # success set the classify button if a classifier was loaded
+                # success: enable classify button if a classifier was loaded
                 self._controls.classify_button_set_enabled(classifier_loaded)
 
     def _start_selection(self, pressed):
