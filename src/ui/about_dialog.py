@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton
-from PyQt5.QtCore import Qt
+from PySide2.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton
+from PySide2.QtCore import Qt
 
 from src.version import version_str
 

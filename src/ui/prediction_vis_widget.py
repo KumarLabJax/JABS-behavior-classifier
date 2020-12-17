@@ -1,6 +1,6 @@
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
-from PyQt5.QtWidgets import QWidget, QSizePolicy
+from PySide2.QtCore import QSize, Qt
+from PySide2.QtGui import QPainter, QColor, QBrush, QPen
+from PySide2.QtWidgets import QWidget, QSizePolicy
 
 from src.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
@@ -45,7 +45,7 @@ class PredictionVisWidget(QWidget):
         # size each frame takes up in the bar in pixels
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
         self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1,
@@ -64,7 +64,7 @@ class PredictionVisWidget(QWidget):
     def resizeEvent(self, event):
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) / 2
+        self._offset = (self.size().width() - self._adjusted_width) // 2
 
     def paintEvent(self, event):
         """
@@ -131,7 +131,7 @@ class PredictionVisWidget(QWidget):
 
         # draw current position indicator
         qp.setPen(self._position_marker_pen)
-        position_offset = self._offset + self._adjusted_width / 2
+        position_offset = self._offset + self._adjusted_width // 2
         qp.drawLine(position_offset, 0, position_offset, self._bar_height - 1)
 
         # draw bounding box

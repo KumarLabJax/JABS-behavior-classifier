@@ -1,7 +1,7 @@
 import sys
 
 import numpy as np
-from PyQt5 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier
@@ -31,7 +31,7 @@ class CentralWidget(QtWidgets.QWidget):
         'Rearing (unsupported)'
     ]
 
-    export_training_status_change = QtCore.pyqtSignal(bool)
+    export_training_status_change = QtCore.Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

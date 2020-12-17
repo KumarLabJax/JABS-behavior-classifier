@@ -3,7 +3,7 @@ import typing
 from pathlib import Path
 
 import numpy as np
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PySide2 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import PoseEstimationV3
@@ -70,9 +70,9 @@ class _PlayerThread(QtCore.QThread):
     """
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.pyqtSignal(dict)
-    updatePosition = QtCore.pyqtSignal(int)
-    endOfFile = QtCore.pyqtSignal()
+    newImage = QtCore.Signal(dict)
+    updatePosition = QtCore.Signal(int)
+    endOfFile = QtCore.Signal()
 
     def __init__(self, video_stream, pose_est, identity=None):
         super().__init__()
@@ -196,7 +196,7 @@ class _FrameWidget(QtWidgets.QLabel):
     full size of the video frame, but then will be resizable after that
     """
 
-    pixmap_clicked = QtCore.pyqtSignal(dict)
+    pixmap_clicked = QtCore.Signal(dict)
 
     def __init__(self):
         super().__init__()
@@ -275,14 +275,14 @@ class _FrameWidget(QtWidgets.QLabel):
             pix = self.pixmap().scaled(
                 size,
                 QtCore.Qt.KeepAspectRatio,
-                transformMode=QtCore.Qt.SmoothTransformation
+                QtCore.Qt.SmoothTransformation
             )
 
             # because we are maintaining aspect ratio, the scaled frame might
             # not be the same dimensions as the area we are painting it.
             # adjust the start point to center the image in the widget
-            point.setX((size.width() - pix.width()) / 2)
-            point.setY((size.height() - pix.height()) / 2)
+            point.setX((size.width() - pix.width()) // 2)
+            point.setY((size.height() - pix.height()) // 2)
 
             # draw the pixmap starting at the new calculated offset
             painter.drawPixmap(point, pix)
@@ -317,10 +317,10 @@ class PlayerWidget(QtWidgets.QWidget):
     """
 
     # signal to allow parent UI component to observe current frame number
-    updateFrameNumber = QtCore.pyqtSignal(int)
+    updateFrameNumber = QtCore.Signal(int)
 
     # let the main window UI know what the list of identities should be
-    updateIdentities = QtCore.pyqtSignal(list)
+    updateIdentities = QtCore.Signal(list)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -435,7 +435,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # make sure we terminate the player thread if it is still active
         # during destruction
         if self._player_thread:
-            self._player_thread.terminate()
+            self._stop_player_thread()
 
     def current_frame(self):
         """ return the current frame """
@@ -802,7 +802,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText(
             self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.pyqtSlot(dict)
+    @QtCore.Slot(dict)
     def _display_image(self, data: dict):
         """
         display a new QImage sent from the player thread
@@ -826,7 +826,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
-    @QtCore.pyqtSlot(int)
+    @QtCore.Slot(int)
     def _set_position(self, frame_number: int):
         """
         update the value of the position slider to the frame number sent from

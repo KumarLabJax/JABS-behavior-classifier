@@ -37,7 +37,7 @@ def export_training_data(project: 'Project', behavior: str,
     results
     :param out_file: optional output path, if None write to project dir
     with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
-    :return: None
+    :return: path of output file
     :raises: OSError if unable to create output file (e.g. permission denied,
     no such file or directory, etc)
     """
@@ -83,6 +83,10 @@ def export_training_data(project: 'Project', behavior: str,
             dset = out_h5.create_dataset(f'group_mapping/{group}/video_name',
                                          (1,), dtype=string_type)
             dset[:] = group_mapping[group]['video']
+
+    # return output path, so if it was generated automatically the caller
+    # will know
+    return out_file
 
 
 def load_training_data(training_file: Path):
