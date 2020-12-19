@@ -438,6 +438,9 @@ class CentralWidget(QtWidgets.QWidget):
     def show_track(self, show: bool):
         self._player_widget.show_track(show)
 
+    def overlay_pose(self, new_val: bool):
+        self._player_widget.overlay_pose(new_val)
+
     def _new_label(self):
         """
         callback for the "new behavior" button

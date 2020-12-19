@@ -10,6 +10,50 @@ _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
 
 
+__CONNECTED_SEGMENTS = [
+    [
+        PoseEstimation.KeypointIndex.LEFT_FRONT_PAW,
+        PoseEstimation.KeypointIndex.CENTER_SPINE,
+        PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW
+    ],
+    [
+        PoseEstimation.KeypointIndex.LEFT_REAR_PAW,
+        PoseEstimation.KeypointIndex.BASE_TAIL,
+        PoseEstimation.KeypointIndex.RIGHT_REAR_PAW
+    ],
+    [
+        PoseEstimation.KeypointIndex.NOSE,
+        PoseEstimation.KeypointIndex.BASE_NECK,
+        PoseEstimation.KeypointIndex.CENTER_SPINE,
+        PoseEstimation.KeypointIndex.BASE_TAIL,
+        PoseEstimation.KeypointIndex.MID_TAIL,
+        PoseEstimation.KeypointIndex.TIP_TAIL,
+    ],
+]
+
+
+def __gen_line_fragments(exclude_points):
+    """
+    generate line fragments from the connected segments. will break up
+    segments if a point within the segment is excluded, or will remove the
+    segment completely if it does not have at least two points
+    :param exclude_points:
+    :return:
+    """
+    curr_fragment = []
+    for curr_pt_indexes in __CONNECTED_SEGMENTS:
+        for curr_pt_index in curr_pt_indexes:
+            if curr_pt_index.value in exclude_points:
+                if len(curr_fragment) >= 2:
+                    yield curr_fragment
+                curr_fragment = []
+            else:
+                curr_fragment.append(curr_pt_index.value)
+        if len(curr_fragment) >= 2:
+            yield curr_fragment
+        curr_fragment = []
+
+
 def label_identity(img, pose_est, identity, frame_index,
                    color=_ID_COLOR):
     """
@@ -59,7 +103,7 @@ def label_all_identities(img, pose_est, identities, frame_index, subject=None):
                         lineType=cv2.LINE_AA)
 
 
-def draw_track(img, pose_est: PoseEstimation, identity: int, frame_index: int,
+def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int, frame_index: int,
                future_points: int=10, past_points: int=5,
                point_index=PoseEstimation.KeypointIndex.NOSE):
     """
@@ -133,3 +177,34 @@ def draw_track(img, pose_est: PoseEstimation, identity: int, frame_index: int,
     # convert to numpy array for opencv
     past_track_points = np.asarray(past_track_points, dtype=np.int32)
     cv2.polylines(img, [past_track_points], False, _PAST_TRACK_COLOR, 1)
+
+
+def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
+                 color=(255, 255, 255)):
+    """
+
+    :param img:
+    :param points:
+    :param mask:
+    :param color:
+    :return:
+    """
+
+    if points is None:
+        return
+
+    # draw connections
+    for seg in __gen_line_fragments(np.flatnonzero(mask==0)):
+        segment_points = [(p[1], p[0]) for p in points[seg]]
+        # draw a wide black line
+        cv2.polylines(img, [np.asarray(segment_points, dtype=np.int32)], False,
+                      (0, 0, 0), 2, cv2.LINE_AA)
+        # now draw a thin line with the specified color
+        cv2.polylines(img, [np.asarray(segment_points, dtype=np.int32)], False, color, 1, cv2.LINE_AA)
+
+
+    # draw points at each keypoint of the pose (if it exists at this frame)
+    for point, point_mask in zip(points, mask):
+        if point_mask:
+            cv2.circle(img, (point[1], point[0]), 2, color,
+                       -1, lineType=cv2.LINE_AA)

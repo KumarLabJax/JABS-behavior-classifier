@@ -13,8 +13,6 @@ from .video_list_widget import VideoListDockWidget
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    loadVideoAsyncSignal = QtCore.Signal(str)
-
     def __init__(self, app_name="Behavior Classifier", *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -26,9 +24,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._app_name = app_name
         self._project = None
-
-        self.loadVideoAsyncSignal.connect(self._load_video_async,
-                                          QtCore.Qt.QueuedConnection)
 
         self._status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -78,6 +73,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show_track.triggered.connect(self._toggle_track)
         view_menu.addAction(self.show_track)
 
+        self.overlay_pose = QtWidgets.QAction('Overlay Pose', self)
+        self.overlay_pose.setCheckable(True)
+        self.overlay_pose.triggered.connect(self._toggle_pose_overlay)
+        view_menu.addAction(self.overlay_pose)
+
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
@@ -118,10 +118,10 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Key_L
         ]:
             self.centralWidget().keyPressEvent(event)
-
         elif key == QtCore.Qt.Key_T:
             self.show_track.trigger()
-
+        elif key == QtCore.Qt.Key_P:
+            self.overlay_pose.trigger()
         else:
             # anything else pass on to the super class keyPressEvent
             super(MainWindow, self).keyPressEvent(event)
@@ -195,16 +195,15 @@ class MainWindow(QtWidgets.QMainWindow):
         """ show/hide track overlay for subject """
         self._central_widget.show_track(checked)
 
+    def _toggle_pose_overlay(self, checked):
+        """ show/hide pose overlay for subject """
+        self._central_widget.overlay_pose(checked)
+
     def _video_list_selection(self, filename):
         """
         handle a click on a new video in the by sending a signal to an
         asynchronous event handler
         """
-        self.loadVideoAsyncSignal.emit(str(filename))
-
-    @QtCore.Slot(str)
-    def _load_video_async(self, filename):
-        """ process signal requesting to load a new video file """
         try:
             self.centralWidget().load_video(self._project.video_path(filename))
         except OSError as e:

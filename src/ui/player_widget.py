@@ -7,7 +7,8 @@ from PySide2 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import PoseEstimationV3
-from src.video_stream import VideoStream, label_identity, label_all_identities, draw_track
+from src.video_stream import (VideoStream, label_identity, label_all_identities,
+                              draw_track, overlay_pose)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -74,14 +75,16 @@ class _PlayerThread(QtCore.QThread):
     updatePosition = QtCore.Signal(int)
     endOfFile = QtCore.Signal()
 
-    def __init__(self, video_stream, pose_est, identity=None):
+    def __init__(self, video_stream, pose_est, identity, show_track=False,
+                 overlay_pose=False, identities=None):
         super().__init__()
         self._stream = video_stream
         self._pose_est = pose_est
         self._identity = identity
         self._label_closest = False
-        self._show_track = False
-        self._identities = []
+        self._show_track = show_track
+        self._overlay_pose = overlay_pose
+        self._identities = identities if identities is not None else []
 
     def terminate(self):
         """
@@ -100,11 +103,14 @@ class _PlayerThread(QtCore.QThread):
     def set_identities(self, identities):
         self._identities = identities
 
-    def label_closest(self, show: bool):
-        self._label_closest = show
+    def label_closest(self, new_val: bool):
+        self._label_closest = new_val
 
-    def show_track(self, show: bool):
-        self._show_track = show
+    def set_show_track(self, new_val: bool):
+        self._show_track = new_val
+
+    def set_overlay_pose(self, new_val: bool):
+        self._overlay_pose = new_val
 
     def run(self):
         """
@@ -132,11 +138,17 @@ class _PlayerThread(QtCore.QThread):
 
             if frame['data'] is not None:
 
-                if self._identities:
+                if self._identity is not None:
 
                     if self._show_track:
                         draw_track(frame['data'], self._pose_est,
                                    self._identity, frame['index'])
+
+                    if self._overlay_pose:
+                        overlay_pose(
+                            frame['data'],
+                            *self._pose_est.get_points(frame['index'], self._identity)
+                        )
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
@@ -154,10 +166,10 @@ class _PlayerThread(QtCore.QThread):
                                            closest_id, frame['index'],
                                            color=_CLOSEST_LABEL_COLOR)
 
-                    # label all identities
-                    label_all_identities(frame['data'],
-                                         self._pose_est, self._identities,
-                                         frame['index'], subject=self._identity)
+                # label all identities
+                label_all_identities(frame['data'],
+                                     self._pose_est, self._identities,
+                                     frame['index'], subject=self._identity)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -337,6 +349,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._label_closest = False
         self._show_track = False
+        self._overlay_pose = False
         self._identities = []
 
         # currently selected identity -- if set will be labeled in the video
@@ -485,6 +498,10 @@ class PlayerWidget(QtWidgets.QWidget):
             self._update_frame(self._video_stream.read())
 
     def show_track(self, new_val: typing.Optional[bool]=None):
+        """
+        change "show track" state. Accepts a new boolean value, or toggles
+        current state if no value given.
+        """
         if new_val is None:
             self._show_track = not self._show_track
         else:
@@ -495,7 +512,29 @@ class PlayerWidget(QtWidgets.QWidget):
             return
 
         if self._player_thread:
-            self._player_thread.show_track(self._show_track)
+            self._player_thread.set_show_track(self._show_track)
+        else:
+            # if not playing, reload current frame to apply current track state
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
+            self._update_frame(self._video_stream.read())
+
+    def overlay_pose(self, new_val: typing.Optional[bool]=None):
+        """
+        change "overlay pose" state. Accepts a new boolean value, or toggles
+        current state if no value given.
+        """
+        if new_val is None:
+            self._overlay_pose = not self._overlay_pose
+        else:
+            self._overlay_pose = new_val
+
+        # don't do anything else if a video isn't loaded
+        if self._video_stream is None:
+            return
+
+        if self._player_thread:
+            self._player_thread.set_overlay_pose(self._overlay_pose)
         else:
             # if not playing, reload current frame to apply current track state
             self._video_stream.seek(self._position_slider.value())
@@ -759,26 +798,34 @@ class PlayerWidget(QtWidgets.QWidget):
         if frame['index'] != -1:
             if self._identities:
 
-                if self._show_track:
-                    draw_track(frame['data'], self._pose_est,
-                               self._active_identity, frame['index'])
+                if self._active_identity is not None:
+                    if self._show_track:
+                        draw_track(frame['data'], self._pose_est,
+                                   self._active_identity, frame['index'])
 
-                if self._label_closest:
-                    closest_fov_id = _get_closest_animal_id(
-                        self._active_identity, frame['index'],
-                        self._pose_est, IdentityFeatures.half_fov_deg)
-                    if closest_fov_id is not None:
-                        label_identity(frame['data'], self._pose_est,
-                                       closest_fov_id, frame['index'],
-                                       color=_CLOSEST_FOV_LABEL_COLOR)
+                    if self._overlay_pose:
+                        overlay_pose(
+                            frame['data'],
+                            *self._pose_est.get_points(frame['index'],
+                                                       self._active_identity)
+                        )
 
-                    closest_id = _get_closest_animal_id(self._active_identity,
-                                                        frame['index'],
-                                                        self._pose_est)
-                    if closest_id is not None and closest_id != closest_fov_id:
-                        label_identity(frame['data'], self._pose_est,
-                                       closest_id, frame['index'],
-                                       color=_CLOSEST_LABEL_COLOR)
+                    if self._label_closest:
+                        closest_fov_id = _get_closest_animal_id(
+                            self._active_identity, frame['index'],
+                            self._pose_est, IdentityFeatures.half_fov_deg)
+                        if closest_fov_id is not None:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_fov_id, frame['index'],
+                                           color=_CLOSEST_FOV_LABEL_COLOR)
+
+                        closest_id = _get_closest_animal_id(self._active_identity,
+                                                            frame['index'],
+                                                            self._pose_est)
+                        if closest_id is not None and closest_id != closest_fov_id:
+                            label_identity(frame['data'], self._pose_est,
+                                           closest_id, frame['index'],
+                                           color=_CLOSEST_LABEL_COLOR)
 
                 label_all_identities(frame['data'], self._pose_est,
                                      self._identities, frame['index'],
@@ -848,14 +895,12 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         start a new player thread and connect it to the UI components
         """
-        self._player_thread = _PlayerThread(self._video_stream,
-                                            self._pose_est,
-                                            self._active_identity)
+        self._player_thread = _PlayerThread(
+            self._video_stream, self._pose_est, self._active_identity,
+            self._show_track, self._overlay_pose, self._identities)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
-        self._player_thread.set_identities(self._identities)
         self._player_thread.label_closest(self._label_closest)
-        self._player_thread.show_track(self._show_track)
         self._player_thread.start()
         self._playing = True
