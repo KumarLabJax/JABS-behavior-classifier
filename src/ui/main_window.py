@@ -201,8 +201,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _video_list_selection(self, filename):
         """
-        handle a click on a new video in the by sending a signal to an
-        asynchronous event handler
+        handle a click on a new video in the list loaded into the main
+        window dock
         """
         try:
             self.centralWidget().load_video(self._project.video_path(filename))
