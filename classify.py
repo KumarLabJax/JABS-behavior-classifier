@@ -81,13 +81,11 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
     for curr_id in pose_est.identities:
         cli_progress_bar(curr_id, len(pose_est.identities),
                          complete_as_percent=False, suffix='identities')
-        features = IdentityFeatures(None, curr_id, None, pose_est)
-        per_frame_feat = features.get_per_frame()
-        window_feat = features.get_window_features(window_size)
+        features = IdentityFeatures(None, curr_id, None, pose_est).get_features(window_size)
 
         data = Classifier.combine_data(
-            per_frame_feat,
-            window_feat,
+            features['per_frame'],
+            features['window']
         )
 
         pred = classifier.predict(data)
@@ -99,8 +97,8 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
         # for each row of the pred_prob array we just computed.
         pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-        prediction_labels[curr_id, :] = pred
-        prediction_prob[curr_id, :] = pred_prob
+        prediction_labels[curr_id, features['frame_indexes']] = pred
+        prediction_prob[curr_id, features['frame_indexes']] = pred_prob
     cli_progress_bar(len(pose_est.identities), len(pose_est.identities),
                      complete_as_percent=False, suffix='identities')
 

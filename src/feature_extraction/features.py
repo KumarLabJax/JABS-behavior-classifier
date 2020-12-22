@@ -389,18 +389,15 @@ class IdentityFeatures:
     def _load_window_features(self, window_size):
         """
         load window features from an h5 file
-<<<<<<< HEAD
         :param window_size: window size specified as the number of frames on
         each side of current frame, in addition to the current frame, to
         include in the window
         (so if size=5, the total number of frames in the window is actually 11)
-=======
-        This method will throw an exception if this object
-        was constructed with a value of None for directory
-        :param radius: window size specified as the number of frames on each
-        side of current frame to include in the window
->>>>>>> b93e4b79e1479e3c7f5beb1352155f856bcb54d7
-        :return:
+        :raises OSError: if unable to open h5 file
+        :raises TypeError: if this object was constructed with a value of None
+        for directory
+
+        :return: window feature dict
         """
         path = self._identity_feature_dir / f"window_features_{window_size}.h5"
 
@@ -452,6 +449,9 @@ class IdentityFeatures:
         include in the window
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
+        NOTE: if labels is None, this will include also values for frames where
+        the identity does not exist. These get filtered out when filtering out
+        unlabeled frames, since those frames are always unlabeled.
         :param force: force regeneration of the window features even if the
         h5 file already exists
         :return: window features for given window size. the format is documented
@@ -497,6 +497,9 @@ class IdentityFeatures:
         """
         get per frame features
         :param labels: if present, only return features for labeled frames
+        NOTE: if labels is None, this will include also values for frames where
+        the identity does not exist. These get filtered out when filtering out
+        unlabeled frames, since those frames are always unlabeled.
         :return: returns per frame features in dictionary with this form
 
         {
@@ -519,12 +522,19 @@ class IdentityFeatures:
         """
         get features and corresponding frame indexes for unlabeled frames for
         classification
-        :param window_size:
-        :param labels:
-        :return:
+        :param window_size: number of frames before and after current frame to
+        include in window feature calculation
+        :param labels: array of labels (no label, not behavior, behavior)
+        :return: dictionary with the following keys:
+
+          'per_frame': dict with feature name as keys, numpy array as values
+          'window': dict, see _compute_window_features
+          'frame_indexes': 1D np array, maps elements of per frame and window
+             feature arrays back to global frame indexes
         """
         window_features = self.get_window_features(window_size)
-        filter = np.logical_and(self._frame_valid, labels == src.project.track_labels.TrackLabels.Label.NONE)
+        filter = np.logical_and(self._frame_valid,
+                                labels == src.project.track_labels.TrackLabels.Label.NONE)
 
         per_frame = {}
         indexes = np.arange(self._num_frames)[filter]
@@ -546,6 +556,46 @@ class IdentityFeatures:
                 window[key] = {}
                 for op in window_features[key]:
                     window[key][op] = window_features[key][op][filter]
+
+        return {
+            'per_frame': per_frame,
+            'window': window,
+            'frame_indexes': indexes
+        }
+
+    def get_features(self, window_size):
+        """
+        get features and corresponding frame indexes for unlabeled frames for
+        classification
+        :param window_size:
+        :return: dictionary with the following keys (see
+        get_unlabeled_features for a description):
+          'per_frame'
+          'window'
+          'frame_indexes'
+        """
+        window_features = self.get_window_features(window_size)
+
+        per_frame = {}
+        indexes = np.arange(self._num_frames)[self._frame_valid==1]
+
+        if self._include_social_features:
+            all_features = self._per_frame_features + self._per_frame_social_features
+        else:
+            all_features = self._per_frame_features
+
+        for feature in all_features:
+            per_frame[feature] = self._per_frame[feature][
+                self._frame_valid==1, ...]
+
+        window = {}
+        for key in window_features:
+            if key == 'percent_frames_present':
+                window[key] = window_features[key][self._frame_valid==1]
+            else:
+                window[key] = {}
+                for op in window_features[key]:
+                    window[key][op] = window_features[key][op][self._frame_valid==1]
 
         return {
             'per_frame': per_frame,
