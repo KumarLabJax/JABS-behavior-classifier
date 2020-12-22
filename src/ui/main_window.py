@@ -179,7 +179,6 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         window_size = self._central_widget.window_size
-
         try:
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
