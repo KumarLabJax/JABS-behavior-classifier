@@ -120,6 +120,13 @@ class CentralWidget(QtWidgets.QWidget):
         """ get current window size """
         return self._window_size
 
+    @property
+    def classify_button_enabled(self):
+        """
+        return true if the classify button is currently enabled, false otherwise
+        """
+        return self._controls.classify_button_enabled
+
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project

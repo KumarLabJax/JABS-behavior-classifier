@@ -168,6 +168,16 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _export_training_data(self):
+
+        if not self._central_widget.classify_button_enabled:
+            # classify button disabled, don't allow exporting training data
+            QtWidgets.QMessageBox.warning(
+                self, "Unable to export training data",
+                "Classifier has not been trained, or classifier parameters "
+                "have changed.\n\n"
+                "You must train the classifier before export.")
+            return
+
         window_size = self._central_widget.window_size
 
         try:
