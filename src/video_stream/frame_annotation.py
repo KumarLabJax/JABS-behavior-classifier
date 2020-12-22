@@ -37,8 +37,8 @@ def __gen_line_fragments(exclude_points):
     generate line fragments from the connected segments. will break up
     segments if a point within the segment is excluded, or will remove the
     segment completely if it does not have at least two points
-    :param exclude_points:
-    :return:
+    :param exclude_points: list of points to exclude when generating segments
+    :return: yields lists of Keypoint indexes that make up the segments to draw
     """
     curr_fragment = []
     for curr_pt_indexes in __CONNECTED_SEGMENTS:
