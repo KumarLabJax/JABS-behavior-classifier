@@ -95,7 +95,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.selectionChanged.connect(self._video_list_selection)
 
         # handle event to set status of File-Export Training Data action
-        self._central_widget.export_training_status_change.connect(self._export_training.setEnabled)
+        self._central_widget.export_training_status_change.connect(
+            self._export_training.setEnabled)
 
     def keyPressEvent(self, event):
         """
@@ -167,9 +168,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _export_training_data(self):
-        # TODO make window_size configurable
-        # (needs to be set based on user preferences for specific behavior)
-        window_size = 5
+        window_size = self._central_widget.window_size
 
         try:
             out_path = export_training_data(self._project,
