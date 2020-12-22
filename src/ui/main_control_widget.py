@@ -241,6 +241,10 @@ class MainControlWidget(QtWidgets.QWidget):
     def train_button_enabled(self):
         return self._train_button.isEnabled()
 
+    @property
+    def classify_button_enabled(self):
+        return self._classify_button.isEnabled()
+
     @train_button_enabled.setter
     def train_button_enabled(self, enabled: bool):
         self._train_button.setEnabled(enabled)
