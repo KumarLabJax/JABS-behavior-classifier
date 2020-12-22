@@ -14,7 +14,7 @@ class ClassifyThread(QtCore.QThread):
     current_status = QtCore.Signal(str)
 
     def __init__(self, classifier, project, behavior, predictions,
-                 probabilities, frame_indexes, current_video):
+                 probabilities, frame_indexes, current_video, window_size):
         super().__init__()
         self._classifier = classifier
         self._project = project
@@ -24,6 +24,7 @@ class ClassifyThread(QtCore.QThread):
         self._frame_indexes = frame_indexes
         self._tasks_complete = 0
         self._current_video = current_video
+        self._window_size = window_size
 
     def run(self):
         """
@@ -49,7 +50,8 @@ class ClassifyThread(QtCore.QThread):
             frame_indexes[video] = {}
 
             for ident in pose_est.identities:
-                self.current_status.emit(f"Classifying {video} identity={ident}")
+                self.current_status.emit(
+                    f"Classifying {video},  Identity {ident}")
 
                 # get the features for this identity
                 features = IdentityFeatures(video, ident,
@@ -62,8 +64,8 @@ class ClassifyThread(QtCore.QThread):
                 ).get_track_labels(identity, self._behavior).get_labels()
 
                 # get the features for all unlabled frames for this identity
-                # TODO make window_size configurable
-                unlabeled_features = features.get_unlabeled_features(5, labels)
+                unlabeled_features = features.get_unlabeled_features(
+                    self._window_size, labels)
 
                 # reformat the data in a single 2D numpy array to pass
                 # to the classifier

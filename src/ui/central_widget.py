@@ -6,18 +6,17 @@ from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier
 from src.project.track_labels import TrackLabels
+import src.feature_extraction
 from .classification_thread import ClassifyThread
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
+
 from .frame_labels_widget import FrameLabelsWidget
 from .global_inference_widget import GlobalInferenceWidget
-from .identity_combo_box import IdentityComboBox
-from .k_fold_slider_widget import KFoldSliderWidget
-from .label_count_widget import FrameLabelCountWidget
 from .manual_label_widget import ManualLabelWidget
 from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
+from .main_control_widget import MainControlWidget
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -25,20 +24,10 @@ class CentralWidget(QtWidgets.QWidget):
     QT Widget implementing our main window contents
     """
 
-    _DEFAULT_BEHAVIORS = [
-        'Walking', 'Turn left', 'Turn right', 'Sleeping', 'Freezing',
-        'Grooming', 'Following', 'Rearing (supported)',
-        'Rearing (unsupported)'
-    ]
-
     export_training_status_change = QtCore.Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # initial behavior labels to list in the drop down selection
-        self._behaviors = list(self._DEFAULT_BEHAVIORS)
-        self._behaviors.sort()
 
         # video player
         self._player_widget = PlayerWidget()
@@ -48,7 +37,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._curr_frame_index = 0
 
         self._loaded_video = None
-
         self._project = None
         self._labels = None
         self._pose_est = None
@@ -67,160 +55,27 @@ class CentralWidget(QtWidgets.QWidget):
 
         # options
         self._frame_jump = 10
+        self._window_size = src.feature_extraction.DEFAULT_WINDOW_SIZE
 
-        # behavior selection form components
-        self.behavior_selection = QtWidgets.QComboBox()
-        self.behavior_selection.addItems(self._behaviors)
-        self.behavior_selection.currentIndexChanged.connect(
-            self._change_behavior)
+        # main controls
+        self._controls = MainControlWidget()
+        self._controls.identity_changed.connect(self._change_identity)
+        self._controls.label_behavior_clicked.connect(self._label_behavior)
+        self._controls.label_not_behavior_clicked.connect(self._label_not_behavior)
+        self._controls.clear_label_clicked.connect(self._clear_behavior_label)
+        self._controls.start_selection.connect(self._start_selection)
+        self._controls.train_clicked.connect(self._train_button_clicked)
+        self._controls.classify_clicked.connect(self._classify_button_clicked)
+        self._controls.classifier_changed.connect(self._classifier_changed)
+        self._controls.behavior_changed.connect(self._change_behavior)
+        self._controls.kfold_changed.connect(
+            self._set_train_button_enabled_state)
+        self._controls.behavior_list_changed.connect(
+            lambda b: self._project.save_metadata({'behaviors': b}))
+        self._controls.window_size_changed.connect(self._window_feature_size_changed)
+        self._controls.new_window_sizes.connect(self._save_window_sizes)
 
-        self.identity_selection = IdentityComboBox()
-        self.identity_selection.currentIndexChanged.connect(
-            self._change_identity)
-        self.identity_selection.setEditable(False)
-        self.identity_selection.installEventFilter(self.identity_selection)
-
-        add_label_button = QtWidgets.QToolButton()
-        add_label_button.setText("+")
-        add_label_button.setToolTip("Add a new behavior label")
-        add_label_button.clicked.connect(self._new_label)
-
-        behavior_layout = QtWidgets.QHBoxLayout()
-        behavior_layout.addWidget(self.behavior_selection)
-        behavior_layout.addWidget(add_label_button)
-        behavior_layout.setContentsMargins(5, 5, 5, 5)
-
-        behavior_group = QtWidgets.QGroupBox("Behavior")
-        behavior_group.setLayout(behavior_layout)
-
-        # identity selection form components
-
-        identity_layout = QtWidgets.QVBoxLayout()
-        identity_layout.addWidget(self.identity_selection)
-        identity_layout.setContentsMargins(5, 5, 5, 5)
-        identity_group = QtWidgets.QGroupBox("Subject Identity")
-        identity_group.setLayout(identity_layout)
-
-        # classifier controls
-        #  buttons
-        self.train_button = QtWidgets.QPushButton("Train")
-        self.train_button.clicked.connect(self._train_button_clicked)
-        self.train_button.setEnabled(False)
-        self.classify_button = QtWidgets.QPushButton("Classify")
-        self.classify_button.clicked.connect(self._classify_button_clicked)
-        self.classify_button.setEnabled(False)
-
-        #  drop down to select type of classifier to use
-        self._classifier_selection = QtWidgets.QComboBox()
-        self._classifier_selection.currentIndexChanged.connect(self._classifier_changed)
-
-        for classifier, name in self._classifier.classifier_choices().items():
-            self._classifier_selection.addItem(name, userData=classifier)
-
-        #  slider to set number of times to train/test
-        self._kslider = KFoldSliderWidget()
-        self._kslider.valueChanged.connect(self._kfold_changed)
-        #   disabled until project loaded
-        self._kslider.setEnabled(False)
-
-        #  classifier control layout
-        classifier_layout = QtWidgets.QGridLayout()
-        classifier_layout.addWidget(self.train_button, 0, 0)
-        classifier_layout.addWidget(self.classify_button, 0, 1)
-        classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
-        classifier_layout.addWidget(self._kslider, 2, 0, 1, 2)
-        classifier_layout.setContentsMargins(5, 5, 5, 5)
-        classifier_group = QtWidgets.QGroupBox("Classifier")
-        classifier_group.setLayout(classifier_layout)
-
-        # label components
-        label_layout = QtWidgets.QGridLayout()
-
-        self.label_behavior_button = QtWidgets.QPushButton()
-        self.label_behavior_button.setText(
-            self.behavior_selection.currentText())
-        self.label_behavior_button.clicked.connect(self._label_behavior)
-        self.label_behavior_button.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                   stop: 0 rgb(255, 195, 77),
-                                   stop: 1.0 rgb{BEHAVIOR_COLOR});
-                border-radius: 4px;
-                padding: 2px;
-                color: white;
-            }}
-            QPushButton:pressed {{
-                background-color: rgb(255, 195, 77);
-            }}
-            QPushButton:disabled {{
-                background-color: rgb(229, 143, 0);
-                color: grey;
-            }}
-        """)
-
-        self.label_not_behavior_button = QtWidgets.QPushButton(
-            f"Not {self.behavior_selection.currentText()}")
-        self.label_not_behavior_button.clicked.connect(self._label_not_behavior)
-        self.label_not_behavior_button.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                   stop: 0 rgb(50, 119, 234),
-                                   stop: 1.0 rgb{NOT_BEHAVIOR_COLOR});
-                border-radius: 4px;
-                padding: 2px;
-                color: white;
-            }}
-            QPushButton:pressed {{
-                background-color: rgb(50, 119, 234);
-            }}
-            QPushButton:disabled {{
-                background-color: rgb(0, 77, 206);
-                color: grey;
-            }}
-        """)
-
-        self.clear_label_button = QtWidgets.QPushButton("Clear Label")
-        self.clear_label_button.clicked.connect(self._clear_behavior_label)
-
-        self.select_button = QtWidgets.QPushButton("Select Frames")
-        self.select_button.setCheckable(True)
-        self.select_button.clicked.connect(self._start_selection)
-        # disabled until a project is loaded
-        self.select_button.setEnabled(False)
-
-        # label buttons are disabled unless user has a range of frames selected
-        self._disable_label_buttons()
-
-        label_layout.addWidget(self.label_behavior_button, 0, 0, 1, 2)
-        label_layout.addWidget(self.label_not_behavior_button, 1, 0, 1, 2)
-        label_layout.addWidget(self.clear_label_button, 2, 0)
-        label_layout.addWidget(self.select_button, 2, 1)
-        label_layout.setContentsMargins(5, 5, 5, 5)
-        label_group = QtWidgets.QGroupBox("Labeling")
-        label_group.setLayout(label_layout)
-
-
-        # summary of number of frames / bouts for each class
-        self._frame_counts = FrameLabelCountWidget()
-        label_count_layout = QtWidgets.QVBoxLayout()
-        label_count_layout.addWidget(self._frame_counts)
-        label_count_group = QtWidgets.QGroupBox("Label Summary")
-        label_count_group.setLayout(label_count_layout)
-
-        # control layout
-        control_layout = QtWidgets.QVBoxLayout()
-        if sys.platform == 'darwin':
-            control_layout.setSpacing(20)
-        else:
-            control_layout.setSpacing(10)
-        control_layout.addWidget(behavior_group)
-        control_layout.addWidget(identity_group)
-        control_layout.addWidget(classifier_group)
-        control_layout.addWidget(label_count_group)
-        control_layout.addStretch()
-        control_layout.addWidget(label_group)
-
-        # label widgets
+        # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
         self.prediction_vis = PredictionVisWidget()
         self.frame_ticks = FrameLabelsWidget()
@@ -232,7 +87,7 @@ class CentralWidget(QtWidgets.QWidget):
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
-        layout.addLayout(control_layout, 0, 1, 5, 1)
+        layout.addWidget(self._controls, 0, 1, 5, 1)
         layout.addWidget(self.timeline_widget, 1, 0)
         layout.addWidget(self.manual_labels, 2, 0)
         layout.addWidget(self.inference_timeline_widget, 3, 0)
@@ -252,22 +107,18 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def behavior(self):
-        """
-        :return: the currently selected behavior
-        """
-        return self.behavior_selection.currentText()
+        """ get the currently selected behavior """
+        return self._controls.current_behavior
 
     @property
     def classifier_type(self):
         """ get the current classifier type """
         return self._classifier.classifier_type
 
-    def behavior_labels(self):
-        """
-        get the current contents of the behavior drop down
-        :return: a copy of the list so private member can't be modified
-        """
-        return list(self._behaviors)
+    @property
+    def window_size(self):
+        """ get current window size """
+        return self._window_size
 
     def set_project(self, project):
         """ set the currently opened project """
@@ -280,39 +131,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        # get project specific metadata
-        settings = project.metadata
-
-        # reset list of behaviors, then add any from the metadata
-        self._behaviors = list(self._DEFAULT_BEHAVIORS)
-
-        # we don't need this even handler to be active while we set up the
-        # project (otherwise it gets unnecessarily called multiple times)
-        self.behavior_selection.currentIndexChanged.disconnect()
-
-        behavior_index = 0
-        if 'behaviors' in settings:
-            # add behavior labels from project metadata that aren't already in
-            # the app default list
-            for b in settings['behaviors']:
-                if b not in self._behaviors:
-                    self._behaviors.append(b)
-            self._behaviors.sort()
-            self.behavior_selection.clear()
-            self.behavior_selection.addItems(self._behaviors)
-        if 'selected_behavior' in settings:
-            # make sure this behavior is in the behavior selection drop down
-            if settings['selected_behavior'] not in self._behaviors:
-                self._behaviors.append(settings['selected_behavior'])
-                self._behaviors.sort()
-                self.behavior_selection.clear()
-                self.behavior_selection.addItems(self._behaviors)
-            behavior_index = self._behaviors.index(
-                settings['selected_behavior'])
-
-        # set the index to either the first behavior, or if available, the one
-        # that was saved in the project metadata
-        self.behavior_selection.setCurrentIndex(behavior_index)
+        self._controls.classify_button_set_enabled(False)
+        self._controls.update_project_settings(project.metadata)
 
         classifier_loaded = False
         try:
@@ -322,21 +142,26 @@ class CentralWidget(QtWidgets.QWidget):
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
 
-        self.classify_button.setEnabled(classifier_loaded)
-
         # if a classifier was loaded, set the drop down to match the type
         if classifier_loaded:
             self._update_classifier_selection()
 
+        # set classify button state
+        # it will only get enabled if we loaded a classifier and we know
+        # what window size was used to train it
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        # do we have a window size for this behavior?
+        if self.behavior in window_settings:
+            # yes, does it match current window size?
+            if self.window_size == window_settings[self.behavior]:
+                # yes, classify button can be enabled if we loaded a classifier
+                self._controls.classify_button_set_enabled(classifier_loaded)
+
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
 
-        # re-enable the behavior_selection change signal handler
-        self.behavior_selection.currentIndexChanged.connect(
-            self._change_behavior)
-
-        self.select_button.setEnabled(True)
-        self._kslider.setEnabled(True)
+        self._controls.select_button_set_enabled(True)
+        self._controls.kslider_set_enabled(True)
         self._set_train_button_enabled_state()
 
     def load_video(self, path):
@@ -352,7 +177,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._labels is not None:
             self._project.cache_annotations(self._labels)
             self._start_selection(False)
-            self.select_button.setChecked(False)
+            self._controls.select_button_set_checked(False)
 
         try:
             # open the video
@@ -397,8 +222,8 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle key press events """
 
         def begin_select_mode():
-            if not self.select_button.isChecked():
-                self.select_button.toggle()
+            if not self._controls.select_button_is_checked:
+                self._controls.toggle_select_button()
                 self._start_selection(True)
 
         key = event.key()
@@ -413,23 +238,23 @@ class CentralWidget(QtWidgets.QWidget):
         elif key == QtCore.Qt.Key_Space:
             self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key_Z:
-            if self.select_button.isChecked():
+            if self._controls.select_button_is_checked:
                 self._label_behavior()
             else:
                 begin_select_mode()
         elif key == QtCore.Qt.Key_X:
-            if self.select_button.isChecked():
+            if self._controls.select_button_is_checked:
                 self._clear_behavior_label()
             else:
                 begin_select_mode()
         elif key == QtCore.Qt.Key_C:
-            if self.select_button.isChecked():
+            if self._controls.select_button_is_checked:
                 self._label_not_behavior()
             else:
                 begin_select_mode()
         elif key == QtCore.Qt.Key_Escape:
-            if self.select_button.isChecked():
-                self.select_button.setChecked(False)
+            if self._controls.select_button_is_checked:
+                self._controls.select_button_set_checked(False)
                 self._start_selection(False)
         elif key == QtCore.Qt.Key_L:
             # show closest with no argument toggles the setting
@@ -438,31 +263,14 @@ class CentralWidget(QtWidgets.QWidget):
     def show_track(self, show: bool):
         self._player_widget.show_track(show)
 
-    def _new_label(self):
-        """
-        callback for the "new behavior" button
-        opens a modal dialog to allow the user to enter a new behavior label
-        """
-        text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
-                                                  'New Behavior Name:')
-        if ok and text not in self._behaviors:
-            self._behaviors.append(text)
-            self._behaviors.sort()
-            self.behavior_selection.addItem(text)
-            self.behavior_selection.setCurrentIndex(self._behaviors.index(text))
-            # save new behaviors
-            self._project.save_metadata({'behaviors': self._behaviors})
-
     def _change_behavior(self):
         """
         make UI changes to reflect the currently selected behavior
         """
-        self.label_behavior_button.setText(self.behavior)
-        self.label_not_behavior_button.setText(
-            f"Not {self.behavior}")
-
         if self._project is None:
             return
+
+        self._controls.classify_button_set_enabled(False)
 
         classifier_loaded = False
         try:
@@ -472,7 +280,6 @@ class CentralWidget(QtWidgets.QWidget):
             print('failed to load classifier', file=sys.stderr)
             print(e, file=sys.stderr)
 
-        self.classify_button.setEnabled(classifier_loaded)
         if classifier_loaded:
             self._update_classifier_selection()
 
@@ -489,24 +296,31 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior})
 
+        # try to set the window size to the last one used to train this
+        # behavior
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        # do we have a window size in the project settings for this behavior?
+        if self.behavior in window_settings:
+            # yes, try to set the window size to match
+            self._controls.set_window_size(window_settings[self.behavior])
+            if self.window_size == window_settings[self.behavior]:
+                # success: enable classify button if a classifier was loaded
+                self._controls.classify_button_set_enabled(classifier_loaded)
+
     def _start_selection(self, pressed):
         """
-        handle click on "select" button. If button was previously in "un    checked"
-        state, then grab the current frame to begin selecting a range. If the
+        handle click on "select" button. If button was previously "unchecked"
+        then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
         While selection is in progress, the labeling buttons become active.
         """
         if pressed:
-            self.label_behavior_button.setEnabled(True)
-            self.label_not_behavior_button.setEnabled(True)
-            self.clear_label_button.setEnabled(True)
+            self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame()
             self.manual_labels.start_selection(self._selection_start)
         else:
-            self.label_behavior_button.setEnabled(False)
-            self.label_not_behavior_button.setEnabled(False)
-            self.clear_label_button.setEnabled(False)
+            self._controls.disable_label_buttons()
             self.manual_labels.clear_selection()
         self.manual_labels.update()
 
@@ -541,7 +355,7 @@ class CentralWidget(QtWidgets.QWidget):
         for the current selection
         """
         self._project.save_annotations(self._labels)
-        self._disable_label_buttons()
+        self._controls.disable_label_buttons()
         self.manual_labels.clear_selection()
         self.manual_labels.update()
         self.timeline_widget.update_labels()
@@ -550,28 +364,15 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
-        self.identity_selection.clear()
-        self.identity_selection.addItems([str(i) for i in identities])
+        self._controls.set_identities(identities)
         self._player_widget.set_identities(identities)
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
-        # don't do anything when the identity drop down is cleared when
-        # loading a new video
-        if self.identity_selection.currentIndex() < 0:
-            return
-
         self._player_widget.set_active_identity(
-            self.identity_selection.currentIndex())
+            self._controls.current_identity_index)
         self._set_label_track()
         self._update_label_counts()
-
-    def _disable_label_buttons(self):
-        """ disable labeling buttons that require a selected range of frames """
-        self.label_behavior_button.setEnabled(False)
-        self.label_not_behavior_button.setEnabled(False)
-        self.clear_label_button.setEnabled(False)
-        self.select_button.setChecked(False)
 
     def _frame_change(self, new_frame):
         """
@@ -589,8 +390,8 @@ class CentralWidget(QtWidgets.QWidget):
         loads new set of labels in self.manual_labels when the selected
         behavior or identity is changed
         """
-        behavior = self.behavior_selection.currentText()
-        identity = self.identity_selection.currentText()
+        behavior = self._controls.current_behavior
+        identity = self._controls.current_identity
 
         if identity != '' and behavior != '' and self._labels is not None:
             labels = self._labels.get_track_labels(identity, behavior)
@@ -606,23 +407,15 @@ class CentralWidget(QtWidgets.QWidget):
         behavior
         """
         return self._labels.get_track_labels(
-            self.identity_selection.currentText(),
-            self.behavior_selection.currentText()
+            self._controls.current_identity,
+            self._controls.current_behavior
         )
 
     def _update_classifier_selection(self):
         """
         Called when the classifier selection widget should be updated
         """
-        try:
-            classifier_type = self._classifier.classifier_type
-
-            index = self._classifier_selection.findData(classifier_type)
-            if index != -1:
-                self._classifier_selection.setCurrentIndex(index)
-        except KeyError:
-            # unable to use the classifier
-            pass
+        self._controls.set_classifier_selection(self._classifier.classifier_type)
 
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
@@ -632,8 +425,9 @@ class CentralWidget(QtWidgets.QWidget):
         # setup training thread
         self._training_thread = TrainingThread(
             self._project, self._classifier,
-            self.behavior_selection.currentText(),
-            self._kslider.value())
+            self._controls.current_behavior,
+            self._window_size,
+            self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
@@ -644,7 +438,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
             'Training', None, 0,
-            self._project.total_project_identities + self._kslider.value() + 1,
+            self._project.total_project_identities + self._controls.kfold_value + 1,
             self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
@@ -653,11 +447,16 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
+        # save the window size used for this behavior
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        window_settings[self.behavior] = self._window_size
+        self._project.save_metadata({'window_size_pref': window_settings})
+
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
         self._progress_dialog.reset()
         self.parent().display_status_message("Training Complete", 3000)
-        self.classify_button.setEnabled(True)
+        self._controls.classify_button_set_enabled(True)
 
     def _update_training_progress(self, step):
         """ update progress bar with the number of completed tasks """
@@ -671,8 +470,9 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self.behavior_selection.currentText(), self._predictions,
-            self._probabilities, self._frame_indexes, self._loaded_video.name)
+            self._controls.current_behavior, self._predictions,
+            self._probabilities, self._frame_indexes, self._loaded_video.name,
+            self._window_size)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
@@ -708,7 +508,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        identity = self.identity_selection.currentText()
+        identity = self._controls.current_identity
 
         try:
             indexes = self._frame_indexes[identity]
@@ -747,11 +547,12 @@ class CentralWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        if Classifier.label_threshold_met(self._counts, self._kslider.value()):
-            self.train_button.setEnabled(True)
+        if Classifier.label_threshold_met(self._counts,
+                                          self._controls.kfold_value):
+            self._controls.train_button_enabled = True
             self.export_training_status_change.emit(True)
         else:
-            self.train_button.setEnabled(False)
+            self._controls.train_button_enabled = False
             self.export_training_status_change.emit(False)
 
     def _update_label_counts(self):
@@ -768,7 +569,7 @@ class CentralWidget(QtWidgets.QWidget):
         # by only updating the current identity in the current video
         self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
-        identity = self.identity_selection.currentText()
+        identity = self._controls.current_identity
 
         label_behavior_current = 0
         label_not_behavior_current = 0
@@ -791,27 +592,27 @@ class CentralWidget(QtWidgets.QWidget):
                     bout_behavior_current += identity_counts[2][0]
                     bout_not_behavior_current += identity_counts[2][1]
 
-        self._frame_counts.set_counts(label_behavior_current,
-                                      label_not_behavior_current,
-                                      label_behavior_project,
-                                      label_not_behavior_project,
-                                      bout_behavior_current,
-                                      bout_not_behavior_current,
-                                      bout_behavior_project,
-                                      bout_not_behavior_project)
-
-    def _kfold_changed(self):
-        """ handle kfold slider change event """
-        self._set_train_button_enabled_state()
+        self._controls.set_frame_counts(label_behavior_current,
+                                        label_not_behavior_current,
+                                        label_behavior_project,
+                                        label_not_behavior_project,
+                                        bout_behavior_current,
+                                        bout_not_behavior_current,
+                                        bout_behavior_project,
+                                        bout_not_behavior_project)
 
     def _classifier_changed(self):
         """ handle classifier selection change """
-        if self._classifier.classifier_type != self._classifier_selection.currentData():
+        if self._classifier.classifier_type != self._controls.classifier_type:
             # changing classifier type, disable until retrained
-            self.classify_button.setEnabled(False)
-        self._classifier.set_classifier(self._classifier_selection.currentData())
+            self._controls.classify_button_set_enabled(False)
+            self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event):
+        """
+        handle event where user clicked on the video -- if they click
+        on one of the mice, make that one active
+        """
         if self._pose_est is not None:
             # since convex hulls are represented as y, x we need to maintain
             # this ordering
@@ -820,5 +621,17 @@ class CentralWidget(QtWidgets.QWidget):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
                 curr_c_hull = c_hulls[self._curr_frame_index]
                 if curr_c_hull is not None and curr_c_hull.contains(pt):
-                    self.identity_selection.setCurrentIndex(i)
+                    self._controls.set_identity_index(i)
                     break
+
+    def _window_feature_size_changed(self, new_size):
+        """ handle window feature size change """
+        if new_size is not None and new_size != self._window_size:
+            self._window_size = new_size
+            # if we change the window size disable the classify button until
+            # the classifier is retrained
+            self._controls.classify_button_set_enabled(False)
+
+    def _save_window_sizes(self, window_sizes):
+        """ save the window sizes to the project settings """
+        self._project.save_metadata({'window_sizes': window_sizes})

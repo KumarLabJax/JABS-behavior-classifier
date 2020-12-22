@@ -106,7 +106,7 @@ def main():
         window_sizes = [DEFAULT_WINDOW_SIZE]
     else:
         # make sure there are no duplicates
-        window_sizes = set(args.window_sizes)
+        window_sizes = list(set(args.window_sizes))
 
     print(f"Initializing project directory: {args.project_dir}")
 
@@ -202,6 +202,12 @@ def main():
                          prefix=" Computing Features: ")
 
     pool.close()
+
+    # save window sizes to project metadata
+    project_metadata = project.load_metadata()
+    deduped_window_sizes = set(
+        project_metadata.get('window_sizes', []) + window_sizes)
+    project.save_metadata({'window_sizes': list(deduped_window_sizes)})
 
 
 if __name__ == '__main__':

@@ -25,12 +25,13 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
-    def __init__(self, project, classifier, behavior, k=1):
+    def __init__(self, project, classifier, behavior, window_size, k=1):
         super().__init__()
         self._project = project
         self._classifier = classifier
         self._behavior = behavior
         self._tasks_complete = 0
+        self._window_size = window_size
         self._k = k
 
     def run(self):
@@ -50,7 +51,8 @@ class TrainingThread(QtCore.QThread):
         self.current_status.emit("Extracting Features")
         features, group_mapping = self._project.get_labeled_features(
             self._behavior,
-            id_processed,
+            self._window_size,
+            id_processed
         )
 
         self.current_status.emit("Generating train/test splits")

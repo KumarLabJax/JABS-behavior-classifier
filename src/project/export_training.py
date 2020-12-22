@@ -43,7 +43,8 @@ def export_training_data(project: 'Project', behavior: str,
     """
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    features, group_mapping = project.get_labeled_features(behavior)
+    features, group_mapping = project.get_labeled_features(behavior,
+                                                           window_size)
 
     if out_file is None:
         out_file = (project.dir /
