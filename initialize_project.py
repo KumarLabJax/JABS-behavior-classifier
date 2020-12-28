@@ -9,7 +9,6 @@ optional regenerate and overwrite existing feature h5 files
 
 import argparse
 import sys
-import time
 from multiprocessing import Pool
 from pathlib import Path
 
