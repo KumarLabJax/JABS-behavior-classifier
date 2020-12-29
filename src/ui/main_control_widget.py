@@ -380,8 +380,10 @@ class MainControlWidget(QtWidgets.QWidget):
         opens a modal dialog to allow the user to enter a new behavior label,
         if user clicks ok, add that behavior to the combo box, and select it
         """
-        text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
-                                                  'New Behavior Name:')
+        text, ok = QtWidgets.QInputDialog.getText(self, 'New Behavior',
+                                                  'New Behavior Name:',
+                                                  QtWidgets.QLineEdit.Normal
+                                                  )
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self._behaviors.sort()
@@ -393,14 +395,17 @@ class MainControlWidget(QtWidgets.QWidget):
         """
         show the new label dialog until the user enters one. Used when
         opening a new project for the fist time.
-        TODO: make custom dialog so the user can't close the dialog until they've entered a behavior label
+        TODO: make custom dialog so the user can't close the dialog until
+          they've entered a behavior label
         """
         ok = False
         text = ""
 
         while not ok:
-            text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
-                                                      'New Behavior Name:')
+            text, ok = QtWidgets.QInputDialog.getText(
+                self, 'New Behavior',
+                'New project - please enter a behavior name to continue:',
+                QtWidgets.QLineEdit.Normal)
         self._behaviors.append(text)
         self._behaviors.sort()
         self.behavior_selection.addItem(text)
