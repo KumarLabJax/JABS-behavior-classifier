@@ -1,6 +1,6 @@
 
 
-def cli_progress_bar(completed: int, total_iterations: int, length=50,
+def cli_progress_bar(completed: int, total_iterations: int, length=40,
                      fill_char='█', padding_char='░', prefix='', suffix='',
                      precision=1, complete_as_percent=True):
     """
