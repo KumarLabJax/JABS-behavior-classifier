@@ -7,6 +7,7 @@ import numpy as np
 import scipy.stats
 
 import src.project.track_labels
+from src.utils.utilities import rolling_window
 from src.pose_estimation import PoseEstimationV3
 
 FEATURE_VERSION = 1
@@ -67,11 +68,11 @@ class IdentityFeatures:
     # key is the operation name and the value is a function that takes an numpy
     # array of values and returns a single feature value.
     _window_feature_operations = {
-        "mean": lambda x: np.mean(x),
-        "median": lambda x: np.median(x),
-        "std_dev": lambda x: np.std(x),
-        "max": lambda x: np.amax(x),
-        "min": lambda x: np.amin(x)
+        "mean": np.ma.mean,
+        "median": np.ma.median,
+        "std_dev": np.ma.std,
+        "max": np.ma.amax,
+        "min": np.ma.amin
     }
 
     # a copy of the above operations, but used for values that are circular
@@ -669,11 +670,59 @@ class IdentityFeatures:
                         window_features[feature_name][operation] = np.zeros(
                             self._num_frames, dtype=np.float32)
 
-        # compute window features
+        mask = np.full(self._num_frames, 1)
+        mask[self._frame_valid == 1] = 0
+        window_masks = rolling_window(
+            np.pad(mask, window_size, 'constant', constant_values=(1)),
+            max_window_size
+        )
+
+        for op_name, op in self._window_feature_operations.items():
+
+            # compute window features for distances with current operator
+            for distance_index in range(0, self._num_distances):
+                windows = rolling_window(
+                    np.pad(self._per_frame['pairwise_distances'][:, distance_index], window_size),
+                    max_window_size)
+                mx = np.ma.masked_array(windows, window_masks)
+                window_features['pairwise_distances'][op_name][
+                    :, distance_index] = op(mx, axis=1)
+
+            # compute window features for point speeds with current operator
+            for kp_index_enum in PoseEstimationV3.KeypointIndex:
+                windows = rolling_window(
+                    np.pad(self._per_frame['point_speeds'][:, kp_index_enum.value], window_size),
+                    max_window_size
+                )
+                mx = np.ma.masked_array(windows, window_masks)
+                window_features['point_speeds'][op_name][:, kp_index_enum.value] = op(mx, axis=1)
+
+            if self._include_social_features:
+                for feature_name in self._window_social_features:
+                    if feature_name == 'closest_fov_angles':
+                        # these get handled elsewhere
+                        continue
+                    if self._per_frame[feature_name].ndim == 1:
+                        windows = rolling_window(
+                            np.pad(self._per_frame[feature_name], window_size),
+                            max_window_size
+                        )
+                        mx = np.ma.masked_array(windows, window_masks)
+                        window_features[feature_name][op_name][:] = op(mx, axis=1)
+                    else:
+                        for j in range(self._per_frame[feature_name].shape[1]):
+                            windows = rolling_window(
+                                np.pad(self._per_frame[feature_name][:, j], window_size),
+                                max_window_size
+                            )
+                            mx = np.ma.masked_array(windows, window_masks)
+                            window_features[feature_name][op_name][:, j] = op(mx, axis=1)
+
+
+        # compute remaining window features
         for i in range(self._num_frames):
 
-            # identity doesn't exist for this frame don't bother to compute the
-            # window features
+            # identity doesn't exist for this frame don't bother to compute
             if not self._frame_valid[i]:
                 continue
 
@@ -682,14 +731,12 @@ class IdentityFeatures:
 
             frame_valid = self._frame_valid[slice_start:slice_end]
             frames_in_window = np.count_nonzero(frame_valid)
-
             window_features['percent_frames_present'][i, 0] = frames_in_window / max_window_size
 
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
                 window_values = self._per_frame['angles'][slice_start:slice_end,
                                 angle_index][frame_valid == 1]
-
                 for op_name, op in self._window_feature_operations_circular.items():
                     if op_name == 'std_dev':
                         # XXX
@@ -710,61 +757,26 @@ class IdentityFeatures:
                     else:
                         window_features['angles'][op_name][i, angle_index] = op(window_values)
 
-            # compute window features for distances
-            for distance_index in range(0, self._num_distances):
-                window_values = self._per_frame['pairwise_distances'][
-                                    slice_start:slice_end,
-                                    distance_index][frame_valid == 1]
-
-                for operation in self._window_feature_operations:
-                    window_features['pairwise_distances'][operation][
-                        i, distance_index] = self._window_feature_operations[
-                        operation](window_values)
-
-            # compute window features for point speeds
-            for kp_index_enum in PoseEstimationV3.KeypointIndex:
-                window_values = self._per_frame['point_speeds'][
-                                    slice_start:slice_end,
-                                    kp_index_enum.value][frame_valid == 1]
-
-                for operation in self._window_feature_operations:
-                    window_features['point_speeds'][operation][
-                        i, kp_index_enum.value] = self._window_feature_operations[
-                        operation](window_values)
-
-            # compute social window features using a general approach for
-            # 1D and 2D feature shapes
+            # handle remaining circular social features
             if self._include_social_features:
                 for feature_name in self._window_social_features:
                     window_values = self._per_frame[feature_name][slice_start:slice_end, ...]
-
                     assert window_values.ndim == 1 or window_values.ndim == 2
-                    if window_values.ndim == 1:
-                        for op_name, op in self._window_feature_operations.items():
-                            window_features[feature_name][op_name][i] = op(
-                                window_values[frame_valid == 1])
-                    else:
-                        for j in range(window_values.shape[1]):
-                            if feature_name == 'closest_fov_angles':
-                                for op_name, op in self._window_feature_operations_circular.items():
-                                    if op_name == 'std_dev':
-                                        # XXX see comment above for explanation
-                                        with np.errstate(invalid='ignore'):
-                                            val = op(window_values[:, j][frame_valid == 1])
-                                        if np.isnan(val):
-                                            window_features[feature_name][
-                                                op_name][i, j] = 0
-                                        else:
-                                            window_features[feature_name][
-                                                op_name][i, j] = val
-                                    else:
-                                        window_features[feature_name][op_name][i, j] = op(
-                                            window_values[:, j][frame_valid == 1])
+                    if feature_name == 'closest_fov_angles':
+                        for op_name, op in self._window_feature_operations_circular.items():
+                            if op_name == 'std_dev':
+                                # XXX see comment above for explanation
+                                with np.errstate(invalid='ignore'):
+                                    val = op(window_values[frame_valid == 1])
+                                if np.isnan(val):
+                                    window_features[feature_name][
+                                        op_name][i] = 0
+                                else:
+                                    window_features[feature_name][
+                                        op_name][i] = val
                             else:
-                                for op_name, op in self._window_feature_operations.items():
-                                    window_features[feature_name][op_name][i, j] = op(
-                                        window_values[:, j][frame_valid == 1])
-
+                                window_features[feature_name][op_name][i] = op(
+                                    window_values[frame_valid == 1])
         return window_features
 
     @classmethod

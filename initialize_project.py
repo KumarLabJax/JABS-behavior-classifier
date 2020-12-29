@@ -121,12 +121,12 @@ def main():
     # this test is quick, don't bother to parallelize
     complete = 0
     results = []
-    for result in [match_to_pose(v, args.project_dir) for v in videos]:
+    for v in videos:
+        results.append(match_to_pose(v, args.project_dir))
         # update progress bar
         complete += 1
         cli_progress_bar(complete, len(videos),
                          prefix=" Checking for pose files: ")
-        results.append(result)
 
     failures = [r for r in results if r['okay'] is False]
 
