@@ -1,5 +1,7 @@
 import math
 
+import numpy as np
+
 from PySide2.QtCore import QSize, Qt
 from PySide2.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
 from PySide2.QtWidgets import QWidget, QSizePolicy
@@ -121,23 +123,39 @@ class TimelineLabelWidget(QWidget):
         Updates the bar pixmap. Downsamples with the current size and updates
         self._pixmap
         """
+
         width = self.size().width()
         height = self.size().height()
-        self._pixmap = QPixmap(width, height)
+
+        # create a pixmap with a width that evenly divides the total number of
+        # frames so that each pixel along the width represents a bin of frames
+        # (_update_scale() has done this, we can use pixmap_offset to figure
+        # out how many pixels of padding will be on each side of the final
+        # pixmap)
+        pixmap_width = width - 2 * self._pixmap_offset
+
+        self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.transparent)
-        downsampled = self._labels.downsample(self._labels.get_labels(), width)
+
+        if self._labels is not None:
+            downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
+        else:
+            # if we don't have labels loaded yet, create a dummy array of
+            # unlabeled frames to display
+            downsampled = TrackLabels.downsample(
+                np.full(self._num_frames, TrackLabels.Label.NONE), pixmap_width)
 
         # draw the bar, each pixel along the width corresponds to a value in the
         # down sampled label array
         qp = QPainter(self._pixmap)
-        for x in range(width):
-            if downsampled[x] == TrackLabels.Label.NONE:
+        for x in range(pixmap_width):
+            if downsampled[x] == TrackLabels.Label.NONE.value:
                 qp.setPen(self._BACKGROUND_COLOR)
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR:
+            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
                 qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:
+            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
                 qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX:
+            elif downsampled[x] == TrackLabels.Label.MIX.value:
                 # bin contains mix of behavior/not behavior labels
                 qp.setPen(self._MIX_COLOR)
             else:
@@ -155,7 +173,7 @@ class TimelineLabelWidget(QWidget):
 
         pad_size = math.ceil(
             float(self._num_frames) / width) * width - self._num_frames
-        self._bin_size = (self._num_frames + pad_size) / width
+        self._bin_size = int(self._num_frames + pad_size) // width
 
-        padding = (self._bin_size * width - self._num_frames) / self._bin_size
+        padding = (self._bin_size * width - self._num_frames) // self._bin_size
         self._pixmap_offset = padding // 2
