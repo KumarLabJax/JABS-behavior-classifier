@@ -66,7 +66,7 @@ class TimelineLabelWidget(QWidget):
     def resizeEvent(self, event):
         """
         handle resize event. Recalculates scaling factors and calls
-        update_bar() to redownsample and rerender the bar
+        update_bar() to downsample current label array and rerender the bar
         """
 
         # if no video is loaded, there is nothing to display and nothing to
@@ -120,8 +120,8 @@ class TimelineLabelWidget(QWidget):
 
     def _update_bar(self):
         """
-        Updates the bar pixmap. Downsamples with the current size and updates
-        self._pixmap
+        Updates the bar pixmap. Downsamples label array with the current size
+        and updates self._pixmap
         """
 
         width = self.size().width()
@@ -138,7 +138,8 @@ class TimelineLabelWidget(QWidget):
         self._pixmap.fill(Qt.transparent)
 
         if self._labels is not None:
-            downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
+            downsampled = self._labels.downsample(self._labels.get_labels(),
+                                                  pixmap_width)
         else:
             # if we don't have labels loaded yet, create a dummy array of
             # unlabeled frames to display
