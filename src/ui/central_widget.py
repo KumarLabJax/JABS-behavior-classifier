@@ -548,9 +548,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         prediction_labels[indexes] = self._predictions[identity]
         prediction_prob[indexes] = self._probabilities[identity]
-        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR
+        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR.value
         prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
-        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR
+        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR.value
         prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
