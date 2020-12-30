@@ -127,6 +127,10 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return self._controls.classify_button_enabled
 
+    @property
+    def behaviors(self):
+        return self._controls.behaviors
+
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
@@ -272,6 +276,9 @@ class CentralWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
+
+    def remove_behavior(self, behavior: str):
+        self._controls.remove_behavior(behavior)
 
     def _change_behavior(self):
         """
@@ -481,8 +488,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self._controls.current_behavior, self._predictions,
-            self._probabilities, self._frame_indexes, self._loaded_video.name,
+            self._controls.current_behavior, self._loaded_video.name,
             self._window_size)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
@@ -501,9 +507,12 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self):
+    def _classify_thread_complete(self, output: dict):
         """ update the gui when the classification is complete """
         # display the new predictions
+        self._predictions = output['predictions']
+        self._probabilities = output['probabilities']
+        self._frame_indexes = output['frame_indexes']
         self.parent().display_status_message("Classification Complete")
         self._set_prediction_vis()
 
