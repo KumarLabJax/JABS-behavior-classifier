@@ -1,8 +1,9 @@
 import hashlib
 import json
 import re
-import sys
 import shutil
+import sys
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -39,20 +40,18 @@ class Project:
 
         # make sure this is a pathlib.Path and not a string
         self._project_dir_path = Path(project_path)
-
         self._annotations_dir = (self._project_dir_path / self._ROTTA_DIR /
                                  "annotations")
         self._feature_dir = (self._project_dir_path / self._ROTTA_DIR /
                              "features")
-
         self._prediction_dir = (self._project_dir_path / self._ROTTA_DIR /
                                 "predictions")
-
         self._project_file = (self._project_dir_path / self._ROTTA_DIR /
                               self.__PROJECT_FILE)
-
         self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
-                              'classifiers')
+                                'classifiers')
+        self._archive_dir = (self._project_dir_path / self._ROTTA_DIR /
+                             'archive')
 
         if use_cache:
             self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
@@ -73,6 +72,7 @@ class Project:
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+        self._archive_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         if use_cache:
             self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
@@ -399,10 +399,10 @@ class Project:
                 # probability is set to -1 to indicate that the class was
                 # manually assigned by the user and not inferred
                 prediction_labels[identity_index,
-                    manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR
+                    manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR.value
                 prediction_prob[identity_index, manual_labels == track.Label.NOT_BEHAVIOR] = -1.0
                 prediction_labels[identity_index,
-                    manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR
+                    manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR.value
                 prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = -1.0
 
             # write to h5 file
@@ -476,8 +476,8 @@ class Project:
         Archive a behavior.
         Archives any labels for this behavior. Deletes any other files
         associated with this behavior.
-        :param behavior:
-        :return:
+        :param behavior: string behavior name
+        :return: None
         """
 
         safe_behavior = self.to_safe_name(behavior)
@@ -494,21 +494,22 @@ class Project:
             pass
 
         # archive labels
-        archived_labels = {'behavior': behavior}
+        archived_labels = {}
         for video in self._videos:
-            annotations = self.load_video_labels(video)
+            annotations = self.load_video_labels(video).as_dict()
             for ident in annotations['labels']:
                 if behavior in annotations['labels'][ident]:
                     if video not in archived_labels:
-                        archived_labels[video] = {}
-                        archived_labels[video]['labels'] = {}
-                    archived_labels[video]['file'] = video
-                    archived_labels[video]['labels'][ident] = annotations['labels'][ident][behavior]
-        print(archived_labels)
+                        archived_labels[video] = {
+                            'num_frames': annotations['num_frames']
+                        }
+                        archived_labels[video][behavior] = {}
+                    archived_labels[video][behavior][ident] = annotations['labels'][ident][behavior]
+                    # TODO remove annotations['labels'][ident][behavior]
 
-
-
-
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        with open(self._archive_dir / f"{safe_behavior}_{ts}.json", 'w') as f:
+            json.dump(archived_labels, f, indent=True)
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
