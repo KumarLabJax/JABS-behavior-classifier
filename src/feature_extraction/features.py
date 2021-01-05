@@ -105,7 +105,6 @@ class IdentityFeatures:
     ]
 
     _window_features = [
-        'percent_frames_present',
         'angles',
         'pairwise_distances',
         'point_speeds'
@@ -374,12 +373,9 @@ class IdentityFeatures:
             grp = features_h5.create_group('features')
 
             for feature in self._window_features:
-                if feature == 'percent_frames_present':
-                    grp.create_dataset(feature, data=features[feature])
-                else:
-                    for op in features[feature]:
-                        grp.create_dataset(f'{feature}/{op}',
-                                           data=features[feature][op])
+                for op in features[feature]:
+                    grp.create_dataset(f'{feature}/{op}',
+                                       data=features[feature][op])
 
             if self._include_social_features:
                 for feature_name in self._window_social_features:
@@ -422,16 +418,12 @@ class IdentityFeatures:
             feature_grp = features_h5['features']
 
             for feature_name in self._window_features:
-                if feature_name == 'percent_frames_present':
-                    window_features[feature_name] = feature_grp[feature_name][:]
-                    assert len(window_features[feature_name]) == self._num_frames
-                else:
-                    window_features[feature_name] = {}
-                    for op in feature_grp[feature_name].keys():
-                        window_features[feature_name][op] = \
-                            feature_grp[f'{feature_name}/{op}'][:]
-                        assert len(
-                            window_features[feature_name][op]) == self._num_frames
+                window_features[feature_name] = {}
+                for op in feature_grp[feature_name].keys():
+                    window_features[feature_name][op] = \
+                        feature_grp[f'{feature_name}/{op}'][:]
+                    assert len(
+                        window_features[feature_name][op]) == self._num_frames
 
             if self._include_social_features:
                 for feature_name in self._window_social_features:
@@ -485,12 +477,9 @@ class IdentityFeatures:
             filtered_features = {}
 
             for key in features:
-                if key == 'percent_frames_present':
-                    filtered_features[key] = features[key][labels != src.project.track_labels.TrackLabels.Label.NONE]
-                else:
-                    filtered_features[key] = {}
-                    for op in features[key]:
-                        filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
+                filtered_features[key] = {}
+                for op in features[key]:
+                    filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
             return filtered_features
 
@@ -551,12 +540,9 @@ class IdentityFeatures:
 
         window = {}
         for key in window_features:
-            if key == 'percent_frames_present':
-                window[key] = window_features[key][filter]
-            else:
-                window[key] = {}
-                for op in window_features[key]:
-                    window[key][op] = window_features[key][op][filter]
+            window[key] = {}
+            for op in window_features[key]:
+                window[key][op] = window_features[key][op][filter]
 
         return {
             'per_frame': per_frame,
@@ -591,12 +577,9 @@ class IdentityFeatures:
 
         window = {}
         for key in window_features:
-            if key == 'percent_frames_present':
-                window[key] = window_features[key][self._frame_valid==1]
-            else:
-                window[key] = {}
-                for op in window_features[key]:
-                    window[key][op] = window_features[key][op][self._frame_valid==1]
+            window[key] = {}
+            for op in window_features[key]:
+                window[key][op] = window_features[key][op][self._frame_valid==1]
 
         return {
             'per_frame': per_frame,
@@ -626,8 +609,7 @@ class IdentityFeatures:
                 'std_dev': numpy float32 array with shape (#frames, #distances),
                 'max': numpy float32 array with shape (#frames, #distances),
                 'min' numpy float32 array with shape (#frames, #distances),
-            },
-            'percent_frames_present': numpy float32 array with shape (#frames,)
+            }
         }
         """
 
@@ -652,9 +634,6 @@ class IdentityFeatures:
             window_features['point_speeds'][operation] = np.zeros(
                 [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
                 dtype=np.float32)
-
-        window_features['percent_frames_present'] = np.zeros((self._num_frames, 1),
-                                                             dtype=np.float32)
 
         # allocate arrays for social
         if self._include_social_features:
@@ -718,7 +697,6 @@ class IdentityFeatures:
                             mx = np.ma.masked_array(windows, window_masks)
                             window_features[feature_name][op_name][:, j] = op(mx, axis=1)
 
-
         # compute remaining window features
         for i in range(self._num_frames):
 
@@ -731,7 +709,6 @@ class IdentityFeatures:
 
             frame_valid = self._frame_valid[slice_start:slice_end]
             frames_in_window = np.count_nonzero(frame_valid)
-            window_features['percent_frames_present'][i, 0] = frames_in_window / max_window_size
 
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
@@ -835,39 +812,36 @@ class IdentityFeatures:
             full_window_features = cls._window_features
 
         for feature in sorted(full_window_features):
-            if feature == 'percent_frames_present':
-                feature_list.append(feature)
-            else:
-                # [source_feature_name][operator_applied] : numpy array
-                # iterate over operator names
-                for op in sorted(cls._window_feature_operations):
+            # [source_feature_name][operator_applied] : numpy array
+            # iterate over operator names
+            for op in sorted(cls._window_feature_operations):
 
-                    if feature == 'angles':
-                        feature_list.extend(
-                            [f"{op} angle {angle.name}" for angle in AngleIndex])
-                    elif feature == 'pairwise_distances':
-                        feature_list.extend(
-                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
-                    elif feature == 'point_speeds':
-                        feature_list.extend([
-                            f"{op} {p.name} speed" for p in
-                            PoseEstimationV3.KeypointIndex])
-                    elif feature == 'closest_distances':
-                        feature_list.append(f"{op} closest social distance")
-                    elif feature == 'closest_fov_distances':
-                        feature_list.append(f"{op} closest social distance in FoV")
-                    elif feature == 'closest_fov_angles':
-                        feature_list.append(f"{op} angle of closest social distance in FoV")
-                    elif feature == 'social_pairwise_distances':
-                        feature_list.extend([
-                            f"{op} social dist. {sdn}"
-                            for sdn in IdentityFeatures.get_social_distance_names()])
-                    elif feature == 'social_pairwise_fov_distances':
-                        feature_list.extend([
-                            f"{op} social fov dist. {sdn}"
-                            for sdn in IdentityFeatures.get_social_distance_names()])
-                    else:
-                        feature_list.extend(feature)
+                if feature == 'angles':
+                    feature_list.extend(
+                        [f"{op} angle {angle.name}" for angle in AngleIndex])
+                elif feature == 'pairwise_distances':
+                    feature_list.extend(
+                        [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
+                elif feature == 'point_speeds':
+                    feature_list.extend([
+                        f"{op} {p.name} speed" for p in
+                        PoseEstimationV3.KeypointIndex])
+                elif feature == 'closest_distances':
+                    feature_list.append(f"{op} closest social distance")
+                elif feature == 'closest_fov_distances':
+                    feature_list.append(f"{op} closest social distance in FoV")
+                elif feature == 'closest_fov_angles':
+                    feature_list.append(f"{op} angle of closest social distance in FoV")
+                elif feature == 'social_pairwise_distances':
+                    feature_list.extend([
+                        f"{op} social dist. {sdn}"
+                        for sdn in IdentityFeatures.get_social_distance_names()])
+                elif feature == 'social_pairwise_fov_distances':
+                    feature_list.extend([
+                        f"{op} social fov dist. {sdn}"
+                        for sdn in IdentityFeatures.get_social_distance_names()])
+                else:
+                    feature_list.extend(feature)
 
         return feature_list
 
@@ -921,7 +895,6 @@ class IdentityFeatures:
             'point_speeds' {
                 ...
             }
-            'percent_frames_present': numpy float32 array with shape (#frames,)
         }
         """
         merged = {}
@@ -934,14 +907,10 @@ class IdentityFeatures:
             feature_intersection &= set(feature_dict.keys())
 
         for feature_name in feature_intersection:
-            if feature_name == 'percent_frames_present':
-                merged[feature_name] = np.concatenate(
-                    [x['percent_frames_present'] for x in features])
-            else:
-                merged[feature_name] = {}
-                for op in cls._window_feature_operations:
-                    merged[feature_name][op] = np.concatenate(
-                        [x[feature_name][op] for x in features])
+            merged[feature_name] = {}
+            for op in cls._window_feature_operations:
+                merged[feature_name][op] = np.concatenate(
+                    [x[feature_name][op] for x in features])
 
         return merged
 
