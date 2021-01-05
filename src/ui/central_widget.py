@@ -481,8 +481,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self._controls.current_behavior, self._predictions,
-            self._probabilities, self._frame_indexes, self._loaded_video.name,
+            self._controls.current_behavior, self._loaded_video.name,
             self._window_size)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
@@ -501,9 +500,12 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self):
+    def _classify_thread_complete(self, output):
         """ update the gui when the classification is complete """
         # display the new predictions
+        self._predictions = output['predictions']
+        self._probabilities = output['probabilities']
+        self._frame_indexes = output['frame_indexes']
         self.parent().display_status_message("Classification Complete")
         self._set_prediction_vis()
 
@@ -539,9 +541,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         prediction_labels[indexes] = self._predictions[identity]
         prediction_prob[indexes] = self._probabilities[identity]
-        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR
+        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR.value
         prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
-        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR
+        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR.value
         prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)

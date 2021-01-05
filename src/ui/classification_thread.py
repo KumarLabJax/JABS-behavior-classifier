@@ -9,19 +9,16 @@ class ClassifyThread(QtCore.QThread):
     thread to run the classification to keep the main GUI thread responsive
     """
 
-    done = QtCore.Signal()
+    done = QtCore.Signal(dict)
     update_progress = QtCore.Signal(int)
     current_status = QtCore.Signal(str)
 
-    def __init__(self, classifier, project, behavior, predictions,
-                 probabilities, frame_indexes, current_video, window_size):
+    def __init__(self, classifier, project, behavior, current_video,
+                 window_size):
         super().__init__()
         self._classifier = classifier
         self._project = project
         self._behavior = behavior
-        self._predictions = predictions
-        self._probabilities = probabilities
-        self._frame_indexes = frame_indexes
         self._tasks_complete = 0
         self._current_video = current_video
         self._window_size = window_size
@@ -102,7 +99,8 @@ class ClassifyThread(QtCore.QThread):
                                        frame_indexes,
                                        self._behavior)
 
-        self._predictions = predictions[self._current_video]
-        self._probabilities = probabilities[self._current_video]
-        self._frame_indexes = frame_indexes[self._current_video]
-        self.done.emit()
+        self.done.emit({
+            'predictions': predictions[self._current_video],
+            'probabilities': probabilities[self._current_video],
+            'frame_indexes':  frame_indexes[self._current_video]
+        })
