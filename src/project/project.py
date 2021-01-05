@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import json
 import re
@@ -504,11 +505,12 @@ class Project:
                             'num_frames': annotations['num_frames']
                         }
                         archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations['labels'][ident][behavior]
-                    # TODO remove annotations['labels'][ident][behavior]
+                    archived_labels[video][behavior][ident] = annotations['labels'][ident].pop(behavior)
+            self.save_annotations(VideoLabels.load(annotations))
 
+        # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        with open(self._archive_dir / f"{safe_behavior}_{ts}.json", 'w') as f:
+        with gzip.open(self._archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
             json.dump(archived_labels, f, indent=True)
 
     def video_path(self, video_file):
