@@ -100,7 +100,8 @@ class IdentityFeatures:
     _window_features = [
         'angles',
         'pairwise_distances',
-        'point_speeds'
+        'point_speeds',
+        'angular_velocity'
     ]
 
     _window_social_features = [
@@ -617,6 +618,7 @@ class IdentityFeatures:
             'angles': {},
             'pairwise_distances': {},
             'point_speeds': {},
+            'angular_velocity': {}
         }
 
         # allocate arrays
@@ -627,11 +629,11 @@ class IdentityFeatures:
         for operation in self._window_feature_operations:
             window_features['pairwise_distances'][operation] = np.zeros(
                 [self._num_frames, self._num_distances], dtype=np.float32)
-
-        for operation in self._window_feature_operations:
             window_features['point_speeds'][operation] = np.zeros(
                 [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
                 dtype=np.float32)
+            window_features['angular_velocity'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
 
         # allocate arrays for social
         if self._include_social_features:
@@ -658,46 +660,32 @@ class IdentityFeatures:
             max_window_size
         )
 
+        if self._include_social_features:
+            full_window_features = self._window_features + self._window_social_features
+        else:
+            full_window_features = self._window_features
+
         for op_name, op in self._window_feature_operations.items():
+            for feature_name in full_window_features:
+                if feature_name in self._circular_features:
+                    # these get handled elsewhere
+                    continue
 
-            # compute window features for distances with current operator
-            for distance_index in range(0, self._num_distances):
-                windows = rolling_window(
-                    np.pad(self._per_frame['pairwise_distances'][:, distance_index], window_size),
-                    max_window_size)
-                mx = np.ma.masked_array(windows, window_masks)
-                window_features['pairwise_distances'][op_name][
-                    :, distance_index] = op(mx, axis=1)
-
-            # compute window features for point speeds with current operator
-            for kp_index_enum in PoseEstimationV3.KeypointIndex:
-                windows = rolling_window(
-                    np.pad(self._per_frame['point_speeds'][:, kp_index_enum.value], window_size),
-                    max_window_size
-                )
-                mx = np.ma.masked_array(windows, window_masks)
-                window_features['point_speeds'][op_name][:, kp_index_enum.value] = op(mx, axis=1)
-
-            if self._include_social_features:
-                for feature_name in self._window_social_features:
-                    if feature_name in self._circular_features:
-                        # these get handled elsewhere
-                        continue
-                    if self._per_frame[feature_name].ndim == 1:
+                if self._per_frame[feature_name].ndim == 1:
+                    windows = rolling_window(
+                        np.pad(self._per_frame[feature_name], window_size),
+                        max_window_size
+                    )
+                    mx = np.ma.masked_array(windows, window_masks)
+                    window_features[feature_name][op_name][:] = op(mx, axis=1)
+                else:
+                    for j in range(self._per_frame[feature_name].shape[1]):
                         windows = rolling_window(
-                            np.pad(self._per_frame[feature_name], window_size),
+                            np.pad(self._per_frame[feature_name][:, j], window_size),
                             max_window_size
                         )
                         mx = np.ma.masked_array(windows, window_masks)
-                        window_features[feature_name][op_name][:] = op(mx, axis=1)
-                    else:
-                        for j in range(self._per_frame[feature_name].shape[1]):
-                            windows = rolling_window(
-                                np.pad(self._per_frame[feature_name][:, j], window_size),
-                                max_window_size
-                            )
-                            mx = np.ma.masked_array(windows, window_masks)
-                            window_features[feature_name][op_name][:, j] = op(mx, axis=1)
+                        window_features[feature_name][op_name][:, j] = op(mx, axis=1)
 
         # compute circular window features
         for i in range(self._num_frames):
