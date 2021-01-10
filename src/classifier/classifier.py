@@ -266,7 +266,6 @@ class Classifier:
         :param window: window feature dictionary
         :return: numpy array with shape #frames,#features
         """
-
         datasets = []
         # add per frame features to our data set
         # sort the feature names in the dict so the order is consistent
