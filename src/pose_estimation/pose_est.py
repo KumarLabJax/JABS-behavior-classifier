@@ -1,4 +1,5 @@
 import enum
+import numpy as np
 import typing
 import pickle
 from abc import ABC, abstractmethod
@@ -124,7 +125,6 @@ class PoseEstimation(ABC):
                 path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
 
                 try:
-
                     with path.open('rb') as f:
                         convex_hulls = pickle.load(f)
                 except:
@@ -151,3 +151,22 @@ class PoseEstimation(ABC):
 
             self._convex_hull_cache[identity] = convex_hulls
             return convex_hulls
+
+    def compute_bearing(self, points):
+        base_tail_xy = points[self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
+        base_neck_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
+        base_neck_offset_xy = base_neck_xy - base_tail_xy
+
+        angle_rad = np.arctan2(base_neck_offset_xy[1],
+                               base_neck_offset_xy[0])
+
+        return angle_rad * (180 / np.pi)
+
+    def compute_all_bearings(self, identity):
+        bearings = np.zeros(self.num_frames, dtype=np.float32)
+        for i in range(self.num_frames):
+            points, mask = self.get_points(i, identity)
+            if points is not None:
+                bearings[i] = self.compute_bearing(points)
+        return bearings
+

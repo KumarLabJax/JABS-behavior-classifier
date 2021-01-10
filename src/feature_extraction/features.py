@@ -7,7 +7,7 @@ import numpy as np
 import scipy.stats
 
 import src.project.track_labels
-from src.utils.utilities import rolling_window
+from src.utils.utilities import rolling_window, smooth
 from src.pose_estimation import PoseEstimationV3
 
 FEATURE_VERSION = 1
@@ -85,7 +85,8 @@ class IdentityFeatures:
         'angles',
         'pairwise_distances',
         'point_speeds',
-        'point_mask'
+        'point_mask',
+        'angular_velocity'
     ]
 
     _per_frame_social_features = [
@@ -116,7 +117,8 @@ class IdentityFeatures:
     # view is 240 degrees. Do we want this to be configurable?
     half_fov_deg = 120
 
-    def __init__(self, video_name, identity, directory, pose_est, force=False):
+    def __init__(self, video_name, identity, directory, pose_est, force=False,
+                 fps=30):
         """
         :param video_name: name of the video file, used for generating filenames
         for saving extracted features into the project directory. You can use
@@ -127,9 +129,12 @@ class IdentityFeatures:
         :param pose_est: PoseEstimationV3 object corresponding to this video
         :param force: force regeneration of per frame features even if the
         per frame feature .h5 file exists for this video/identity
+        :param fps: frames per second. Used for converting angular velocity from
+        degrees per frame to degrees per second
         """
 
         self._num_frames = pose_est.num_frames
+        self._fps = fps
         self._identity = identity
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
@@ -166,6 +171,9 @@ class IdentityFeatures:
             elif feature == 'point_mask':
                 self._per_frame[feature] = \
                     pose_est.get_identity_point_mask(identity)
+            elif feature == 'angular_velocity':
+                # allocated elsewhere
+                continue
             else:
                 raise ValueError(
                     f"Missing feature initialization for: {feature}")
@@ -201,7 +209,10 @@ class IdentityFeatures:
         """
 
         idx = PoseEstimationV3.KeypointIndex
-
+        bearings = pose_est.compute_all_bearings(self._identity)
+        self._per_frame['angular_velocity'] = \
+            smooth(self._compute_angular_velocities(bearings, self._fps),
+                   smoothing_window=5)
         for frame in range(pose_est.num_frames):
             points, mask = pose_est.get_points(frame, self._identity)
 
@@ -296,6 +307,7 @@ class IdentityFeatures:
             self._per_frame['pairwise_distances'] = feature_grp['pairwise_distances'][:]
             self._per_frame['angles'] = feature_grp['angles'][:]
             self._per_frame['point_speeds'] = feature_grp['point_speeds'][:]
+            self._per_frame['angular_velocity'] = feature_grp['angular_velocity'][:]
 
             # TODO verify file version
             assert len(self._frame_valid) == self._num_frames
@@ -317,7 +329,8 @@ class IdentityFeatures:
         was constructed with a value of None for directory
         """
 
-        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True, parents=True)
+        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True,
+                                         parents=True)
 
         file_path = self._identity_feature_dir / 'per_frame.h5'
 
@@ -331,6 +344,8 @@ class IdentityFeatures:
             grp.create_dataset('pairwise_distances', data=self._per_frame['pairwise_distances'])
             grp.create_dataset('angles', data=self._per_frame['angles'])
             grp.create_dataset('point_speeds', data=self._per_frame['point_speeds'])
+            grp.create_dataset('angular_velocity',
+                               data=self._per_frame['angular_velocity'])
 
             if self._include_social_features:
                 features_h5['closest_identities'] = self._closest_identities
@@ -592,7 +607,7 @@ class IdentityFeatures:
                 'max': numpy float32 array with shape (#frames, #distances),
                 'min' numpy float32 array with shape (#frames, #distances),
             },
-            'point_speeds': {...},
+            'point_speeds': {...}
         }
         """
 
@@ -1098,3 +1113,34 @@ class IdentityFeatures:
 
         # convert the velocities to speed
         return np.linalg.norm(point_velocities, axis=-1)
+
+    @staticmethod
+    def _compute_angular_velocities(angles, fps):
+        velocities = np.zeros_like(angles)
+
+        for i in range(len(angles) - 1):
+
+            angle1 = angles[i]
+            angle1 = angle1 % 360
+            if angle1 < 0:
+                angle1 += 360
+
+            angle2 = angles[i + 1]
+            angle2 = angle2 % 360
+            if angle2 < 0:
+                angle2 += 360
+
+            diff1 = angle2 - angle1
+            abs_diff1 = abs(diff1)
+            diff2 = (360 + angle2) - angle1
+            abs_diff2 = abs(diff2)
+            diff3 = angle2 - (360 + angle1)
+            abs_diff3 = abs(diff3)
+
+            if abs_diff1 <= abs_diff2 and abs_diff1 <= abs_diff3:
+                velocities[i] = diff1
+            elif abs_diff2 <= abs_diff3:
+                velocities[i] = diff2
+            else:
+                velocities[i] = diff3
+        return velocities * fps
