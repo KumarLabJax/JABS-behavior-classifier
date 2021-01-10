@@ -791,7 +791,7 @@ class IdentityFeatures:
                     f"{p.name} point mask" for p in PoseEstimationV3.KeypointIndex
                 ])
             else:
-                feature_list.extend(feature)
+                feature_list.append(feature)
 
         if include_social_features:
             full_window_features = cls._window_features + cls._window_social_features
@@ -830,7 +830,7 @@ class IdentityFeatures:
                             f"{op} social fov dist. {sdn}"
                             for sdn in IdentityFeatures.get_social_distance_names()])
                     else:
-                        feature_list.extend(feature)
+                        feature_list.append(f"{op} {feature}")
 
         return feature_list
 
