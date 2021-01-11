@@ -2,6 +2,7 @@ import numpy as np
 from PySide2 import QtCore
 
 from src.feature_extraction import IdentityFeatures
+from src.video_stream.utilities import get_fps
 
 
 class ClassifyThread(QtCore.QThread):
@@ -36,10 +37,13 @@ class ClassifyThread(QtCore.QThread):
 
         # iterate over each video in the project
         for video in self._project.videos:
+            video_path = self._project.video_path(video)
 
             # load the poses for this video
-            pose_est = self._project.load_pose_est(
-                self._project.video_path(video))
+            pose_est = self._project.load_pose_est(video_path)
+            # fps used to scale some features from per pixel time unit to
+            # per second
+            fps = get_fps(str(video_path))
 
             # make predictions for each identity in this video
             predictions[video] = {}
@@ -53,7 +57,7 @@ class ClassifyThread(QtCore.QThread):
                 # get the features for this identity
                 features = IdentityFeatures(video, ident,
                                             self._project.feature_dir,
-                                            pose_est)
+                                            pose_est, fps=fps)
                 identity = str(ident)
 
                 labels = self._project.load_video_labels(
