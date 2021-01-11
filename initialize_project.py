@@ -77,6 +77,14 @@ def match_to_pose(video: str, project_dir: Path):
     return {'video': video, 'okay': True}
 
 
+def window_size_type(x):
+    x = int(x)
+    if x < 1:
+        raise argparse.ArgumentTypeError(
+            "window size must be greater than or equal to 1")
+    return x
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--force', action='store_true',
@@ -84,7 +92,7 @@ def main():
     parser.add_argument('-p', '--processes', default=4, type=int,
                         help="number of multiprocessing workers")
     parser.add_argument('-w', dest='window_sizes', action='append',
-                        type=int, metavar='WINDOW_SIZE',
+                        type=window_size_type, metavar='WINDOW_SIZE',
                         help="Specify window sizes to use for computing window "
                              "features. Argument can be repeated to specify "
                              "multiple sizes (e.g. -w 2 -w 5). Size is number "
