@@ -34,13 +34,13 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         # down sampled label array
         qp = QPainter(self._pixmap)
         for x in range(width):
-            if downsampled[x] == TrackLabels.Label.NONE:
+            if downsampled[x] == TrackLabels.Label.NONE.value:
                 qp.setPen(QColor(212, 212, 212))
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR:
+            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
                 qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR:
+            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
                 qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX:
+            elif downsampled[x] == TrackLabels.Label.MIX.value:
                 # bin contains mix of behavior/not behavior labels
                 qp.setPen(self._MIX_COLOR)
             else:

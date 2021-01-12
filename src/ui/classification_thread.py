@@ -55,10 +55,9 @@ class ClassifyThread(QtCore.QThread):
                                             self._project.feature_dir,
                                             pose_est)
                 identity = str(ident)
-
                 labels = self._project.load_video_labels(
-                    video, leave_cached=True
-                ).get_track_labels(identity, self._behavior).get_labels()
+                    video).get_track_labels(identity,
+                                            self._behavior).get_labels()
 
                 # get the features for all unlabled frames for this identity
                 unlabeled_features = features.get_unlabeled_features(
@@ -102,5 +101,5 @@ class ClassifyThread(QtCore.QThread):
         self.done.emit({
             'predictions': predictions[self._current_video],
             'probabilities': probabilities[self._current_video],
-            'frame_indexes':  frame_indexes[self._current_video]
+            'frame_indexes': frame_indexes[self._current_video]
         })

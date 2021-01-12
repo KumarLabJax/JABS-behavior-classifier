@@ -106,8 +106,9 @@ class VideoLabels:
         for identity in self._identity_labels:
             labels[identity] = {}
             for behavior in self._identity_labels[identity]:
-                labels[identity][behavior] = \
-                    self._identity_labels[identity][behavior].get_blocks()
+                blocks = self._identity_labels[identity][behavior].get_blocks()
+                if len(blocks):
+                    labels[identity][behavior] = blocks
 
         return {
             'file': self._filename,

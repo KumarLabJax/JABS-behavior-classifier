@@ -75,19 +75,11 @@ class IdentityFeatures:
         "min": np.ma.amin
     }
 
-    # a copy of the above operations, but used for values that are circular
-    # (e.g. angles)
+    # window feature operations used for angle based features
     _window_feature_operations_circular = {
         "mean": lambda x: scipy.stats.circmean(x, high=360),
-        "median": lambda x: np.median(x), #scipy.stats does not have a circular version of median
         "std_dev": lambda x: scipy.stats.circstd(x, high=360),
-        "max": lambda x: np.amax(x),
-        "min": lambda x: np.amin(x)
     }
-
-    # keys should match in the above dicts
-    assert(_window_feature_operations.keys() ==
-           _window_feature_operations_circular.keys())
 
     _per_frame_features = [
         'angles',
@@ -105,7 +97,6 @@ class IdentityFeatures:
     ]
 
     _window_features = [
-        'percent_frames_present',
         'angles',
         'pairwise_distances',
         'point_speeds'
@@ -118,6 +109,8 @@ class IdentityFeatures:
         'social_pairwise_distances',
         'social_pairwise_fov_distances',
     ]
+
+    _circular_features = ['angles', 'closest_fov_angles']
 
     # TODO  For now this is taken from the ICY paper where the full field of
     # view is 240 degrees. Do we want this to be configurable?
@@ -198,14 +191,6 @@ class IdentityFeatures:
             except OSError:
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
-
-    @property
-    def window_ops(self):
-        """
-        get list of window operation names
-        :return: list of strings containing window operation names
-        """
-        return self._window_feature_operations.keys()
 
     def __initialize_from_pose_estimation(self, pose_est):
         """
@@ -374,18 +359,15 @@ class IdentityFeatures:
             grp = features_h5.create_group('features')
 
             for feature in self._window_features:
-                if feature == 'percent_frames_present':
-                    grp.create_dataset(feature, data=features[feature])
-                else:
-                    for op in features[feature]:
-                        grp.create_dataset(f'{feature}/{op}',
-                                           data=features[feature][op])
+                for op in features[feature]:
+                    grp.create_dataset(f'{feature}/{op}',
+                                       data=features[feature][op])
 
             if self._include_social_features:
                 for feature_name in self._window_social_features:
                     for op in features[feature_name]:
                         grp.create_dataset(f'{feature_name}/{op}',
-                                        data=features[feature_name][op])
+                                           data=features[feature_name][op])
 
     def _load_window_features(self, window_size):
         """
@@ -422,16 +404,12 @@ class IdentityFeatures:
             feature_grp = features_h5['features']
 
             for feature_name in self._window_features:
-                if feature_name == 'percent_frames_present':
-                    window_features[feature_name] = feature_grp[feature_name][:]
-                    assert len(window_features[feature_name]) == self._num_frames
-                else:
-                    window_features[feature_name] = {}
-                    for op in feature_grp[feature_name].keys():
-                        window_features[feature_name][op] = \
-                            feature_grp[f'{feature_name}/{op}'][:]
-                        assert len(
-                            window_features[feature_name][op]) == self._num_frames
+                window_features[feature_name] = {}
+                for op in feature_grp[feature_name].keys():
+                    window_features[feature_name][op] = \
+                        feature_grp[f'{feature_name}/{op}'][:]
+                    assert len(
+                        window_features[feature_name][op]) == self._num_frames
 
             if self._include_social_features:
                 for feature_name in self._window_social_features:
@@ -465,7 +443,6 @@ class IdentityFeatures:
                 self.save_window_features(features, window_size)
 
         else:
-
             try:
                 # h5 file exists for this window size, load it
                 features = self._load_window_features(window_size)
@@ -485,12 +462,9 @@ class IdentityFeatures:
             filtered_features = {}
 
             for key in features:
-                if key == 'percent_frames_present':
-                    filtered_features[key] = features[key][labels != src.project.track_labels.TrackLabels.Label.NONE]
-                else:
-                    filtered_features[key] = {}
-                    for op in features[key]:
-                        filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
+                filtered_features[key] = {}
+                for op in features[key]:
+                    filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
             return filtered_features
 
@@ -551,12 +525,9 @@ class IdentityFeatures:
 
         window = {}
         for key in window_features:
-            if key == 'percent_frames_present':
-                window[key] = window_features[key][filter]
-            else:
-                window[key] = {}
-                for op in window_features[key]:
-                    window[key][op] = window_features[key][op][filter]
+            window[key] = {}
+            for op in window_features[key]:
+                window[key][op] = window_features[key][op][filter]
 
         return {
             'per_frame': per_frame,
@@ -591,12 +562,9 @@ class IdentityFeatures:
 
         window = {}
         for key in window_features:
-            if key == 'percent_frames_present':
-                window[key] = window_features[key][self._frame_valid==1]
-            else:
-                window[key] = {}
-                for op in window_features[key]:
-                    window[key][op] = window_features[key][op][self._frame_valid==1]
+            window[key] = {}
+            for op in window_features[key]:
+                window[key][op] = window_features[key][op][self._frame_valid==1]
 
         return {
             'per_frame': per_frame,
@@ -615,10 +583,7 @@ class IdentityFeatures:
         {
             'angles' {
                 'mean': numpy float32 array with shape (#frames, #angles),
-                'median': numpy float32 array with shape (#frames, #angles),
                 'std_dev': numpy float32 array with shape (#frames, #angles),
-                'max': numpy float32 array with shape (#frames, #angles),
-                'min' numpy float32 array with shape (#frames, #angles),
             },
             'pairwise_distances' {
                 'mean': numpy float32 array with shape (#frames, #distances),
@@ -627,7 +592,7 @@ class IdentityFeatures:
                 'max': numpy float32 array with shape (#frames, #distances),
                 'min' numpy float32 array with shape (#frames, #distances),
             },
-            'percent_frames_present': numpy float32 array with shape (#frames,)
+            'point_speeds': {...},
         }
         """
 
@@ -640,7 +605,7 @@ class IdentityFeatures:
         }
 
         # allocate arrays
-        for operation in self._window_feature_operations:
+        for operation in self._window_feature_operations_circular:
             window_features['angles'][operation] = np.zeros(
                 [self._num_frames, self._num_angles], dtype=np.float32)
 
@@ -653,9 +618,6 @@ class IdentityFeatures:
                 [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
                 dtype=np.float32)
 
-        window_features['percent_frames_present'] = np.zeros((self._num_frames, 1),
-                                                             dtype=np.float32)
-
         # allocate arrays for social
         if self._include_social_features:
             for feature_name in self._window_social_features:
@@ -666,7 +628,11 @@ class IdentityFeatures:
                             (self._num_frames, self._num_social_distances),
                             dtype=np.float32)
                 else:
-                    for operation in self._window_feature_operations:
+                    if feature_name in self._circular_features:
+                        operations = self._window_feature_operations_circular
+                    else:
+                        operations = self._window_feature_operations
+                    for operation in operations:
                         window_features[feature_name][operation] = np.zeros(
                             self._num_frames, dtype=np.float32)
 
@@ -699,7 +665,7 @@ class IdentityFeatures:
 
             if self._include_social_features:
                 for feature_name in self._window_social_features:
-                    if feature_name == 'closest_fov_angles':
+                    if feature_name in self._circular_features:
                         # these get handled elsewhere
                         continue
                     if self._per_frame[feature_name].ndim == 1:
@@ -718,8 +684,7 @@ class IdentityFeatures:
                             mx = np.ma.masked_array(windows, window_masks)
                             window_features[feature_name][op_name][:, j] = op(mx, axis=1)
 
-
-        # compute remaining window features
+        # compute circular window features
         for i in range(self._num_frames):
 
             # identity doesn't exist for this frame don't bother to compute
@@ -730,8 +695,6 @@ class IdentityFeatures:
             slice_end = min(i + window_size + 1, self._num_frames)
 
             frame_valid = self._frame_valid[slice_start:slice_end]
-            frames_in_window = np.count_nonzero(frame_valid)
-            window_features['percent_frames_present'][i, 0] = frames_in_window / max_window_size
 
             # compute window features for angles
             for angle_index in range(0, self._num_angles):
@@ -762,7 +725,7 @@ class IdentityFeatures:
                 for feature_name in self._window_social_features:
                     window_values = self._per_frame[feature_name][slice_start:slice_end, ...]
                     assert window_values.ndim == 1 or window_values.ndim == 2
-                    if feature_name == 'closest_fov_angles':
+                    if feature_name in self._circular_features:
                         for op_name, op in self._window_feature_operations_circular.items():
                             if op_name == 'std_dev':
                                 # XXX see comment above for explanation
@@ -835,17 +798,19 @@ class IdentityFeatures:
             full_window_features = cls._window_features
 
         for feature in sorted(full_window_features):
-            if feature == 'percent_frames_present':
-                feature_list.append(feature)
-            else:
-                # [source_feature_name][operator_applied] : numpy array
-                # iterate over operator names
-                for op in sorted(cls._window_feature_operations):
 
+            # [source_feature_name][operator_applied] : numpy array
+            # iterate over operator names
+            if feature in cls._circular_features:
+                for op in sorted(cls._window_feature_operations_circular):
                     if feature == 'angles':
                         feature_list.extend(
                             [f"{op} angle {angle.name}" for angle in AngleIndex])
-                    elif feature == 'pairwise_distances':
+                    elif feature == 'closest_fov_angles':
+                        feature_list.append(f"{op} angle of closest social distance in FoV")
+            else:
+                for op in sorted(cls._window_feature_operations):
+                    if feature == 'pairwise_distances':
                         feature_list.extend(
                             [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
                     elif feature == 'point_speeds':
@@ -856,8 +821,6 @@ class IdentityFeatures:
                         feature_list.append(f"{op} closest social distance")
                     elif feature == 'closest_fov_distances':
                         feature_list.append(f"{op} closest social distance in FoV")
-                    elif feature == 'closest_fov_angles':
-                        feature_list.append(f"{op} angle of closest social distance in FoV")
                     elif feature == 'social_pairwise_distances':
                         feature_list.extend([
                             f"{op} social dist. {sdn}"
@@ -867,7 +830,7 @@ class IdentityFeatures:
                             f"{op} social fov dist. {sdn}"
                             for sdn in IdentityFeatures.get_social_distance_names()])
                     else:
-                        feature_list.extend(feature)
+                        feature_list.append(feature)
 
         return feature_list
 
@@ -906,10 +869,7 @@ class IdentityFeatures:
         {
             'angles' {
                 'mean': numpy float32 array with shape (#frames, #angles),
-                'median': numpy float32 array with shape (#frames, #angles),
-                'std_dev': numpy float32 array with shape (#frames, #angles),
-                'max': numpy float32 array with shape (#frames, #angles),
-                'min' numpy float32 array with shape (#frames, #angles),
+                'std_dev': numpy float32 array with shape (#frames, #angles)
             },
             'pairwise_distances' {
                 'mean': numpy float32 array with shape (#frames, #distances),
@@ -921,7 +881,6 @@ class IdentityFeatures:
             'point_speeds' {
                 ...
             }
-            'percent_frames_present': numpy float32 array with shape (#frames,)
         }
         """
         merged = {}
@@ -934,14 +893,14 @@ class IdentityFeatures:
             feature_intersection &= set(feature_dict.keys())
 
         for feature_name in feature_intersection:
-            if feature_name == 'percent_frames_present':
-                merged[feature_name] = np.concatenate(
-                    [x['percent_frames_present'] for x in features])
+            merged[feature_name] = {}
+            if feature_name in cls._circular_features:
+                operations = cls._window_feature_operations_circular
             else:
-                merged[feature_name] = {}
-                for op in cls._window_feature_operations:
-                    merged[feature_name][op] = np.concatenate(
-                        [x[feature_name][op] for x in features])
+                operations = cls._window_feature_operations
+            for op in operations:
+                merged[feature_name][op] = np.concatenate(
+                    [x[feature_name][op] for x in features])
 
         return merged
 

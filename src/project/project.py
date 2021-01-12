@@ -1,7 +1,10 @@
+import gzip
 import hashlib
 import json
 import re
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -38,20 +41,18 @@ class Project:
 
         # make sure this is a pathlib.Path and not a string
         self._project_dir_path = Path(project_path)
-
         self._annotations_dir = (self._project_dir_path / self._ROTTA_DIR /
                                  "annotations")
         self._feature_dir = (self._project_dir_path / self._ROTTA_DIR /
                              "features")
-
         self._prediction_dir = (self._project_dir_path / self._ROTTA_DIR /
                                 "predictions")
-
         self._project_file = (self._project_dir_path / self._ROTTA_DIR /
                               self.__PROJECT_FILE)
-
         self._classifier_dir = (self._project_dir_path / self._ROTTA_DIR /
-                              'classifiers')
+                                'classifiers')
+        self._archive_dir = (self._project_dir_path / self._ROTTA_DIR /
+                             'archive')
 
         if use_cache:
             self._cache_dir = (self._project_dir_path / self._ROTTA_DIR /
@@ -72,15 +73,13 @@ class Project:
         self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
         self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+        self._archive_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         if use_cache:
             self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
 
         # load any saved project metadata
         self._metadata = self.load_metadata()
-
-        # unsaved annotations
-        self._unsaved_annotations = {}
 
         self._total_project_identities = 0
 
@@ -194,15 +193,19 @@ class Project:
     def classifier_dir(self):
         return self._classifier_dir
 
-    def load_video_labels(self, video_name, leave_cached=False):
+    @property
+    def total_project_identities(self):
+        """
+        sum the number of instances across all videos in the project
+        :return: integer sum
+        """
+        return self._total_project_identities
+
+    def load_video_labels(self, video_name):
         """
         load labels for a video from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
         :param video_name: filename of the video: string or pathlib.Path
-        :param leave_cached: indicates if the VideoLabels object should be
-        removed from the cache if it is found there. This should be false when
-        switching active videos, but false when getting labels for training or
-        classification
         :return: initialized VideoLabels object
         """
 
@@ -210,14 +213,6 @@ class Project:
         self.check_video_name(video_filename)
 
         path = self._annotations_dir / Path(video_filename).with_suffix('.json')
-
-        # if this has already been opened
-        if video_filename in self._unsaved_annotations:
-            if leave_cached:
-                annotations = self._unsaved_annotations[video_filename]
-            else:
-                annotations = self._unsaved_annotations.pop(video_filename)
-            return VideoLabels.load(annotations)
 
         # if annotations already exist for this video file in the project open
         # it, otherwise create a new empty VideoLabels
@@ -265,16 +260,6 @@ class Project:
         """
         if video_filename not in self._videos:
             raise ValueError(f"{video_filename} not in project")
-
-    def cache_annotations(self, annotations: VideoLabels):
-        """
-        Cache a VideoLabels object after encoding as a JSON serializable dict.
-        Used when user switches from one video to another during a labeling
-        project.
-        :param annotations: VideoLabels object
-        :return: None
-        """
-        self._unsaved_annotations[annotations.filename] = annotations.as_dict()
 
     def save_annotations(self, annotations: VideoLabels):
         """
@@ -328,20 +313,6 @@ class Project:
             settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
 
         return settings
-
-    def save_cached_annotations(self):
-        """
-        save VideoLabel objects that have been cached
-        :return: None
-        """
-        for video in self._unsaved_annotations:
-            path = self._annotations_dir / Path(video).with_suffix('.json')
-
-            with path.open(mode='w', newline='\n') as f:
-                json.dump(self._unsaved_annotations[video], f, indent=2)
-
-        # update app version saved in project metadata if necessary
-        self.__update_version()
 
     def save_classifier(self, classifier, behavior: str):
         """
@@ -404,8 +375,9 @@ class Project:
 
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
-            video_tracks = self.load_video_labels(video, leave_cached=True)
-            poses = open_pose_file(get_pose_path(self.video_path(video)), self._cache_dir)
+            video_tracks = self.load_video_labels(video)
+            poses = open_pose_file(get_pose_path(self.video_path(video)),
+                                   self._cache_dir)
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
@@ -428,10 +400,10 @@ class Project:
                 # probability is set to -1 to indicate that the class was
                 # manually assigned by the user and not inferred
                 prediction_labels[identity_index,
-                    manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR
+                    manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR.value
                 prediction_prob[identity_index, manual_labels == track.Label.NOT_BEHAVIOR] = -1.0
                 prediction_labels[identity_index,
-                    manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR
+                    manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR.value
                 prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = -1.0
 
             # write to h5 file
@@ -500,6 +472,47 @@ class Project:
 
         return predictions, probabilities, frame_indexes
 
+    def archive_behavior(self, behavior: str):
+        """
+        Archive a behavior.
+        Archives any labels for this behavior. Deletes any other files
+        associated with this behavior.
+        :param behavior: string behavior name
+        :return: None
+        """
+
+        safe_behavior = self.to_safe_name(behavior)
+
+        # remove predictions
+        path = self._prediction_dir / safe_behavior
+        shutil.rmtree(path, ignore_errors=True)
+
+        # remove classifier
+        path = self._classifier_dir / f"{safe_behavior}.pickle"
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+        # archive labels
+        archived_labels = {}
+        for video in self._videos:
+            annotations = self.load_video_labels(video).as_dict()
+            for ident in annotations['labels']:
+                if behavior in annotations['labels'][ident]:
+                    if video not in archived_labels:
+                        archived_labels[video] = {
+                            'num_frames': annotations['num_frames']
+                        }
+                        archived_labels[video][behavior] = {}
+                    archived_labels[video][behavior][ident] = annotations['labels'][ident].pop(behavior)
+            self.save_annotations(VideoLabels.load(annotations))
+
+        # write the archived labels out
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        with gzip.open(self._archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
+            json.dump(archived_labels, f, indent=True)
+
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
         return Path(self._project_dir_path, video_file)
@@ -520,51 +533,10 @@ class Project:
             counts[video] = self.__read_counts(video, behavior)
         return counts
 
-    def label_counts(self, behavior):
-        """
-        get counts of number of frames with labels for a behavior across
-        entire project
-        :return: dict where keys are video names and values are lists of
-        (identity, (behavior count, not behavior count)
-        """
-        counts = {}
-        for video in self._videos:
-            video_track = self.load_video_labels(video, leave_cached=True)
-            counts[video] = video_track.label_counts(behavior)
-        return counts
-
-    def bout_counts(self, behavior):
-        """
-        get counts of number of frames with labels for a behavior across
-        entire project
-        :return: dict where keys are video names and values are lists of
-        (identity, (behavior bout count, not behavior bout count) tuples
-        """
-        counts = {}
-        for video in self._videos:
-            video_track = self.load_video_labels(video, leave_cached=True)
-            counts[video] = video_track.bout_counts(behavior)
-        return counts
-
-    @property
-    def total_project_identities(self):
-        """
-        sum the number of instances across all videos in the project
-        :return: integer sum
-        """
-        return self._total_project_identities
-
     @staticmethod
     def get_videos(dir_path: Path):
         """ Get list of video filenames (without path) in a directory """
         return [f.name for f in dir_path.glob("*.avi")]
-
-    def __update_version(self):
-        """ update the version number saved in project metadata """
-        # only update if the version in the metadata is different from current
-        version = self._metadata.get('version')
-        if version != version_str():
-            self.save_metadata({'version': version_str()})
 
     def get_labeled_features(self, behavior, window_size,
                              progress_callable=None):
@@ -622,9 +594,8 @@ class Project:
                 features = fe.IdentityFeatures(
                     video, identity, self.feature_dir, pose_est)
 
-                labels = self.load_video_labels(
-                    video, leave_cached=True
-                ).get_track_labels(str(identity), behavior).get_labels()
+                labels = self.load_video_labels(video).get_track_labels(
+                    str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(labels)
                 window_features = features.get_window_features(window_size,
@@ -636,9 +607,9 @@ class Project:
 
                 # should be a better way to do this, but I'm getting the number
                 # of frames in this group by looking at the shape of one of
-                # the arrays included in the window_features
+                # the arrays included in the per frame features
                 all_groups.append(
-                    np.full(window_features['percent_frames_present'].shape[0],
+                    np.full(per_frame_features['angles'].shape[0],
                             group_id))
                 group_id += 1
 
@@ -664,6 +635,13 @@ class Project:
                 h.update(c)
                 c = f.read(chunk_size)
         return h.hexdigest()
+
+    def __update_version(self):
+        """ update the version number saved in project metadata """
+        # only update if the version in the metadata is different from current
+        version = self._metadata.get('version')
+        if version != version_str():
+            self.save_metadata({'version': version_str()})
 
     def __has_pose(self, vid: str):
         """ check to see if a video has a corresponding pose file """
