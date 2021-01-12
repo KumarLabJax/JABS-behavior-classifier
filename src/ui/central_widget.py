@@ -298,8 +298,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
 
         # load saved predictions
-        self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self._loaded_video.name, self.behavior)
+        if self._loaded_video:
+            self._predictions, self._probabilities, self._frame_indexes = \
+                self._project.load_predictions(self._loaded_video.name, self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
