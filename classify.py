@@ -16,6 +16,8 @@ from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
 from src.project import Project, load_training_data
 
+DEFAULT_FPS = 30
+
 
 def get_pose_stem(pose_path: Path):
     """
@@ -30,7 +32,8 @@ def get_pose_stem(pose_path: Path):
 
 
 def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
-                  override_classifier: typing.Optional[Classifier.ClassifierType]=None):
+                  override_classifier: typing.Optional[Classifier.ClassifierType]=None,
+                  fps=DEFAULT_FPS):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -81,7 +84,8 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
     for curr_id in pose_est.identities:
         cli_progress_bar(curr_id, len(pose_est.identities),
                          complete_as_percent=False, suffix='identities')
-        features = IdentityFeatures(None, curr_id, None, pose_est).get_features(window_size)
+        features = IdentityFeatures(None, curr_id, None, pose_est,
+                                    fps=fps).get_features(window_size)
 
         data = Classifier.combine_data(
             features['per_frame'],
@@ -148,6 +152,12 @@ def main():
         help='directory to store classification output',
         required=True,
     )
+    parser.add_argument(
+        '--fps',
+        help=f"frames per second, default={DEFAULT_FPS}",
+        type=int,
+        default=DEFAULT_FPS
+    )
 
     args = parser.parse_args()
 
@@ -155,7 +165,9 @@ def main():
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
 
-    classify_pose(training, in_pose_path, out_dir, override_classifier=args.classifier)
+    classify_pose(training, in_pose_path, out_dir,
+                  override_classifier=args.classifier,
+                  fps=args.fps)
 
 
 if __name__ == "__main__":

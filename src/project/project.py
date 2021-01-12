@@ -16,7 +16,7 @@ from src.pose_estimation import get_pose_path, open_pose_file, \
 from src.project import TrackLabels
 from src.version import version_str
 from src.video_stream import VideoStream
-from src.video_stream.utilities import get_frame_count
+from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 
@@ -585,14 +585,18 @@ class Project:
 
         group_id = 0
         for video in self.videos:
-
-            pose_est = self.load_pose_est(self.video_path(video))
+            video_path = self.video_path(video)
+            pose_est = self.load_pose_est(video_path)
+            # fps used to scale some features from per pixel time unit to
+            # per second
+            fps = get_fps(str(video_path))
 
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est)
+                features = fe.IdentityFeatures(video, identity,
+                                               self.feature_dir, pose_est,
+                                               fps=fps)
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()

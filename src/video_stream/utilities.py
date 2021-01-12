@@ -15,3 +15,12 @@ def get_frame_count(video_path: str):
         raise IOError(f"unable to open {video_path}")
 
     return int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
+
+
+def get_fps(video_path: str):
+    # open video file
+    stream = cv2.VideoCapture(video_path)
+    if not stream.isOpened():
+        raise IOError(f"unable to open {video_path}")
+
+    return stream.get(cv2.CAP_PROP_FPS)
