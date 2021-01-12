@@ -12,12 +12,6 @@ from .label_count_widget import FrameLabelCountWidget
 
 class MainControlWidget(QtWidgets.QWidget):
 
-    _DEFAULT_BEHAVIORS = [
-        'Walking', 'Turn left', 'Turn right', 'Sleeping', 'Freezing',
-        'Grooming', 'Following', 'Rearing (supported)',
-        'Rearing (unsupported)'
-    ]
-
     label_behavior_clicked = QtCore.Signal()
     label_not_behavior_clicked = QtCore.Signal()
     clear_label_clicked = QtCore.Signal()
@@ -36,8 +30,7 @@ class MainControlWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
-        self._behaviors = list(self._DEFAULT_BEHAVIORS)
-        self._behaviors.sort()
+        self._behaviors = []
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -133,8 +126,6 @@ class MainControlWidget(QtWidgets.QWidget):
         label_layout = QtWidgets.QGridLayout()
 
         self._label_behavior_button = QtWidgets.QPushButton()
-        self._label_behavior_button.setText(
-            self.behavior_selection.currentText())
         self._label_behavior_button.clicked.connect(self.label_behavior_clicked)
         self._label_behavior_button.setStyleSheet(f"""
                     QPushButton {{
@@ -154,9 +145,9 @@ class MainControlWidget(QtWidgets.QWidget):
                     }}
                 """)
 
-        self._label_not_behavior_button = QtWidgets.QPushButton(
-            f"Not {self.behavior_selection.currentText()}")
-        self._label_not_behavior_button.clicked.connect(self.label_not_behavior_clicked)
+        self._label_not_behavior_button = QtWidgets.QPushButton()
+        self._label_not_behavior_button.clicked.connect(
+            self.label_not_behavior_clicked)
         self._label_not_behavior_button.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -220,6 +211,11 @@ class MainControlWidget(QtWidgets.QWidget):
     @property
     def current_behavior(self):
         return self.behavior_selection.currentText()
+
+    @property
+    def behaviors(self):
+        """ return a copy of the current list of behaviors """
+        return list(self._behaviors)
 
     @property
     def current_identity(self):
@@ -320,9 +316,8 @@ class MainControlWidget(QtWidgets.QWidget):
         self._set_window_sizes(project_settings['window_sizes'])
 
         # update behaviors
-        # reset list of behaviors, then add any from the metadata
-        self._behaviors = list(self._DEFAULT_BEHAVIORS)
-        self._behaviors.sort()
+        # reset list of behaviors, then add any from the project metadata
+        self._behaviors = []
 
         # we don't need this even handler to be active while we set up the
         # project (otherwise it gets unnecessarily called multiple times)
@@ -330,14 +325,10 @@ class MainControlWidget(QtWidgets.QWidget):
 
         behavior_index = 0
         if 'behaviors' in project_settings:
-            # add behavior labels from project metadata that aren't already in
-            # the app default list
-            for b in project_settings['behaviors']:
-                if b not in self._behaviors:
-                    self._behaviors.append(b)
+            self._behaviors = list(project_settings['behaviors'])
             self._behaviors.sort()
-            self.behavior_selection.clear()
-            self.behavior_selection.addItems(self._behaviors)
+        self.behavior_selection.clear()
+        self.behavior_selection.addItems(self._behaviors)
         if 'selected_behavior' in project_settings:
             # make sure this behavior is in the behavior selection drop down
             if project_settings['selected_behavior'] not in self._behaviors:
@@ -351,9 +342,16 @@ class MainControlWidget(QtWidgets.QWidget):
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
-        self._label_behavior_button.setText(self.current_behavior)
-        self._label_not_behavior_button.setText(
-            f"Not {self.current_behavior}")
+        if len(self._behaviors) == 0:
+            self._get_first_label()
+        else:
+            self._label_behavior_button.setText(self.current_behavior)
+            self._label_behavior_button.setToolTip(
+                f"Label frames {self.current_behavior}")
+            self._label_not_behavior_button.setText(
+                f"Not {self.current_behavior}")
+            self._label_not_behavior_button.setToolTip(
+                f"Label frames Not {self.current_behavior}")
 
         # use window size last
         window_settings = project_settings.get('window_size_pref', {})
@@ -372,15 +370,24 @@ class MainControlWidget(QtWidgets.QWidget):
             self.identity_changed)
         self.identity_selection.addItems([str(i) for i in identities])
 
-    def _set_window_sizes(self, sizes: [int]):
-        self._window_size.clear()
-        for w in sizes:
-            self._window_size.addItem(str(w), userData=w)
-
     def set_window_size(self, size: int):
+        """ set the current window size """
         if self._window_size.findData(size) == -1:
             self._add_window_size(size)
         self._window_size.setCurrentText(str(size))
+
+    def remove_behavior(self, behavior: str):
+        idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
+        if idx != -1:
+            self.behavior_selection.removeItem(idx)
+            self._behaviors.remove(behavior)
+        self.behavior_list_changed.emit(self._behaviors)
+
+    def _set_window_sizes(self, sizes: [int]):
+        """ set the list of available window sizes """
+        self._window_size.clear()
+        for w in sizes:
+            self._window_size.addItem(str(w), userData=w)
 
     def _new_label(self):
         """
@@ -388,14 +395,38 @@ class MainControlWidget(QtWidgets.QWidget):
         opens a modal dialog to allow the user to enter a new behavior label,
         if user clicks ok, add that behavior to the combo box, and select it
         """
-        text, ok = QtWidgets.QInputDialog.getText(None, 'New Behavior',
-                                                  'New Behavior Name:')
+        text, ok = QtWidgets.QInputDialog.getText(self, 'New Behavior',
+                                                  'New Behavior Name:',
+                                                  QtWidgets.QLineEdit.Normal
+                                                  )
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self._behaviors.sort()
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
             self.behavior_list_changed.emit(self._behaviors)
+
+    def _get_first_label(self):
+        """
+        show the new label dialog until the user enters one. Used when
+        opening a new project for the fist time.
+        TODO: make custom dialog so the user can't close the dialog until
+          they've entered a behavior label
+        """
+        ok = False
+        text = ""
+
+        while not ok:
+            text, ok = QtWidgets.QInputDialog.getText(
+                self, 'New Behavior',
+                'New project - please enter a behavior name to continue:',
+                QtWidgets.QLineEdit.Normal)
+        self._behaviors.append(text)
+        self._behaviors.sort()
+        self.behavior_selection.addItem(text)
+        self.behavior_selection.setCurrentText(text)
+        self.behavior_list_changed.emit(self._behaviors)
+        self._behavior_changed()
 
     def _new_window_size(self):
         """
@@ -404,11 +435,14 @@ class MainControlWidget(QtWidgets.QWidget):
         if user clicks ok, add that window size and select it
         """
         val, ok = QtWidgets.QInputDialog.getInt(
-            self, 'New Window Size', 'Enter a new window size:', minValue=1,
-            maxValue=20)
+            self, 'New Window Size', 'Enter a new window size:', value=1,
+            minValue=1)
         if ok:
+            # if this window size is not already in the drop down, add it.
             if self._window_size.findData(val) == -1:
                 self._add_window_size(val)
+
+            # select new window size
             self.set_window_size(val)
             QtWidgets.QMessageBox.warning(
                 self, "Window Size Added",
@@ -441,8 +475,12 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
+        self._label_behavior_button.setToolTip(
+            f"Label frames {self.current_behavior}")
         self._label_not_behavior_button.setText(
             f"Not {self.current_behavior}")
+        self._label_not_behavior_button.setToolTip(
+            f"Label frames Not {self.current_behavior}")
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):

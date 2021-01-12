@@ -698,7 +698,6 @@ class IdentityFeatures:
             slice_end = min(i + window_size + 1, self._num_frames)
 
             frame_valid = self._frame_valid[slice_start:slice_end]
-            frames_in_window = np.count_nonzero(frame_valid)
 
             # compute window features for angles
             for angle_index in range(0, self._num_angles):

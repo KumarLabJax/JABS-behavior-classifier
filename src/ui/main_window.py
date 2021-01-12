@@ -9,6 +9,7 @@ from src.utils import FINAL_TRAIN_SEED
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
+from .archive_behavior_dialog import ArchiveBehaviorDialog
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -61,6 +62,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._export_training.setEnabled(False)
         self._export_training.triggered.connect(self._export_training_data)
         file_menu.addAction(self._export_training)
+
+        # archive behavior action
+        self._archive_behavior = QtWidgets.QAction('Archive Behavior', self)
+        self._archive_behavior.setStatusTip('Open Archive Behavior Dialog')
+        self._archive_behavior.setEnabled(True)
+        self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
+        file_menu.addAction(self._archive_behavior)
 
         # video playlist menu item
         self.view_playlist = QtWidgets.QAction('View Playlist', self)
@@ -213,6 +221,15 @@ class MainWindow(QtWidgets.QMainWindow):
         window dock
         """
         try:
-            self.centralWidget().load_video(self._project.video_path(filename))
+            self._central_widget.load_video(self._project.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
+
+    def _open_archive_behavior_dialog(self):
+        dialog = ArchiveBehaviorDialog(self._central_widget.behaviors)
+        dialog.behavior_archived.connect(self._archive_behavior_callback)
+        dialog.exec_()
+
+    def _archive_behavior_callback(self, behavior):
+        self._central_widget.remove_behavior(behavior)
+        self._project.archive_behavior(behavior)
