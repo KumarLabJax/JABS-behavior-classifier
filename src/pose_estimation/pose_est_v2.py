@@ -40,9 +40,9 @@ class PoseEstimationV2(PoseEstimation):
         self._num_frames = self._points.shape[0]
 
         # build an array that indicates if the identity exists for a each frame
-        # require at least one body point, not just tail
+        # require at least 3 body points, not just tail
         init_func = np.vectorize(
-            lambda x: 0 if np.sum(self._point_mask[x][:-2]) == 0 else 1,
+            lambda x: 0 if np.sum(self._point_mask[x][:-2]) < 3 else 1,
             otypes=[np.uint8])
         self._identity_mask = np.fromfunction(init_func, (self._num_frames,),
                                               dtype=np.int_)
