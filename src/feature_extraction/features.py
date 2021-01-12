@@ -56,7 +56,7 @@ def get_angle_name(i: AngleIndex):
         AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL: "RIGHT_REAR_PAW - BASE_TAIL - MID_TAIL",
         AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL: "LEFT_REAR_PAW - BASE_TAIL - MID_TAIL",
         AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL: "CENTER_SPINE - BASE_TAIL - MID_TAIL",
-        AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL: "CENTER_SPINE - BASE_TAIL - MID_TAIL"
+        AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL: "BASE_TAIL - MID_TAILL - TIP_TAIL"
     }
     return strings[i]
 
