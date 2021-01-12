@@ -129,17 +129,17 @@ class TrackLabels:
 
         def bincount(array):
             return {
-                cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE),
-                cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR),
-                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR)
+                cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE.value),
+                cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR.value),
+                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR.value)
             }
 
         # we may need to pad the label array if it is not evenly divisible by
         # the new size
         pad_size = math.ceil(labels.size / size) * size - labels.size
 
-        # create the padded array, repeating the last value for any padding
-        padded = np.append(labels, np.full(pad_size, cls.Label.PAD))
+        # create the padded array
+        padded = np.append(labels, np.full(pad_size, cls.Label.PAD.value))
 
         # split the padded array into 'size' bins each with 'bin_size' values
         bin_size = padded.size // size
@@ -153,15 +153,15 @@ class TrackLabels:
             counts = bincount(binned[i])
 
             if counts[cls.Label.NONE] == len(binned[i]):
-                downsampled[i] = cls.Label.NONE
+                downsampled[i] = cls.Label.NONE.value
             elif counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0:
-                downsampled[i] = cls.Label.BEHAVIOR
+                downsampled[i] = cls.Label.BEHAVIOR.value
             elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0:
-                downsampled[i] = cls.Label.NOT_BEHAVIOR
+                downsampled[i] = cls.Label.NOT_BEHAVIOR.value
             elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0:
-                downsampled[i] = cls.Label.MIX
+                downsampled[i] = cls.Label.MIX.value
             else:
-                downsampled[i] = cls.Label.PAD
+                downsampled[i] = cls.Label.PAD.value
 
         return downsampled
 

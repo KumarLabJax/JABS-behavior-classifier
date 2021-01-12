@@ -127,6 +127,10 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return self._controls.classify_button_enabled
 
+    @property
+    def behaviors(self):
+        return self._controls.behaviors
+
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
@@ -273,6 +277,9 @@ class CentralWidget(QtWidgets.QWidget):
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
 
+    def remove_behavior(self, behavior: str):
+        self._controls.remove_behavior(behavior)
+
     def _change_behavior(self):
         """
         make UI changes to reflect the currently selected behavior
@@ -298,8 +305,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
 
         # load saved predictions
-        self._predictions, self._probabilities, self._frame_indexes = \
-            self._project.load_predictions(self._loaded_video.name, self.behavior)
+        if self._loaded_video:
+            self._predictions, self._probabilities, self._frame_indexes = \
+                self._project.load_predictions(self._loaded_video.name, self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
@@ -499,7 +507,7 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self, output):
+    def _classify_thread_complete(self, output: dict):
         """ update the gui when the classification is complete """
         # display the new predictions
         self._predictions = output['predictions']
