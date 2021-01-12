@@ -607,9 +607,9 @@ class Project:
 
                 # should be a better way to do this, but I'm getting the number
                 # of frames in this group by looking at the shape of one of
-                # the arrays included in the window_features
+                # the arrays included in the per frame features
                 all_groups.append(
-                    np.full(window_features['percent_frames_present'].shape[0],
+                    np.full(per_frame_features['angles'].shape[0],
                             group_id))
                 group_id += 1
 
