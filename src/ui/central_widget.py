@@ -127,6 +127,10 @@ class CentralWidget(QtWidgets.QWidget):
         """
         return self._controls.classify_button_enabled
 
+    @property
+    def behaviors(self):
+        return self._controls.behaviors
+
     def set_project(self, project):
         """ set the currently opened project """
         self._project = project
@@ -272,6 +276,9 @@ class CentralWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
+
+    def remove_behavior(self, behavior: str):
+        self._controls.remove_behavior(behavior)
 
     def _change_behavior(self):
         """
@@ -500,7 +507,7 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self, output):
+    def _classify_thread_complete(self, output: dict):
         """ update the gui when the classification is complete """
         # display the new predictions
         self._predictions = output['predictions']

@@ -212,6 +212,11 @@ class MainControlWidget(QtWidgets.QWidget):
         return self.behavior_selection.currentText()
 
     @property
+    def behaviors(self):
+        """ return a copy of the current list of behaviors """
+        return list(self._behaviors)
+
+    @property
     def current_identity(self):
         return self.identity_selection.currentText()
 
@@ -364,15 +369,24 @@ class MainControlWidget(QtWidgets.QWidget):
             self.identity_changed)
         self.identity_selection.addItems([str(i) for i in identities])
 
-    def _set_window_sizes(self, sizes: [int]):
-        self._window_size.clear()
-        for w in sizes:
-            self._window_size.addItem(str(w), userData=w)
-
     def set_window_size(self, size: int):
+        """ set the current window size """
         if self._window_size.findData(size) == -1:
             self._add_window_size(size)
         self._window_size.setCurrentText(str(size))
+
+    def remove_behavior(self, behavior: str):
+        idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
+        if idx != -1:
+            self.behavior_selection.removeItem(idx)
+            self._behaviors.remove(behavior)
+        self.behavior_list_changed.emit(self._behaviors)
+
+    def _set_window_sizes(self, sizes: [int]):
+        """ set the list of available window sizes """
+        self._window_size.clear()
+        for w in sizes:
+            self._window_size.addItem(str(w), userData=w)
 
     def _new_label(self):
         """
