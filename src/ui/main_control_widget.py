@@ -146,7 +146,8 @@ class MainControlWidget(QtWidgets.QWidget):
                 """)
 
         self._label_not_behavior_button = QtWidgets.QPushButton()
-        self._label_not_behavior_button.clicked.connect(self.label_not_behavior_clicked)
+        self._label_not_behavior_button.clicked.connect(
+            self.label_not_behavior_clicked)
         self._label_not_behavior_button.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -434,11 +435,14 @@ class MainControlWidget(QtWidgets.QWidget):
         if user clicks ok, add that window size and select it
         """
         val, ok = QtWidgets.QInputDialog.getInt(
-            self, 'New Window Size', 'Enter a new window size:', minValue=1,
-            maxValue=20)
+            self, 'New Window Size', 'Enter a new window size:', value=1,
+            minValue=1)
         if ok:
+            # if this window size is not already in the drop down, add it.
             if self._window_size.findData(val) == -1:
                 self._add_window_size(val)
+
+            # select new window size
             self.set_window_size(val)
             QtWidgets.QMessageBox.warning(
                 self, "Window Size Added",
