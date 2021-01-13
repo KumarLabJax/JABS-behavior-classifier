@@ -331,10 +331,10 @@ class Classifier:
         feature_importances = sorted(feature_importances, key=lambda x: x[1],
                                      reverse=True)
         # Print out the feature and importance
-        print(f"{'Feature Name':50} Importance")
-        print('-' * 60)
+        print(f"{'Feature Name':55} Importance")
+        print('-' * 70)
         for feature, importance in feature_importances[:limit]:
-            print(f"{feature:50} {importance:0.2f}")
+            print(f"{feature:55} {importance:0.2f}")
 
     @staticmethod
     def label_threshold_met(all_counts: dict, min_groups: int):

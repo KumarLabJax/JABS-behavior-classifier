@@ -8,7 +8,7 @@ import scipy.stats
 
 import src.project.track_labels
 from src.utils.utilities import rolling_window, smooth
-from src.pose_estimation import PoseEstimationV3
+from src.pose_estimation import PoseEstimation
 
 FEATURE_VERSION = 1
 
@@ -70,12 +70,12 @@ class IdentityFeatures:
     # of points to capture just the most important
     # information for social.
     _social_point_subset = [
-        PoseEstimationV3.KeypointIndex.NOSE,
-        PoseEstimationV3.KeypointIndex.BASE_NECK,
-        PoseEstimationV3.KeypointIndex.BASE_TAIL,
+        PoseEstimation.KeypointIndex.NOSE,
+        PoseEstimation.KeypointIndex.BASE_NECK,
+        PoseEstimation.KeypointIndex.BASE_TAIL,
     ]
 
-    _num_distances = n_choose_r(len(PoseEstimationV3.KeypointIndex), 2)
+    _num_distances = n_choose_r(len(PoseEstimation.KeypointIndex), 2)
     _num_social_distances = len(_social_point_subset) ** 2
     _num_angles = len(AngleIndex)
     _version = FEATURE_VERSION
@@ -110,8 +110,10 @@ class IdentityFeatures:
         'point_speeds',
         'point_mask',
         'angular_velocity',
-        'velocity_mag',
-        'velocity_dir'
+        'centroid_velocity_mag',
+        'centroid_velocity_dir',
+        'nose_velocity_mag',
+        'nose_velocity_dir'
     ]
 
     _per_frame_social_features = [
@@ -127,8 +129,10 @@ class IdentityFeatures:
         'pairwise_distances',
         'point_speeds',
         'angular_velocity',
-        'velocity_mag',
-        'velocity_dir'
+        'centroid_velocity_mag',
+        'centroid_velocity_dir',
+        'nose_velocity_mag',
+        'nose_velocity_dir'
     ]
 
     _window_social_features = [
@@ -140,7 +144,8 @@ class IdentityFeatures:
     ]
 
     _circular_features = ['angles']
-    _circular_features_2 = ['velocity_dir', 'closest_fov_angles']
+    _circular_features_2 = ['centroid_velocity_dir', 'nose_velocity_dir',
+                            'closest_fov_angles']
 
     # TODO  For now this is taken from the ICY paper where the full field of
     # view is 240 degrees. Do we want this to be configurable?
@@ -155,7 +160,7 @@ class IdentityFeatures:
         :param identity: identity to extract features for
         :param directory: path of the project directory. A value of None can
         be given to prevent saving to and loading from a project dir.
-        :param pose_est: PoseEstimationV3 object corresponding to this video
+        :param pose_est: PoseEstimation object corresponding to this video
         :param force: force regeneration of per frame features even if the
         per frame feature .h5 file exists for this video/identity
         :param fps: frames per second. Used for converting angular velocity from
@@ -186,40 +191,8 @@ class IdentityFeatures:
 
         # per frame features
         self._per_frame = {}
-        for feature in self._per_frame_features:
-            if feature == 'pairwise_distances':
-                self._per_frame[feature] = np.zeros(
-                    (self._num_frames, self._num_distances), dtype=np.float32)
-            elif feature == 'angles':
-                self._per_frame[feature] = np.zeros(
-                    (self._num_frames, self._num_angles), dtype=np.float32)
-            elif feature == 'point_speeds':
-                self._per_frame[feature] = np.zeros(
-                    (self._num_frames, len(PoseEstimationV3.KeypointIndex)),
-                    dtype=np.float32)
-            elif feature == 'point_mask':
-                self._per_frame[feature] = \
-                    pose_est.get_identity_point_mask(identity)
-            elif feature in ['velocity_mag', 'velocity_dir']:
-                self._per_frame[feature] = np.zeros(self._num_frames,
-                                                    dtype=np.float32)
-            elif feature == 'angular_velocity':
-                continue
-            else:
-                raise ValueError(
-                    f"Missing feature initialization for: {feature}")
-
-        if self._include_social_features:
-            for feature in self._per_frame_social_features:
-                if feature in ('social_pairwise_distances',
-                               'social_pairwise_fov_distances'):
-                    self._per_frame[feature] = np.zeros(
-                        (self._num_frames, self._num_social_distances),
-                        dtype=np.float32)
-                else:
-                    self._per_frame[feature] = np.zeros(
-                        self._num_frames,
-                        dtype=np.float32)
+        self._per_frame['point_mask'] = \
+            pose_est.get_identity_point_mask(identity)
 
         if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
@@ -239,8 +212,34 @@ class IdentityFeatures:
         :return: None
         """
 
-        idx = PoseEstimationV3.KeypointIndex
+        idx = PoseEstimation.KeypointIndex
+        self._per_frame['point_mask'] = \
+            pose_est.get_identity_point_mask(self._identity)
 
+        # allocate memory
+        self._per_frame['pairwise_distances'] = np.zeros(
+            (self._num_frames, self._num_distances), dtype=np.float32)
+        self._per_frame['angles'] = np.zeros(
+            (self._num_frames, self._num_angles), dtype=np.float32)
+        for feature in ['centroid_velocity_mag', 'centroid_velocity_dir',
+                             'nose_velocity_mag', 'nose_velocity_dir']:
+            self._per_frame[feature] = np.zeros(self._num_frames,
+                                                dtype=np.float32)
+
+        if self._include_social_features:
+            for feature in self._per_frame_social_features:
+                if feature in ('social_pairwise_distances',
+                               'social_pairwise_fov_distances'):
+                    self._per_frame[feature] = np.zeros(
+                        (self._num_frames, self._num_social_distances),
+                        dtype=np.float32)
+                else:
+                    self._per_frame[feature] = np.zeros(
+                        self._num_frames,
+                        dtype=np.float32)
+
+        # compute the features that we need to iterate over frames to do
+        # (pairwise point distances, angles, social distances)
         for frame in range(pose_est.num_frames):
             points, mask = pose_est.get_points(frame, self._identity)
 
@@ -336,12 +335,17 @@ class IdentityFeatures:
         v = np.gradient(points, indexes, axis=0)
 
         # compute magnitude and direction of velocities
-        self._per_frame['velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
+        self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
         d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
         # subtract animal bearing from orientation
         # convert angle to range -180 to 180
-        self._per_frame['velocity_dir'][indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
+        self._per_frame['centroid_velocity_dir'][indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
+
+        self._per_frame['nose_velocity_mag'], self._per_frame['nose_velocity_dir'] = \
+            self.__compute_point_velocities(pose_est,
+                                            PoseEstimation.KeypointIndex.NOSE,
+                                            bearings)
 
         if self._identity_feature_dir is not None:
             self.save_per_frame()
@@ -399,15 +403,8 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            grp.create_dataset('pairwise_distances', data=self._per_frame['pairwise_distances'])
-            grp.create_dataset('angles', data=self._per_frame['angles'])
-            grp.create_dataset('point_speeds', data=self._per_frame['point_speeds'])
-            grp.create_dataset('angular_velocity',
-                               data=self._per_frame['angular_velocity'])
-            grp.create_dataset('velocity_mag',
-                               data=self._per_frame['velocity_mag'])
-            grp.create_dataset('velocity_dir',
-                               data=self._per_frame['velocity_dir'])
+            for feature in self._per_frame_features:
+                grp.create_dataset(feature, data=self._per_frame[feature])
 
             if self._include_social_features:
                 features_h5['closest_identities'] = self._closest_identities
@@ -683,18 +680,22 @@ class IdentityFeatures:
         for operation in self._window_feature_operations_circular:
             window_features['angles'][operation] = np.zeros(
                 [self._num_frames, self._num_angles], dtype=np.float32)
-            window_features['velocity_dir'][operation] = np.zeros(
+            window_features['centroid_velocity_dir'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['nose_velocity_dir'][operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
 
         for operation in self._window_feature_operations:
             window_features['pairwise_distances'][operation] = np.zeros(
                 [self._num_frames, self._num_distances], dtype=np.float32)
             window_features['point_speeds'][operation] = np.zeros(
-                [self._num_frames, len(PoseEstimationV3.KeypointIndex)],
+                [self._num_frames, len(PoseEstimation.KeypointIndex)],
                 dtype=np.float32)
             window_features['angular_velocity'][operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
-            window_features['velocity_mag'][operation] = np.zeros(
+            window_features['centroid_velocity_mag'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['nose_velocity_mag'][operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
 
         # allocate arrays for social
@@ -787,19 +788,20 @@ class IdentityFeatures:
                     else:
                         window_features['angles'][op_name][i, angle_index] = op(window_values)
 
-            # compute window features for velocity_dir
-            for op_name, op in self._window_feature_operations_circular_2.items():
-                window_values = self._per_frame['velocity_dir'][slice_start:slice_end][frame_valid == 1]
-                if op_name == 'std_dev':
-                    # see comment for std_dev above
-                    with np.errstate(invalid='ignore'):
-                        val = op(window_values)
-                    if np.isnan(val):
-                        window_features['velocity_dir'][op_name][i] = 0.0
+            # compute window features for point velocity orientations
+            for feature in ['centroid_velocity_dir', 'nose_velocity_dir']:
+                for op_name, op in self._window_feature_operations_circular_2.items():
+                    window_values = self._per_frame[feature][slice_start:slice_end][frame_valid == 1]
+                    if op_name == 'std_dev':
+                        # see comment for std_dev above
+                        with np.errstate(invalid='ignore'):
+                            val = op(window_values)
+                        if np.isnan(val):
+                            window_features[feature][op_name][i] = 0.0
+                        else:
+                            window_features[feature][op_name][i] = val
                     else:
-                        window_features['velocity_dir'][op_name][i] = val
-                else:
-                    window_features['velocity_dir'][op_name][i] = op(window_values)
+                        window_features[feature][op_name][i] = op(window_values)
 
             # handle circular social features
             if self._include_social_features:
@@ -856,7 +858,7 @@ class IdentityFeatures:
                 feature_list.extend(IdentityFeatures.get_distance_names())
             elif feature == 'point_speeds':
                 feature_list.extend([
-                    f"{p.name} speed" for p in PoseEstimationV3.KeypointIndex])
+                    f"{p.name} speed" for p in PoseEstimation.KeypointIndex])
             elif feature == 'closest_distances':
                 feature_list.append("closest social distance")
             elif feature == 'closest_fov_distances':
@@ -873,12 +875,16 @@ class IdentityFeatures:
                     for sdn in IdentityFeatures.get_social_distance_names()])
             elif feature == 'point_mask':
                 feature_list.extend([
-                    f"{p.name} point mask" for p in PoseEstimationV3.KeypointIndex
+                    f"{p.name} point mask" for p in PoseEstimation.KeypointIndex
                 ])
-            elif feature == 'velocity_mag':
+            elif feature == 'centroid_velocity_mag':
                 feature_list.append("animal velocity magnitude")
-            elif feature == 'velocity_dir':
+            elif feature == 'centroid_velocity_dir':
                 feature_list.append("animal velocity orientation")
+            elif feature == 'nose_velocity_mag':
+                feature_list.append("nose velocity magnitude")
+            elif feature == 'nose_velocity_dir':
+                feature_list.append("nose velocity orientation")
             else:
                 feature_list.append(feature)
 
@@ -897,8 +903,12 @@ class IdentityFeatures:
                             [f"{op} angle {get_angle_name(angle)}" for angle in AngleIndex])
                     elif feature == 'closest_fov_angles':
                         feature_list.append(f"{op} angle of closest social distance in FoV")
-                    elif feature == 'velocity_dir':
-                        feature_list.append(f"{op} velocity orientation")
+                    elif feature == 'centroid_velocity_dir':
+                        feature_list.append(f"{op} centroid velocity orientation")
+                    elif feature == 'nose_velocity_dir':
+                        feature_list.append(f"{op} nose velocity orientation")
+                    else:
+                        feature_list.append(f"{op} {feature}")
             else:
                 for op in sorted(cls._window_feature_operations):
                     if feature == 'pairwise_distances':
@@ -907,7 +917,7 @@ class IdentityFeatures:
                     elif feature == 'point_speeds':
                         feature_list.extend([
                             f"{op} {p.name} speed" for p in
-                            PoseEstimationV3.KeypointIndex])
+                            PoseEstimation.KeypointIndex])
                     elif feature == 'closest_distances':
                         feature_list.append(f"{op} closest social distance")
                     elif feature == 'closest_fov_distances':
@@ -920,7 +930,7 @@ class IdentityFeatures:
                         feature_list.extend([
                             f"{op} social fov dist. {sdn}"
                             for sdn in IdentityFeatures.get_social_distance_names()])
-                    elif feature == 'velocity_mag':
+                    elif feature == 'centroid_velocity_mag':
                         feature_list.append(f"{op} velocity magnitude")
                     else:
                         feature_list.append(f"{op} {feature}")
@@ -1039,7 +1049,7 @@ class IdentityFeatures:
         "distance_name_1-distance_name_2"
         """
         distances = []
-        point_names = [p.name for p in PoseEstimationV3.KeypointIndex]
+        point_names = [p.name for p in PoseEstimation.KeypointIndex]
         for i in range(0, len(point_names)):
             p1 = point_names[i]
             for p2 in point_names[i + 1:]:
@@ -1083,7 +1093,7 @@ class IdentityFeatures:
         :param keypoints: 12 keypoints from pose estimation
         :return: numpy float array of computed angles, see AngleIndex enum for order
         """
-        idx = PoseEstimationV3.KeypointIndex
+        idx = PoseEstimation.KeypointIndex
         angles = np.empty(cls._num_angles, dtype=np.float32)
 
         angles[AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW] = cls.compute_angle(
@@ -1222,3 +1232,25 @@ class IdentityFeatures:
             else:
                 velocities[i] = diff3
         return velocities * fps
+
+    def __compute_point_velocities(self, pose_est, point_index, bearings):
+        points, mask = pose_est.get_identity_poses(self._identity)
+
+        # get an array of the indexes where this point exists
+        indexes = np.arange(self._num_frames)[mask[:, point_index] == 1]
+
+        # get points where this point exists
+        points = points[indexes, point_index]
+
+        # compute x,y velocities, pass indexes so numpy can figure out spacing
+        v = np.gradient(points, indexes, axis=0)
+
+        # compute magnitude and direction of velocities
+        m = np.zeros(pose_est.num_frames, dtype=np.float32)
+        d = np.zeros(pose_est.num_frames, dtype=np.float32)
+        m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
+
+        # compute the orientation, and adjust based on the animal's bearing
+        d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
+
+        return m, d
