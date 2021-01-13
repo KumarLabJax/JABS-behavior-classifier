@@ -878,9 +878,9 @@ class IdentityFeatures:
                     f"{p.name} point mask" for p in PoseEstimation.KeypointIndex
                 ])
             elif feature == 'centroid_velocity_mag':
-                feature_list.append("animal velocity magnitude")
+                feature_list.append("centroid velocity magnitude")
             elif feature == 'centroid_velocity_dir':
-                feature_list.append("animal velocity orientation")
+                feature_list.append("centroid velocity orientation")
             elif feature == 'nose_velocity_mag':
                 feature_list.append("nose velocity magnitude")
             elif feature == 'nose_velocity_dir':
@@ -931,7 +931,7 @@ class IdentityFeatures:
                             f"{op} social fov dist. {sdn}"
                             for sdn in IdentityFeatures.get_social_distance_names()])
                     elif feature == 'centroid_velocity_mag':
-                        feature_list.append(f"{op} velocity magnitude")
+                        feature_list.append(f"{op} centroid velocity magnitude")
                     else:
                         feature_list.append(f"{op} {feature}")
 
@@ -1253,4 +1253,4 @@ class IdentityFeatures:
         # compute the orientation, and adjust based on the animal's bearing
         d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
 
-        return m, d
+        return smooth(m, smoothing_window=5), smooth(d, smoothing_window=5)
