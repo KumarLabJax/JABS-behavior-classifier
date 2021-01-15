@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 from contextlib import contextmanager
@@ -56,9 +57,4 @@ def n_choose_r(n, r):
     :param r: number of elements to select
     :return: total number of combinations disregarding order
     """
-    def fact(v):
-        res = 1
-        for i in range(2, v + 1):
-            res = res * i
-        return res
-    return fact(n) // (fact(r) * fact(n - r))
+    return math.factorial(n) // (math.factorial(r) * math.factorial(n - r))
