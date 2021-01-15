@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 from contextlib import contextmanager
@@ -46,3 +47,14 @@ def smooth(vec, smoothing_window):
         conv_arr = np.full(smoothing_window, smoothing_val)
 
         return np.convolve(smooth_tgt, conv_arr, mode='valid')
+
+
+def n_choose_r(n, r):
+    """
+    compute number of unique selections (disregarding order) of r items from
+    a set of n items
+    :param n: number of elements to select from
+    :param r: number of elements to select
+    :return: total number of combinations disregarding order
+    """
+    return math.factorial(n) // (math.factorial(r) * math.factorial(n - r))

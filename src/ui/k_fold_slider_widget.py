@@ -19,7 +19,7 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self._slider.setMinimum(0)
         self._slider.setMaximum(kmax)
         self._slider.setTickInterval(1)
-        self._slider.setValue(0)
+        self._slider.setValue(1)
         self._slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
         self._slider.valueChanged.connect(self.valueChanged)
         self._slider.setFocusPolicy(QtCore.Qt.NoFocus)
