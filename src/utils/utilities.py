@@ -46,3 +46,19 @@ def smooth(vec, smoothing_window):
         conv_arr = np.full(smoothing_window, smoothing_val)
 
         return np.convolve(smooth_tgt, conv_arr, mode='valid')
+
+
+def n_choose_r(n, r):
+    """
+    compute number of unique selections (disregarding order) of r items from
+    a set of n items
+    :param n: number of elements to select from
+    :param r: number of elements to select
+    :return: total number of combinations disregarding order
+    """
+    def fact(v):
+        res = 1
+        for i in range(2, v + 1):
+            res = res * i
+        return res
+    return fact(n) // (fact(r) * fact(n - r))

@@ -1,4 +1,3 @@
-import enum
 import math
 from pathlib import Path
 
@@ -7,58 +6,15 @@ import numpy as np
 import scipy.stats
 
 import src.project.track_labels
-from src.utils.utilities import rolling_window, smooth
+from src.feature_extraction.angle_index import AngleIndex
+from src.utils.utilities import rolling_window, smooth, n_choose_r
 from src.pose_estimation import PoseEstimation
 
 FEATURE_VERSION = 1
 
 
-def n_choose_r(n, r):
-    """
-    compute number of unique selections (disregarding order) of r items from
-    a set of n items
-    :param n: number of elements to select from
-    :param r: number of elements to select
-    :return: total number of combinations disregarding order
-    """
-    def fact(v):
-        res = 1
-        for i in range(2, v + 1):
-            res = res * i
-        return res
-    return fact(n) // (fact(r) * fact(n - r))
-
-
-class AngleIndex(enum.IntEnum):
-    """ enum defining the indexes of the angle features """
-    NOSE_BASE_NECK_RIGHT_FRONT_PAW = 0
-    NOSE_BASE_NECK_LEFT_FRONT_PAW = 1
-    RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE = 2
-    LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE = 3
-    BASE_NECK_CENTER_SPINE_BASE_TAIL = 4
-    RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE = 5
-    LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE = 6
-    RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL = 7
-    LEFT_REAR_PAW_BASE_TAIL_MID_TAIL = 8
-    CENTER_SPINE_BASE_TAIL_MID_TAIL = 9
-    BASE_TAIL_MID_TAIL_TIP_TAIL = 10
-
-
-def get_angle_name(i: AngleIndex):
-    strings = {
-        AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW: "NOSE - BASE_NECK - RIGHT_FRONT_PAW",
-        AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW: "NOSE - BASE_NECK - LEFT_FRONT_PAW",
-        AngleIndex.RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE: "RIGHT_FRONT_PAW - BASE_NECK - CENTER_SPINE",
-        AngleIndex.LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE: "LEFT_FRONT_PAW - BASE_NECK - CENTER_SPINE",
-        AngleIndex.BASE_NECK_CENTER_SPINE_BASE_TAIL: "BASE_NECK - CENTER_SPINE - BASE_TAIL",
-        AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE: "RIGHT_REAR_PAW - BASE_TAIL - CENTER_SPINE",
-        AngleIndex.LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE: "LEFT_REAR_PAW - BASE_TAIL - CENTER_SPINE",
-        AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL: "RIGHT_REAR_PAW - BASE_TAIL - MID_TAIL",
-        AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL: "LEFT_REAR_PAW - BASE_TAIL - MID_TAIL",
-        AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL: "CENTER_SPINE - BASE_TAIL - MID_TAIL",
-        AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL: "BASE_TAIL - MID_TAILL - TIP_TAIL"
-    }
-    return strings[i]
+class FeatureVersionException(Exception):
+    pass
 
 
 class IdentityFeatures:
@@ -113,7 +69,13 @@ class IdentityFeatures:
         'centroid_velocity_mag',
         'centroid_velocity_dir',
         'nose_velocity_mag',
-        'nose_velocity_dir'
+        'nose_velocity_dir',
+        'base_tail_velocity_mag',
+        'base_tail_velocity_dir',
+        'left_front_paw_velocity_mag',
+        'left_front_paw_velocity_dir',
+        'right_front_paw_velocity_mag',
+        'right_front_paw_velocity_dir'
     ]
 
     _per_frame_social_features = [
@@ -132,7 +94,13 @@ class IdentityFeatures:
         'centroid_velocity_mag',
         'centroid_velocity_dir',
         'nose_velocity_mag',
-        'nose_velocity_dir'
+        'nose_velocity_dir',
+        'base_tail_velocity_mag',
+        'base_tail_velocity_dir',
+        'left_front_paw_velocity_mag',
+        'left_front_paw_velocity_dir',
+        'right_front_paw_velocity_mag',
+        'right_front_paw_velocity_dir'
     ]
 
     _window_social_features = [
@@ -145,7 +113,9 @@ class IdentityFeatures:
 
     _circular_features = ['angles']
     _circular_features_2 = ['centroid_velocity_dir', 'nose_velocity_dir',
-                            'closest_fov_angles']
+                            'closest_fov_angles', 'base_tail_velocity_dir',
+                            'left_front_paw_velocity_dir',
+                            'right_front_paw_velocity_dir']
 
     # TODO  For now this is taken from the ICY paper where the full field of
     # view is 240 degrees. Do we want this to be configurable?
@@ -190,9 +160,9 @@ class IdentityFeatures:
         self._frame_valid = None
 
         # per frame features
-        self._per_frame = {}
-        self._per_frame['point_mask'] = \
-            pose_est.get_identity_point_mask(identity)
+        self._per_frame = {
+            'point_mask': pose_est.get_identity_point_mask(identity)
+        }
 
         if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
@@ -200,7 +170,7 @@ class IdentityFeatures:
             try:
                 # try to load from an h5 file if it exists
                 self.__load_from_file()
-            except OSError:
+            except (OSError, FeatureVersionException):
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
 
@@ -213,18 +183,17 @@ class IdentityFeatures:
         """
 
         idx = PoseEstimation.KeypointIndex
-        self._per_frame['point_mask'] = \
-            pose_est.get_identity_point_mask(self._identity)
 
         # allocate memory
         self._per_frame['pairwise_distances'] = np.zeros(
             (self._num_frames, self._num_distances), dtype=np.float32)
         self._per_frame['angles'] = np.zeros(
             (self._num_frames, self._num_angles), dtype=np.float32)
-        for feature in ['centroid_velocity_mag', 'centroid_velocity_dir',
-                             'nose_velocity_mag', 'nose_velocity_dir']:
-            self._per_frame[feature] = np.zeros(self._num_frames,
-                                                dtype=np.float32)
+        for feature in self._per_frame_features:
+            if feature not in ['point_mask', 'angles', 'pairwise_distances',
+                               'point_speeds', 'angular_velocity']:
+                self._per_frame[feature] = np.zeros(self._num_frames,
+                                                    dtype=np.float32)
 
         if self._include_social_features:
             for feature in self._per_frame_social_features:
@@ -346,15 +315,33 @@ class IdentityFeatures:
             self.__compute_point_velocities(pose_est,
                                             PoseEstimation.KeypointIndex.NOSE,
                                             bearings)
+        self._per_frame['base_tail_velocity_mag'], self._per_frame['base_tail_velocity_dir'] = \
+            self.__compute_point_velocities(pose_est,
+                                            PoseEstimation.KeypointIndex.BASE_TAIL,
+                                            bearings)
+        self._per_frame['left_front_paw_velocity_mag'], self._per_frame['left_front_paw_velocity_dir'] = \
+            self.__compute_point_velocities(pose_est,
+                                            PoseEstimation.KeypointIndex.LEFT_FRONT_PAW,
+                                            bearings)
+        self._per_frame['right_front_paw_velocity_mag'], self._per_frame[
+            'right_front_paw_velocity_dir'] = \
+            self.__compute_point_velocities(pose_est,
+                                            PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW,
+                                            bearings)
 
         if self._identity_feature_dir is not None:
-            self.save_per_frame()
+            self.__save_per_frame()
 
     def __load_from_file(self):
         """
         initialize from state previously saved in a h5 file on disk
         This method will throw an exception if this object
         was constructed with a value of None for directory
+        :raises OSError: if unable to open h5 file
+        :raises TypeError: if this object was constructed with a value of None
+        for directory
+        :raises FeatureVersionException: if file version differs from current
+        feature version
         :return: None
         """
 
@@ -371,7 +358,11 @@ class IdentityFeatures:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
 
-            # TODO verify file version
+            # if the version of the pose file is not the expected pose file,
+            # then bail and it will get recomputed
+            if features_h5.attrs['version'] != FEATURE_VERSION:
+                raise FeatureVersionException
+
             assert len(self._frame_valid) == self._num_frames
             assert len(self._per_frame['pairwise_distances']) == self._num_frames
             assert len(self._per_frame['angles']) == self._num_frames
@@ -384,7 +375,7 @@ class IdentityFeatures:
                     self._per_frame[feature] = feature_grp[feature][:]
                     assert self._per_frame[feature].shape[0] == self._num_frames
 
-    def save_per_frame(self):
+    def __save_per_frame(self):
         """
         save per frame features to a h5 file
         This method will throw an exception if this object
@@ -413,7 +404,7 @@ class IdentityFeatures:
                 for feature in self._per_frame_social_features:
                     grp[feature] = self._per_frame[feature]
 
-    def save_window_features(self, features, window_size):
+    def __save_window_features(self, features, window_size):
         """
         save window features to an h5 file
         This method will throw an exception if this object
@@ -443,7 +434,7 @@ class IdentityFeatures:
                         grp.create_dataset(f'{feature_name}/{op}',
                                            data=features[feature_name][op])
 
-    def _load_window_features(self, window_size):
+    def __load_window_features(self, window_size):
         """
         load window features from an h5 file
         :param window_size: window size specified as the number of frames on
@@ -453,6 +444,8 @@ class IdentityFeatures:
         :raises OSError: if unable to open h5 file
         :raises TypeError: if this object was constructed with a value of None
         for directory
+        :raises FeatureVersionException: if file version differs from current
+        feature version
 
         :return: window feature dict
         """
@@ -470,7 +463,9 @@ class IdentityFeatures:
             except KeyError:
                 size_attr = features_h5.attrs['radius']
 
-            # TODO verify file version
+            if features_h5.attrs['version'] != FEATURE_VERSION:
+                raise FeatureVersionException
+
             assert features_h5.attrs['num_frames'] == self._num_frames
             assert features_h5.attrs['identity'] == self._identity
             assert size_attr == window_size
@@ -512,22 +507,22 @@ class IdentityFeatures:
         """
 
         if force or self._identity_feature_dir is None:
-            features = self._compute_window_features(window_size)
+            features = self.__compute_window_features(window_size)
             if self._identity_feature_dir is not None:
-                self.save_window_features(features, window_size)
+                self.__save_window_features(features, window_size)
 
         else:
             try:
                 # h5 file exists for this window size, load it
-                features = self._load_window_features(window_size)
-            except OSError:
-                # h5 file does not exist for this window size. compute the
-                # features and return after saving
-
-                features = self._compute_window_features(window_size)
+                features = self.__load_window_features(window_size)
+            except (OSError, FeatureVersionException):
+                # h5 file does not exist for this window size, or the version
+                # is not compatible. compute the features and return after
+                # saving
+                features = self.__compute_window_features(window_size)
 
                 if self._identity_feature_dir is not None:
-                    self.save_window_features(features, window_size)
+                    self.__save_window_features(features, window_size)
 
         if labels is None:
             return features
@@ -646,7 +641,7 @@ class IdentityFeatures:
             'frame_indexes': indexes
         }
 
-    def _compute_window_features(self, window_size):
+    def __compute_window_features(self, window_size):
         """
         compute all window features using a given window size
         :param window_size: number of frames on each side of the current frame
@@ -666,7 +661,8 @@ class IdentityFeatures:
                 'max': numpy float32 array with shape (#frames, #distances),
                 'min' numpy float32 array with shape (#frames, #distances),
             },
-            'point_speeds': {...}
+            'point_speeds': {...},
+            ...
         }
         """
 
@@ -684,6 +680,12 @@ class IdentityFeatures:
                 self._num_frames, dtype=np.float32)
             window_features['nose_velocity_dir'][operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
+            window_features['base_tail_velocity_dir'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['left_front_paw_velocity_dir'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['right_front_paw_velocity_dir'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
 
         for operation in self._window_feature_operations:
             window_features['pairwise_distances'][operation] = np.zeros(
@@ -696,6 +698,13 @@ class IdentityFeatures:
             window_features['centroid_velocity_mag'][operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
             window_features['nose_velocity_mag'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['base_tail_velocity_mag'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['left_front_paw_velocity_mag'][operation] = np.zeros(
+                self._num_frames, dtype=np.float32)
+            window_features['right_front_paw_velocity_mag'][
+                operation] = np.zeros(
                 self._num_frames, dtype=np.float32)
 
         # allocate arrays for social
@@ -789,7 +798,11 @@ class IdentityFeatures:
                         window_features['angles'][op_name][i, angle_index] = op(window_values)
 
             # compute window features for point velocity orientations
-            for feature in ['centroid_velocity_dir', 'nose_velocity_dir']:
+            for feature in ['centroid_velocity_dir',
+                            'nose_velocity_dir',
+                            'base_tail_velocity_dir',
+                            'left_front_paw_velocity_dir',
+                            'right_front_paw_velocity_dir']:
                 for op_name, op in self._window_feature_operations_circular_2.items():
                     window_values = self._per_frame[feature][slice_start:slice_end][frame_valid == 1]
                     if op_name == 'std_dev':
@@ -844,7 +857,7 @@ class IdentityFeatures:
         :return: list of human readable feature names
         """
         feature_list = []
-        
+
         if include_social_features:
             full_per_frame_features = cls._per_frame_features + cls._per_frame_social_features
         else:
@@ -853,7 +866,8 @@ class IdentityFeatures:
         for feature in sorted(full_per_frame_features):
             if feature == 'angles':
                 feature_list.extend([
-                    f"angle {get_angle_name(angle)}" for angle in AngleIndex])
+                    f"angle {AngleIndex.get_angle_name(angle)}" for angle in
+                    AngleIndex])
             elif feature == 'pairwise_distances':
                 feature_list.extend(IdentityFeatures.get_distance_names())
             elif feature == 'point_speeds':
@@ -877,14 +891,6 @@ class IdentityFeatures:
                 feature_list.extend([
                     f"{p.name} point mask" for p in PoseEstimation.KeypointIndex
                 ])
-            elif feature == 'centroid_velocity_mag':
-                feature_list.append("centroid velocity magnitude")
-            elif feature == 'centroid_velocity_dir':
-                feature_list.append("centroid velocity orientation")
-            elif feature == 'nose_velocity_mag':
-                feature_list.append("nose velocity magnitude")
-            elif feature == 'nose_velocity_dir':
-                feature_list.append("nose velocity orientation")
             else:
                 feature_list.append(feature)
 
@@ -900,7 +906,8 @@ class IdentityFeatures:
                 for op in sorted(cls._window_feature_operations_circular):
                     if feature == 'angles':
                         feature_list.extend(
-                            [f"{op} angle {get_angle_name(angle)}" for angle in AngleIndex])
+                            [f"{op} angle {AngleIndex.get_angle_name(angle)}" for angle in
+                             AngleIndex])
                     elif feature == 'closest_fov_angles':
                         feature_list.append(f"{op} angle of closest social distance in FoV")
                     elif feature == 'centroid_velocity_dir':
@@ -1242,15 +1249,21 @@ class IdentityFeatures:
         # get points where this point exists
         points = points[indexes, point_index]
 
-        # compute x,y velocities, pass indexes so numpy can figure out spacing
-        v = np.gradient(points, indexes, axis=0)
-
-        # compute magnitude and direction of velocities
         m = np.zeros(pose_est.num_frames, dtype=np.float32)
         d = np.zeros(pose_est.num_frames, dtype=np.float32)
-        m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
 
-        # compute the orientation, and adjust based on the animal's bearing
-        d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
+        if indexes.shape[0] != 0:
+            # compute x,y velocities
+            # pass indexes so numpy can figure out spacing
+            v = np.gradient(points, indexes, axis=0)
 
-        return smooth(m, smoothing_window=5), smooth(d, smoothing_window=5)
+            # compute magnitude of velocities
+            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
+
+            # compute the orientation, and adjust based on the animal's bearing
+            d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
+
+            m = smooth(m, smoothing_window=5)
+            d = smooth(d, smoothing_window=5)
+
+        return m, d
