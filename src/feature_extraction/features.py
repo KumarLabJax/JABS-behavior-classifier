@@ -10,7 +10,7 @@ from src.feature_extraction.angle_index import AngleIndex
 from src.utils.utilities import rolling_window, smooth, n_choose_r
 from src.pose_estimation import PoseEstimation
 
-FEATURE_VERSION = 1
+FEATURE_VERSION = 2
 
 
 class FeatureVersionException(Exception):
