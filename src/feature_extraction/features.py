@@ -304,7 +304,7 @@ class IdentityFeatures:
         v = np.gradient(points, indexes, axis=0)
 
         # compute magnitude and direction of velocities
-        self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
+        self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
         d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
         # subtract animal bearing from orientation
@@ -1258,7 +1258,7 @@ class IdentityFeatures:
             v = np.gradient(points, indexes, axis=0)
 
             # compute magnitude of velocities
-            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1]))
+            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
 
             # compute the orientation, and adjust based on the animal's bearing
             d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
