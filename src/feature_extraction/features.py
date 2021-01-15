@@ -395,6 +395,9 @@ class IdentityFeatures:
 
             grp = features_h5.create_group('features')
             for feature in self._per_frame_features:
+                # point mask is obtained from the pose file, don't save it
+                if feature in ['point_mask']:
+                    continue
                 grp.create_dataset(feature, data=self._per_frame[feature])
 
             if self._include_social_features:
@@ -1207,7 +1210,12 @@ class IdentityFeatures:
                     points[masks == 1], valid_indexes, axis=0)
 
         # convert the velocities to speed
-        return np.linalg.norm(point_velocities, axis=-1) * fps
+        speeds = np.linalg.norm(point_velocities, axis=-1) * fps
+
+        # smooth speeds
+        for point_index in range(speeds.shape[1]):
+            speeds[:, point_index] = smooth(speeds[:, point_index], smoothing_window=3)
+        return speeds
 
     @staticmethod
     def _compute_angular_velocities(angles, fps):
