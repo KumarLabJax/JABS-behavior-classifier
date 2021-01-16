@@ -186,7 +186,6 @@ class CentralWidget(QtWidgets.QWidget):
         # if we have labels loaded, cache them before opening labels for
         # new video
         if self._labels is not None:
-            self._project.cache_annotations(self._labels)
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
 
