@@ -348,6 +348,12 @@ class IdentityFeatures:
         path = self._identity_feature_dir / 'per_frame.h5'
 
         with h5py.File(path, 'r') as features_h5:
+
+            # if the version of the pose file is not the expected pose file,
+            # then bail and it will get recomputed
+            if features_h5.attrs['version'] != FEATURE_VERSION:
+                raise FeatureVersionException
+
             feature_grp = features_h5['features']
 
             self._frame_valid = features_h5['frame_valid'][:]
@@ -357,11 +363,6 @@ class IdentityFeatures:
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
-
-            # if the version of the pose file is not the expected pose file,
-            # then bail and it will get recomputed
-            if features_h5.attrs['version'] != FEATURE_VERSION:
-                raise FeatureVersionException
 
             assert len(self._frame_valid) == self._num_frames
             assert len(self._per_frame['pairwise_distances']) == self._num_frames
