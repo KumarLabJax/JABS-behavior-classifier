@@ -125,6 +125,7 @@ def main():
     classifier_choices = Classifier().classifier_choices()
 
     parser = argparse.ArgumentParser()
+    required_args = parser.add_argument_group("required arguments")
 
     classifier_group = parser.add_argument_group(
         "Optionally override the classifier specified in the training file "
@@ -137,17 +138,17 @@ def main():
             dest='classifier', help=f"Use {classifier_str}"
         )
 
-    parser.add_argument(
+    required_args.add_argument(
         '--training',
         help=f'Training data exported from {APP_NAME}',
         required=True,
     )
-    parser.add_argument(
+    required_args.add_argument(
         '--input-pose',
         help='input HDF5 pose file (v2 or v3).',
         required=True,
     )
-    parser.add_argument(
+    required_args.add_argument(
         '--out-dir',
         help='directory to store classification output',
         required=True,

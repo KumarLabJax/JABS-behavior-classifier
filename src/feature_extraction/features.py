@@ -1261,7 +1261,7 @@ class IdentityFeatures:
         m = np.zeros(pose_est.num_frames, dtype=np.float32)
         d = np.zeros(pose_est.num_frames, dtype=np.float32)
 
-        if indexes.shape[0] != 0:
+        if indexes.shape[0] > 1:
             # compute x,y velocities
             # pass indexes so numpy can figure out spacing
             v = np.gradient(points, indexes, axis=0)
