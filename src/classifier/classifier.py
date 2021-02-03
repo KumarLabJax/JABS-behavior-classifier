@@ -289,7 +289,7 @@ class Classifier:
         return np.concatenate(datasets, axis=1)
 
     def _fit_random_forest(self, features, labels,
-                           random_seed: typing.Optional[int]=None):
+                           random_seed: typing.Optional[int] = None):
         if random_seed is not None:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs,
                                                 random_state=random_seed)
@@ -298,7 +298,7 @@ class Classifier:
         return classifier.fit(features, labels)
 
     def _fit_gradient_boost(self, features, labels,
-                            random_seed: typing.Optional[int]=None):
+                            random_seed: typing.Optional[int] = None):
         if random_seed is not None:
             classifier = GradientBoostingClassifier(n_jobs=self._n_jobs,
                                                     random_state=random_seed)
@@ -307,7 +307,7 @@ class Classifier:
         return classifier.fit(features, labels)
 
     def _fit_xgboost(self, features, labels,
-                     random_seed: typing.Optional[int]=None):
+                     random_seed: typing.Optional[int] = None):
         if random_seed is not None:
             classifier = self._xgboost.XGBClassifier(n_jobs=self._n_jobs,
                                                      random_state=random_seed)
