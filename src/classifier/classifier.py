@@ -1,4 +1,3 @@
-import pickle
 import random
 import typing
 from enum import IntEnum
@@ -6,6 +5,7 @@ from importlib import import_module
 from pathlib import Path
 
 import numpy as np
+from joblib import dump, load
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
@@ -230,7 +230,8 @@ class Classifier:
 
     def load_classifier(self, path: Path):
         with path.open('rb') as f:
-            self._classifier = pickle.load(f)
+            #self._classifier = pickle.load(f)
+            self._classifier = load(f)
 
             # we may need to update the classifier type based on
             # on the type of the loaded object
@@ -243,7 +244,7 @@ class Classifier:
 
     def save_classifier(self, path: Path):
         with path.open('wb') as f:
-            pickle.dump(self._classifier, f)
+            dump(self._classifier, f)
 
     @staticmethod
     def accuracy_score(truth, predictions):
