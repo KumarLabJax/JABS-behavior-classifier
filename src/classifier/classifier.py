@@ -288,20 +288,22 @@ class Classifier:
         datasets = [(d[:, np.newaxis] if d.ndim == 1 else d) for d in datasets]
         return np.concatenate(datasets, axis=1)
 
-    @staticmethod
-    def _fit_random_forest(features, labels,
+    def _fit_random_forest(self, features, labels,
                            random_seed: typing.Optional[int]=None):
         if random_seed is not None:
-            np.random.seed(random_seed)
-        classifier = RandomForestClassifier()
+            classifier = RandomForestClassifier(n_jobs=self._n_jobs,
+                                                random_state=random_seed)
+        else:
+            classifier = RandomForestClassifier(n_jobs=self._n_jobs)
         return classifier.fit(features, labels)
 
-    @staticmethod
-    def _fit_gradient_boost(features, labels,
+    def _fit_gradient_boost(self, features, labels,
                             random_seed: typing.Optional[int]=None):
         if random_seed is not None:
-            np.random.seed(random_seed)
-        classifier = GradientBoostingClassifier()
+            classifier = GradientBoostingClassifier(n_jobs=self._n_jobs,
+                                                    random_state=random_seed)
+        else:
+            classifier = GradientBoostingClassifier(n_jobs=self._n_jobs)
         return classifier.fit(features, labels)
 
     def _fit_xgboost(self, features, labels,

@@ -1,7 +1,7 @@
 import sys
 
 import numpy as np
-from PySide2 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore, QtGui
 from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier
@@ -42,7 +42,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._pose_est = None
 
         #  classifier
-        self._classifier = Classifier(n_jobs=4)
+        self._classifier = Classifier(n_jobs=-1)
         self._training_thread = None
         self._classify_thread = None
 
@@ -104,6 +104,14 @@ class CentralWidget(QtWidgets.QWidget):
         # from grabbing focus on Windows (which breaks arrow key video nav)
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.NoFocus)
+
+    def eventFilter(self, source, event):
+        if source == self._progress_dialog:
+            # check for both the CloseEvent *and* the escape key press
+            if event.type() == QtCore.QEvent.Close or event == QtGui.QKeySequence.Cancel:
+                event.accept()
+                return True
+        return super().eventFilter(source, event)
 
     @property
     def behavior(self):
@@ -457,6 +465,7 @@ class CentralWidget(QtWidgets.QWidget):
             'Training', None, 0,
             self._project.total_project_identities + self._controls.kfold_value + 1,
             self)
+        self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
         self._progress_dialog.show()
@@ -499,6 +508,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = QtWidgets.QProgressDialog(
             'Predicting', None, 0, self._project.total_project_identities,
             self)
+        self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
         self._progress_dialog.reset()
         self._progress_dialog.show()
