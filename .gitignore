@@ -3,3 +3,4 @@
 venv
 test-reports
 .DS_Store
+rotta.venv

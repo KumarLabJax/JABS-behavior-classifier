@@ -221,7 +221,6 @@ class Classifier:
     def predict(self, features):
         """
         predict classes for a given set of features
-
         """
         return self._classifier.predict(features)
 
@@ -230,7 +229,6 @@ class Classifier:
 
     def load_classifier(self, path: Path):
         with path.open('rb') as f:
-            #self._classifier = pickle.load(f)
             self._classifier = load(f)
 
             # we may need to update the classifier type based on
@@ -301,10 +299,9 @@ class Classifier:
     def _fit_gradient_boost(self, features, labels,
                             random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = GradientBoostingClassifier(n_jobs=self._n_jobs,
-                                                    random_state=random_seed)
+            classifier = GradientBoostingClassifier(random_state=random_seed)
         else:
-            classifier = GradientBoostingClassifier(n_jobs=self._n_jobs)
+            classifier = GradientBoostingClassifier()
         return classifier.fit(features, labels)
 
     def _fit_xgboost(self, features, labels,
