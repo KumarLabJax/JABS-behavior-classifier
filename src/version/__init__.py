@@ -1,6 +1,6 @@
 __MAJOR = 0
 __MINOR = 10
-__PATCH = 4
+__PATCH = 5
 
 
 def version_str():
