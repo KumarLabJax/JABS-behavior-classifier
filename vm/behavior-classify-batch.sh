@@ -2,6 +2,7 @@
 #
 #SBATCH --job-name=behavior-classify
 #
+#SBATCH --qos=batch
 #SBATCH --time=6:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -19,7 +20,7 @@ trim_sp() {
 if [[ -z "${SLURM_JOB_ID}" ]]
 then
     # the script is being run from command line. We should do a self-submit as an array job
-    if [[ ( -f "${1}" ) -a (-f "${2}") ]]
+    if [[ ( -f "${1}" ) && ( -f "${2}" ) ]]
     then
         # echo "${1} is set and not empty"
         echo "Preparing to submit classification using ${1} on batch file: ${2}"
@@ -27,7 +28,7 @@ then
         echo "Submitting an array job for ${batch_line_count} videos"
 
         # Here we perform a self-submit
-        sbatch --export=ROOT_DIR="$(dirname "${0}")",CLASSIFIER_FILE="${1}",BATCH_FILE="${2}" --array="1-${batch_line_count}%24" "${0}"
+        sbatch --export=ROOT_DIR="$(dirname "${0}")",CLASSIFIER_FILE="${1}",BATCH_FILE="${2}" --array="1-${batch_line_count}" "${0}"
     else
         echo "ERROR: missing classification and/or batch file." >&2
         echo "Expected usage:" >&2
@@ -81,7 +82,7 @@ else
     env
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${VIDEO_FILE}"
     module load singularity
-    singularity run behavior-classifier.sif --training "${CLASSIFIER_FILE}" --out-dir "${OUT_DIR}"
+    singularity run "${ROOT_DIR}/behavior-classifier.sif" --xgboost --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
