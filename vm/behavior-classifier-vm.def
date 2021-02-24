@@ -1,0 +1,14 @@
+# build like:
+#   singularity build --fakeroot behavior-classifier-2020-12-17.sif behavior-classifier-vm.def
+
+Bootstrap: docker
+From: python:3.8.6-buster
+
+%files
+    .. /behavior-classifier
+
+%runscript
+    exec python /behavior-classifier/classify.py "$@"
+
+%post
+    pip install -r /behavior-classifier/requirements.txt
