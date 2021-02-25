@@ -8,6 +8,42 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 
+# This is a self-submitting SLURM script which can be used to classify a batch
+# of video poses on JAX's sumner cluster. This script assumes that there will be
+# a "behavior-classifier.sif" Singularity VM image in the same directory as this
+# script. You can build this VM using the "behavior-classifier-vm.def" Singularity
+# definition in the repository or use one that has been pre-built.
+#
+# This script expects two positional command line arguments:
+# 1) a fully qualified path to an exported Rotta classifier HDF5 file
+# 2) a fully qualified path to a batch file. A batch file is a plain
+#    text file which contains newline separated network IDs for each
+#    pose file that should be classified. Note that even though we
+#    are performing classification on poses, the batch file is
+#    expected to contain "*.avi" entries in order to conform to
+#    our network IDs. This batch file should be placed at the root
+#    directory of all poses that we want to process. So for example,
+#    if we have a bunch of poses in "/a/b/c" one of which is
+#    "/a/b/c/d/e_pose_est_v3.h5" we should have a batch file
+#    "/a/b/c/mybatch.txt" that contains a "d/e.avi" entry.
+#
+# Example script usage:
+# 
+#   ~/behavior-classify-batch.sh \
+#       /projects/kumar-lab/USERS/sheppk/temp/rearing-batch-2021-02-23-leilani/rearing-classifiers-2020-02-18/leinani-hession/Rearing_supported_training_20210216_122124.h5 \
+#       /projects/kumar-lab/USERS/sheppk/temp/rearing-batch-2021-02-23-leilani/batch.txt
+#
+# And if we look at the contents of batch.txt:
+#
+#   head -n 4 /projects/kumar-lab/USERS/sheppk/temp/rearing-batch-2021-02-23-leilani/batch.txt
+#
+# we see:
+#
+#   LL1-B2B/2016-05-05_SPD/LL1-3_100492-F-AX27-9-42416-3-S111.avi
+#   LL1-B2B/2017-01-01_SPD/LL1-4_002105-M-AX12-5.28571428571429-42640-4-S331.avi
+#   LL1-B2B/2017-01-12_SPD/LL1-4_001144-F-F29-4-42661-4-S344.avi
+#   LL1-B2B/2016-05-23_SPD/B6J_Male_S6730806_ep3-PSY.avi
+
 trim_sp() {
     local var="$*"
     # remove leading whitespace characters
