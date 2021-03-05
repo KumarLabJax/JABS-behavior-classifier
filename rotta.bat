@@ -1,0 +1,3 @@
+@echo off
+echo Starting Rotta App...
+rotta.venv\Scripts\activate & python app.py
