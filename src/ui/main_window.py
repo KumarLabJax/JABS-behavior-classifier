@@ -17,7 +17,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, app_name="Behavior Classifier", *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.setWindowTitle(f"{app_name} ({version_str()})")
+        self.setWindowTitle(f"{app_name} {version_str()}")
         self._central_widget = CentralWidget()
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
