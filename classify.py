@@ -154,19 +154,25 @@ def train(
 
 
 def main():
-    if sys.argv[1] == 'classify':
+    if len(sys.argv) < 2:
+        usage_main()
+    elif sys.argv[1] == 'classify':
         classify_main()
     elif sys.argv[1] == 'train':
         train_main()
     else:
-        print("usage: " + script_name() + " COMMAND COMMAND_ARGS\n",
-              file=sys.stderr)
-        print("commands:", file=sys.stderr)
-        print(" classify   classify a pose file", file=sys.stderr)
-        print(" train      train a classifier that can be used to classify "
-              "multiple pose files", file=sys.stderr)
-        print(f"\nSee `{script_name()} COMMAND --help` for information on a "
-              "specific command.", file=sys.stderr)
+        usage_main()
+
+
+def usage_main():
+    print("usage: " + script_name() + " COMMAND COMMAND_ARGS\n",
+          file=sys.stderr)
+    print("commands:", file=sys.stderr)
+    print(" classify   classify a pose file", file=sys.stderr)
+    print(" train      train a classifier that can be used to classify "
+          "multiple pose files", file=sys.stderr)
+    print(f"\nSee `{script_name()} COMMAND --help` for information on a "
+          "specific command.", file=sys.stderr)
 
 
 def classify_main():
@@ -174,7 +180,7 @@ def classify_main():
     # strip out the 'command' from sys.argv
     classify_args = sys.argv[2:]
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog=f"{script_name()} classify")
     required_args = parser.add_argument_group("required arguments")
 
     classifier_group = parser.add_argument_group(
@@ -254,7 +260,7 @@ def train_main():
     # strip out the 'command' component from sys.argv
     train_args = sys.argv[2:]
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog=f"{script_name()} train")
     classifier_group = parser.add_argument_group(
         "optionally override the classifier specified in the training file:\n"
         " (the following options are mutually exclusive)")
