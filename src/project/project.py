@@ -321,7 +321,7 @@ class Project:
         :param behavior: string behavior name. This affects the path we save to
         """
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
-        classifier.save_classifier(
+        classifier.cache_classifier(
             self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
 
@@ -339,7 +339,7 @@ class Project:
             self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
         try:
-            classifier.load_classifier(classifier_path)
+            classifier.load_cached_classifier(classifier_path)
             return True
         except OSError:
             return False

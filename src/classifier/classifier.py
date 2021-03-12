@@ -20,14 +20,33 @@ from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from src.project import TrackLabels
 
 
+class ClassifierType(IntEnum):
+    RANDOM_FOREST = 1
+    GRADIENT_BOOSTING = 2
+    XGBOOST = 3
+
+
+_classifier_choices = [
+    ClassifierType.RANDOM_FOREST,
+    ClassifierType.GRADIENT_BOOSTING
+]
+
+try:
+    _xgboost = import_module("xgboost")
+    # we were able to import xgboost, make it available as an option:
+    _classifier_choices.append(ClassifierType.XGBOOST)
+except Exception:
+    # we were unable to import the xgboost module. It's either not
+    # installed (it should be if the user used our requirements.txt)
+    # or it may have been unable to be imported due to a missing
+    # libomp. Either way, we won't add it to the available choices and
+    # we can otherwise ignore this exception
+    _xgboost = None
+
+
 class Classifier:
     TRAINING_FILE_VERSION = 1
     LABEL_THRESHOLD = 20
-
-    class ClassifierType(IntEnum):
-        RANDOM_FOREST = 1
-        GRADIENT_BOOSTING = 2
-        XGBOOST = 3
 
     _classifier_names = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
@@ -45,27 +64,11 @@ class Classifier:
 
         self._classifier_type = classifier
         self._classifier = None
+        self._window_size = None
         self._n_jobs = n_jobs
 
-        self._classifier_choices = [
-            self.ClassifierType.RANDOM_FOREST,
-            self.ClassifierType.GRADIENT_BOOSTING
-        ]
-
-        try:
-            self._xgboost = import_module("xgboost")
-            # we were able to import xgboost, make it available as an option:
-            self._classifier_choices.append(self.ClassifierType.XGBOOST)
-        except Exception:
-            # we were unable to import the xgboost module. It's either not
-            # installed (it should be if the user used our requirements.txt)
-            # or it may have been unable to be imported due to a missing
-            # libomp. Either way, we won't add it to the available choices and
-            # we can otherwise ignore this exception
-            self._xgboost = None
-
         # make sure the value passed for the classifier parameter is valid
-        if classifier not in self._classifier_choices:
+        if classifier not in _classifier_choices:
             raise ValueError("Invalid classifier type")
 
     @property
@@ -74,8 +77,8 @@ class Classifier:
         return self._classifier_names[self._classifier_type]
 
     @property
-    def classifier_type(self):
-        """ return classifier type (Classifier.ClassifierType enum value) """
+    def classifier_type(self) -> ClassifierType:
+        """ return classifier type """
         return self._classifier_type
 
     @staticmethod
@@ -152,8 +155,10 @@ class Classifier:
         count = 0
         for split in splits:
 
-            behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
-            not_behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
+            behavior_count = np.count_nonzero(
+                labels[split[1]] == TrackLabels.Label.BEHAVIOR)
+            not_behavior_count = np.count_nonzero(
+                labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
 
             if (behavior_count >= Classifier.LABEL_THRESHOLD and
                     not_behavior_count >= Classifier.LABEL_THRESHOLD):
@@ -174,7 +179,7 @@ class Classifier:
 
     def set_classifier(self, classifier):
         """ change the type of the classifier being used """
-        if classifier not in self._classifier_choices:
+        if classifier not in _classifier_choices:
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
 
@@ -191,10 +196,10 @@ class Classifier:
         }
         """
         return {
-            d: self._classifier_names[d] for d in self._classifier_choices
+            d: self._classifier_names[d] for d in _classifier_choices
         }
 
-    def train(self, data, random_seed: typing.Optional[int]=None):
+    def train(self, data, random_seed: typing.Optional[int] = None):
         """
         train the classifier
         :param data: dict returned from train_test_split()
@@ -202,17 +207,16 @@ class Classifier:
         results between trainings)
         :return: None
         """
-
         features = data['training_data']
         labels = data['training_labels']
 
-        if self._classifier_type == self.ClassifierType.RANDOM_FOREST:
+        if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,
                                                        random_seed=random_seed)
-        elif self._classifier_type == self.ClassifierType.GRADIENT_BOOSTING:
+        elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
             self._classifier = self._fit_gradient_boost(features, labels,
                                                         random_seed=random_seed)
-        elif self._xgboost is not None and self._classifier_type == self.ClassifierType.XGBOOST:
+        elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
             self._classifier = self._fit_xgboost(features, labels,
                                                  random_seed=random_seed)
         else:
@@ -227,22 +231,24 @@ class Classifier:
     def predict_proba(self, features):
         return self._classifier.predict_proba(features)
 
-    def load_classifier(self, path: Path):
+    def load_cached_classifier(self, path: Path):
         with path.open('rb') as f:
             self._classifier = load(f)
+            self._update_classifier_type()
 
-            # we may need to update the classifier type based on
-            # on the type of the loaded object
-            if isinstance(self._classifier, RandomForestClassifier):
-                self._classifier_type = self.ClassifierType.RANDOM_FOREST
-            elif isinstance(self._classifier, GradientBoostingClassifier):
-                self._classifier_type = self.ClassifierType.GRADIENT_BOOSTING
-            else:
-                self._classifier_type = self.ClassifierType.XGBOOST
-
-    def save_classifier(self, path: Path):
+    def cache_classifier(self, path: Path):
         with path.open('wb') as f:
             dump(self._classifier, f)
+
+    def _update_classifier_type(self):
+        # we may need to update the classifier type based on
+        # on the type of the loaded object
+        if isinstance(self._classifier, RandomForestClassifier):
+            self._classifier_type = ClassifierType.RANDOM_FOREST
+        elif isinstance(self._classifier, GradientBoostingClassifier):
+            self._classifier_type = ClassifierType.GRADIENT_BOOSTING
+        else:
+            self._classifier_type = ClassifierType.XGBOOST
 
     @staticmethod
     def accuracy_score(truth, predictions):
@@ -307,10 +313,10 @@ class Classifier:
     def _fit_xgboost(self, features, labels,
                      random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = self._xgboost.XGBClassifier(n_jobs=self._n_jobs,
-                                                     random_state=random_seed)
+            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs,
+                                                random_state=random_seed)
         else:
-            classifier = self._xgboost.XGBClassifier(n_jobs=self._n_jobs)
+            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
         classifier.fit(features, labels)
         return classifier
 
@@ -321,19 +327,19 @@ class Classifier:
         :param limit:
         :return:
         """
-        # Get numerical feature importances
+        # Get numerical feature importance
         importances = list(self._classifier.feature_importances_)
         # List of tuples with variable and importance
-        feature_importances = [(feature, round(importance, 2)) for
-                               feature, importance in
-                               zip(feature_list, importances)]
-        # Sort the feature importances by most important first
-        feature_importances = sorted(feature_importances, key=lambda x: x[1],
-                                     reverse=True)
+        feature_importance = [(feature, round(importance, 2)) for
+                              feature, importance in
+                              zip(feature_list, importances)]
+        # Sort the feature importance by most important first
+        feature_importance = sorted(feature_importance, key=lambda x: x[1],
+                                    reverse=True)
         # Print out the feature and importance
         print(f"{'Feature Name':55} Importance")
         print('-' * 70)
-        for feature, importance in feature_importances[:limit]:
+        for feature, importance in feature_importance[:limit]:
             print(f"{feature:55} {importance:0.2f}")
 
     @staticmethod
