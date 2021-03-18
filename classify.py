@@ -92,17 +92,18 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
             features['window']
         )
 
-        pred = classifier.predict(data)
-        pred_prob = classifier.predict_proba(data)
+        if data.shape[0] > 0:
+            pred = classifier.predict(data)
+            pred_prob = classifier.predict_proba(data)
 
-        # Keep the probability for the predicted class only.
-        # The following code uses some
-        # numpy magic to use the pred array as column indexes
-        # for each row of the pred_prob array we just computed.
-        pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
+            # Keep the probability for the predicted class only.
+            # The following code uses some
+            # numpy magic to use the pred array as column indexes
+            # for each row of the pred_prob array we just computed.
+            pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-        prediction_labels[curr_id, features['frame_indexes']] = pred
-        prediction_prob[curr_id, features['frame_indexes']] = pred_prob
+            prediction_labels[curr_id, features['frame_indexes']] = pred
+            prediction_prob[curr_id, features['frame_indexes']] = pred_prob
     cli_progress_bar(len(pose_est.identities), len(pose_est.identities),
                      complete_as_percent=False, suffix='identities')
 

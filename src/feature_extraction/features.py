@@ -279,8 +279,9 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
+        poses, point_mask = pose_est.get_identity_poses(self._identity)
         self._per_frame['point_speeds'] = self._compute_point_speeds(
-            *pose_est.get_identity_poses(self._identity), self._fps)
+            poses, point_mask, self._fps)
 
         bearings = pose_est.compute_all_bearings(self._identity)
         self._per_frame['angular_velocity'] = \
@@ -300,16 +301,17 @@ class IdentityFeatures:
         # convert to numpy array of x,y points of the centroids
         points = np.asarray([[p.x, p.y] for p in centroids])
 
-        # compute x,y velocities, pass indexes so numpy can figure out spacing
-        v = np.gradient(points, indexes, axis=0)
+        if points.shape[0] > 1:
+            # compute x,y velocities, pass indexes so numpy can figure out spacing
+            v = np.gradient(points, indexes, axis=0)
 
-        # compute magnitude and direction of velocities
-        self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
-        d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
+            # compute magnitude and direction of velocities
+            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
+            d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
-        # subtract animal bearing from orientation
-        # convert angle to range -180 to 180
-        self._per_frame['centroid_velocity_dir'][indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
+            # subtract animal bearing from orientation
+            # convert angle to range -180 to 180
+            self._per_frame['centroid_velocity_dir'][indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
 
         self._per_frame['nose_velocity_mag'], self._per_frame['nose_velocity_dir'] = \
             self.__compute_point_velocities(pose_est,
@@ -1181,6 +1183,7 @@ class IdentityFeatures:
         compute point speeds for post currently selected identity
         :param poses: pose estimations for an identity
         :param point_masks: corresponding point masks for poses
+        :param fps: frames per second
         :return: numpy array with shape (#frames, #key points)
         """
 

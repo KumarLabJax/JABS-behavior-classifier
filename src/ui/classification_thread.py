@@ -74,24 +74,29 @@ class ClassifyThread(QtCore.QThread):
                     unlabeled_features['window']
                 )
 
-                # make predictions
-                predictions[video][identity] = self._classifier.predict(
-                    data)
+                if data.shape[0] > 0:
+                    # make predictions
+                    predictions[video][identity] = self._classifier.predict(
+                        data)
 
-                # also get the probabilities
-                prob = self._classifier.predict_proba(data)
-                # Save the probability for the predicted class only.
-                # The following code uses some
-                # numpy magic to use the _predictions array as column indexes
-                # for each row of the 'prob' array we just computed.
-                probabilities[video][identity] = prob[
-                    np.arange(len(prob)),
-                    predictions[video][identity]
-                ]
+                    # also get the probabilities
+                    prob = self._classifier.predict_proba(data)
+                    # Save the probability for the predicted class only.
+                    # The following code uses some
+                    # numpy magic to use the _predictions array as column indexes
+                    # for each row of the 'prob' array we just computed.
+                    probabilities[video][identity] = prob[
+                        np.arange(len(prob)),
+                        predictions[video][identity]
+                    ]
 
-                # save the indexes for the predicted frames
-                frame_indexes[video][identity] = unlabeled_features[
-                    'frame_indexes']
+                    # save the indexes for the predicted frames
+                    frame_indexes[video][identity] = unlabeled_features[
+                        'frame_indexes']
+                else:
+                    predictions[video][identity] = np.array(0)
+                    probabilities[video][identity] = np.array(0)
+                    frame_indexes[video][identity] = np.array(0)
                 self._tasks_complete += 1
                 self.update_progress.emit(self._tasks_complete)
 
