@@ -1,5 +1,11 @@
 # Behavior Labeler
 
+Disclaimer: This is pre-release beta software. Not for distribution.
+
+## Copyright
+
+Copyright 2021 The Jackson Laboratory -- All rights reserved.
+
 ## Requirements
 Developed and tested on Python 3.7, 3.8, and 3.9. See the `requirements.txt` 
 for a list of required Python packages. These packages are available from the 
@@ -18,7 +24,7 @@ environment, activate it, and install the required packages. Note, your python
 executable may be named `python` or `python3` depending on your installation.
 
 ```commandline
-python3 -m venv rotta.venv
+python -m venv rotta.venv
 source rotta.venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -42,7 +48,7 @@ deactivate
 
 #### Enabling XGBoost Classifier
 
-Using the XGBoost Classifier has a dependency on the OpenMP library. This does
+The XGBoost Classifier has a dependency on the OpenMP library. This does
 not ship with MacOS. XGBoost should work "out of the box" on other platforms. 
 On MacOS, you can install libomp with Homebrew (preferred) with the following 
 command `brew install libomp`. You can also install libomp from source if you 
@@ -54,8 +60,8 @@ Make sure that a compatible version of Python is installed (3.7, 3.8, or 3.9).
 
 #### Windows Scripts
 
-There are two convenience scripts included with Rotta. `setup_windows.bat` and 
-`rotta.bat` that allow a user to setup the Python environment and launch 
+There are two convenience scripts included with Rotta, `setup_windows.bat` and 
+`rotta.bat`, that allow a user to set up the Python environment and launch 
 Rotta without using the command prompt.
 
 The `setup_windows.bat` script will create a Python virtual 
