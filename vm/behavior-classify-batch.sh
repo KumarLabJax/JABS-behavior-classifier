@@ -64,7 +64,7 @@ then
         echo "Submitting an array job for ${batch_line_count} videos"
 
         # Here we perform a self-submit
-        sbatch --export=ROOT_DIR="$(dirname "${0}")",CLASSIFIER_FILE="${1}",BATCH_FILE="${2}" --array="1-${batch_line_count}" "${0}"
+        sbatch --export=ROOT_DIR="$(dirname "${0}")",CLASSIFIER_FILE="${1}",BATCH_FILE="${2}" --array="1-${batch_line_count}%500" "${0}"
     else
         echo "ERROR: missing classification and/or batch file." >&2
         echo "Expected usage:" >&2
