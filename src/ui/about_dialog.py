@@ -24,7 +24,11 @@ class AboutDialog(QDialog):
 
         layout.addWidget(label, alignment=Qt.AlignCenter)
         layout.addWidget(QLabel(
-            "Copyright 2020 The Jackson Laboratory. All Rights Reserved"),
+            "Copyright 2021 The Jackson Laboratory. All Rights Reserved"),
+            alignment=Qt.AlignCenter)
+
+        layout.addWidget(QLabel(
+            "This is pre-release beta software. Not for distribution."),
             alignment=Qt.AlignCenter)
 
         ok_button = QPushButton("OK")
