@@ -118,7 +118,7 @@ else
     env
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${VIDEO_FILE}"
     module load singularity
-    singularity run "${ROOT_DIR}/behavior-classifier.sif" --xgboost --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
+    singularity run "${ROOT_DIR}/behavior-classifier.sif" classify --xgboost --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
