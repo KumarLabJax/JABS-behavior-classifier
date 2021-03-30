@@ -8,14 +8,14 @@ import sys
 
 from PySide2 import QtWidgets
 
-from src import APP_NAME
+from src import APP_NAME, APP_NAME_LONG
 from src.ui import MainWindow
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
-    main_window = MainWindow(app_name=APP_NAME)
+    main_window = MainWindow(app_name=APP_NAME, app_name_long=APP_NAME_LONG)
 
     parser = argparse.ArgumentParser()
 

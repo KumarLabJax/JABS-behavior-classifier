@@ -1,4 +1,4 @@
-# Behavior Labeler
+# JAX Autobehavior Analysis (JAX-ABA)
 
 Disclaimer: This is pre-release beta software. Not for distribution.
 
@@ -24,8 +24,8 @@ environment, activate it, and install the required packages. Note, your python
 executable may be named `python` or `python3` depending on your installation.
 
 ```commandline
-python -m venv rotta.venv
-source rotta.venv/bin/activate
+python -m venv aba.venv
+source aba.venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -35,7 +35,7 @@ The virtual environment must be activated before you can run the labeling
 interface. To activate, run the following command:
 
 ```commandline
-source rotta.venv/bin/activate
+source aba.venv/bin/activate
 ```
 
 #### Deactivating
@@ -61,15 +61,15 @@ Make sure that a compatible version of Python is installed (3.7, 3.8, or 3.9).
 #### Windows Scripts
 
 There are two convenience scripts included with Rotta, `setup_windows.bat` and 
-`rotta.bat`, that allow a user to set up the Python environment and launch 
+`jax-aba.bat`, that allow a user to set up the Python environment and launch 
 Rotta without using the command prompt.
 
 The `setup_windows.bat` script will create a Python virtual 
-environment in the Rotta directory called `rotta.venv` and then install all 
+environment in the Rotta directory called `aba.venv` and then install all 
 the required packages from PyPi. This script can be executed by double-clicking 
 on it in the Windows Explorer. This script only needs to be executed once.
 
-The `rotta.bat` script will activate the rotta.venv virtual environment and 
+The `jax-aba.bat` script will activate the aba.venv virtual environment and 
 launch the Rotta application. This can be executed by double-clicking on it in 
 the Windows Explorer.
 
@@ -81,14 +81,14 @@ Windows Command Prompt (cmd.exe).
 To configure the Python virtual environment manually, Open a Command Prompt in 
 the Rotta directory and run the following commands:
 ```commandline
-python -m venv rotta.venv
-rotta.venv\Scripts\activate.bat
+python -m venv aba.venv
+aba.venv\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
 To launch Rotta from the command prompt, open a command prompt in the Rotta 
 directory and run the following commands:
 ```commandline
-rotta.venv\Scripts\activate.bat
+aba.venv\Scripts\activate.bat
 python app.py
 ```

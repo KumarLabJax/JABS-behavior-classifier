@@ -82,15 +82,15 @@ class TestProject(unittest.TestCase):
         self.assertTrue(project_dir.exists())
 
         # make sure the rotta directory was created
-        self.assertTrue((project_dir / Project._ROTTA_DIR).exists())
+        self.assertTrue((project_dir / Project._PROJ_DIR).exists())
 
         # make sure the rotta/annotations directory was created
         self.assertTrue(
-            (project_dir / Project._ROTTA_DIR / 'annotations').exists())
+            (project_dir / Project._PROJ_DIR / 'annotations').exists())
 
         # make sure the rotta/predictions directory was created
         self.assertTrue(
-            (project_dir / Project._ROTTA_DIR / 'predictions').exists())
+            (project_dir / Project._PROJ_DIR / 'predictions').exists())
 
         # remove project dir
         shutil.rmtree(project_dir)

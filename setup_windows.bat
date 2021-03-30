@@ -13,8 +13,8 @@ if "%VER:~7,3%"=="3.9" SET OK=1
 if %OK% == 1 (
   echo Found %VER%
   echo Setting up Python Virtualenv...
-  python -m venv rotta.venv
-  rotta.venv\Scripts\activate.bat & pip install -r requirements.txt
+  python -m venv aba.venv
+  aba.venv\Scripts\activate.bat & pip install -r requirements.txt
 ) else (
-  echo Rotta Requires Python 3.7, 3.8, or 3.9
+  echo JAX-ABA Requires Python 3.7, 3.8, or 3.9
 )

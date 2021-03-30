@@ -1,0 +1,3 @@
+@echo off
+echo Starting JAX Autobehavior Analysis App...
+aba.venv\Scripts\activate & python app.py
