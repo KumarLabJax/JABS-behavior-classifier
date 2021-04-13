@@ -15,12 +15,12 @@ import src.feature_extraction
 # also requires enclosing Project and Classifier type hints in quotes
 if TYPE_CHECKING:
     from src.project import Project
-    from src.classifier import Classifier
+    from src.classifier import ClassifierType
 
 
 def export_training_data(project: 'Project', behavior: str,
                          window_size: int,
-                         classifier_type: 'Classifier.ClassifierType',
+                         classifier_type: 'ClassifierType',
                          training_seed: int,
                          out_file: typing.Optional[Path]=None):
     """
@@ -129,7 +129,7 @@ def load_training_data(training_file: Path):
         features['window_size'] = in_h5.attrs['window_size']
         features['behavior'] = in_h5.attrs['behavior']
         features['training_seed'] = in_h5.attrs['training_seed']
-        features['classifier_type'] = src.classifier.Classifier.ClassifierType(
+        features['classifier_type'] = src.classifier.ClassifierType(
             in_h5.attrs['classifier_type'])
 
         features['labels'] = in_h5['label'][:]

@@ -10,13 +10,16 @@ import h5py
 import numpy as np
 
 from src import APP_NAME
+from src.classifier import Classifier, ClassifierType, ClassifierSerializer
 from src.cli import cli_progress_bar
-from src.classifier import Classifier
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
 from src.project import Project, load_training_data
 
 DEFAULT_FPS = 30
+
+# find out which classifiers are supported in this environment
+__CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
 def get_pose_stem(pose_path: Path):
@@ -31,45 +34,29 @@ def get_pose_stem(pose_path: Path):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
-def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
-                  override_classifier: typing.Optional[Classifier.ClassifierType]=None,
-                  fps=DEFAULT_FPS):
-    pose_est = open_pose_file(input_pose_file)
-    pose_stem = get_pose_stem(input_pose_file)
-
+def train_and_classify(
+        training_file_path: Path,
+        input_pose_file: Path,
+        out_dir: Path,
+        override_classifier: typing.Optional[ClassifierType] = None,
+        fps=DEFAULT_FPS):
     try:
-        training_file, _ = load_training_data(training_file)
+        training_file, _ = load_training_data(training_file_path)
     except OSError as e:
         sys.exit(f"Unable to open training data\n{e}")
 
-    try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        sys.exit(f"Unable to create output directory: {e}")
-
     behavior = training_file['behavior']
     window_size = training_file['window_size']
-    classifier_type = Classifier.ClassifierType(training_file['classifier_type'])
 
-    if override_classifier is not None:
-        classifier_type = override_classifier
+    classifier = train(training_file_path, override_classifier)
+    classify_pose(classifier, input_pose_file, out_dir, behavior, window_size,
+                  fps)
 
-    classifier = Classifier()
-    if classifier_type in classifier.classifier_choices():
-        classifier.set_classifier(classifier_type)
-    else:
-        print(f"Specified classifier type ({classifier_type.name}) "
-              f"is unavailable, using default "
-              f"({classifier.classifier_type.name})")
 
-    print("Training classifier for:", behavior)
-
-    training_features = classifier.combine_data(training_file['per_frame'],
-                                                training_file['window'])
-    classifier.train({
-        'training_data': training_features,
-        'training_labels': training_file['labels'],
-    }, random_seed=training_file['training_seed'])
+def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
+                  behavior: str, window_size: int, fps=DEFAULT_FPS):
+    pose_est = open_pose_file(input_pose_file)
+    pose_stem = get_pose_stem(input_pose_file)
 
     # allocate numpy arrays to write to h5 file
     prediction_labels = np.full(
@@ -78,7 +65,6 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
     print(f"Classifying {input_pose_file}...")
-    # print the initial progress bar with 0% complete
 
     # run prediction for each identity
     for curr_id in pose_est.identities:
@@ -110,40 +96,116 @@ def classify_pose(training_file: Path, input_pose_file: Path, out_dir: Path,
     print(f"Writing predictions to {out_dir}")
 
     behavior_out_dir = out_dir / Project.to_safe_name(behavior)
-    behavior_out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        behavior_out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        sys.exit(f"Unable to create output directory: {e}")
     behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
+
     with h5py.File(behavior_out_path, 'w') as h5:
         h5.attrs['version'] = Project.PREDICTION_FILE_VERSION
         group = h5.create_group('predictions')
         group.create_dataset('predicted_class', data=prediction_labels)
         group.create_dataset('probabilities', data=prediction_prob)
-        group.create_dataset('identity_to_track', data=pose_est.identity_to_track)
+        group.create_dataset('identity_to_track',
+                             data=pose_est.identity_to_track)
+
+
+def train(
+        training_file: Path,
+        override_classifier: typing.Optional[ClassifierType] = None
+):
+
+    try:
+        training_file, _ = load_training_data(training_file)
+    except OSError as e:
+        sys.exit(f"Unable to open training data\n{e}")
+
+    behavior = training_file['behavior']
+
+    classifier = Classifier()
+    if override_classifier is not None:
+        classifier_type = override_classifier
+    else:
+        classifier_type = ClassifierType(
+            training_file['classifier_type'])
+
+    if classifier_type in classifier.classifier_choices():
+        classifier.set_classifier(classifier_type)
+    else:
+        print(f"Specified classifier type ({classifier_type.name}) "
+              f"is unavailable, using default "
+              f"({classifier.classifier_type.name})")
+
+    print("Training classifier for:", behavior)
+    print(f"  Classifier Type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
+    print(f"  Window Size: {training_file['window_size']}")
+
+    training_features = classifier.combine_data(training_file['per_frame'],
+                                                training_file['window'])
+    classifier.train(
+        {
+            'training_data': training_features,
+            'training_labels': training_file['labels']
+        },
+        random_seed=training_file['training_seed']
+    )
+
+    return classifier
 
 
 def main():
+    if len(sys.argv) < 2:
+        usage_main()
+    elif sys.argv[1] == 'classify':
+        classify_main()
+    elif sys.argv[1] == 'train':
+        train_main()
+    else:
+        usage_main()
 
-    # find out which classifiers are supported in this environment
-    classifier_choices = Classifier().classifier_choices()
 
-    parser = argparse.ArgumentParser()
+def usage_main():
+    print("usage: " + script_name() + " COMMAND COMMAND_ARGS\n",
+          file=sys.stderr)
+    print("commands:", file=sys.stderr)
+    print(" classify   classify a pose file", file=sys.stderr)
+    print(" train      train a classifier that can be used to classify "
+          "multiple pose files", file=sys.stderr)
+    print(f"\nSee `{script_name()} COMMAND --help` for information on a "
+          "specific command.", file=sys.stderr)
+
+
+def classify_main():
+
+    # strip out the 'command' from sys.argv
+    classify_args = sys.argv[2:]
+
+    parser = argparse.ArgumentParser(prog=f"{script_name()} classify")
     required_args = parser.add_argument_group("required arguments")
 
     classifier_group = parser.add_argument_group(
-        "Optionally override the classifier specified in the training file "
-        "(the following options are mutually exclusive)")
-    exclusive_group = classifier_group.add_mutually_exclusive_group(required=False)
-    for classifer_type, classifier_str in classifier_choices.items():
+        "optionally override the classifier specified in the training file:\n"
+        " Ignored if trained classifier passed with --classifier option.\n"
+        " (the following options are mutually exclusive)")
+    exclusive_group = classifier_group.add_mutually_exclusive_group(
+        required=False)
+    for classifer_type, classifier_str in __CLASSIFIER_CHOICES.items():
         exclusive_group.add_argument(
             f"--{classifer_type.name.lower().replace('_', '-')}",
             action='store_const', const=classifer_type,
-            dest='classifier', help=f"Use {classifier_str}"
+            dest='classifier_type', help=f"Use {classifier_str}"
         )
 
-    required_args.add_argument(
-        '--training',
-        help=f'Training data exported from {APP_NAME}',
-        required=True,
-    )
+    source_group = parser.add_argument_group(
+        "Classifier Input (one of the following is required)")
+    training_group = source_group.add_mutually_exclusive_group(required=True)
+    training_group.add_argument(
+        '--training', help=f'Training data h5 file exported from {APP_NAME}')
+    training_group.add_argument(
+        '--classifier',
+        help=f'Classifier file produced from the `{script_name()} train` command')
+
     required_args.add_argument(
         '--input-pose',
         help='input HDF5 pose file (v2 or v3).',
@@ -161,15 +223,81 @@ def main():
         default=DEFAULT_FPS
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(classify_args)
 
-    training = Path(args.training)
     out_dir = Path(args.out_dir)
     in_pose_path = Path(args.input_pose)
 
-    classify_pose(training, in_pose_path, out_dir,
-                  override_classifier=args.classifier,
-                  fps=args.fps)
+    if args.training is not None:
+        train_and_classify(Path(args.training), in_pose_path, out_dir,
+                           override_classifier=args.classifier,
+                           fps=args.fps)
+    elif args.classifier is not None:
+
+        try:
+            classifier, behavior, window_size = \
+                ClassifierSerializer.load(Path(args.classifier))
+        except ValueError as e:
+            print(f"Unable to load classifier from {args.classifier}:")
+            sys.exit(e)
+
+        print(f"Classifying using trained classifier: {args.classifier}")
+        print(f"  behavior: {behavior}")
+        print(f"  window_size: {window_size}")
+
+        if args.classifier_type is not None:
+            print(f"  classifier type: {args.classifier_type}")
+            classifier.set_classifier(args.classifier_type)
+        else:
+            try:
+                print(f"  classifier type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
+            except KeyError:
+                sys.exit("Error: Classifier type not supported on this platform")
+        classify_pose(classifier, in_pose_path, out_dir, behavior, window_size,
+                      fps=args.fps)
+
+
+def train_main():
+    # strip out the 'command' component from sys.argv
+    train_args = sys.argv[2:]
+
+    parser = argparse.ArgumentParser(prog=f"{script_name()} train")
+    classifier_group = parser.add_argument_group(
+        "optionally override the classifier specified in the training file:\n"
+        " (the following options are mutually exclusive)")
+    exclusive_group = classifier_group.add_mutually_exclusive_group(
+        required=False)
+    for classifer_type, classifier_str in __CLASSIFIER_CHOICES.items():
+        exclusive_group.add_argument(
+            f"--{classifer_type.name.lower().replace('_', '-')}",
+            action='store_const', const=classifer_type,
+            dest='classifier', help=f"Use {classifier_str}"
+        )
+    parser.add_argument('training_file',
+                        help=f"Training h5 file exported by {APP_NAME}")
+    parser.add_argument('out_file',
+                        help="output filename")
+
+    args = parser.parse_args(train_args)
+
+    try:
+        training_data, _ = load_training_data(args.training_file)
+    except OSError as e:
+        sys.exit(f"Unable to open training data\n{e}")
+
+    behavior = training_data['behavior']
+    window_size = training_data['window_size']
+
+    classifier = train(args.training_file, args.classifier)
+
+    serializer = ClassifierSerializer(classifier, window_size, behavior)
+
+    print(f"Saving trained classifier to '{args.out_file}'")
+    serializer.save(serializer, Path(args.out_file))
+
+
+def script_name():
+    return Path(sys.argv[0]).name
 
 
 if __name__ == "__main__":
