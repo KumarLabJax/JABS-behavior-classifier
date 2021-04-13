@@ -14,16 +14,17 @@ from .archive_behavior_dialog import ArchiveBehaviorDialog
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    def __init__(self, app_name="Behavior Classifier", *args, **kwargs):
+    def __init__(self, app_name, app_name_long, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.setWindowTitle(f"{app_name} {version_str()}")
+        self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget()
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
 
         self._app_name = app_name
+        self._app_name_long = app_name_long
         self._project = None
 
         self._status_bar = QtWidgets.QStatusBar()
@@ -172,7 +173,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.open_project(directory)
 
     def _show_about_dialog(self):
-        dialog = AboutDialog(self._app_name)
+        dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})")
         dialog.exec_()
 
     def _export_training_data(self):
