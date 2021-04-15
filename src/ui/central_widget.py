@@ -155,7 +155,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         classifier_loaded = False
         try:
-            classifier_loaded = self._project.load_cached_classifier(
+            classifier_loaded = self._project.load_classifier(
                 self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)
@@ -298,7 +298,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         classifier_loaded = False
         try:
-            classifier_loaded = self._project.load_cached_classifier(
+            classifier_loaded = self._project.load_classifier(
                 self._classifier, self.behavior)
         except Exception as e:
             print('failed to load classifier', file=sys.stderr)

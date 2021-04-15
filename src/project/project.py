@@ -333,9 +333,9 @@ class Project:
 
     def load_classifier(self, classifier, behavior: str):
         """
-        Save the classifier for the given behavior
+        Load cached classifier for the given behavior
         :param classifier: the classifier to load
-        :param behavior: string behavior name. This affects the path we save to
+        :param behavior: string behavior name.
         :return: True if load is successful and False if the file doesn't exist
         """
         classifier_path = (
