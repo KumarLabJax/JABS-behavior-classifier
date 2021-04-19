@@ -149,7 +149,7 @@ class TrainingThread(QtCore.QThread):
             random_seed=FINAL_TRAIN_SEED
         )
 
-        self._project.cache_classifier(self._classifier, self._behavior)
+        self._project.save_classifier(self._classifier, self._behavior)
         self._tasks_complete += 1
         self.update_progress.emit(self._tasks_complete)
 
