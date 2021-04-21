@@ -6,6 +6,7 @@ import h5py
 from .pose_est import PoseEstimation
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
+from .pose_est_v4 import PoseEstimationV4
 
 
 def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
@@ -17,6 +18,8 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
         return PoseEstimationV2(path, cache_dir)
     elif path.name.endswith('v3.h5'):
         return PoseEstimationV3(path, cache_dir)
+    elif path.name.endswith('v4.h5'):
+        return PoseEstimationV4(path, cache_dir)
     else:
         raise ValueError("not a valid pose estimate filename")
 
@@ -32,7 +35,10 @@ def get_pose_path(video_path: Path):
 
     file_base = video_path.with_suffix('')
 
-    if video_path.with_name(file_base.name + '_pose_est_v3.h5').exists():
+    # default to the highest version pose file for a video
+    if video_path.with_name(file_base.name + '_pose_est_v4.h5').exists():
+        return video_path.with_name(file_base.name + '_pose_est_v4.h5')
+    elif video_path.with_name(file_base.name + '_pose_est_v3.h5').exists():
         return video_path.with_name(file_base.name + '_pose_est_v3.h5')
     elif video_path.with_name(file_base.name + '_pose_est_v2.h5').exists():
         return video_path.with_name(file_base.name + '_pose_est_v2.h5')
@@ -41,7 +47,7 @@ def get_pose_path(video_path: Path):
 
 
 def get_frames_from_file(path: Path):
-    """ peak into a pose_est file to count number of frames """
+    """ peek into a pose_est file to count number of frames """
 
     with h5py.File(path, 'r') as pose_h5:
         vid_grp = pose_h5['poseest']

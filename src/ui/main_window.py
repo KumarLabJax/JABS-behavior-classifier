@@ -164,7 +164,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_project_open_dialog(self):
         """ prompt the user to select a project directory and open it """
         options = QtWidgets.QFileDialog.Options()
-        options |= QtWidgets.QFileDialog.DontUseNativeDialog
 
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select Project Directory", options=options)
