@@ -148,7 +148,7 @@ class Project:
         for i, vid in enumerate(self._videos):
             vid_path = self.video_path(vid)
             pose_path = get_pose_path(vid_path)
-            curr_has_social = pose_path.name.endswith('v3.h5')
+            curr_has_social = not pose_path.name.endswith('v2.h5')
 
             if i == 0:
                 self._has_social_features = curr_has_social
@@ -413,10 +413,13 @@ class Project:
             # TODO catch exceptions
             with h5py.File(output_path, 'w') as h5:
                 h5.attrs['version'] = self.PREDICTION_FILE_VERSION
+                h5.attrs['source_pose_major_version'] = poses.format_major_version
                 group = h5.create_group('predictions')
                 group.create_dataset('predicted_class', data=prediction_labels)
                 group.create_dataset('probabilities', data=prediction_prob)
-                group.create_dataset('identity_to_track', data=poses.identity_to_track)
+                ident_to_track = poses.identity_to_track
+                if ident_to_track is not None:
+                    group.create_dataset('identity_to_track', data=poses.identity_to_track)
 
         # update app version saved in project metadata if necessary
         self.__update_version()

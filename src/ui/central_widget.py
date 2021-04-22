@@ -198,12 +198,18 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.select_button_set_checked(False)
 
         try:
-            # open the video
-            self._pose_est = self._project.load_pose_est(path)
-            self._player_widget.load_video(path, self._pose_est)
+            # load saved predictions for this video
+            self._predictions, self._probabilities, self._frame_indexes = \
+                self._project.load_predictions(path.name,
+                                               self.behavior)
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_video_labels(path)
+
+            # open the video
+            self._loaded_video = path
+            self._pose_est = self._project.load_pose_est(path)
+            self._player_widget.load_video(path, self._pose_est)
 
             # update ui components with properties of new video
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
@@ -215,18 +221,8 @@ class CentralWidget(QtWidgets.QWidget):
             self.inference_timeline_widget.set_num_frames(
                 self._player_widget.num_frames()
             )
-
-            # load saved predictions for this video
-            self._predictions, self._probabilities, self._frame_indexes = \
-                self._project.load_predictions(path.name,
-                                               self.behavior)
-
-            self._loaded_video = path
-
-            # update display with labels/predictions for this video
-            self._set_label_track()
-            self._update_label_counts()
             self._set_prediction_vis()
+
         except OSError as e:
             # error loading
             self._labels = None

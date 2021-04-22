@@ -49,10 +49,7 @@ class PoseEstimationV2(PoseEstimation):
 
     @property
     def identity_to_track(self):
-        identity_to_track = np.full((1, self._num_frames), -1,
-                                    dtype=np.int32)
-        identity_to_track[0, self._identity_mask == 1] = 0
-        return identity_to_track
+        return None
 
     @property
     def format_major_version(self):
