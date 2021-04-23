@@ -427,8 +427,7 @@ class Project:
             group = h5.create_group('predictions')
             group.create_dataset('predicted_class', data=predictions)
             group.create_dataset('probabilities', data=probabilities)
-            ident_to_track = poses.identity_to_track
-            if ident_to_track is not None:
+            if poses.identity_to_track is not None:
                 group.create_dataset('identity_to_track',
                                      data=poses.identity_to_track)
 
