@@ -102,13 +102,12 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         sys.exit(f"Unable to create output directory: {e}")
     behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
 
-    with h5py.File(behavior_out_path, 'w') as h5:
-        h5.attrs['version'] = Project.PREDICTION_FILE_VERSION
-        group = h5.create_group('predictions')
-        group.create_dataset('predicted_class', data=prediction_labels)
-        group.create_dataset('probabilities', data=prediction_prob)
-        group.create_dataset('identity_to_track',
-                             data=pose_est.identity_to_track)
+    Project.write_predictions(
+        behavior_out_path,
+        prediction_labels,
+        prediction_prob,
+        pose_est
+    )
 
 
 def train(
@@ -208,7 +207,7 @@ def classify_main():
 
     required_args.add_argument(
         '--input-pose',
-        help='input HDF5 pose file (v2 or v3).',
+        help='input HDF5 pose file (v2, v3, or v4).',
         required=True,
     )
     required_args.add_argument(
