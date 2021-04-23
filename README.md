@@ -60,33 +60,33 @@ Make sure that a compatible version of Python is installed (3.7, 3.8, or 3.9).
 
 #### Windows Scripts
 
-There are two convenience scripts included with Rotta, `setup_windows.bat` and 
+There are two convenience scripts included with JAX-ABA, `setup_windows.bat` and 
 `jax-aba.bat`, that allow a user to set up the Python environment and launch 
-Rotta without using the command prompt.
+JAX-ABA without using the command prompt.
 
 The `setup_windows.bat` script will create a Python virtual 
-environment in the Rotta directory called `aba.venv` and then install all 
+environment in the JAX-ABA directory called `aba.venv` and then install all 
 the required packages from PyPi. This script can be executed by double-clicking 
 on it in the Windows Explorer. This script only needs to be executed once.
 
 The `jax-aba.bat` script will activate the aba.venv virtual environment and 
-launch the Rotta application. This can be executed by double-clicking on it in 
+launch the JAX-ABA application. This can be executed by double-clicking on it in 
 the Windows Explorer.
 
 #### Manual Configuration
 
-You can also setup the Python virtual environment and execute Rotta from the 
+You can also setup the Python virtual environment and execute JAX-ABA from the 
 Windows Command Prompt (cmd.exe). 
 
 To configure the Python virtual environment manually, Open a Command Prompt in 
-the Rotta directory and run the following commands:
+the JAX-ABA directory and run the following commands:
 ```commandline
 python -m venv aba.venv
 aba.venv\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
-To launch Rotta from the command prompt, open a command prompt in the Rotta 
+To launch JAX-ABA from the command prompt, open a command prompt in the JAX-ABA 
 directory and run the following commands:
 ```commandline
 aba.venv\Scripts\activate.bat

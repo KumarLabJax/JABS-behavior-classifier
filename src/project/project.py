@@ -19,6 +19,8 @@ from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
+_PREDICTION_FILE_VERSION = 1
+
 
 class Project:
     """ represents a labeling project """
@@ -30,7 +32,7 @@ class Project:
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
 
-    PREDICTION_FILE_VERSION = 1
+    PREDICTION_FILE_VERSION = _PREDICTION_FILE_VERSION
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
@@ -410,19 +412,25 @@ class Project:
                 prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = -1.0
 
             # write to h5 file
-            # TODO catch exceptions
-            with h5py.File(output_path, 'w') as h5:
-                h5.attrs['version'] = self.PREDICTION_FILE_VERSION
-                h5.attrs['source_pose_major_version'] = poses.format_major_version
-                group = h5.create_group('predictions')
-                group.create_dataset('predicted_class', data=prediction_labels)
-                group.create_dataset('probabilities', data=prediction_prob)
-                ident_to_track = poses.identity_to_track
-                if ident_to_track is not None:
-                    group.create_dataset('identity_to_track', data=poses.identity_to_track)
+            self.write_predictions(output_path, prediction_labels,
+                                   prediction_prob, poses)
 
         # update app version saved in project metadata if necessary
         self.__update_version()
+
+    @staticmethod
+    def write_predictions(output_path: Path, predictions, probabilities, poses):
+        # TODO catch exceptions
+        with h5py.File(output_path, 'w') as h5:
+            h5.attrs['version'] = _PREDICTION_FILE_VERSION
+            h5.attrs['source_pose_major_version'] = poses.format_major_version
+            group = h5.create_group('predictions')
+            group.create_dataset('predicted_class', data=predictions)
+            group.create_dataset('probabilities', data=probabilities)
+            ident_to_track = poses.identity_to_track
+            if ident_to_track is not None:
+                group.create_dataset('identity_to_track',
+                                     data=poses.identity_to_track)
 
     def load_predictions(self, video: str, behavior: str):
         """
