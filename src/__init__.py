@@ -1,2 +1,2 @@
-APP_NAME = "JAX-ABA"
-APP_NAME_LONG = "JAX Autobehavior Analysis"
+APP_NAME = "JABS"
+APP_NAME_LONG = "JAX Animal Behavior System"
