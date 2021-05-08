@@ -1,4 +1,4 @@
-# JAX Autobehavior Analysis (JAX-ABA)
+# JAX Animal Behavior System (JABS)
 
 Disclaimer: This is pre-release beta software. Not for distribution.
 
@@ -24,8 +24,8 @@ environment, activate it, and install the required packages. Note, your python
 executable may be named `python` or `python3` depending on your installation.
 
 ```commandline
-python -m venv aba.venv
-source aba.venv/bin/activate
+python -m venv jabs.venv
+source jabs.venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -35,7 +35,7 @@ The virtual environment must be activated before you can run the labeling
 interface. To activate, run the following command:
 
 ```commandline
-source aba.venv/bin/activate
+source jabs.venv/bin/activate
 ```
 
 #### Deactivating
@@ -60,35 +60,35 @@ Make sure that a compatible version of Python is installed (3.7, 3.8, or 3.9).
 
 #### Windows Scripts
 
-There are two convenience scripts included with Rotta, `setup_windows.bat` and 
-`jax-aba.bat`, that allow a user to set up the Python environment and launch 
-Rotta without using the command prompt.
+There are two convenience scripts included with JABS, `setup_windows.bat` and 
+`jabs.bat`, that allow a user to set up the Python environment and launch 
+JABS without using the command prompt.
 
 The `setup_windows.bat` script will create a Python virtual 
-environment in the Rotta directory called `aba.venv` and then install all 
+environment in the JABS directory called `jabs.venv` and then install all 
 the required packages from PyPi. This script can be executed by double-clicking 
 on it in the Windows Explorer. This script only needs to be executed once.
 
-The `jax-aba.bat` script will activate the aba.venv virtual environment and 
-launch the Rotta application. This can be executed by double-clicking on it in 
+The `jabs.bat` script will activate the jabs.venv virtual environment and 
+launch the JABS application. This can be executed by double-clicking on it in 
 the Windows Explorer.
 
 #### Manual Configuration
 
-You can also setup the Python virtual environment and execute Rotta from the 
+You can also set up the Python virtual environment and execute JABS from the 
 Windows Command Prompt (cmd.exe). 
 
 To configure the Python virtual environment manually, Open a Command Prompt in 
-the Rotta directory and run the following commands:
+the JABS directory and run the following commands:
 ```commandline
-python -m venv aba.venv
-aba.venv\Scripts\activate.bat
+python -m venv jabs.venv
+jabs.venv\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
-To launch Rotta from the command prompt, open a command prompt in the Rotta 
+To launch JABS from the command prompt, open a command prompt in the JABS 
 directory and run the following commands:
 ```commandline
-aba.venv\Scripts\activate.bat
+jabs.venv\Scripts\activate.bat
 python app.py
 ```
