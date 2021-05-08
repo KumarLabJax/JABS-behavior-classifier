@@ -2,7 +2,6 @@
 *.pyc
 test-reports
 .DS_Store
-rotta.venv
-aba.venv
+jabs.venv
 venv
 *.sif
