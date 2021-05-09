@@ -29,7 +29,12 @@ def main():
             sys.exit(f"Error opening project:  {e}")
 
     main_window.show()
-    sys.exit(app.exec_())
+    if main_window.show_disclaimer_dialog() == QtWidgets.QDialog.Accepted:
+        # user accepted license terms, run the main application loop
+        sys.exit(app.exec_())
+
+    # user rejected license terms
+    sys.exit(1)
 
 
 if __name__ == '__main__':
