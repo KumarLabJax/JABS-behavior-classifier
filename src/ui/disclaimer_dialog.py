@@ -14,7 +14,7 @@ class DisclaimerDialog(QDialog):
         layout = QVBoxLayout()
 
         layout.addWidget(
-            QLabel(f"I have read and agree to the {APP_NAME} license terms."),
+            QLabel(f"I have read and I agree to the {APP_NAME} license terms."),
             alignment=Qt.AlignCenter
         )
 
