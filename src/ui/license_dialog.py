@@ -8,7 +8,7 @@ from src import APP_NAME, APP_NAME_LONG
 class LicenseAgreementDialog(QDialog):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setWindowTitle(f"{APP_NAME_LONG} License")
+        self.setWindowTitle(f"Accept {APP_NAME_LONG} License")
         self.setModal(True)
 
         layout = QVBoxLayout()
