@@ -10,6 +10,7 @@ from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
 from .archive_behavior_dialog import ArchiveBehaviorDialog
+from .license_dialog import LicenseAgreementDialog
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -233,3 +234,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _archive_behavior_callback(self, behavior):
         self._central_widget.remove_behavior(behavior)
         self._project.archive_behavior(behavior)
+
+    def show_license_dialog(self):
+        dialog = LicenseAgreementDialog(self)
+        result = dialog.exec_()
+        return result

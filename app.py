@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-main program for Rotta video labeling and classifier
+main program for JABS video labeling and classifier
 takes one optional positional argument: path to project directory
 """
 import argparse
@@ -29,7 +29,12 @@ def main():
             sys.exit(f"Error opening project:  {e}")
 
     main_window.show()
-    sys.exit(app.exec_())
+    if main_window.show_license_dialog() == QtWidgets.QDialog.Accepted:
+        # user accepted license terms, run the main application loop
+        sys.exit(app.exec_())
+
+    # user rejected license terms
+    sys.exit(1)
 
 
 if __name__ == '__main__':
