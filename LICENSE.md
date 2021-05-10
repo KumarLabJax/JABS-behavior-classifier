@@ -21,16 +21,15 @@ Licensor hereby grants to Licensee a worldwide, royalty-free,
 non-exclusive, non-transferable, non-sublicensable, revocable license to
 access and use the functionality of the Licensed Platform (and to
 download and use any downloadable software applications used to deliver
-the Licensed Platform on Your computer or mobile device in object code
-form) solely for Non-Commercial purposes. “Licensed Platform” means the
-latest version of Licensor’s behavioral extraction and classification
-platform made available to You, including animal pose estimation and
-extraction and behavioral classification tools, libraries, algorithms
-and other features, functionalities and services included therein or
-therewith, along with all websites and cloud-based and downloadable
-software applications used to deliver the foregoing. “Non-Commercial”
-means not intended or directed toward commercial advantage or monetary
-compensation.
+the Licensed Platform on Your computer or mobile device) solely for
+Non-Commercial purposes. “Licensed Platform” means the latest version 
+of Licensor’s behavioral extraction and classification platform made 
+available to You, including animal pose estimation and extraction and 
+behavioral classification tools, libraries, algorithms and other features, 
+functionalities and services included therein or therewith, along with all 
+websites and cloud-based and downloadable software applications used to 
+deliver the foregoing. “Non-Commercial” means not intended or directed 
+toward commercial advantage or monetary compensation.
 
 1.2	**License Limitations**. Nothing in this Agreement shall be
 construed to confer any rights upon Licensee except as expressly granted
