@@ -1,0 +1,223 @@
+PLATFORM LICENSE AGREEMENT
+FOR NON-COMMERCIAL USE
+
+*Last Updated: May 10, 2021*
+
+This Platform License Agreement (this “Agreement”) is made between you
+(“You,” “Your,” or “Licensee”) and The Jackson Laboratory (“Licensor”).
+This Agreement permits You to access and use the Licensed Platform
+subject to Your acceptance of all the terms and conditions contained in
+this Agreement. Please read this Agreement carefully. Your access to or
+use of the Licensed Platform shall be deemed Your acceptance of this
+Agreement. If You do not agree to any of the terms and conditions set
+forth in this Agreement, Licensor is unwilling to grant You the license
+contained in this Agreement and You should not access or use the
+Licensed Platform.
+
+1. LICENSED PLATFORM
+
+1.1	**Grant**. Subject to the terms and conditions of this Agreement,
+Licensor hereby grants to Licensee a worldwide, royalty-free,
+non-exclusive, non-transferable, non-sublicensable, revocable license to
+access and use the functionality of the Licensed Platform (and to
+download and use any downloadable software applications used to deliver
+the Licensed Platform on Your computer or mobile device) solely for
+Non-Commercial purposes. “Licensed Platform” means the latest version 
+of Licensor’s behavioral extraction and classification platform made 
+available to You, including animal pose estimation and extraction and 
+behavioral classification tools, libraries, algorithms and other features, 
+functionalities and services included therein or therewith, along with all 
+websites and cloud-based and downloadable software applications used to 
+deliver the foregoing. “Non-Commercial” means not intended or directed 
+toward commercial advantage or monetary compensation.
+
+1.2	**License Limitations**. Nothing in this Agreement shall be
+construed to confer any rights upon Licensee except as expressly granted
+herein. Licensee may not use or exploit the Licensed Platform other than
+as expressly permitted by this Agreement. Licensee may not, nor may
+Licensee permit any third party to, reproduce, distribute, publicly
+display, modify, translate, reverse engineer, decompile, disassemble or
+create derivative works based on the Licensed Platform or any portion
+thereof. Licensee acknowledges that Licensor reserves the right to offer
+to Licensee or any third party a license for commercial use and
+distribution of the Licensed Platform on terms and conditions different
+than those contained in this Agreement. If You are interested in
+commercial use of the Licensed Platform, please contact the Licensor.
+
+1.3	**User Classifiers**. For avoidance of doubt, the license grant
+set forth in Section 1.1 and the license limitations set forth in
+Section 1.2 shall be read together to permit Your use of the Licensed
+Platform to develop animal behavioral classification algorithms and/or
+workflows (each a “User Classifier”), provided that (1) You may use such
+User Classifiers solely for Non-Commercial purposes, (2) You may not,
+without the prior written consent of Licensor, which Licensor may
+withhold in its sole discretion, use such User Classifiers for
+commercial purposes or distribute such User Classifiers, and (3) You
+hereby acknowledge and agree that Licensor may use such User Classifiers
+without obligation to You for Non-Commercial purposes and/or to improve
+the Licensed Platform.  If You are interested in commercial use or
+distribution of any User Classifier, please contact Licensor.
+
+1.4 **Ownership Rights**. Except for the limited license rights
+expressly granted to Licensee under this Agreement, Licensee
+acknowledges that Licensor (and its applicable licensors, if any)
+retains all right, title and interest, including all intellectual
+property and other proprietary rights, in and to the Licensed Platform,
+including any modifications of and derivative works based on the
+Licensed Platform.
+
+1.5	**Feedback**.  If You provide feedback or suggestions about the
+Licensed Platform, then Licensor may use such information without
+obligation to You.
+
+2. USER DATA
+
+2.1	**Grant**.  You hereby grant to Licensor a perpetual,
+irrevocable, worldwide, royalty-free, non-exclusive license to access
+and use User Data solely to operate and improve the Licensed Platform. 
+“User Data” means Input Data and Output Data.  “Input Data” means the
+videos, images and other data uploaded or otherwise submitted by You to,
+or collected, downloaded or otherwise received from You by, the Licensed
+Platform.  “Output Data” means data produced through processing of Input
+Data via the Licensed Platform.
+
+2.2	**Ownership Rights**.  Except for the limited license rights
+expressly granted to Licensor under this Agreement, Licensor
+acknowledges that Licensee (and its applicable licensors, if any)
+retains all right, title and interest, including all intellectual
+property and other proprietary rights, in and to User Data.
+
+2.3	**Your Responsibility for Input Data**.  You represent and
+warrant that: (i) You are the owner of the Input Data or otherwise have
+all necessary licenses, right, consents and permissions (including all
+permissions required under applicable privacy and intellectual property
+laws) to upload the Input Data to the Licensed Platform and to authorize
+Licensor to access and use the Input Data to operate the Licensed
+Platform; and (ii) such uploading, access and use does not and will not
+infringe, misappropriate or violate any third party’s intellectual
+property, privacy, publicity or other legal rights or violate any
+applicable law or regulation.
+
+2.4	**Your Responsibility for Your Projects**.  If You are the
+Project Manager with respect to a Project, then, as between You and
+Licensor, You are solely responsible for: (1) the acts and omissions of
+the Project Manager and Project Collaborators with respect to the
+Project, including their compliance with this Agreement, (2)
+establishing and enforcing any agreements and policies with Project
+Collaborators governing their activities with respect to the Project,
+including, for example, relating to maintenance of the confidentiality
+of User Data relating to the Project, (3) ensuring that the hosting and
+processing of User Data in connection with the Project is in compliance
+with all applicable laws, which may require obtaining consents,
+authorizations and other rights from third parties, and (4) responding
+to, defending and resolving any disputes relating to the Project. 
+“Project” means a specific workflow and/or workspace organized within
+the Licensed Platform for purposes of coordinating and managing one or
+more permitted uses of the Licensed Platform.  “Project Manager” means
+the user of the Licensed Platform who establishes, configures and
+administers a Project.  “Project Collaborator” means any user of the
+Licensed Platform authorized to access and/or participate in a Project
+under the configurations managed by the Project Manager.
+
+3. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY; INDEMNITY
+
+3.1 **DISCLAIMER OF WARRANTY**. LICENSOR PROVIDES THE LICENSED PLATFORM
+ON A NO-FEE BASIS “AS IS” WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. LICENSOR EXPRESSLY DISCLAIMS ALL WARRANTIES OR CONDITIONS OF
+ANY KIND, INCLUDING ANY WARRANTY OF MERCHANTABILITY, TITLE, SECURITY,
+ACCURACY, NON-INFRINGEMENT OR FITNESS FOR A PARTICULAR PURPOSE. LICENSOR
+MAKES NO WARRANTY THAT THE LICENSED PLATFORM WILL MEET YOUR REQUIREMENTS
+OR BE AVAILABLE ON AN UNINTERRUPTED, SECURE, OR ERROR-FREE BASIS, OR
+THAT LICENSOR WILL CONTINUE TO OFFER OR MAKE AVAILABLE THE LICENSED
+PLATFORM FOR ANY PARTICULAR LENGTH OF TIME, AND LICENSOR RESERVES THE
+RIGHT TO CHANGE AND UPDATE THE LICENSED PLATFORM WITHOUT NOTICE TO YOU.
+LICENSOR MAKES NO WARRANTY REGARDING THE QUALITY OF ANY PRODUCTS,
+SERVICES OR CONTENT OBTAINED THROUGH THE LICENSED PLATFORM OR THE
+ACCURACY, TIMELINESS, TRUTHFULNESS, COMPLETENESS OR RELIABILITY OF ANY
+CONTENT OBTAINED THROUGH THE LICENSED PLATFORM. YOU ARE SOLELY
+RESPONSIBLE FOR ALL OF YOUR COMMUNICATIONS AND INTERACTIONS WITH OTHER
+USERS OF THE LICENSED PLATFORM AND WITH OTHER PERSONS WITH WHOM YOU
+COMMUNICATE OR INTERACT AS A RESULT OF YOUR USE OF THE LICENSED
+PLATFORM. THE FOREGOING DISCLAIMERS SHALL APPLY TO THE FULLEST EXTENT
+PERMITTED BY LAW, AND SHALL SURVIVE ANY TERMINATION OR EXPIRATION OF
+THIS AGREEMENT OR YOUR USE OF THE LICENSED PLATFORM.
+
+3.2	**LIMITATION OF LIABILITY**. LICENSEE ASSUMES FULL RESPONSIBILITY
+AND RISK FOR ANY LOSS RESULTING FROM LICENSEE’S ACCESS TO AND USE OF THE
+LICENSED PLATFORM (INCLUDING YOUR DOWNLOADING AND USE OF ANY
+DOWNLOADABLE SOFTWARE APPLICATIONS USED TO DELIVER THE LICENSED
+PLATFORM). IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ARISING FROM THE LICENSED PLATFORM OR LICENSEE’S USE OF THE LICENSED
+PLATFORM, REGARDLESS OF WHETHER LICENSOR IS ADVISED, OR HAS OTHER REASON
+TO KNOW, OR IN FACT KNOWS, OF THE POSSIBILITY OF THE FOREGOING. THE
+LIMITATIONS OF DAMAGES SET FORTH ABOVE ARE FUNDAMENTAL AND MATERIAL
+ELEMENTS OF THE BASIS OF THE BARGAIN BETWEEN LICENSOR AND LICENSEE, AND
+SHALL APPLY TO THE FULLEST EXTENT PERMITTED BY LAW, AND SHALL SURVIVE
+ANY TERMINATION OR EXPIRATION OF THIS AGREEMENT OR YOUR USE OF THE
+LICENSED PLATFORM.
+
+3.3	**Acknowledgement**. Without limiting the generality of Sections
+3.1 and 3.2, Licensee acknowledges that the Licensed Platform is
+provided as an information resource only and should not be relied on for
+any diagnostic or treatment purposes.
+
+3.4	**Indemnity**. You agree to defend, indemnify, and hold Licensor,
+its subsidiaries and affiliates, and their officers, directors,
+employees, agents, representatives and attorneys harmless from and
+against any claims, liabilities, damages, losses, and expenses,
+including, without limitation, reasonable legal and accounting fees,
+arising out of or in any way connected with (i) Your access to or use of
+the Licensed Platform; (ii) Your violation of this Agreement; and/or
+(iii) Your violation of any third-party right, including without
+limitation any intellectual property or other proprietary right. The
+indemnification obligations under this section shall survive the
+termination or expiration of this Agreement or Your use of the Licensed
+Platform.
+
+4. TERM AND TERMINATION
+
+4.1 **Term**. This Agreement commences on the date on which You first
+access or use the Licensed Platform and will continue until terminated
+in accordance with Section 4.2.
+
+4.2	**Termination**. If Licensee breaches any provision hereunder, or
+otherwise engages in any unauthorized or objectionable use of the
+Licensed Platform, or if Licensor ceases to provide or support the
+Licensed Platform, Licensor may terminate this Agreement immediately,
+and You shall not be entitled to any refunds, credits or other
+consideration. Licensee may terminate this Agreement at any time upon
+written notice to Licensor. Upon termination, the license granted under
+Section 1 will terminate and Licensee will immediately cease using the
+Licensed Platform and destroy all copies of any downloadable software
+applications used to deliver the Licensed Platform in its possession.
+Licensee will certify in writing that it has complied with the foregoing
+obligation.
+
+5. MISCELLANEOUS
+
+5.1	**Future Updates and Modification**. Licensor reserves the right,
+at its sole discretion, to modify, discontinue or terminate the Licensed
+Platform or to modify this Agreement, at any time and without prior
+notice. If we modify this Agreement, we will post the modification via
+the Licensed Platform or provide You with notice of the modification. We
+will also update the “Last Updated” date at the top of this Agreement.
+By continuing to access or use the Licensed Platform after we have
+posted a modification via the Licensed Platform or have provided You
+with notice of a modification, You are indicating that Your agreement
+and express consent to be bound by the modified Agreement. You may also
+be asked to re-acknowledge and re-accept the Agreement following any
+material changes.  If the modified Agreement is not acceptable to You,
+You may cease using the Licensed Platform and this is Your only recourse
+
+5.2	**Entire Agreement**. This Agreement constitutes the sole and
+entire agreement between the parties as to the subject matter set forth
+herein and supersedes are previous license agreements, understandings,
+or arrangements between the parties relating to such subject matter.
+
+5.3 **Governing Law**. This Agreement shall be construed, governed,
+interpreted and applied in accordance with the internal laws of the
+State of Maine, U.S.A., without regard to conflict of laws principles.
+The parties agree that any disputes between them may be heard only in
+the state or federal courts in the State of Maine, and the parties
+hereby consent to venue and jurisdiction in those courts.
