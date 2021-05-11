@@ -21,11 +21,15 @@ class AboutDialog(QDialog):
             "<a href='https://www.jax.org/research-and-faculty/research-labs/the-kumar-lab'>Kumar Lab</a> "
             "at The Jackson Laboratory")
         label.setOpenExternalLinks(True)
-
         layout.addWidget(label, alignment=Qt.AlignCenter)
+
         layout.addWidget(QLabel(
             "Copyright 2021 The Jackson Laboratory. All Rights Reserved"),
             alignment=Qt.AlignCenter)
+
+        email_label = QLabel("<a href='mailto:jabs@jax.org'>jabs@jax.org</a>")
+        email_label.setOpenExternalLinks(True)
+        layout.addWidget(email_label, alignment=Qt.AlignCenter)
 
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.close)
