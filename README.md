@@ -1,10 +1,27 @@
 # JAX Animal Behavior System (JABS)
 
-Disclaimer: This is pre-release beta software. Not for distribution.
-
 ## Copyright
 
 Copyright 2021 The Jackson Laboratory -- All rights reserved.
+
+## Contact
+
+email us at jabs@jax.org
+
+## License
+
+JABS is licensed under a non-commercial use license, see LICENSE.md for more 
+information. Contact us for information about licensing for commercial use.
+
+## Notice
+
+This is beta software. Changes, including incompatible changes to exported
+training data and prediction output, are forthcoming.
+
+## Pose Files
+
+JABS requires pose files generated from the Kumar Lab's mouse pose 
+estimation neural network. Contact us for more information.
 
 ## Requirements
 Developed and tested on Python 3.7, 3.8, and 3.9. See the `requirements.txt` 
