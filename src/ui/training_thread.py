@@ -92,8 +92,8 @@ class TrainingThread(QtCore.QThread):
                                    pr[2][0], pr[2][1],
                                    f"{test_info['video']} [{test_info['identity']}]"])
                 accuracies.append(accuracy)
-                fbeta_behavior.append(pr[2][0])
-                fbeta_notbehavior.append(pr[2][1])
+                fbeta_behavior.append(pr[2][1])
+                fbeta_notbehavior.append(pr[2][0])
 
 
                 # print performance metrics and feature importance to console
@@ -104,7 +104,7 @@ class TrainingThread(QtCore.QThread):
                 print(f"\tIdentity: {test_info['identity']}")
                 print(f"ACCURACY: {accuracy * 100:.2f}%")
                 print("PRECISION RECALL:")
-                print(f"              {'behavior':12}  not behavior")
+                print(f"              {'not behavior':12}  behavior")
                 print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
                 print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
                 print(f"  fbeta score {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
@@ -125,10 +125,10 @@ class TrainingThread(QtCore.QThread):
             print('\n' + '=' * 70)
             print("SUMMARY\n")
             print(tabulate(table_rows, showindex="always", headers=[
-                "accuracy", "precision\n(behavior)",
-                "precision\n(not behavior)", "recall\n(behavior)",
-                "recall\n(not behavior)", "f beta score\n(behavior)",
-                "f beta score\n(not behavior)",
+                "accuracy", "precision\n(not behavior)",
+                "precision\n(behavior)", "recall\n(not behavior)",
+                "recall\n(behavior)", "f beta score\n(not behavior)",
+                "f beta score\n(behavior)",
                 "test - leave one out:\n(video [identity])"]))
 
             print(f"\nmean accuracy: {np.mean(accuracies):.5}")

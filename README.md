@@ -10,7 +10,7 @@ email us at jabs@jax.org
 
 ## License
 
-JABS is licensed under a non-commercial use license, see LICENSE.md for more 
+JABS is licensed under a non-commercial use license, see LICENSE for more 
 information. Contact us for information about licensing for commercial use.
 
 ## Notice
