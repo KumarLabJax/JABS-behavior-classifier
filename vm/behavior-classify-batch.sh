@@ -117,7 +117,7 @@ else
 
     if [[ ! ( -f "${POSE_FILE}" ) ]]
     then
-        echo "ERROR: failed to find either pose file (${POSE_FILE_V2} or ${POSE_FILE_V3}) for ${VIDEO_FILE}" >&2
+        echo "ERROR: failed to find pose file for ${VIDEO_FILE}" >&2
         exit 1
     fi
 
