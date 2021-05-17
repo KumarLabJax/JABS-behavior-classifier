@@ -99,8 +99,15 @@ else
     OUT_DIR="${VIDEO_FILE%.*}_behavior/v1"
 
     cd "$(dirname "${BATCH_FILE}")"
-    POSE_FILE_V3="${VIDEO_FILE%.*}_pose_est_v3.h5"
-    POSE_FILE="${POSE_FILE_V3}"
+
+    POSE_FILE_V4="${VIDEO_FILE%.*}_pose_est_v4.h5"
+    POSE_FILE="${POSE_FILE_V4}"
+
+    if [[ ! ( -f "${POSE_FILE}" ) ]]
+    then
+        POSE_FILE_V3="${VIDEO_FILE%.*}_pose_est_v3.h5"
+        POSE_FILE="${POSE_FILE_V3}"
+    fi
 
     if [[ ! ( -f "${POSE_FILE}" ) ]]
     then
@@ -110,7 +117,7 @@ else
 
     if [[ ! ( -f "${POSE_FILE}" ) ]]
     then
-        echo "ERROR: failed to find either pose file (${POSE_FILE_V2} or ${POSE_FILE_V3}) for ${VIDEO_FILE}" >&2
+        echo "ERROR: failed to find pose file for ${VIDEO_FILE}" >&2
         exit 1
     fi
 
