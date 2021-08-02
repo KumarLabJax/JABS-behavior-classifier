@@ -28,11 +28,15 @@ def cli_progress_bar(completed: int, total_iterations: int, length=40,
     if length < 1:
         raise ValueError("Invalid length parameter")
 
-    # create a string representation of the percent complete
-    complete = f"{100 * (completed / float(total_iterations)):.{precision}f}"
+    if total_iterations > 0:
+        # create a string representation of the percent complete
+        complete = f"{100 * (completed / float(total_iterations)):.{precision}f}"
 
-    # calculate the length of the filled portion of the progress bar
-    filled_length = int(length * completed // total_iterations)
+        # calculate the length of the filled portion of the progress bar
+        filled_length = int(length * completed // total_iterations)
+    else:
+        complete = 0
+        filled_length = 0
 
     # create a string combining filled and unfilled portions
     bar = fill_char * filled_length + padding_char * (length - filled_length)

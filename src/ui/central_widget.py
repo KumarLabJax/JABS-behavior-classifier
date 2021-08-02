@@ -544,7 +544,6 @@ class CentralWidget(QtWidgets.QWidget):
                         TrackLabels.Label.NONE.value, dtype=np.byte))
             return
 
-        labels = self._get_label_track().get_labels()
         prediction_labels = np.full((self._player_widget.num_frames()),
                                     TrackLabels.Label.NONE.value,
                                     dtype=np.byte)
@@ -553,10 +552,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         prediction_labels[indexes] = self._predictions[identity]
         prediction_prob[indexes] = self._probabilities[identity]
-        prediction_labels[labels == TrackLabels.Label.NOT_BEHAVIOR] = TrackLabels.Label.NOT_BEHAVIOR.value
-        prediction_prob[labels == TrackLabels.Label.NOT_BEHAVIOR] = 1.0
-        prediction_labels[labels == TrackLabels.Label.BEHAVIOR] = TrackLabels.Label.BEHAVIOR.value
-        prediction_prob[labels == TrackLabels.Label.BEHAVIOR] = 1.0
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
         self.inference_timeline_widget.set_labels(prediction_labels)
