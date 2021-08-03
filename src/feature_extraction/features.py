@@ -503,7 +503,7 @@ class IdentityFeatures:
         include in the window
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
-        NOTE: if labels is None, this will include also values for frames where
+        NOTE: if labels is None, this will also include values for frames where
         the identity does not exist. These get filtered out when filtering out
         unlabeled frames, since those frames are always unlabeled.
         :param force: force regeneration of the window features even if the
@@ -568,58 +568,18 @@ class IdentityFeatures:
                 for k, v in self._per_frame.items()
             }
 
-    def get_unlabeled_features(self, window_size, labels):
+    def get_features(self, window_size):
         """
-        get features and corresponding frame indexes for unlabeled frames for
-        classification
-        :param window_size: number of frames before and after current frame to
-        include in window feature calculation
-        :param labels: array of labels (no label, not behavior, behavior)
+        get features and corresponding frame indexes for classification
+        omits frames where the identity is not valid, so 'frame_indexes' array
+        may not be consecutive
+        :param window_size:
         :return: dictionary with the following keys:
 
           'per_frame': dict with feature name as keys, numpy array as values
           'window': dict, see _compute_window_features
           'frame_indexes': 1D np array, maps elements of per frame and window
              feature arrays back to global frame indexes
-        """
-        window_features = self.get_window_features(window_size)
-        filter = np.logical_and(self._frame_valid,
-                                labels == src.project.track_labels.TrackLabels.Label.NONE)
-
-        per_frame = {}
-        indexes = np.arange(self._num_frames)[filter]
-        
-        if self._include_social_features:
-            all_features = self._per_frame_features + self._per_frame_social_features
-        else:
-            all_features = self._per_frame_features
-
-        for feature in all_features:
-            per_frame[feature] = self._per_frame[feature][
-                                 filter, ...]
-
-        window = {}
-        for key in window_features:
-            window[key] = {}
-            for op in window_features[key]:
-                window[key][op] = window_features[key][op][filter]
-
-        return {
-            'per_frame': per_frame,
-            'window': window,
-            'frame_indexes': indexes
-        }
-
-    def get_features(self, window_size):
-        """
-        get features and corresponding frame indexes for unlabeled frames for
-        classification
-        :param window_size:
-        :return: dictionary with the following keys (see
-        get_unlabeled_features for a description):
-          'per_frame'
-          'window'
-          'frame_indexes'
         """
         window_features = self.get_window_features(window_size)
 

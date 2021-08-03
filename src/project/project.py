@@ -396,20 +396,9 @@ class Project:
 
                 inferred_indexes = frame_indexes[video][identity]
                 track = video_tracks.get_track_labels(identity, behavior)
-                manual_labels = track.get_labels()
 
                 prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
-
-                # manual labels are saved with the predictions, but the
-                # probability is set to -1 to indicate that the class was
-                # manually assigned by the user and not inferred
-                prediction_labels[identity_index,
-                    manual_labels == track.Label.NOT_BEHAVIOR] = track.Label.NOT_BEHAVIOR.value
-                prediction_prob[identity_index, manual_labels == track.Label.NOT_BEHAVIOR] = -1.0
-                prediction_labels[identity_index,
-                    manual_labels == track.Label.BEHAVIOR] = track.Label.BEHAVIOR.value
-                prediction_prob[identity_index, manual_labels == track.Label.BEHAVIOR] = -1.0
 
             # write to h5 file
             self.write_predictions(output_path, prediction_labels,
