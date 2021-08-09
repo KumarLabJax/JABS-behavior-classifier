@@ -121,12 +121,13 @@ class IdentityFeatures:
     # view is 240 degrees. Do we want this to be configurable?
     half_fov_deg = 120
 
-    def __init__(self, video_name, identity, directory, pose_est, force=False,
+    def __init__(self, source_file, identity, directory, pose_est, force=False,
                  fps=30):
         """
-        :param video_name: name of the video file, used for generating filenames
-        for saving extracted features into the project directory. You can use
-        None for this argument if directory is also set to None
+        :param source_file: name of the source video or pose file, used for
+        generating filenames for saving extracted features into the project
+        directory. You can use None for this argument if directory is also set
+        to None
         :param identity: identity to extract features for
         :param directory: path of the project directory. A value of None can
         be given to prevent saving to and loading from a project dir.
@@ -142,7 +143,7 @@ class IdentityFeatures:
         self._identity = identity
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
-                Path(video_name).stem /
+                Path(source_file).stem /
                 str(self._identity)
         )
         self._include_social_features = pose_est.format_major_version >= 3

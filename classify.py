@@ -6,7 +6,6 @@ import sys
 import typing
 from pathlib import Path
 
-import h5py
 import numpy as np
 
 from src import APP_NAME
@@ -39,7 +38,8 @@ def train_and_classify(
         input_pose_file: Path,
         out_dir: Path,
         override_classifier: typing.Optional[ClassifierType] = None,
-        fps=DEFAULT_FPS):
+        fps=DEFAULT_FPS,
+        feature_dir: typing.Optional[str] = None):
     try:
         training_file, _ = load_training_data(training_file_path)
     except OSError as e:
@@ -50,11 +50,12 @@ def train_and_classify(
 
     classifier = train(training_file_path, override_classifier)
     classify_pose(classifier, input_pose_file, out_dir, behavior, window_size,
-                  fps)
+                  fps, feature_dir)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
-                  behavior: str, window_size: int, fps=DEFAULT_FPS):
+                  behavior: str, window_size: int, fps=DEFAULT_FPS,
+                  feature_dir: typing.Optional[str] = None):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -70,8 +71,8 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
     for curr_id in pose_est.identities:
         cli_progress_bar(curr_id, len(pose_est.identities),
                          complete_as_percent=False, suffix='identities')
-        features = IdentityFeatures(None, curr_id, None, pose_est,
-                                    fps=fps).get_features(window_size)
+        features = IdentityFeatures(input_pose_file, curr_id, feature_dir,
+                                    pose_est, fps=fps).get_features(window_size)
 
         data = Classifier.combine_data(
             features['per_frame'],
@@ -221,6 +222,11 @@ def classify_main():
         type=int,
         default=DEFAULT_FPS
     )
+    parser.add_argument(
+        '--feature-dir',
+        help="Feature cache dir. If present, look here for features before "
+        "computing. If features need to be computed, they will be saved here."
+    )
 
     args = parser.parse_args(classify_args)
 
@@ -230,7 +236,7 @@ def classify_main():
     if args.training is not None:
         train_and_classify(Path(args.training), in_pose_path, out_dir,
                            override_classifier=args.classifier,
-                           fps=args.fps)
+                           fps=args.fps, feature_dir=args.feature_dir)
     elif args.classifier is not None:
 
         try:
@@ -253,7 +259,7 @@ def classify_main():
             except KeyError:
                 sys.exit("Error: Classifier type not supported on this platform")
         classify_pose(classifier, in_pose_path, out_dir, behavior, window_size,
-                      fps=args.fps)
+                      fps=args.fps, feature_dir=args.feature_dir)
 
 
 def train_main():
