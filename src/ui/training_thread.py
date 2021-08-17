@@ -25,13 +25,15 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
-    def __init__(self, project, classifier, behavior, window_size, k=1):
+    def __init__(self, project, classifier, behavior, window_size, uses_social,
+                 k=1):
         super().__init__()
         self._project = project
         self._classifier = classifier
         self._behavior = behavior
         self._tasks_complete = 0
         self._window_size = window_size
+        self._uses_social = uses_social
         self._k = k
 
     def run(self):
@@ -52,6 +54,7 @@ class TrainingThread(QtCore.QThread):
         features, group_mapping = self._project.get_labeled_features(
             self._behavior,
             self._window_size,
+            self._uses_social,
             id_processed
         )
 
@@ -76,7 +79,8 @@ class TrainingThread(QtCore.QThread):
                 test_info = group_mapping[data['test_group']]
 
                 # train classifier, and then use it to classify our test data
-                self._classifier.train(data)
+                self._classifier.train(data, self._behavior, self._window_size,
+                                       self._uses_social)
                 predictions = self._classifier.predict(data['test_data'])
 
                 # calculate some performance metrics using the classifications of
@@ -115,7 +119,7 @@ class TrainingThread(QtCore.QThread):
                 print("Top 10 features by importance:")
                 self._classifier.print_feature_importance(
                     IdentityFeatures.get_feature_names(
-                        self._project.has_social_features),
+                        self._uses_social),
                     10)
 
                 # let the parent thread know that we've finished this iteration
@@ -146,6 +150,9 @@ class TrainingThread(QtCore.QThread):
                     features['per_frame'], features['window']),
                 'training_labels': features['labels']
             },
+            self._behavior,
+            self._window_size,
+            self._uses_social,
             random_seed=FINAL_TRAIN_SEED
         )
 

@@ -3,9 +3,9 @@ import typing
 from enum import IntEnum
 from importlib import import_module
 from pathlib import Path
+import joblib
 
 import numpy as np
-from joblib import dump, load
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
@@ -18,6 +18,8 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
 from src.project import TrackLabels
+
+_VERSION = 2
 
 
 class ClassifierType(IntEnum):
@@ -65,7 +67,10 @@ class Classifier:
         self._classifier_type = classifier
         self._classifier = None
         self._window_size = None
+        self._uses_social = None
+        self._behavior = None
         self._n_jobs = n_jobs
+        self._version = _VERSION
 
         # make sure the value passed for the classifier parameter is valid
         if classifier not in _classifier_choices:
@@ -80,6 +85,22 @@ class Classifier:
     def classifier_type(self) -> ClassifierType:
         """ return classifier type """
         return self._classifier_type
+
+    @property
+    def window_size(self):
+        return self._window_size
+
+    @property
+    def uses_social(self):
+        return self._uses_social
+
+    @property
+    def behavior_name(self):
+        return self._behavior
+
+    @property
+    def version(self):
+        return self._version
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -199,16 +220,24 @@ class Classifier:
             d: self._classifier_names[d] for d in _classifier_choices
         }
 
-    def train(self, data, random_seed: typing.Optional[int] = None):
+    def train(self, data, behavior: str, window_size: int, uses_social: bool,
+              random_seed: typing.Optional[int] = None):
         """
         train the classifier
         :param data: dict returned from train_test_split()
+        :param behavior:
+        :param window_size:
+        :param uses_social:
         :param random_seed: optional random seed (used when we want reproducible
         results between trainings)
         :return: None
         """
         features = data['training_data']
         labels = data['training_labels']
+
+        self._uses_social = uses_social
+        self._window_size = window_size
+        self._behavior = behavior
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,
@@ -231,14 +260,28 @@ class Classifier:
     def predict_proba(self, features):
         return self._classifier.predict_proba(features)
 
-    def load_cached_classifier(self, path: Path):
-        with path.open('rb') as f:
-            self._classifier = load(f)
-            self._update_classifier_type()
+    def save(self, path: Path):
+        joblib.dump(self, path)
 
-    def cache_classifier(self, path: Path):
-        with path.open('wb') as f:
-            dump(self._classifier, f)
+    def load(self, path: Path):
+        c = joblib.load(path)
+        if not isinstance(c, Classifier):
+            raise ValueError(
+                f"{path} is not instance of Classifier")
+
+        if c.version != _VERSION:
+            raise ValueError(f"Error deserializing classifier. "
+                             f"File version {c.version}, expected {_VERSION}.")
+
+            # make sure the value passed for the classifier parameter is valid
+        if c._classifier_type not in _classifier_choices:
+            raise ValueError("Invalid classifier type")
+
+        self._classifier = c._classifier
+        self._behavior = c._behavior
+        self._window_size = c._window_size
+        self._uses_social = c._uses_social
+        self._classifier_type = c._classifier_type
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on

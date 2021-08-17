@@ -6,11 +6,10 @@ import sys
 import typing
 from pathlib import Path
 
-import h5py
 import numpy as np
 
 from src import APP_NAME
-from src.classifier import Classifier, ClassifierType, ClassifierSerializer
+from src.classifier import Classifier, ClassifierType
 from src.cli import cli_progress_bar
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
@@ -47,14 +46,16 @@ def train_and_classify(
 
     behavior = training_file['behavior']
     window_size = training_file['window_size']
+    use_social = training_file['has_social_features']
 
     classifier = train(training_file_path, override_classifier)
     classify_pose(classifier, input_pose_file, out_dir, behavior, window_size,
-                  fps)
+                  use_social, fps)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
-                  behavior: str, window_size: int, fps=DEFAULT_FPS):
+                  behavior: str, window_size: int, use_social: bool,
+                  fps=DEFAULT_FPS):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -64,6 +65,10 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         dtype=np.int8)
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
+    if use_social and str(input_pose_file).endswith('v2.h5'):
+        print(f"Skipping {input_pose_file}")
+        print("  classifier requires v3 or higher pose files")
+
     print(f"Classifying {input_pose_file}...")
 
     # run prediction for each identity
@@ -71,7 +76,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         cli_progress_bar(curr_id, len(pose_est.identities),
                          complete_as_percent=False, suffix='identities')
         features = IdentityFeatures(None, curr_id, None, pose_est,
-                                    fps=fps).get_features(window_size)
+                                    fps=fps).get_features(window_size, use_social)
 
         data = Classifier.combine_data(
             features['per_frame'],
@@ -139,6 +144,7 @@ def train(
     print("Training classifier for:", behavior)
     print(f"  Classifier Type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
     print(f"  Window Size: {training_file['window_size']}")
+    print(f"  Social: {training_file['has_social_features']}")
 
     training_features = classifier.combine_data(training_file['per_frame'],
                                                 training_file['window'])
@@ -147,6 +153,9 @@ def train(
             'training_data': training_features,
             'training_labels': training_file['labels']
         },
+        behavior,
+        training_file['window_size'],
+        training_file['has_social_features'],
         random_seed=training_file['training_seed']
     )
 
@@ -234,11 +243,15 @@ def classify_main():
     elif args.classifier is not None:
 
         try:
-            classifier, behavior, window_size = \
-                ClassifierSerializer.load(Path(args.classifier))
+            classifier = Classifier()
+            classifier.load(Path(args.classifier))
         except ValueError as e:
             print(f"Unable to load classifier from {args.classifier}:")
             sys.exit(e)
+
+        behavior = classifier.behavior_name
+        window_size = classifier.window_size
+        use_social = classifier.uses_social
 
         print(f"Classifying using trained classifier: {args.classifier}")
         print(f"  behavior: {behavior}")
@@ -253,7 +266,7 @@ def classify_main():
             except KeyError:
                 sys.exit("Error: Classifier type not supported on this platform")
         classify_pose(classifier, in_pose_path, out_dir, behavior, window_size,
-                      fps=args.fps)
+                      use_social, fps=args.fps)
 
 
 def train_main():
@@ -278,21 +291,10 @@ def train_main():
                         help="output filename")
 
     args = parser.parse_args(train_args)
-
-    try:
-        training_data, _ = load_training_data(args.training_file)
-    except OSError as e:
-        sys.exit(f"Unable to open training data\n{e}")
-
-    behavior = training_data['behavior']
-    window_size = training_data['window_size']
-
     classifier = train(args.training_file, args.classifier)
 
-    serializer = ClassifierSerializer(classifier, window_size, behavior)
-
     print(f"Saving trained classifier to '{args.out_file}'")
-    serializer.save(serializer, Path(args.out_file))
+    classifier.save(Path(args.out_file))
 
 
 def script_name():

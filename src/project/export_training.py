@@ -18,8 +18,10 @@ if TYPE_CHECKING:
     from src.classifier import ClassifierType
 
 
-def export_training_data(project: 'Project', behavior: str,
+def export_training_data(project: 'Project',
+                         behavior: str,
                          window_size: int,
+                         use_social: bool,
                          classifier_type: 'ClassifierType',
                          training_seed: int,
                          out_file: typing.Optional[Path]=None):
@@ -32,6 +34,7 @@ def export_training_data(project: 'Project', behavior: str,
     :param project: Project from which to export training data
     :param behavior: Behavior to export
     :param window_size: Window size used for this behavior
+    :param use_social: does classifer use social features or not?
     :param classifier_type: Preferred classifier type
     :param training_seed: random seed to use for training to get reproducable
     results
@@ -43,8 +46,8 @@ def export_training_data(project: 'Project', behavior: str,
     """
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    features, group_mapping = project.get_labeled_features(behavior,
-                                                           window_size)
+    features, group_mapping = project.get_labeled_features(
+        behavior, window_size, use_social)
 
     if out_file is None:
         out_file = (project.dir /
@@ -55,7 +58,7 @@ def export_training_data(project: 'Project', behavior: str,
     with h5py.File(out_file, 'w') as out_h5:
         out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
-        out_h5.attrs['has_social_features'] = project.has_social_features
+        out_h5.attrs['has_social_features'] = use_social
         out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
         out_h5.attrs['classifier_type'] = classifier_type.value

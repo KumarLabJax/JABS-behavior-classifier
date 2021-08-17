@@ -3,7 +3,7 @@ from pathlib import Path
 
 from src.classifier.classifier import Classifier
 
-_VERSION = 1
+_VERSION = 2
 
 
 class ClassifierSerializer:
@@ -16,11 +16,12 @@ class ClassifierSerializer:
     """
 
     def __init__(self, classifier: Classifier, window_size: int,
-                 behavior_name: str):
+                 behavior_name: str, use_social: bool):
         self._version = _VERSION
         self._classifier = classifier
         self._window_size = window_size
         self._behavior_name = behavior_name
+        self._use_social = use_social
 
     @property
     def classifier(self):
@@ -38,9 +39,8 @@ class ClassifierSerializer:
     def version(self):
         return self._version
 
-    @staticmethod
-    def save(cs, path: Path):
-        joblib.dump(cs, path)
+    def save(self, path: Path):
+        joblib.dump(self, path)
 
     @classmethod
     def load(cls, path: Path):
