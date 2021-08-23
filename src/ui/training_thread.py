@@ -81,7 +81,8 @@ class TrainingThread(QtCore.QThread):
 
                 # train classifier, and then use it to classify our test data
                 self._classifier.train(data, self._behavior, self._window_size,
-                                       self._uses_social)
+                                       self._uses_social,
+                                       self._project.distance_unit)
                 predictions = self._classifier.predict(data['test_data'])
 
                 # calculate some performance metrics using the classifications of
@@ -93,13 +94,13 @@ class TrainingThread(QtCore.QThread):
                 confusion = self._classifier.confusion_matrix(data['test_labels'],
                                                               predictions)
 
-                table_rows.append([accuracy, pr[0][0], pr[0][1], pr[1][0], pr[1][1],
-                                   pr[2][0], pr[2][1],
-                                   f"{test_info['video']} [{test_info['identity']}]"])
+                table_rows.append([
+                    accuracy, pr[0][0], pr[0][1], pr[1][0], pr[1][1], pr[2][0],
+                    pr[2][1], f"{test_info['video']} [{test_info['identity']}]"
+                ])
                 accuracies.append(accuracy)
                 fbeta_behavior.append(pr[2][1])
                 fbeta_notbehavior.append(pr[2][0])
-
 
                 # print performance metrics and feature importance to console
                 print('-' * 70)
@@ -157,6 +158,7 @@ class TrainingThread(QtCore.QThread):
             self._behavior,
             self._window_size,
             self._uses_social,
+            self._project.distance_unit,
             random_seed=FINAL_TRAIN_SEED
         )
 

@@ -9,6 +9,7 @@ import numpy as np
 import src.version
 import src.classifier
 import src.feature_extraction
+from src.project import ProjectDistanceUnit
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
@@ -62,6 +63,7 @@ def export_training_data(project: 'Project',
         out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
         out_h5.attrs['classifier_type'] = classifier_type.value
+        out_h5.attrs['distance_unit'] = project.distance_unit.name
         out_h5.attrs['training_seed'] = training_seed
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
@@ -134,6 +136,15 @@ def load_training_data(training_file: Path):
         features['training_seed'] = in_h5.attrs['training_seed']
         features['classifier_type'] = src.classifier.ClassifierType(
             in_h5.attrs['classifier_type'])
+        # convert the string distance_unit attr to corresponding
+        # ProjectDistanceUnit enum
+        unit = in_h5.attrs.get('distance_unit')
+        if unit is None:
+            # if the training file doesn't include distance_unit it is old and
+            # definitely used pixel based distances
+            features['distance_unit'] = ProjectDistanceUnit.PIXEL
+        else:
+            features['distance_unit'] = ProjectDistanceUnit[unit]
 
         features['labels'] = in_h5['label'][:]
         features['groups'] = in_h5['group'][:]

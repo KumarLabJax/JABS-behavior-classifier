@@ -18,6 +18,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
 from src.project import TrackLabels
+from src.project import ProjectDistanceUnit
 
 _VERSION = 2
 
@@ -69,6 +70,7 @@ class Classifier:
         self._window_size = None
         self._uses_social = None
         self._behavior = None
+        self._distance_unit = None
         self._n_jobs = n_jobs
         self._version = _VERSION
 
@@ -77,7 +79,7 @@ class Classifier:
             raise ValueError("Invalid classifier type")
 
     @property
-    def classifier_name(self):
+    def classifier_name(self) -> str:
         """ return the name of the classifier used as a string """
         return self._classifier_names[self._classifier_type]
 
@@ -87,20 +89,28 @@ class Classifier:
         return self._classifier_type
 
     @property
-    def window_size(self):
+    def window_size(self) -> int:
         return self._window_size
 
     @property
-    def uses_social(self):
+    def uses_social(self) -> bool:
         return self._uses_social
 
     @property
-    def behavior_name(self):
+    def behavior_name(self) -> str:
         return self._behavior
 
     @property
-    def version(self):
+    def version(self) -> int:
         return self._version
+
+    @property
+    def distance_unit(self) -> ProjectDistanceUnit:
+        """
+        return the distance unit for the features that were used to train
+        this classifier (
+        """
+        return self._distance_unit
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -221,13 +231,15 @@ class Classifier:
         }
 
     def train(self, data, behavior: str, window_size: int, uses_social: bool,
+              distance_unit: ProjectDistanceUnit,
               random_seed: typing.Optional[int] = None):
         """
         train the classifier
         :param data: dict returned from train_test_split()
-        :param behavior:
-        :param window_size:
-        :param uses_social:
+        :param behavior: string name of behavior we are training for
+        :param window_size: window size used for training
+        :param uses_social: does training data include social features?
+        :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
         results between trainings)
         :return: None
@@ -238,6 +250,7 @@ class Classifier:
         self._uses_social = uses_social
         self._window_size = window_size
         self._behavior = behavior
+        self._distance_unit = distance_unit
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,
@@ -265,6 +278,7 @@ class Classifier:
 
     def load(self, path: Path):
         c = joblib.load(path)
+
         if not isinstance(c, Classifier):
             raise ValueError(
                 f"{path} is not instance of Classifier")
@@ -282,6 +296,7 @@ class Classifier:
         self._window_size = c._window_size
         self._uses_social = c._uses_social
         self._classifier_type = c._classifier_type
+        self._distance_unit = c._distance_unit
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on
