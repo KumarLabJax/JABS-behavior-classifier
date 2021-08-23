@@ -108,7 +108,7 @@ class Classifier:
     def distance_unit(self) -> ProjectDistanceUnit:
         """
         return the distance unit for the features that were used to train
-        this classifier (
+        this classifier
         """
         return self._distance_unit
 
