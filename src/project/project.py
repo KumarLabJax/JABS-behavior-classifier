@@ -1,6 +1,5 @@
 import enum
 import gzip
-import hashlib
 import json
 import re
 import shutil
@@ -19,6 +18,7 @@ from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
+from src.utils import hash_file
 
 _PREDICTION_FILE_VERSION = 1
 
@@ -141,11 +141,16 @@ class Project:
                     get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
+
+            # we are currently computing a hash on video and pose files, so
+            # we can check to see if they've changed since the project was
+            # first initialized
+            # we are not currently using this!
             if pose_hash is None:
-                vinfo['pose_hash'] = self.__hash_file(
+                vinfo['pose_hash'] = self.hash_file(
                     get_pose_path(self.video_path(video)))
             if vid_hash is None:
-                vinfo['vid_hash'] = self.__hash_file(self.video_path(video))
+                vinfo['vid_hash'] = self.hash_file(self.video_path(video))
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
@@ -658,18 +663,6 @@ class Project:
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
         }, group_mapping
-
-    @staticmethod
-    def __hash_file(file: Path):
-        """ return hash """
-        chunk_size = 8192
-        with file.open('rb') as f:
-            h = hashlib.blake2b(digest_size=20)
-            c = f.read(chunk_size)
-            while c:
-                h.update(c)
-                c = f.read(chunk_size)
-        return h.hexdigest()
 
     def __update_version(self):
         """ update the version number saved in project metadata """

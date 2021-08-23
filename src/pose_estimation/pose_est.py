@@ -8,6 +8,8 @@ import h5py
 import numpy as np
 from shapely.geometry import MultiPoint
 
+from src.utils import hash_file
+
 
 class PoseEstimation(ABC):
     """
@@ -37,6 +39,7 @@ class PoseEstimation(ABC):
         self._path = file_path
         self._cache_dir = cache_dir
         self._cm_per_pixel = None
+        self._hash = hash_file(file_path)
 
     @property
     def num_frames(self) -> int:
@@ -55,6 +58,10 @@ class PoseEstimation(ABC):
     @property
     def cm_per_pixel(self):
         return self._cm_per_pixel
+
+    @property
+    def hash(self):
+        return self._hash
 
     @abstractmethod
     def get_points(self, frame_index, identity):
@@ -182,4 +189,3 @@ class PoseEstimation(ABC):
             attrs = dict(pose_h5.attrs)
             attrs['poseest'] = dict(pose_h5['poseest'].attrs)
             return attrs
-

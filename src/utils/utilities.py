@@ -1,7 +1,9 @@
+import hashlib
 import math
 import os
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 
 import numpy as np
 
@@ -58,3 +60,15 @@ def n_choose_r(n, r):
     :return: total number of combinations disregarding order
     """
     return math.factorial(n) // (math.factorial(r) * math.factorial(n - r))
+
+
+def hash_file(file: Path):
+    """ return hash """
+    chunk_size = 8192
+    with file.open('rb') as f:
+        h = hashlib.blake2b(digest_size=20)
+        c = f.read(chunk_size)
+        while c:
+            h.update(c)
+            c = f.read(chunk_size)
+    return h.hexdigest()

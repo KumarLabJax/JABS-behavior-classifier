@@ -21,6 +21,10 @@ class DistanceScaleException(Exception):
     pass
 
 
+class PoseHashException(Exception):
+    pass
+
+
 class IdentityFeatures:
     """
     per frame and window features for a single identity
@@ -147,6 +151,7 @@ class IdentityFeatures:
         self._num_frames = pose_est.num_frames
         self._fps = fps
         self._distance_scale_factor = distance_scale_factor
+        self._pose_hash = pose_est.hash
         self._identity = identity
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
@@ -178,7 +183,8 @@ class IdentityFeatures:
             try:
                 # try to load from an h5 file if it exists
                 self.__load_from_file()
-            except (OSError, FeatureVersionException, DistanceScaleException):
+            except (OSError, FeatureVersionException, DistanceScaleException,
+                    PoseHashException):
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
 
@@ -364,6 +370,11 @@ class IdentityFeatures:
             if features_h5.attrs['version'] != FEATURE_VERSION:
                 raise FeatureVersionException
 
+            # if the contents of the pose file changed since these features
+            # were computed, then we will raise an exception and recompute
+            if features_h5.attrs['pose_hash'] != self._pose_hash:
+                raise PoseHashException
+
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
             if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
@@ -408,6 +419,7 @@ class IdentityFeatures:
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
             features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
+            features_h5.attrs['pose_hash'] = self._pose_hash
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
@@ -436,11 +448,12 @@ class IdentityFeatures:
         path = self._identity_feature_dir / f"window_features_{window_size}.h5"
 
         with h5py.File(path, 'w') as features_h5:
+            features_h5.attrs['window_size'] = window_size
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
             features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
-            features_h5.attrs['window_size'] = window_size
+            features_h5.attrs['pose_hash'] = self._pose_hash
 
             grp = features_h5.create_group('features')
 
@@ -481,6 +494,11 @@ class IdentityFeatures:
             # regenerated
             if features_h5.attrs['version'] != FEATURE_VERSION:
                 raise FeatureVersionException
+
+            # if the contents of the pose file changed since these features
+            # were computed, then we will raise an exception and recompute
+            if features_h5.attrs['pose_hash'] != self._pose_hash:
+                raise PoseHashException
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
@@ -540,10 +558,11 @@ class IdentityFeatures:
             try:
                 # h5 file exists for this window size, load it
                 features = self.__load_window_features(window_size)
-            except (OSError, FeatureVersionException, DistanceScaleException):
-                # h5 file does not exist for this window size, or the version
-                # is not compatible. compute the features and return after
-                # saving
+            except (OSError, FeatureVersionException, DistanceScaleException,
+                    PoseHashException):
+                # h5 file does not exist for this window size, the version
+                # is not compatible, or the pose file changes.
+                # compute the features and return after saving
                 features = self.__compute_window_features(window_size)
 
                 if self._identity_feature_dir is not None:
