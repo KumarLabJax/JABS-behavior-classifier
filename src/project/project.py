@@ -151,20 +151,15 @@ class Project:
             video_metadata[video] = vinfo
         self.save_metadata({'video_files': video_metadata})
 
-        # determine if this project relies on social features or not
-        self._has_social_features = False
+        # determine if this project can use social features or not
+        # if any of the videos are V2, social features will be disabled
+        self._can_use_social = True
         for i, vid in enumerate(self._videos):
             vid_path = self.video_path(vid)
             pose_path = get_pose_path(vid_path)
-            curr_has_social = not pose_path.name.endswith('v2.h5')
-
-            if i == 0:
-                self._has_social_features = curr_has_social
-            else:
-                # here we're just making sure everything is consistent,
-                # otherwise we throw a ValueError
-                if curr_has_social != self._has_social_features:
-                    raise ValueError('Found a pose estimation mismatch in project')
+            if pose_path.name.endswith('v2.h5'):
+                self._can_use_social = False
+                break
 
         # determine if project should use cm or pixels as units for
         # distance-based features
@@ -201,8 +196,8 @@ class Project:
         return self._annotations_dir
 
     @property
-    def has_social_features(self):
-        return self._has_social_features
+    def can_use_social_features(self):
+        return self._can_use_social
 
     @property
     def metadata(self):
@@ -350,7 +345,7 @@ class Project:
         :param behavior: string behavior name. This affects the path we save to
         """
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
-        classifier.cache_classifier(
+        classifier.save(
             self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
 
@@ -368,7 +363,7 @@ class Project:
             self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
         )
         try:
-            classifier.load_cached_classifier(classifier_path)
+            classifier.load(classifier_path)
             return True
         except OSError:
             return False
@@ -565,6 +560,7 @@ class Project:
         return [f.name for f in dir_path.glob("*.avi")]
 
     def get_labeled_features(self, behavior, window_size,
+                             use_social_features,
                              progress_callable=None):
         """
         the the features for all labeled frames
@@ -573,6 +569,7 @@ class Project:
 
         :param behavior: the behavior to get labeled features for
         :param window_size: window size to use for computing window features
+        :param use_social_features: if true, use social features (if supported)
         :param progress_callable: if provided this will be called
         with no args every time an identity is processed to facilitate
         progress tracking
@@ -633,9 +630,10 @@ class Project:
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
 
-                per_frame_features = features.get_per_frame(labels)
-                window_features = features.get_window_features(window_size,
-                                                               labels)
+                per_frame_features = features.get_per_frame(
+                    use_social_features, labels)
+                window_features = features.get_window_features(
+                    window_size, use_social_features, labels)
 
                 all_per_frame.append(per_frame_features)
                 all_window.append(window_features)
@@ -653,9 +651,10 @@ class Project:
                     progress_callable()
 
         return {
-            'window': fe.IdentityFeatures.merge_window_features(all_window),
+            'window': fe.IdentityFeatures.merge_window_features(
+                all_window, use_social_features),
             'per_frame': fe.IdentityFeatures.merge_per_frame_features(
-                all_per_frame),
+                all_per_frame, use_social_features),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
         }, group_mapping

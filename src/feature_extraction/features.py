@@ -153,8 +153,8 @@ class IdentityFeatures:
                 Path(source_file).stem /
                 str(self._identity)
         )
-        self._include_social_features = pose_est.format_major_version >= 3
-        if self._include_social_features:
+        self._compute_social_features = pose_est.format_major_version >= 3
+        if self._compute_social_features:
             self._closest_identities = np.full(self._num_frames, -1,
                                                dtype=np.int16)
             self._closest_fov_identities = np.full(self._num_frames, -1,
@@ -203,7 +203,7 @@ class IdentityFeatures:
                 self._per_frame[feature] = np.zeros(self._num_frames,
                                                     dtype=np.float32)
 
-        if self._include_social_features:
+        if self._compute_social_features:
             for feature in self._per_frame_social_features:
                 if feature in ('social_pairwise_distances',
                                'social_pairwise_fov_distances'):
@@ -224,7 +224,7 @@ class IdentityFeatures:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
                 self._per_frame['angles'][frame] = self._compute_angles(points)
 
-                if self._include_social_features:
+                if self._compute_social_features:
                     # Find the distance and identity of the closest animal at each frame, as well
                     # as the distance, identity and angle of the closes animal in field of view.
                     # In order to calculate this we require that both animals have a valid
@@ -257,7 +257,7 @@ class IdentityFeatures:
                                     # for FoV we want the range of view angle to be [180, -180)
                                     if view_angle > 180:
                                         view_angle -= 360
-                                    
+
                                     if abs(view_angle) <= self.half_fov_deg:
                                         # other animal is in FoV
                                         if closest_fov_dist is None or curr_dist < closest_fov_dist:
@@ -383,7 +383,7 @@ class IdentityFeatures:
             assert len(self._per_frame['pairwise_distances']) == self._num_frames
             assert len(self._per_frame['angles']) == self._num_frames
 
-            if self._include_social_features:
+            if self._compute_social_features:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
 
@@ -417,7 +417,7 @@ class IdentityFeatures:
                     continue
                 grp.create_dataset(feature, data=self._per_frame[feature])
 
-            if self._include_social_features:
+            if self._compute_social_features:
                 features_h5['closest_identities'] = self._closest_identities
                 features_h5['closest_fov_identities'] = self._closest_fov_identities
 
@@ -449,7 +449,7 @@ class IdentityFeatures:
                     grp.create_dataset(f'{feature}/{op}',
                                        data=features[feature][op])
 
-            if self._include_social_features:
+            if self._compute_social_features:
                 for feature_name in self._window_social_features:
                     for op in features[feature_name]:
                         grp.create_dataset(f'{feature_name}/{op}',
@@ -503,7 +503,7 @@ class IdentityFeatures:
                     assert len(
                         window_features[feature_name][op]) == self._num_frames
 
-            if self._include_social_features:
+            if self._compute_social_features:
                 for feature_name in self._window_social_features:
                     window_features[feature_name] = {}
                     for op in feature_grp[feature_name].keys():
@@ -512,12 +512,14 @@ class IdentityFeatures:
 
             return window_features
 
-    def get_window_features(self, window_size, labels=None, force=False):
+    def get_window_features(self, window_size, use_social: bool, labels=None,
+                            force=False):
         """
         get window features for a given window size, computing if not previously
         computed and saved as h5 file
         :param window_size: number of frames on each side of the current frame to
         include in the window
+        :param use_social:
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
         NOTE: if labels is None, this will also include values for frames where
@@ -547,8 +549,15 @@ class IdentityFeatures:
                 if self._identity_feature_dir is not None:
                     self.__save_window_features(features, window_size)
 
+        if use_social:
+            feature_intersection = set(self._window_features + self._window_social_features)
+        else:
+            feature_intersection = set(self._window_features)
+
+        feature_intersection &= set(features.keys())
+
         if labels is None:
-            return features
+            final_features = features
         else:
             # return only features for labeled frames
             filtered_features = {}
@@ -558,11 +567,17 @@ class IdentityFeatures:
                 for op in features[key]:
                     filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
-            return filtered_features
+            final_features = filtered_features
 
-    def get_per_frame(self, labels=None):
+        return {
+            feature_name: final_features[feature_name]
+            for feature_name in feature_intersection
+        }
+
+    def get_per_frame(self, use_social: bool, labels=None):
         """
         get per frame features
+        :param use_social:
         :param labels: if present, only return features for labeled frames
         NOTE: if labels is None, this will include also values for frames where
         the identity does not exist. These get filtered out when filtering out
@@ -575,22 +590,37 @@ class IdentityFeatures:
             'point_speeds': 2D numpy array
         }
         """
+
+        if use_social:
+            feature_intersection = set(self._per_frame_features + self._per_frame_social_features)
+        else:
+            feature_intersection = set(self._per_frame_features)
+
+        feature_intersection &= set(self._per_frame.keys())
+
         if labels is None:
-            return self._per_frame
+            features = self._per_frame
 
         else:
             # return only features for labeled frames
-            return {
+            features = {
                 k: v[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
                 for k, v in self._per_frame.items()
             }
 
-    def get_features(self, window_size):
+        return {
+            feature_name: features[feature_name]
+            for feature_name in feature_intersection
+        }
+
+    def get_features(self, window_size: int, use_social: bool):
         """
         get features and corresponding frame indexes for classification
         omits frames where the identity is not valid, so 'frame_indexes' array
         may not be consecutive
-        :param window_size:
+        :param window_size: window size to use
+        :param use_social: if true, include social features in returned data
+        No effect for v2 pose files.
         :return: dictionary with the following keys:
 
           'per_frame': dict with feature name as keys, numpy array as values
@@ -598,25 +628,25 @@ class IdentityFeatures:
           'frame_indexes': 1D np array, maps elements of per frame and window
              feature arrays back to global frame indexes
         """
-        window_features = self.get_window_features(window_size)
+        window_features = self.get_window_features(window_size, use_social)
 
         per_frame = {}
-        indexes = np.arange(self._num_frames)[self._frame_valid==1]
+        indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
-        if self._include_social_features:
+        if self._compute_social_features and use_social:
             all_features = self._per_frame_features + self._per_frame_social_features
         else:
             all_features = self._per_frame_features
 
         for feature in all_features:
             per_frame[feature] = self._per_frame[feature][
-                self._frame_valid==1, ...]
+                self._frame_valid == 1, ...]
 
         window = {}
         for key in window_features:
             window[key] = {}
             for op in window_features[key]:
-                window[key][op] = window_features[key][op][self._frame_valid==1]
+                window[key][op] = window_features[key][op][self._frame_valid == 1]
 
         return {
             'per_frame': per_frame,
@@ -691,7 +721,7 @@ class IdentityFeatures:
                 self._num_frames, dtype=np.float32)
 
         # allocate arrays for social
-        if self._include_social_features:
+        if self._compute_social_features:
             for feature_name in self._window_social_features:
                 window_features[feature_name] = {}
                 if feature_name in ('social_pairwise_distances', 'social_pairwise_fov_distances'):
@@ -717,7 +747,7 @@ class IdentityFeatures:
             max_window_size
         )
 
-        if self._include_social_features:
+        if self._compute_social_features:
             full_window_features = self._window_features + self._window_social_features
         else:
             full_window_features = self._window_features
@@ -800,7 +830,7 @@ class IdentityFeatures:
                         window_features[feature][op_name][i] = op(window_values)
 
             # handle circular social features
-            if self._include_social_features:
+            if self._compute_social_features:
                 for feature_name in self._window_social_features:
                     window_values = self._per_frame[feature_name][slice_start:slice_end, ...]
                     assert window_values.ndim == 1 or window_values.ndim == 2
@@ -928,11 +958,12 @@ class IdentityFeatures:
         return feature_list
 
     @classmethod
-    def merge_per_frame_features(cls, features):
+    def merge_per_frame_features(cls, features, include_social):
         """
         merge a list of per-frame features where each element in the list is
         a set of per-frame features computed for an individual animal
         :param features: list of per-frame feature instances
+        :param include_social:
         :return: dict of the form
         {
             'pairwise_distances':,
@@ -942,8 +973,13 @@ class IdentityFeatures:
         }
         """
 
-        # determine which features are in common
-        feature_intersection = set(cls._per_frame_features + cls._per_frame_social_features)
+        # determine which features are in common between total feature set and
+        # available computed features
+        if include_social:
+            feature_intersection = set(cls._per_frame_features + cls._per_frame_social_features)
+        else:
+            feature_intersection = set(cls._per_frame_features)
+
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
 
@@ -953,7 +989,7 @@ class IdentityFeatures:
         }
 
     @classmethod
-    def merge_window_features(cls, features):
+    def merge_window_features(cls, features, include_social):
         """
         merge a list of window features where each element in the list is the
         set of window features computed for an individual animal
@@ -978,10 +1014,16 @@ class IdentityFeatures:
         """
         merged = {}
 
-        # determine which features are in common
-        feature_intersection = set(
-            cls._window_features
-            + cls._window_social_features)
+        # determine which features are in common between total feature set and
+        # available computed features
+        if include_social:
+            feature_intersection = set(
+                cls._window_features
+                + cls._window_social_features
+            )
+        else:
+            feature_intersection = set(cls._window_features)
+
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
 

@@ -25,6 +25,7 @@ class MainControlWidget(QtWidgets.QWidget):
     behavior_list_changed = QtCore.Signal(list)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
+    use_social_feature_changed = QtCore.Signal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,6 +111,10 @@ class MainControlWidget(QtWidgets.QWidget):
         #   disabled until project loaded
         self._kslider.setEnabled(False)
 
+        self._use_social_feature_checkbox = QtWidgets.QCheckBox("Use Social Features")
+        self._use_social_feature_checkbox.stateChanged.connect(
+            self.use_social_feature_changed)
+
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
         classifier_layout.addWidget(self._train_button, 0, 0)
@@ -117,7 +122,8 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
         classifier_layout.addWidget(QtWidgets.QLabel("Window Size"), 2, 0)
         classifier_layout.addLayout(window_size_layout, 2, 1)
-        classifier_layout.addWidget(self._kslider, 3, 0, 1, 2)
+        classifier_layout.addWidget(self._use_social_feature_checkbox, 3, 0, 1, 2)
+        classifier_layout.addWidget(self._kslider, 4, 0, 1, 2)
         classifier_layout.setContentsMargins(5, 5, 5, 5)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
@@ -249,6 +255,15 @@ class MainControlWidget(QtWidgets.QWidget):
     def classifier_type(self):
         return self._classifier_selection.currentData()
 
+    @property
+    def use_social_features(self):
+        return self._use_social_feature_checkbox.isChecked()
+
+    @use_social_features.setter
+    def use_social_features(self, val: bool):
+        if self._use_social_feature_checkbox.isEnabled():
+            self._use_social_feature_checkbox.setChecked(val)
+
     def disable_label_buttons(self):
         """ disable labeling buttons that require a selected range of frames """
         self._label_behavior_button.setEnabled(False)
@@ -260,6 +275,11 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button.setEnabled(True)
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
+
+    def set_use_social_features_checkbox_enabled(self, val: bool):
+        self._use_social_feature_checkbox.setEnabled(val)
+        if not val:
+            self._use_social_feature_checkbox.setChecked(False)
 
     def set_classifier_selection(self, classifier_type):
         try:
@@ -353,10 +373,18 @@ class MainControlWidget(QtWidgets.QWidget):
             self._label_not_behavior_button.setToolTip(
                 f"Label frames Not {self.current_behavior}")
 
-        # use window size last
+        # use window size last used for the behavior
         window_settings = project_settings.get('window_size_pref', {})
         if self.current_behavior in window_settings:
             self.set_window_size(window_settings[self.current_behavior])
+
+        # set initial state for use social feature button
+        optional_feature_settings = project_settings.get(
+            'optional_features', {})
+        social_feature_settings = optional_feature_settings.get(
+            'social', {})
+        if self.current_behavior in social_feature_settings:
+            self.use_social_features = social_feature_settings[self.current_behavior]
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(

@@ -72,8 +72,11 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_train_button_enabled_state)
         self._controls.behavior_list_changed.connect(
             lambda b: self._project.save_metadata({'behaviors': b}))
-        self._controls.window_size_changed.connect(self._window_feature_size_changed)
+        self._controls.window_size_changed.connect(
+            self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
+        self._controls.use_social_feature_changed.connect(
+            self._use_social_feature_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -129,6 +132,10 @@ class CentralWidget(QtWidgets.QWidget):
         return self._window_size
 
     @property
+    def uses_social(self):
+        return self._controls.use_social_features
+
+    @property
     def classify_button_enabled(self):
         """
         return true if the classify button is currently enabled, false otherwise
@@ -150,31 +157,15 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        self._controls.classify_button_set_enabled(False)
+        # should the 'use social features' checkbox be enabled?
+        self._controls.set_use_social_features_checkbox_enabled(
+            project.can_use_social_features)
+
+        # default to social features turned on if the all videos in the project
+        # support them. This may be overridden by project settings.
+        self._controls.use_social_features = self._project.can_use_social_features
         self._controls.update_project_settings(project.metadata)
-
-        classifier_loaded = False
-        try:
-            classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior)
-        except Exception as e:
-            print('failed to load classifier', file=sys.stderr)
-            print(e, file=sys.stderr)
-
-        # if a classifier was loaded, set the drop down to match the type
-        if classifier_loaded:
-            self._update_classifier_selection()
-
-        # set classify button state
-        # it will only get enabled if we loaded a classifier and we know
-        # what window size was used to train it
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        # do we have a window size for this behavior?
-        if self.behavior in window_settings:
-            # yes, does it match current window size?
-            if self.window_size == window_settings[self.behavior]:
-                # yes, classify button can be enabled if we loaded a classifier
-                self._controls.classify_button_set_enabled(classifier_loaded)
+        self._load_cached_classifier()
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
@@ -290,18 +281,8 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        self._controls.classify_button_set_enabled(False)
-
-        classifier_loaded = False
-        try:
-            classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior)
-        except Exception as e:
-            print('failed to load classifier', file=sys.stderr)
-            print(e, file=sys.stderr)
-
-        if classifier_loaded:
-            self._update_classifier_selection()
+        self._update_controls_from_project_settings()
+        self._load_cached_classifier()
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
@@ -316,17 +297,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._set_train_button_enabled_state()
         self._project.save_metadata({'selected_behavior': self.behavior})
-
-        # try to set the window size to the last one used to train this
-        # behavior
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        # do we have a window size in the project settings for this behavior?
-        if self.behavior in window_settings:
-            # yes, try to set the window size to match
-            self._controls.set_window_size(window_settings[self.behavior])
-            if self.window_size == window_settings[self.behavior]:
-                # success: enable classify button if a classifier was loaded
-                self._controls.classify_button_set_enabled(classifier_loaded)
 
     def _start_selection(self, pressed):
         """
@@ -432,11 +402,24 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.current_behavior
         )
 
-    def _update_classifier_selection(self):
+    def _update_classifier_controls(self):
         """
-        Called when the classifier selection widget should be updated
+        Called when settings related to a loaded classifier should be updated
         """
         self._controls.set_classifier_selection(self._classifier.classifier_type)
+
+        # does the classifier match the current window size and social feature
+        # settings?
+        if (
+                self._classifier.window_size == self.window_size and
+                self._controls.use_social_features == self._classifier.uses_social
+        ):
+            # if yes, we can enable the classify button
+            self._controls.classify_button_set_enabled(True)
+        else:
+            # if not, the classify button needs to be disabled until the
+            # user retrains
+            self._controls.classify_button_set_enabled(False)
 
     def _train_button_clicked(self):
         """ handle user click on "Train" button """
@@ -448,6 +431,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._project, self._classifier,
             self._controls.current_behavior,
             self._window_size,
+            self._controls.use_social_features,
             self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
@@ -648,10 +632,52 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle window feature size change """
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
-            # if we change the window size disable the classify button until
-            # the classifier is retrained
-            self._controls.classify_button_set_enabled(False)
+            self._update_classifier_controls()
 
     def _save_window_sizes(self, window_sizes):
         """ save the window sizes to the project settings """
         self._project.save_metadata({'window_sizes': window_sizes})
+
+    def _use_social_feature_changed(self):
+        if self.behavior == '':
+            # don't do anything if behavior is not set, this means we're
+            # the project isn't fully loaded and we just reset the
+            # checkbox
+            return
+
+        optional_feature_settings = self._project.metadata.get(
+            'optional_features', {})
+        social_feature_settings = optional_feature_settings.get('social', {})
+        social_feature_settings[self.behavior] = self._controls.use_social_features
+        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._update_classifier_controls()
+
+    def _update_controls_from_project_settings(self):
+        # set initial state for window size
+        window_settings = self._project.metadata.get('window_size_pref', {})
+        # do we have a window size for this behavior?
+        if self.behavior in window_settings:
+            self._controls.set_window_size(window_settings[self.behavior])
+
+        # set initial state for use social feature button
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        social_feature_settings = optional_feature_settings.get('social', {})
+        if self.behavior in social_feature_settings:
+            self._controls.use_social_features = social_feature_settings[self.behavior]
+        else:
+            # default to enabled if the videos support them
+            self._controls.use_social_features = self._project.can_use_social_features
+
+    def _load_cached_classifier(self):
+        classifier_loaded = False
+        try:
+            classifier_loaded = self._project.load_classifier(self._classifier,
+                                                              self.behavior)
+        except Exception as e:
+            print('failed to load classifier', file=sys.stderr)
+            print(e, file=sys.stderr)
+
+        if classifier_loaded:
+            self._update_classifier_controls()
+        else:
+            self._controls.classify_button_set_enabled(False)
