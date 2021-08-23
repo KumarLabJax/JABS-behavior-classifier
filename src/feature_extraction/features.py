@@ -8,7 +8,7 @@ import scipy.stats
 import src.project.track_labels
 from src.feature_extraction.angle_index import AngleIndex
 from src.utils.utilities import rolling_window, smooth, n_choose_r
-from src.pose_estimation import PoseEstimation
+from src.pose_estimation import PoseEstimation, PoseHashException
 
 FEATURE_VERSION = 3
 
@@ -18,10 +18,6 @@ class FeatureVersionException(Exception):
 
 
 class DistanceScaleException(Exception):
-    pass
-
-
-class PoseHashException(Exception):
     pass
 
 

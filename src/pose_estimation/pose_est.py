@@ -11,6 +11,10 @@ from shapely.geometry import MultiPoint
 from src.utils import hash_file
 
 
+class PoseHashException(Exception):
+    pass
+
+
 class PoseEstimation(ABC):
     """
     abstract base class for PoseEstimation objects. Used as the base class for

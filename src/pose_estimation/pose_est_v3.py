@@ -5,7 +5,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation
+from .pose_est import PoseEstimation, PoseHashException
+
+
+class _CacheFileVersion(Exception):
+    pass
 
 
 class PoseEstimationV3(PoseEstimation):
@@ -13,7 +17,7 @@ class PoseEstimationV3(PoseEstimation):
     class for opening and parsing version 3 of the pose estimation HDF5 file
     """
 
-    __CACHE_FILE_VERSION = 1
+    __CACHE_FILE_VERSION = 2
 
     def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
         """
@@ -24,6 +28,10 @@ class PoseEstimationV3(PoseEstimation):
         self._identity_to_track = None
         self._identity_map = None
 
+        # reading the v3 pose files is somewhat expensive due to the
+        # creation of the identities and reordering data by assigned identity
+        # to speedup reopening the pose file later, we'll cache the transformed
+        # pose file in the project dir
         if cache_dir is not None:
             filename = self._path.name.replace('.h5', '_cache.h5')
             cache_file_path = self._cache_dir / filename
@@ -31,7 +39,15 @@ class PoseEstimationV3(PoseEstimation):
 
             try:
                 with h5py.File(cache_file_path, 'r') as cache_h5:
-                    assert cache_h5.attrs['version'] == self.__CACHE_FILE_VERSION
+                    if cache_h5.attrs['version'] != self.__CACHE_FILE_VERSION:
+                        # cache file version is not what we expect, raise
+                        # exception so we will revert to reading source pose
+                        # file
+                        raise _CacheFileVersion
+
+                    if cache_h5.attrs['source_pose_hash'] != self._hash:
+                        raise PoseHashException
+
                     pose_grp = cache_h5['poseest']
                     self._points = pose_grp['points'][:]
                     self._point_mask = pose_grp['point_mask'][:]
@@ -42,9 +58,9 @@ class PoseEstimationV3(PoseEstimation):
                     self._identities = [*range(self._max_instances)]
 
                     # get pixel size
-                    self._cm_per_pixel = pose_grp.attrs['cm_per_pixel']
+                    self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
 
-            except (IOError, KeyError):
+            except (IOError, KeyError, _CacheFileVersion, PoseHashException):
                 # unable to open or read pose cache file, revert to source pose
                 # file
                 use_cache = False
@@ -74,8 +90,8 @@ class PoseEstimationV3(PoseEstimation):
             self._num_frames = len(all_points)
             self._max_instances = len(all_points[0])
 
-            # generate list of identities based on the max number of instances in
-            # the pose file
+            # generate list of identities based on the max number of instances
+            # in the pose file
             self._identities = [*range(self._max_instances)]
 
             # maps track instances to identities
@@ -111,10 +127,13 @@ class PoseEstimationV3(PoseEstimation):
                 init_func, (self._max_instances, self._num_frames), dtype=np.int_)
 
             if self._cache_dir is not None:
+                print("writing cache")
                 with h5py.File(cache_file_path, 'w') as cache_h5:
                     cache_h5.attrs['version'] = self.__CACHE_FILE_VERSION
+                    cache_h5.attrs['source_pose_hash'] = self.hash
                     group = cache_h5.create_group('poseest')
-                    group.attrs['cm_per_pixel'] = self._cm_per_pixel
+                    if self._cm_per_pixel is not None:
+                        group.attrs['cm_per_pixel'] = self._cm_per_pixel
                     group.create_dataset('points', data=self._points)
                     group.create_dataset('point_mask', data=self._point_mask)
                     group.create_dataset('identity_mask', data=self._identity_mask)
@@ -155,7 +174,7 @@ class PoseEstimationV3(PoseEstimation):
         return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
-        return self._identity_mask[identity,:]
+        return self._identity_mask[identity, :]
 
     def get_identity_point_mask(self, identity):
         """
@@ -165,7 +184,8 @@ class PoseEstimationV3(PoseEstimation):
         """
         return self._point_mask[identity, :]
 
-    def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
+    def _build_track_dict(self, all_points, all_confidence, all_instance_count,
+                          all_track_id):
         """ iterate through frames and build track dict """
         all_points_mask = all_confidence > 0
         track_dict = {}
