@@ -187,11 +187,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 "You must train the classifier before export.")
             return
 
-        window_size = self._central_widget.window_size
         try:
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
-                                            window_size,
+                                            self._central_widget.window_size,
+                                            self._central_widget.uses_social,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",

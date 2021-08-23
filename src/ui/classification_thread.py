@@ -59,13 +59,14 @@ class ClassifyThread(QtCore.QThread):
                                             self._project.feature_dir,
                                             pose_est, fps=fps)
                 identity = str(ident)
-                training_features = features.get_features(self._window_size)
+                feature_values = features.get_features(
+                    self._window_size, self._classifier.uses_social)
 
                 # reformat the data in a single 2D numpy array to pass
                 # to the classifier
                 data = self._classifier.combine_data(
-                    training_features['per_frame'],
-                    training_features['window']
+                    feature_values['per_frame'],
+                    feature_values['window']
                 )
 
                 if data.shape[0] > 0:
@@ -85,7 +86,7 @@ class ClassifyThread(QtCore.QThread):
                     ]
 
                     # save the indexes for the predicted frames
-                    frame_indexes[video][identity] = training_features[
+                    frame_indexes[video][identity] = feature_values[
                         'frame_indexes']
                 else:
                     predictions[video][identity] = np.array(0)
