@@ -32,13 +32,22 @@ def generate_files_worker(params: dict):
     else:
         distance_scale_factor = pose_est.cm_per_pixel
 
-
     features = src.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
         force=params['force'], distance_scale_factor=distance_scale_factor)
 
+    # unlike per frame features, window features are not automatically
+    # generated when opening the file. They are computed as needed based
+    # on the requested window size. Force each window size to be
+    # pre-computed by fetching it
     for w in params['window_sizes']:
-        _ = features.get_window_features(w, pose_est.format_major_version > 2,
+
+        # get the social features if they are supported, although this doesn't
+        # matter with current implementation, as they are always computed if
+        # the file supports them, they are just not included in the returned
+        # features if this param is false
+        use_social = pose_est.format_major_version > 2
+        _ = features.get_window_features(w, use_social,
                                          force=params['force'])
 
     for identity in pose_est.identities:
