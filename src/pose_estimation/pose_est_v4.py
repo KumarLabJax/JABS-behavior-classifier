@@ -26,18 +26,21 @@ class PoseEstimationV4(PoseEstimation):
         # open the hdf5 pose file
         with h5py.File(self._path, 'r') as pose_h5:
             # extract data from the HDF5 file
-            vid_grp = pose_h5['poseest']
-            major_version = vid_grp.attrs['version'][0]
+            pose_grp = pose_h5['poseest']
+            major_version = pose_grp.attrs['version'][0]
+
+            # get pixel size
+            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
 
             # ensure the major version matches what we expect
             # TODO temporarily removed while v4 files under development
             #assert major_version == 4
 
             # load contents
-            all_points = vid_grp['points'][:]
-            all_confidence = vid_grp['confidence'][:]
-            id_mask = vid_grp['id_mask'][:]
-            instance_embed_id = vid_grp['instance_embed_id'][:]
+            all_points = pose_grp['points'][:]
+            all_confidence = pose_grp['confidence'][:]
+            id_mask = pose_grp['id_mask'][:]
+            instance_embed_id = pose_grp['instance_embed_id'][:]
 
         self._num_frames = len(all_points)
         self._num_identities = np.max(np.ma.array(instance_embed_id[...], mask=id_mask[...]))

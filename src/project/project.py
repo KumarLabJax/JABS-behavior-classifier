@@ -1,3 +1,4 @@
+import enum
 import gzip
 import hashlib
 import json
@@ -12,7 +13,7 @@ import numpy as np
 
 import src.feature_extraction as fe
 from src.pose_estimation import get_pose_path, open_pose_file, \
-    get_frames_from_file
+    get_frames_from_file, PoseEstimation
 from src.project import TrackLabels
 from src.version import version_str
 from src.video_stream import VideoStream
@@ -20,6 +21,11 @@ from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 1
+
+
+class ProjectDistanceUnit(enum.IntEnum):
+    CM = 1
+    PIXEL = 2
 
 
 class Project:
@@ -160,6 +166,20 @@ class Project:
                 if curr_has_social != self._has_social_features:
                     raise ValueError('Found a pose estimation mismatch in project')
 
+        # determine if project should use cm or pixels as units for
+        # distance-based features
+        self._distance_unit = ProjectDistanceUnit.CM
+        for vid in self._videos:
+            attrs = PoseEstimation.get_pose_file_attributes(
+                get_pose_path(self.video_path(vid)))
+            cm_per_pixel = attrs['poseest'].get('cm_per_pixel')
+
+            # this pose file does not have cm_per_pixel attribute,
+            # force the entire project to use pixel distances
+            if cm_per_pixel is None:
+                self._distance_unit = ProjectDistanceUnit.PIXEL
+                break
+
     @property
     def videos(self):
         """
@@ -205,6 +225,10 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
+
+    @property
+    def distance_unit(self):
+        return self._distance_unit
 
     def load_video_labels(self, video_name):
         """
@@ -596,9 +620,15 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                features = fe.IdentityFeatures(video, identity,
-                                               self.feature_dir, pose_est,
-                                               fps=fps)
+                if self._distance_unit == ProjectDistanceUnit.CM:
+                    distance_scale_factor = pose_est.cm_per_pixel
+                else:
+                    distance_scale_factor = 1
+
+                features = fe.IdentityFeatures(
+                    video, identity, self.feature_dir, pose_est, fps=fps,
+                    distance_scale_factor=distance_scale_factor
+                )
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()

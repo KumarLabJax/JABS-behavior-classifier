@@ -40,6 +40,10 @@ class PoseEstimationV3(PoseEstimation):
                     self._max_instances = self._points.shape[0]
                     self._num_frames = self._points.shape[1]
                     self._identities = [*range(self._max_instances)]
+
+                    # get pixel size
+                    self._cm_per_pixel = pose_grp.attrs['cm_per_pixel']
+
             except (IOError, KeyError):
                 # unable to open or read pose cache file, revert to source pose
                 # file
@@ -52,17 +56,20 @@ class PoseEstimationV3(PoseEstimation):
             # open the hdf5 pose file
             with h5py.File(self._path, 'r') as pose_h5:
                 # extract data from the HDF5 file
-                vid_grp = pose_h5['poseest']
-                major_version = vid_grp.attrs['version'][0]
+                pose_grp = pose_h5['poseest']
+                major_version = pose_grp.attrs['version'][0]
 
                 # ensure the major version matches what we expect
                 assert major_version == 3
 
                 # load contents
-                all_points = vid_grp['points'][:]
-                all_confidence = vid_grp['confidence'][:]
-                all_instance_count = vid_grp['instance_count'][:]
-                all_track_id = vid_grp['instance_track_id'][:]
+                all_points = pose_grp['points'][:]
+                all_confidence = pose_grp['confidence'][:]
+                all_instance_count = pose_grp['instance_count'][:]
+                all_track_id = pose_grp['instance_track_id'][:]
+
+                # get pixel size
+                self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
 
             self._num_frames = len(all_points)
             self._max_instances = len(all_points[0])
@@ -107,6 +114,7 @@ class PoseEstimationV3(PoseEstimation):
                 with h5py.File(cache_file_path, 'w') as cache_h5:
                     cache_h5.attrs['version'] = self.__CACHE_FILE_VERSION
                     group = cache_h5.create_group('poseest')
+                    group.attrs['cm_per_pixel'] = self._cm_per_pixel
                     group.create_dataset('points', data=self._points)
                     group.create_dataset('point_mask', data=self._point_mask)
                     group.create_dataset('identity_mask', data=self._identity_mask)

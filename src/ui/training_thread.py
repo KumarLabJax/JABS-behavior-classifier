@@ -4,6 +4,7 @@ import numpy as np
 from PySide2 import QtCore
 from tabulate import tabulate
 
+from src.project import ProjectDistanceUnit
 from src.feature_extraction import IdentityFeatures
 from src.utils import FINAL_TRAIN_SEED
 
@@ -135,7 +136,10 @@ class TrainingThread(QtCore.QThread):
             print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
             print("mean fbeta score (not behavior): "
                   f"{np.mean(fbeta_notbehavior):.5}")
-            print(f"Classifier: {self._classifier.classifier_name}")
+            print(f"\nClassifier: {self._classifier.classifier_name}")
+            print(f"Behavior: {self._behavior}")
+            unit = "cm" if self._project.distance_unit == ProjectDistanceUnit.CM else "pixel"
+            print(f"Feature Distance Unit: {unit}")
             print('-' * 70)
 
         # retrain with all training data and fixed random seed before saving:

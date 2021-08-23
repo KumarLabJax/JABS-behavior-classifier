@@ -30,12 +30,15 @@ class PoseEstimationV2(PoseEstimation):
         # open the hdf5 pose file
         with h5py.File(self._path, 'r') as pose_h5:
             # extract data from the HDF5 file
-            vid_grp = pose_h5['poseest']
+            pose_grp = pose_h5['poseest']
 
             # load contents
-            self._points = vid_grp['points'][:]
+            self._points = pose_grp['points'][:]
             self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
-            self._point_mask[:] = vid_grp['confidence'][:] > 0.3
+            self._point_mask[:] = pose_grp['confidence'][:] > 0.3
+
+            # get pixel size
+            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
 
         self._num_frames = self._points.shape[0]
 

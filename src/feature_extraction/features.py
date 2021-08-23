@@ -10,10 +10,14 @@ from src.feature_extraction.angle_index import AngleIndex
 from src.utils.utilities import rolling_window, smooth, n_choose_r
 from src.pose_estimation import PoseEstimation
 
-FEATURE_VERSION = 2
+FEATURE_VERSION = 3
 
 
 class FeatureVersionException(Exception):
+    pass
+
+
+class DistanceScaleException(Exception):
     pass
 
 
@@ -122,7 +126,7 @@ class IdentityFeatures:
     half_fov_deg = 120
 
     def __init__(self, source_file, identity, directory, pose_est, force=False,
-                 fps=30):
+                 fps=30, distance_scale_factor=1):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -136,10 +140,13 @@ class IdentityFeatures:
         per frame feature .h5 file exists for this video/identity
         :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
+        :param distance_scale_factor: set to cm_per_pixel to convert pixel
+        distances into cm, defaults to 1 (keep pixel distances)
         """
 
         self._num_frames = pose_est.num_frames
         self._fps = fps
+        self._distance_scale_factor = distance_scale_factor
         self._identity = identity
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
@@ -171,7 +178,7 @@ class IdentityFeatures:
             try:
                 # try to load from an h5 file if it exists
                 self.__load_from_file()
-            except (OSError, FeatureVersionException):
+            except (OSError, FeatureVersionException, DistanceScaleException):
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
 
@@ -232,7 +239,7 @@ class IdentityFeatures:
                                 other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
 
                                 if other_shape is not None:
-                                    curr_dist = self_shape.distance(other_shape)
+                                    curr_dist = self_shape.distance(other_shape) * self._distance_scale_factor
                                     if closest_dist is None or curr_dist < closest_dist:
                                         self._closest_identities[frame] = curr_id
                                         self._per_frame['closest_distances'][frame] = curr_dist
@@ -282,7 +289,7 @@ class IdentityFeatures:
 
         poses, point_mask = pose_est.get_identity_poses(self._identity)
         self._per_frame['point_speeds'] = self._compute_point_speeds(
-            poses, point_mask, self._fps)
+            poses, point_mask)
 
         bearings = pose_est.compute_all_bearings(self._identity)
         self._per_frame['angular_velocity'] = \
@@ -307,7 +314,7 @@ class IdentityFeatures:
             v = np.gradient(points, indexes, axis=0)
 
             # compute magnitude and direction of velocities
-            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
+            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps * self._distance_scale_factor
             d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
             # subtract animal bearing from orientation
@@ -357,6 +364,11 @@ class IdentityFeatures:
             if features_h5.attrs['version'] != FEATURE_VERSION:
                 raise FeatureVersionException
 
+            # make sure distances are using the expected scale
+            # if they don't match, we will need to recompute
+            if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
+                raise DistanceScaleException
+
             feature_grp = features_h5['features']
 
             self._frame_valid = features_h5['frame_valid'][:]
@@ -395,6 +407,7 @@ class IdentityFeatures:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
+            features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
@@ -426,6 +439,7 @@ class IdentityFeatures:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
+            features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['window_size'] = window_size
 
             grp = features_h5.create_group('features')
@@ -462,16 +476,18 @@ class IdentityFeatures:
 
         with h5py.File(path, 'r') as features_h5:
 
-            # early versions of the window feature h5 file called 'window_size'
-            # 'radius', so fall back to that if 'window_size' isn't in the
-            # attributes
-            try:
-                size_attr = features_h5.attrs['window_size']
-            except KeyError:
-                size_attr = features_h5.attrs['radius']
-
+            # if the version of the feature file is not what we expect for
+            # this version of JABS raise an exception and it will be
+            # regenerated
             if features_h5.attrs['version'] != FEATURE_VERSION:
                 raise FeatureVersionException
+
+            # make sure distances are using the expected scale
+            # if they don't match, we will need to recompute
+            if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
+                raise DistanceScaleException
+
+            size_attr = features_h5.attrs['window_size']
 
             assert features_h5.attrs['num_frames'] == self._num_frames
             assert features_h5.attrs['identity'] == self._identity
@@ -522,7 +538,7 @@ class IdentityFeatures:
             try:
                 # h5 file exists for this window size, load it
                 features = self.__load_window_features(window_size)
-            except (OSError, FeatureVersionException):
+            except (OSError, FeatureVersionException, DistanceScaleException):
                 # h5 file does not exist for this window size, or the version
                 # is not compatible. compute the features and return after
                 # saving
@@ -981,8 +997,7 @@ class IdentityFeatures:
 
         return merged
 
-    @staticmethod
-    def _compute_pairwise_distance(points):
+    def _compute_pairwise_distance(self, points):
         """
         compute distances between all pairs of points
         :param points: collection of points
@@ -993,11 +1008,10 @@ class IdentityFeatures:
             p1 = points[i]
             for p2 in points[i + 1:]:
                 dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
-                distances.append(dist)
+                distances.append(dist * self._distance_scale_factor)
         return distances
 
-    @staticmethod
-    def _compute_social_pairwise_distance(points1, points2):
+    def _compute_social_pairwise_distance(self, points1, points2):
         """
         compute distances between all pairs of points
         :param points1: 1st collection of points
@@ -1010,7 +1024,7 @@ class IdentityFeatures:
         for p1 in points1:
             for p2 in points2:
                 dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
-                distances.append(dist)
+                distances.append(dist * self._distance_scale_factor)
 
         return distances
 
@@ -1138,8 +1152,7 @@ class IdentityFeatures:
 
         return angles
 
-    @staticmethod
-    def _compute_point_speeds(poses, point_masks, fps):
+    def _compute_point_speeds(self, poses, point_masks):
         """
         compute point speeds for post currently selected identity
         :param poses: pose estimations for an identity
@@ -1172,14 +1185,16 @@ class IdentityFeatures:
             # the velocities
             if valid_indexes.shape[0] > 1:
                 point_velocities[masks == 1, point_index, :] = np.gradient(
-                    points[masks == 1], valid_indexes, axis=0)
+                    points[masks == 1],
+                    valid_indexes, axis=0)
 
-        # convert the velocities to speed
-        speeds = np.linalg.norm(point_velocities, axis=-1) * fps
+        # convert the velocities to speed and convert units
+        speeds = np.linalg.norm(point_velocities, axis=-1) * self._fps * self._distance_scale_factor
 
         # smooth speeds
         for point_index in range(speeds.shape[1]):
-            speeds[:, point_index] = smooth(speeds[:, point_index], smoothing_window=3)
+            speeds[:, point_index] = smooth(speeds[:, point_index],
+                                            smoothing_window=3)
         return speeds
 
     @staticmethod
@@ -1231,7 +1246,9 @@ class IdentityFeatures:
             v = np.gradient(points, indexes, axis=0)
 
             # compute magnitude of velocities
-            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
+            # convert from pixels/frame to cm/s or pixel/s depending on
+            # distance_scale_factor
+            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps * self._distance_scale_factor
 
             # compute the orientation, and adjust based on the animal's bearing
             d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180

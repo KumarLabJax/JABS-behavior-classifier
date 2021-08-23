@@ -1,10 +1,11 @@
 import enum
-import numpy as np
-import typing
 import pickle
+import typing
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+import h5py
+import numpy as np
 from shapely.geometry import MultiPoint
 
 
@@ -28,13 +29,14 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
+    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None):
         super().__init__()
         self._num_frames = 0
         self._identities = []
         self._convex_hull_cache = dict()
         self._path = file_path
         self._cache_dir = cache_dir
+        self._cm_per_pixel = None
 
     @property
     def num_frames(self) -> int:
@@ -49,6 +51,10 @@ class PoseEstimation(ABC):
     @property
     def num_identities(self) -> int:
         return len(self._identities)
+
+    @property
+    def cm_per_pixel(self):
+        return self._cm_per_pixel
 
     @abstractmethod
     def get_points(self, frame_index, identity):
@@ -169,4 +175,11 @@ class PoseEstimation(ABC):
             if points is not None:
                 bearings[i] = self.compute_bearing(points)
         return bearings
+
+    @staticmethod
+    def get_pose_file_attributes(path: Path) -> dict:
+        with h5py.File(path, 'r') as pose_h5:
+            attrs = dict(pose_h5.attrs)
+            attrs['poseest'] = dict(pose_h5['poseest'].attrs)
+            return attrs
 
