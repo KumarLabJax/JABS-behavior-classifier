@@ -18,7 +18,6 @@ from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
-from src.utils import hash_file
 
 _PREDICTION_FILE_VERSION = 1
 
@@ -124,13 +123,9 @@ class Project:
             vinfo = {}
             if video in video_metadata:
                 nidentities = video_metadata[video].get('identities')
-                pose_hash = video_metadata[video].get('pose_hash')
-                vid_hash = video_metadata[video].get('vid_hash')
                 vinfo = video_metadata[video]
             else:
                 nidentities = None
-                pose_hash = None
-                vid_hash = None
 
             # if the number of identities is not cached in the project metadata,
             # open the pose file to get it
@@ -141,16 +136,6 @@ class Project:
                     get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
-
-            # we are currently computing a hash on video and pose files, so
-            # we can check to see if they've changed since the project was
-            # first initialized
-            # we are not currently using this!
-            if pose_hash is None:
-                vinfo['pose_hash'] = self.hash_file(
-                    get_pose_path(self.video_path(video)))
-            if vid_hash is None:
-                vinfo['vid_hash'] = self.hash_file(self.video_path(video))
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
