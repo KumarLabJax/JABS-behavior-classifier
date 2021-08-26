@@ -1,4 +1,5 @@
 import math
+import typing
 from pathlib import Path
 
 import h5py
@@ -126,7 +127,7 @@ class IdentityFeatures:
     half_fov_deg = 120
 
     def __init__(self, source_file, identity, directory, pose_est, force=False,
-                 fps=30, distance_scale_factor=1):
+                 fps=30, distance_scale_factor: typing.Optional[float] = None):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -141,7 +142,7 @@ class IdentityFeatures:
         :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
         :param distance_scale_factor: set to cm_per_pixel to convert pixel
-        distances into cm, defaults to 1 (keep pixel distances)
+        distances into cm, defaults to None (do not scale pixel coordinates)
         """
 
         self._num_frames = pose_est.num_frames
@@ -220,7 +221,8 @@ class IdentityFeatures:
         # compute the features that we need to iterate over frames to do
         # (pairwise point distances, angles, social distances)
         for frame in range(pose_est.num_frames):
-            points, mask = pose_est.get_points(frame, self._identity)
+            points, mask = pose_est.get_points(frame, self._identity,
+                                               self._distance_scale_factor)
 
             if points is not None:
                 self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
@@ -241,7 +243,7 @@ class IdentityFeatures:
                                 other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
 
                                 if other_shape is not None:
-                                    curr_dist = self_shape.distance(other_shape) * self._distance_scale_factor
+                                    curr_dist = self_shape.distance(other_shape)
                                     if closest_dist is None or curr_dist < closest_dist:
                                         self._closest_identities[frame] = curr_id
                                         self._per_frame['closest_distances'][frame] = curr_dist
@@ -270,7 +272,10 @@ class IdentityFeatures:
 
                         if self._closest_identities[frame] != -1:
                             closest_points, _ = pose_est.get_points(
-                                frame, self._closest_identities[frame])
+                                frame,
+                                self._closest_identities[frame],
+                                self._distance_scale_factor
+                            )
                             social_pt_indexes = [idx.value for idx in self._social_point_subset]
                             social_pairwise_distances = self._compute_social_pairwise_distance(
                                 points[social_pt_indexes, ...],
@@ -279,7 +284,10 @@ class IdentityFeatures:
 
                         if self._closest_fov_identities[frame] != -1:
                             closest_points, _ = pose_est.get_points(
-                                frame, self._closest_fov_identities[frame])
+                                frame,
+                                self._closest_fov_identities[frame],
+                                self._distance_scale_factor
+                            )
                             social_pt_indexes = [idx.value for idx in self._social_point_subset]
                             social_pairwise_distances = self._compute_social_pairwise_distance(
                                 points[social_pt_indexes, ...],
@@ -289,7 +297,8 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        poses, point_mask = pose_est.get_identity_poses(self._identity)
+        poses, point_mask = pose_est.get_identity_poses(
+            self._identity, self._distance_scale_factor)
         self._per_frame['point_speeds'] = self._compute_point_speeds(
             poses, point_mask)
 
@@ -316,7 +325,7 @@ class IdentityFeatures:
             v = np.gradient(points, indexes, axis=0)
 
             # compute magnitude and direction of velocities
-            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps * self._distance_scale_factor
+            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
             d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
             # subtract animal bearing from orientation
@@ -1064,8 +1073,8 @@ class IdentityFeatures:
         for i in range(0, len(points)):
             p1 = points[i]
             for p2 in points[i + 1:]:
-                dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
-                distances.append(dist * self._distance_scale_factor)
+                dist = math.dist(p1, p2)
+                distances.append(dist)
         return distances
 
     def _compute_social_pairwise_distance(self, points1, points2):
@@ -1080,8 +1089,8 @@ class IdentityFeatures:
 
         for p1 in points1:
             for p2 in points2:
-                dist = math.hypot(int(p1[0]) - int(p2[0]), int(p1[1]) - int(p2[1]))
-                distances.append(dist * self._distance_scale_factor)
+                dist = math.dist(p1, p2)
+                distances.append(dist)
 
         return distances
 
@@ -1246,7 +1255,7 @@ class IdentityFeatures:
                     valid_indexes, axis=0)
 
         # convert the velocities to speed and convert units
-        speeds = np.linalg.norm(point_velocities, axis=-1) * self._fps * self._distance_scale_factor
+        speeds = np.linalg.norm(point_velocities, axis=-1) * self._fps
 
         # smooth speeds
         for point_index in range(speeds.shape[1]):
@@ -1286,7 +1295,8 @@ class IdentityFeatures:
         return velocities * fps
 
     def __compute_point_velocities(self, pose_est, point_index, bearings):
-        points, mask = pose_est.get_identity_poses(self._identity)
+        points, mask = pose_est.get_identity_poses(self._identity,
+                                                   self._distance_scale_factor)
 
         # get an array of the indexes where this point exists
         indexes = np.arange(self._num_frames)[mask[:, point_index] == 1]
@@ -1303,9 +1313,7 @@ class IdentityFeatures:
             v = np.gradient(points, indexes, axis=0)
 
             # compute magnitude of velocities
-            # convert from pixels/frame to cm/s or pixel/s depending on
-            # distance_scale_factor
-            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps * self._distance_scale_factor
+            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
 
             # compute the orientation, and adjust based on the animal's bearing
             d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180

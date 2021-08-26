@@ -68,20 +68,25 @@ class PoseEstimation(ABC):
         return self._hash
 
     @abstractmethod
-    def get_points(self, frame_index, identity):
+    def get_points(self, frame_index: int, identity: int,
+                   scale: typing.Optional[float]):
         """
         return points and point masks for an individual frame
         :param frame_index: frame index of points and masks to be returned
         :param identity: identity to return points for
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
         :return: numpy array of points (12,2), numpy array of point masks (12,)
         """
         pass
 
     @abstractmethod
-    def get_identity_poses(self, identity):
+    def get_identity_poses(self, identity: int, scale: typing.Optional[float]):
         """
         return all points and point masks
         :param identity: identity to return points for
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
         :return: numpy array of points (#frames, 12, 2), numpy array of point
         masks (#frames, 12)
         """

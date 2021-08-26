@@ -127,7 +127,6 @@ class PoseEstimationV3(PoseEstimation):
                 init_func, (self._max_instances, self._num_frames), dtype=np.int_)
 
             if self._cache_dir is not None:
-                print("writing cache")
                 with h5py.File(cache_file_path, 'w') as cache_h5:
                     cache_h5.attrs['version'] = self.__CACHE_FILE_VERSION
                     cache_h5.attrs['source_pose_hash'] = self.hash
@@ -154,23 +153,42 @@ class PoseEstimationV3(PoseEstimation):
     def format_major_version(self):
         return 3
 
-    def get_points(self, frame_index, identity):
+    def get_points(self, frame_index: int, identity: int,
+                   scale: typing.Optional[float] = None):
         """
         get points and mask for an identity for a given frame
         :param frame_index: index of frame
         :param identity: identity that we want the points for
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
         :return: points, mask if identity has data for this frame
         """
 
         if not self._identity_mask[identity, frame_index]:
             return None, None
 
-        return (
-            self._points[identity, frame_index, ...],
-            self._point_mask[identity, frame_index, :]
-        )
+        if scale is not None:
+            return (
+                self._points[identity, frame_index, ...] * scale,
+                self._point_mask[identity, frame_index, :]
+            )
+        else:
+            return (
+                self._points[identity, frame_index, ...],
+                self._point_mask[identity, frame_index, :]
+            )
 
-    def get_identity_poses(self, identity):
+    def get_identity_poses(self, identity: int,
+                           scale: typing.Optional[float] = None):
+        """
+        return all points and point masks
+        :param identity: included for compatibility with pose_est_v3. Should
+        always be zero.
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
+        :return: numpy array of points (#frames, 12, 2), numpy array of point
+        masks (#frames, 12)
+        """
         return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):

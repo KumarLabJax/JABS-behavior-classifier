@@ -75,24 +75,49 @@ class PoseEstimationV4(PoseEstimation):
     def format_major_version(self):
         return 4
 
-    def get_points(self, frame_index, identity):
+    def get_points(self, frame_index: int, identity: int,
+                   scale: typing.Optional[float] = None):
         """
         get points and mask for an identity for a given frame
         :param frame_index: index of frame
         :param identity: identity that we want the points for
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
         :return: points, mask if identity has data for this frame
         """
 
         if not self._identity_mask[identity, frame_index]:
             return None, None
 
-        return (
-            self._points[identity, frame_index, ...],
-            self._point_mask[identity, frame_index, :]
-        )
+        if scale is not None:
+            return (
+                self._points[identity, frame_index, ...] * scale,
+                self._point_mask[identity, frame_index, :]
+            )
+        else:
+            return (
+                self._points[identity, frame_index, ...],
+                self._point_mask[identity, frame_index, :]
+            )
 
-    def get_identity_poses(self, identity):
-        return self._points[identity, ...], self._point_mask[identity, ...]
+    def get_identity_poses(self, identity: int,
+                           scale: typing.Optional[float] = None):
+        """
+        return all points and point masks
+        :param identity: included for compatibility with pose_est_v3. Should
+        always be zero.
+        :param scale: optional scale factor, set to cm_per_pixel to convert
+        poses from pixel coordinates to cm coordinates
+        :return: numpy array of points (#frames, 12, 2), numpy array of point
+        masks (#frames, 12)
+        """
+        if scale is not None:
+            return (
+                self._points[identity, ...] * scale,
+                self._point_mask[identity, ...]
+            )
+        else:
+            return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
         return self._identity_mask[identity,:]
