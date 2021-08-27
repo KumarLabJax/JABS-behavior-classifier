@@ -147,9 +147,14 @@ class IdentityFeatures:
 
         self._num_frames = pose_est.num_frames
         self._fps = fps
-        self._distance_scale_factor = distance_scale_factor
         self._pose_hash = pose_est.hash
         self._identity = identity
+
+        # make sure distance_scale_factor is a float, passing 1 instead of 1.0
+        # for using pixel units would cause some computations to use integer
+        # rather than floating point
+        self._distance_scale_factor = float(distance_scale_factor)
+
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
                 Path(source_file).stem /
@@ -1133,6 +1138,7 @@ class IdentityFeatures:
         :param c: point
         :return: angle between AB and BC
         """
+
         angle = math.degrees(
             math.atan2(c[1] - b[1], c[0] - b[0]) -
             math.atan2(a[1] - b[1], a[0] - b[0])
