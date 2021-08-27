@@ -13,7 +13,7 @@ from src.classifier import Classifier, ClassifierType
 from src.cli import cli_progress_bar
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
-from src.project import Project, load_training_data
+from src.project import Project, load_training_data, ProjectDistanceUnit
 
 DEFAULT_FPS = 30
 
@@ -69,6 +69,16 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
     if use_social and str(input_pose_file).endswith('v2.h5'):
         print(f"Skipping {input_pose_file}")
         print("  classifier requires v3 or higher pose files")
+        return
+
+    distance_scale_factor = 1.0
+    if classifier.distance_unit == ProjectDistanceUnit.CM:
+        if pose_est.cm_per_pixel is None:
+            print(f"Skipping {input_pose_file}")
+            print("  classifier uses cm distance units but pose file does not have cm_per_pixel attribute")
+            return
+        else:
+            distance_scale_factor = pose_est.cm_per_pixel
 
     print(f"Classifying {input_pose_file}...")
 
@@ -78,7 +88,8 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                          complete_as_percent=False, suffix='identities')
 
         features = IdentityFeatures(
-            input_pose_file, curr_id, feature_dir, pose_est, fps=fps
+            input_pose_file, curr_id, feature_dir, pose_est, fps=fps,
+            distance_scale_factor=distance_scale_factor
         ).get_features(window_size, use_social)
 
         data = Classifier.combine_data(
@@ -148,6 +159,7 @@ def train(
     print(f"  Classifier Type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
     print(f"  Window Size: {training_file['window_size']}")
     print(f"  Social: {training_file['has_social_features']}")
+    print(f"  Distance Unit: {training_file['distance_unit'].name}")
 
     training_features = classifier.combine_data(training_file['per_frame'],
                                                 training_file['window'])
@@ -159,6 +171,7 @@ def train(
         behavior,
         training_file['window_size'],
         training_file['has_social_features'],
+        training_file['distance_unit'],
         random_seed=training_file['training_seed']
     )
 
@@ -260,19 +273,19 @@ def classify_main():
         behavior = classifier.behavior_name
         window_size = classifier.window_size
         use_social = classifier.uses_social
+        distance_unit = classifier.distance_unit
 
         print(f"Classifying using trained classifier: {args.classifier}")
-        print(f"  behavior: {behavior}")
-        print(f"  window_size: {window_size}")
+        try:
+            print(
+                f"  Classifier type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
+        except KeyError:
+            sys.exit("Error: Classifier type not supported on this platform")
+        print(f"  Behavior: {behavior}")
+        print(f"  Window Size: {window_size}")
+        print(f"  Social: {use_social}")
+        print(f"  Distance Unit: {distance_unit.name}")
 
-        if args.classifier_type is not None:
-            print(f"  classifier type: {args.classifier_type}")
-            classifier.set_classifier(args.classifier_type)
-        else:
-            try:
-                print(f"  classifier type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
-            except KeyError:
-                sys.exit("Error: Classifier type not supported on this platform")
         classify_pose(classifier, in_pose_path, out_dir, behavior, window_size,
                       use_social, fps=args.fps, feature_dir=args.feature_dir)
 

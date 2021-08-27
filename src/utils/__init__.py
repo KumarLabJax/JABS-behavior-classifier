@@ -1,4 +1,4 @@
-from .utilities import hide_stderr
+from .utilities import hide_stderr, hash_file
 
 # a hard coded random seed used for the final training done with all
 # training data before saving the classifier

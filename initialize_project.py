@@ -26,12 +26,29 @@ def generate_files_worker(params: dict):
     project = params['project']
     pose_est = project.load_pose_est(
         project.video_path(params['video']))
-    features = src.feature_extraction.IdentityFeatures(params['video'], params['identity'],
-                                project.feature_dir,
-                                pose_est, force=params['force'])
 
+    if params['force_pixel_distance'] or project.distance_unit == src.project.ProjectDistanceUnit.PIXEL:
+        distance_scale_factor = 1
+    else:
+        distance_scale_factor = pose_est.cm_per_pixel
+
+    features = src.feature_extraction.IdentityFeatures(
+        params['video'], params['identity'], project.feature_dir, pose_est,
+        force=params['force'], distance_scale_factor=distance_scale_factor)
+
+    # unlike per frame features, window features are not automatically
+    # generated when opening the file. They are computed as needed based
+    # on the requested window size. Force each window size to be
+    # pre-computed by fetching it
     for w in params['window_sizes']:
-        _ = features.get_window_features(w, force=params['force'])
+
+        # get the social features if they are supported, although this doesn't
+        # matter with current implementation, as they are always computed if
+        # the file supports them, they are just not included in the returned
+        # features if this param is false
+        use_social = pose_est.format_major_version > 2
+        _ = features.get_window_features(w, use_social,
+                                         force=params['force'])
 
     for identity in pose_est.identities:
         _ = pose_est.get_identity_convex_hulls(identity)
@@ -103,6 +120,9 @@ def main():
                              "window size is specified, a default of "
                              f"{DEFAULT_WINDOW_SIZE} will "
                              "be used.")
+    parser.add_argument('--force-pixel-distances', action='store_true',
+                        help="use pixel distances when computing features "
+                             "even if project supports cm")
     parser.add_argument('project_dir', type=Path)
     args = parser.parse_args()
 
@@ -184,6 +204,8 @@ def main():
     project = src.project.Project(args.project_dir)
     total_identities = project.total_project_identities
 
+    distance_unit = project.distance_unit
+
     def feature_job_producer():
         """ producer for Pool.imap_unordered """
         for video in project.videos:
@@ -194,7 +216,8 @@ def main():
                     'identity': identity,
                     'project': project,
                     'force': args.force,
-                    'window_sizes': window_sizes
+                    'window_sizes': window_sizes,
+                    'force_pixel_distance': args.force_pixel_distances
                 })
 
     # print the initial progress bar with 0% complete
@@ -216,6 +239,16 @@ def main():
     deduped_window_sizes = set(
         project_metadata.get('window_sizes', []) + window_sizes)
     project.save_metadata({'window_sizes': list(deduped_window_sizes)})
+
+    print('\n' + '-' * 70)
+    if args.force_pixel_distances:
+        print("computed features using pixel distances")
+    elif distance_unit == src.project.ProjectDistanceUnit.PIXEL:
+        print("One or more pose files did not have the cm_per_pixel attribute")
+        print(" Falling back to using pixel distances")
+    else:
+        print("computed features using CM distances")
+    print('-' * 70)
 
 
 if __name__ == '__main__':

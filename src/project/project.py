@@ -1,5 +1,5 @@
+import enum
 import gzip
-import hashlib
 import json
 import re
 import shutil
@@ -12,7 +12,7 @@ import numpy as np
 
 import src.feature_extraction as fe
 from src.pose_estimation import get_pose_path, open_pose_file, \
-    get_frames_from_file
+    get_frames_from_file, PoseEstimation
 from src.project import TrackLabels
 from src.version import version_str
 from src.video_stream import VideoStream
@@ -20,6 +20,11 @@ from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 1
+
+
+class ProjectDistanceUnit(enum.IntEnum):
+    CM = 1
+    PIXEL = 2
 
 
 class Project:
@@ -118,13 +123,9 @@ class Project:
             vinfo = {}
             if video in video_metadata:
                 nidentities = video_metadata[video].get('identities')
-                pose_hash = video_metadata[video].get('pose_hash')
-                vid_hash = video_metadata[video].get('vid_hash')
                 vinfo = video_metadata[video]
             else:
                 nidentities = None
-                pose_hash = None
-                vid_hash = None
 
             # if the number of identities is not cached in the project metadata,
             # open the pose file to get it
@@ -135,11 +136,6 @@ class Project:
                     get_pose_path(self.video_path(video)), self._cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo['identities'] = nidentities
-            if pose_hash is None:
-                vinfo['pose_hash'] = self.__hash_file(
-                    get_pose_path(self.video_path(video)))
-            if vid_hash is None:
-                vinfo['vid_hash'] = self.__hash_file(self.video_path(video))
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
@@ -153,6 +149,20 @@ class Project:
             pose_path = get_pose_path(vid_path)
             if pose_path.name.endswith('v2.h5'):
                 self._can_use_social = False
+                break
+
+        # determine if project should use cm or pixels as units for
+        # distance-based features
+        self._distance_unit = ProjectDistanceUnit.CM
+        for vid in self._videos:
+            attrs = PoseEstimation.get_pose_file_attributes(
+                get_pose_path(self.video_path(vid)))
+            cm_per_pixel = attrs['poseest'].get('cm_per_pixel')
+
+            # this pose file does not have cm_per_pixel attribute,
+            # force the entire project to use pixel distances
+            if cm_per_pixel is None:
+                self._distance_unit = ProjectDistanceUnit.PIXEL
                 break
 
     @property
@@ -200,6 +210,10 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
+
+    @property
+    def distance_unit(self):
+        return self._distance_unit
 
     def load_video_labels(self, video_name):
         """
@@ -593,9 +607,15 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                features = fe.IdentityFeatures(video, identity,
-                                               self.feature_dir, pose_est,
-                                               fps=fps)
+                if self._distance_unit == ProjectDistanceUnit.CM:
+                    distance_scale_factor = pose_est.cm_per_pixel
+                else:
+                    distance_scale_factor = 1
+
+                features = fe.IdentityFeatures(
+                    video, identity, self.feature_dir, pose_est, fps=fps,
+                    distance_scale_factor=distance_scale_factor
+                )
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
@@ -628,18 +648,6 @@ class Project:
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
         }, group_mapping
-
-    @staticmethod
-    def __hash_file(file: Path):
-        """ return hash """
-        chunk_size = 8192
-        with file.open('rb') as f:
-            h = hashlib.blake2b(digest_size=20)
-            c = f.read(chunk_size)
-            while c:
-                h.update(c)
-                c = f.read(chunk_size)
-        return h.hexdigest()
 
     def __update_version(self):
         """ update the version number saved in project metadata """

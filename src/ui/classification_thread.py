@@ -1,6 +1,7 @@
 import numpy as np
 from PySide2 import QtCore
 
+from src.project import ProjectDistanceUnit
 from src.feature_extraction import IdentityFeatures
 from src.video_stream.utilities import get_fps
 
@@ -50,14 +51,20 @@ class ClassifyThread(QtCore.QThread):
             probabilities[video] = {}
             frame_indexes[video] = {}
 
+            if self._project.distance_unit == ProjectDistanceUnit.CM:
+                distance_scale_factor = pose_est.cm_per_pixel
+            else:
+                distance_scale_factor = 1
+
             for ident in pose_est.identities:
                 self.current_status.emit(
                     f"Classifying {video},  Identity {ident}")
 
                 # get the features for this identity
-                features = IdentityFeatures(video, ident,
-                                            self._project.feature_dir,
-                                            pose_est, fps=fps)
+                features = IdentityFeatures(
+                    video, ident, self._project.feature_dir, pose_est, fps=fps,
+                    distance_scale_factor=distance_scale_factor
+                )
                 identity = str(ident)
                 feature_values = features.get_features(
                     self._window_size, self._classifier.uses_social)
