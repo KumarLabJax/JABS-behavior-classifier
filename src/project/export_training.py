@@ -110,6 +110,7 @@ def load_training_data(training_file: Path):
             'window_size': int,
             'has_social_features': bool,
             'behavior': str,
+            'distance_unit': ProjectDistanceUnit,
             'classifier':
         }
 

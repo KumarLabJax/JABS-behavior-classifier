@@ -71,7 +71,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         print("  classifier requires v3 or higher pose files")
         return
 
-    distance_scale_factor = 1
+    distance_scale_factor = 1.0
     if classifier.distance_unit == ProjectDistanceUnit.CM:
         if pose_est.cm_per_pixel is None:
             print(f"Skipping {input_pose_file}")
