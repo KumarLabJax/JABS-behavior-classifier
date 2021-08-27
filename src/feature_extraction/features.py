@@ -127,7 +127,7 @@ class IdentityFeatures:
     half_fov_deg = 120
 
     def __init__(self, source_file, identity, directory, pose_est, force=False,
-                 fps=30, distance_scale_factor: typing.Optional[float] = None):
+                 fps=30, distance_scale_factor: float = 1.0):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -142,7 +142,7 @@ class IdentityFeatures:
         :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
         :param distance_scale_factor: set to cm_per_pixel to convert pixel
-        distances into cm, defaults to None (do not scale pixel coordinates)
+        distances into cm, defaults to 1.0 (do not scale pixel coordinates)
         """
 
         self._num_frames = pose_est.num_frames
@@ -1134,9 +1134,9 @@ class IdentityFeatures:
         :return: angle between AB and BC
         """
         angle = math.degrees(
-            math.atan2(int(c[1]) - int(b[1]),
-                       int(c[0]) - int(b[0])) - math.atan2(
-                int(a[1]) - int(b[1]), int(a[0]) - int(b[0])))
+            math.atan2(c[1] - b[1], c[0] - b[0]) -
+            math.atan2(a[1] - b[1], a[0] - b[0])
+        )
         return angle + 360 if angle < 0 else angle
 
     @classmethod
