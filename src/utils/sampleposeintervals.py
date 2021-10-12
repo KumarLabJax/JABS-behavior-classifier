@@ -14,7 +14,56 @@ import random
 #       --out-frame-count 9000 \
 #       --start-frame 54000 \
 #       --pose-version 3
+#
+#   share_root='/media/sheppk/TOSHIBA EXT/rotta-data/UCSD_Rotta_TS_v2-vidcache'
+#   python src/utils/sampleposeintervals.py \
+#       --batch-file "${share_root}/batch.txt" \
+#       --root-dir "${share_root}" \
+#       --out-dir UCSD_Rotta_TS_v2-intervals-2021-05-25 \
+#       --out-frame-count 9000 \
+#       --start-frame 27000 \
+#       --pose-version 3
 
+#   python src/utils/sampleposeintervals.py \
+#       --batch-file ~/projects/social-interaction/data/bxd-batch-early-morning-2021-06-09.txt \
+#       --root-dir '/run/user/1000/gvfs/smb-share:server=bht2stor.jax.org,share=vkumar' \
+#       --out-dir bxd-batch-early-morning-2021-06-09 \
+#       --out-frame-count 9000 \
+#       --start-frame 54000 \
+#       --pose-version 3
+
+#   python src/utils/sampleposeintervals.py \
+#       --batch-file temp/B6J-and-BTBR-3M-strangers-4-day-rand-2021-05-24.txt \
+#       --root-dir '/media/sheppk/TOSHIBA EXT/rotta-data/B6J-and-BTBR-3M-strangers-4-day-rand-2021-05-24' \
+#       --out-dir B6J-and-BTBR-3M-strangers-4-day-rand-samples-2021-05-24 \
+#       --out-frame-count 3600 \
+#       --start-frame 6000 \
+#       --pose-version 3
+
+#   python src/utils/sampleposeintervals.py \
+#       --batch-file temp/B6J-and-BTBR-3M-strangers-4-day-rand-2021-05-24.txt \
+#       --root-dir '/media/sheppk/TOSHIBA EXT/rotta-data/B6J_and_BTBR_3M_stranger_4day_2021-07-20' \
+#       --out-dir temp/B6J-and-BTBR-3M-strangers-4-day-rand-samples-2021-08-05 \
+#       --out-frame-count 3600 \
+#       --start-frame 6000 \
+#       --only-pose \
+#       --pose-version 4
+
+#   rclone copy --transfers 4 --progress \
+#       --include-from /home/sheppk/projects/behavior-classifier/temp/BTBR_3M_stranger_4day-subset-avi.txt \
+#       "labdropbox:/KumarLab's shared workspace/VideoData/MDS_Tests/BTBR_3M_stranger_4day" \
+#       /media/sheppk/TOSHIBA\ EXT/BTBR_3M_stranger_4day-2021-08-24
+#   rclone copy --transfers 4 --progress \
+#       --include-from /home/sheppk/projects/behavior-classifier/temp/BTBR_3M_stranger_4day-subset-pose.txt \
+#       /home/sheppk/sshfs/winterproj/bgeuther/IdentityInfer/Data/BTBR_3M_stranger_4day \
+#       /media/sheppk/TOSHIBA\ EXT/BTBR_3M_stranger_4day-2021-08-24
+#   python src/utils/sampleposeintervals.py \
+#       --batch-file /media/sheppk/TOSHIBA\ EXT/BTBR_3M_stranger_4day-2021-08-24/batch.txt \
+#       --root-dir /media/sheppk/TOSHIBA\ EXT/BTBR_3M_stranger_4day-2021-08-24 \
+#       --out-dir /media/sheppk/TOSHIBA\ EXT/BTBR_3M_stranger_4day-2021-08-24-samples \
+#       --out-frame-count 3600 \
+#       --start-frame 6000 \
+#       --pose-version 4
 
 def main():
     parser = argparse.ArgumentParser()
@@ -53,7 +102,7 @@ def main():
         help='give the integer version number that should be used for pose',
         default=2,
         type=int,
-        choices=(2, 3),
+        choices=(2, 3, 4),
     )
     parser.add_argument(
         '--only-pose',
@@ -67,6 +116,8 @@ def main():
         pose_suffix = '_pose_est_v2.h5'
     elif args.pose_version == 3:
         pose_suffix = '_pose_est_v3.h5'
+    elif args.pose_version == 4:
+        pose_suffix = '_pose_est_v4.h5'
     else:
         raise NotImplementedError('pose version not implemented: ' + str(args.pose_version))
 
@@ -80,6 +131,14 @@ def main():
                 vid_path = os.path.join(args.root_dir, vid_filename)
                 vid_path_root, _ = os.path.splitext(vid_path)
                 pose_in_path = vid_path_root + pose_suffix
+
+                if not args.only_pose and not os.path.isfile(vid_path):
+                    print('WARNING: missing video path:', vid_path)
+                    continue
+
+                if not os.path.isfile(pose_in_path):
+                    print('WARNING: missing pose path:', pose_in_path)
+                    continue
 
                 with h5py.File(pose_in_path, 'r') as pose_in:
                     frame_count = pose_in['poseest']['confidence'].shape[0]
@@ -104,10 +163,14 @@ def main():
                     pose_out_path = vid_out_path_root + '_' + str(out_start_frame_index + 1) + pose_suffix
 
                     with h5py.File(pose_out_path, 'w') as pose_out:
+
+                        # pose v2 stuff
                         start = out_start_frame_index
                         stop = start + args.out_frame_count
                         pose_out['poseest/points'] = pose_in['poseest/points'][start:stop, ...]
                         pose_out['poseest/confidence'] = pose_in['poseest/confidence'][start:stop, ...]
+
+                        # pose v3 stuff
                         if 'instance_count' in pose_in['poseest']:
                             pose_out['poseest/instance_count'] = pose_in['poseest/instance_count'][start:stop, ...]
                         if 'instance_embedding' in pose_in['poseest']:
@@ -116,6 +179,16 @@ def main():
                             pose_out['poseest/instance_track_id'] = pose_in['poseest/instance_track_id'][start:stop, ...]
                         if 'version' in pose_in['poseest'].attrs:
                             pose_out['poseest'].attrs['version'] = pose_in['poseest'].attrs['version']
+
+                        # pose v4 stuff
+                        if 'id_mask' in pose_in['poseest']:
+                            pose_out['poseest/id_mask'] = pose_in['poseest/id_mask'][start:stop, ...]
+                        if 'identity_embeds' in pose_in['poseest']:
+                            pose_out['poseest/identity_embeds'] = pose_in['poseest/identity_embeds'][start:stop, ...]
+                        if 'instance_embed_id' in pose_in['poseest']:
+                            pose_out['poseest/instance_embed_id'] = pose_in['poseest/instance_embed_id'][start:stop, ...]
+                        if 'instance_id_center' in pose_in['poseest']:
+                            pose_out['poseest/instance_id_center'] = pose_in['poseest/instance_id_center'][:]
 
                     cap = None
                     writer = None
