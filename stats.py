@@ -20,6 +20,13 @@ def main():
     )
 
     parser.add_argument(
+        '-k',
+        help='the parameter controlling the maximum number of iterations.'
+             ' Default is to iterate over all leave-one-out possibilities.',
+        type=int,
+    )
+
+    parser.add_argument(
         'training',
         help='training data HDF5 file',
     )
@@ -41,7 +48,10 @@ def main():
     fbeta_behavior = []
     fbeta_notbehavior = []
 
-    for i, data in enumerate(data_generator):
+    iter_count = 0
+    for i, data in enumerate(itertools.islice(data_generator, args.k)):
+        iter_count += 1
+
         test_info = group_mapping[data['test_group']]
 
         # train classifier, and then use it to classify our test data
@@ -95,24 +105,27 @@ def main():
                 features['has_social_features']),
             10)
 
-    print('\n' + '=' * 70)
-    print("SUMMARY\n")
-    print(tabulate(table_rows, showindex="always", headers=[
-        "accuracy", "precision\n(not behavior)",
-        "precision\n(behavior)", "recall\n(not behavior)",
-        "recall\n(behavior)", "f beta score\n(not behavior)",
-        "f beta score\n(behavior)",
-        "test - leave one out:\n(video [identity])"]))
+    if iter_count >= 1:
+        print('\n' + '=' * 70)
+        print("SUMMARY\n")
+        print(tabulate(table_rows, showindex="always", headers=[
+            "accuracy", "precision\n(not behavior)",
+            "precision\n(behavior)", "recall\n(not behavior)",
+            "recall\n(behavior)", "f beta score\n(not behavior)",
+            "f beta score\n(behavior)",
+            "test - leave one out:\n(video [identity])"]))
 
-    print(f"\nmean accuracy: {np.mean(accuracies):.5}")
-    print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
-    print("mean fbeta score (not behavior): "
-            f"{np.mean(fbeta_notbehavior):.5}")
-    print(f"\nClassifier: {classifier.classifier_name}")
-    print(f"Behavior: {features['behavior']}")
-    unit = "cm" if classifier.distance_unit == ProjectDistanceUnit.CM else "pixel"
-    print(f"Feature Distance Unit: {unit}")
-    print('-' * 70)
+        print(f"\nmean accuracy: {np.mean(accuracies):.5}")
+        print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
+        print("mean fbeta score (not behavior): "
+                f"{np.mean(fbeta_notbehavior):.5}")
+        print(f"\nClassifier: {classifier.classifier_name}")
+        print(f"Behavior: {features['behavior']}")
+        unit = "cm" if classifier.distance_unit == ProjectDistanceUnit.CM else "pixel"
+        print(f"Feature Distance Unit: {unit}")
+        print('-' * 70)
+    else:
+        print('No results calculated')
 
 
 if __name__ == "__main__":
