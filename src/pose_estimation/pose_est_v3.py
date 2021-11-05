@@ -189,7 +189,14 @@ class PoseEstimationV3(PoseEstimation):
         :return: numpy array of points (#frames, 12, 2), numpy array of point
         masks (#frames, 12)
         """
-        return self._points[identity, ...], self._point_mask[identity, ...]
+
+        if scale is not None:
+            return (
+                self._points[identity, ...] * scale,
+                self._point_mask[identity, ...]
+            )
+        else:
+            return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
         return self._identity_mask[identity, :]
