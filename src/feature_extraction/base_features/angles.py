@@ -3,10 +3,10 @@ import scipy.stats
 
 from src.feature_extraction.angle_index import AngleIndex
 from src.pose_estimation import PoseEstimation
-from src.feature_extraction.feature_set import FeatureSet
+from src.feature_extraction.feature_group import FeatureGroup
 
 
-class Angles(FeatureSet):
+class Angles(FeatureGroup):
 
     _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, high=360),
@@ -17,20 +17,21 @@ class Angles(FeatureSet):
         super().__init__(poses, pixel_scale)
         self._num_angles = len(AngleIndex)
 
-
     @property
     def name(self) -> str:
         return 'angles'
 
     @classmethod
-    def column_names(cls) -> [str]:
+    def feature_names(cls) -> dict:
         """
-        return list of angle names, where each name is formed from the
+        return angle names, where each name is formed from the
         three points used to compute the angle, where the middle point name is
         the vertex point. For example, given points a,b, and c the angle between
         ab anb bc would be named 'point-name-a_point-name-b_point-name-c'
         """
-        return [AngleIndex.get_angle_name(i.value) for i in AngleIndex]
+        return {
+            'angles': [AngleIndex.get_angle_name(i.value) for i in AngleIndex]
+        }
 
     def compute_per_frame(self, identity: int) -> np.ndarray:
         nframes = self._poses.num_frames
@@ -122,16 +123,20 @@ class Angles(FeatureSet):
     def compute_window(self, identity: int, window_size: int,
                        per_frame_values: np.ndarray) -> dict:
 
-        values = self._compute_window_features_circular(
-            per_frame_values, self._poses.identity_mask(identity), window_size,
-            self._window_operations)
+        values = {}
+
+        for op_name, op in self._window_operations.items():
+            values[op_name] = self._compute_window_features_circular(
+                per_frame_values, self._poses.identity_mask(identity),
+                window_size, op, op_name == 'std_dev')
 
         return {
             self.name: values
         }
 
     @staticmethod
-    def _compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+    def _compute_angles(
+            a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0]) -
             np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])

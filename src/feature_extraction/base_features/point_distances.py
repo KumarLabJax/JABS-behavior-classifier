@@ -1,11 +1,11 @@
 import numpy as np
 
 from src.pose_estimation import PoseEstimation
-from src.feature_extraction.feature_set import FeatureSet
+from src.feature_extraction.feature_group import FeatureGroup
 from src.utils.utilities import n_choose_r
 
 
-class PairwisePointDistances(FeatureSet):
+class PairwisePointDistances(FeatureGroup):
 
     _window_operations = {
         "mean": np.ma.mean,
@@ -24,7 +24,7 @@ class PairwisePointDistances(FeatureSet):
         return 'pairwise_distances'
 
     @classmethod
-    def column_names(cls) -> [str]:
+    def feature_names(cls) -> dict:
         """
         "distance_name_1-distance_name_2"
         """
@@ -34,7 +34,10 @@ class PairwisePointDistances(FeatureSet):
             p1 = point_names[i]
             for p2 in point_names[i + 1:]:
                 distances.append(f"{p1}-{p2}")
-        return distances
+
+        return {
+            'pairwise_distances': distances
+        }
 
     def compute_per_frame(self, identity: int) -> np.ndarray:
         values = np.zeros(
