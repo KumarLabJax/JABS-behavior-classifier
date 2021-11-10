@@ -9,7 +9,8 @@ from . import Angles, PairwisePointDistances, PointMask, PointSpeeds, \
     CentroidVelocityMag, CentroidVelocityDir, NoseVelocityDir, \
     NoseVelocityMag, BaseTailVelocityDir, BaseTailVelocityMag, \
     LeftFrontPawVelocityDir, LeftFrontPawVelocityMag, \
-    RightFrontPawVelocityDir, RightFrontPawVelocityMag
+    RightFrontPawVelocityDir, RightFrontPawVelocityMag, \
+    AngularVelocity
 
 
 class BaseFeatureGroup(FeatureGroup):
@@ -19,6 +20,7 @@ class BaseFeatureGroup(FeatureGroup):
     _features = {
         PairwisePointDistances.name(): PairwisePointDistances,
         Angles.name(): Angles,
+        AngularVelocity.name(): AngularVelocity,
         PointMask.name(): PointMask,
         PointSpeeds.name(): PointSpeeds,
         CentroidVelocityDir.name(): CentroidVelocityDir,

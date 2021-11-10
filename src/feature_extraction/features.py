@@ -10,6 +10,10 @@ from src.feature_extraction.angle_index import AngleIndex
 from src.utils.utilities import rolling_window, smooth, n_choose_r
 from src.pose_estimation import PoseEstimation, PoseHashException
 
+# import feature modules
+from .base_features import BaseFeatureGroup
+from .social_features import SocialFeatureGroup
+
 FEATURE_VERSION = 3
 
 
@@ -197,162 +201,18 @@ class IdentityFeatures:
         :return: None
         """
 
-        idx = PoseEstimation.KeypointIndex
-
-        # allocate memory
-        self._per_frame['pairwise_distances'] = np.zeros(
-            (self._num_frames, self._num_distances), dtype=np.float32)
-        self._per_frame['angles'] = np.zeros(
-            (self._num_frames, self._num_angles), dtype=np.float32)
-        for feature in self._per_frame_features:
-            if feature not in ['point_mask', 'angles', 'pairwise_distances',
-                               'point_speeds', 'angular_velocity']:
-                self._per_frame[feature] = np.zeros(self._num_frames,
-                                                    dtype=np.float32)
-
-        if self._compute_social_features:
-            for feature in self._per_frame_social_features:
-                if feature in ('social_pairwise_distances',
-                               'social_pairwise_fov_distances'):
-                    self._per_frame[feature] = np.zeros(
-                        (self._num_frames, self._num_social_distances),
-                        dtype=np.float32)
-                else:
-                    self._per_frame[feature] = np.zeros(
-                        self._num_frames,
-                        dtype=np.float32)
-
-        # compute the features that we need to iterate over frames to do
-        # (pairwise point distances, angles, social distances)
-        for frame in range(pose_est.num_frames):
-            points, mask = pose_est.get_points(frame, self._identity,
-                                               self._distance_scale_factor)
-
-            if points is not None:
-                self._per_frame['pairwise_distances'][frame] = self._compute_pairwise_distance(points)
-                self._per_frame['angles'][frame] = self._compute_angles(points)
-
-                if self._compute_social_features:
-                    # Find the distance and identity of the closest animal at each frame, as well
-                    # as the distance, identity and angle of the closes animal in field of view.
-                    # In order to calculate this we require that both animals have a valid
-                    # convex hull and the the self identity has a valid nose point and
-                    # base neck point (which is used to calculate FoV).
-                    self_shape = pose_est.get_identity_convex_hulls(self._identity)[frame]
-                    if self_shape is not None and mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
-                        closest_dist = None
-                        closest_fov_dist = None
-                        for curr_id in pose_est.identities:
-                            if curr_id != self._identity:
-                                other_shape = pose_est.get_identity_convex_hulls(curr_id)[frame]
-
-                                if other_shape is not None:
-                                    curr_dist = self_shape.distance(other_shape)
-                                    if closest_dist is None or curr_dist < closest_dist:
-                                        self._closest_identities[frame] = curr_id
-                                        self._per_frame['closest_distances'][frame] = curr_dist
-                                        closest_dist = curr_dist
-
-                                    self_base_neck_point = points[idx.BASE_NECK, :]
-                                    self_nose_point = points[idx.NOSE, :]
-                                    other_centroid = np.array(other_shape.centroid)
-
-                                    view_angle = self.compute_angle(
-                                        self_nose_point,
-                                        self_base_neck_point,
-                                        other_centroid)
-
-                                    # for FoV we want the range of view angle to be [180, -180)
-                                    if view_angle > 180:
-                                        view_angle -= 360
-
-                                    if abs(view_angle) <= self.half_fov_deg:
-                                        # other animal is in FoV
-                                        if closest_fov_dist is None or curr_dist < closest_fov_dist:
-                                            self._closest_fov_identities[frame] = curr_id
-                                            self._per_frame['closest_fov_distances'][frame] = curr_dist
-                                            self._per_frame['closest_fov_angles'][frame] = view_angle
-                                            closest_fov_dist = curr_dist
-
-                        if self._closest_identities[frame] != -1:
-                            closest_points, _ = pose_est.get_points(
-                                frame,
-                                self._closest_identities[frame],
-                                self._distance_scale_factor
-                            )
-                            social_pt_indexes = [idx.value for idx in self._social_point_subset]
-                            social_pairwise_distances = self._compute_social_pairwise_distance(
-                                points[social_pt_indexes, ...],
-                                closest_points[social_pt_indexes, ...])
-                            self._per_frame['social_pairwise_distances'][frame] = social_pairwise_distances
-
-                        if self._closest_fov_identities[frame] != -1:
-                            closest_points, _ = pose_est.get_points(
-                                frame,
-                                self._closest_fov_identities[frame],
-                                self._distance_scale_factor
-                            )
-                            social_pt_indexes = [idx.value for idx in self._social_point_subset]
-                            social_pairwise_distances = self._compute_social_pairwise_distance(
-                                points[social_pt_indexes, ...],
-                                closest_points[social_pt_indexes, ...])
-                            self._per_frame['social_pairwise_fov_distances'][frame] = social_pairwise_distances
-
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        poses, point_mask = pose_est.get_identity_poses(
-            self._identity, self._distance_scale_factor)
-        self._per_frame['point_speeds'] = self._compute_point_speeds(
-            poses, point_mask)
+        base_features = BaseFeatureGroup(pose_est, self._distance_scale_factor)
+        self._per_frame = base_features.per_frame(self._identity)
 
-        bearings = pose_est.compute_all_bearings(self._identity)
-        self._per_frame['angular_velocity'] = \
-            smooth(self._compute_angular_velocities(bearings, self._fps),
-                   smoothing_window=5)
+        if self._compute_social_features:
+            social_features = SocialFeatureGroup(pose_est,
+                                                 self._distance_scale_factor)
+            self._per_frame.update(social_features.per_frame(self._identity))
 
-        # compute the velocity of the center of mass.
-        # first, grab convex hulls for this identity
-        convex_hulls = pose_est.get_identity_convex_hulls(self._identity)
-
-        # get an array of the indexes of valid frames only
-        indexes = np.arange(self._num_frames)[self._frame_valid == 1]
-
-        # get centroids for all frames where this identity is present
-        centroids = [convex_hulls[i].centroid for i in indexes]
-
-        # convert to numpy array of x,y points of the centroids
-        points = np.asarray([[p.x, p.y] for p in centroids])
-
-        if points.shape[0] > 1:
-            # compute x,y velocities, pass indexes so numpy can figure out spacing
-            v = np.gradient(points, indexes, axis=0)
-
-            # compute magnitude and direction of velocities
-            self._per_frame['centroid_velocity_mag'][indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
-            d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
-
-            # subtract animal bearing from orientation
-            # convert angle to range -180 to 180
-            self._per_frame['centroid_velocity_dir'][indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
-
-        self._per_frame['nose_velocity_mag'], self._per_frame['nose_velocity_dir'] = \
-            self.__compute_point_velocities(pose_est,
-                                            PoseEstimation.KeypointIndex.NOSE,
-                                            bearings)
-        self._per_frame['base_tail_velocity_mag'], self._per_frame['base_tail_velocity_dir'] = \
-            self.__compute_point_velocities(pose_est,
-                                            PoseEstimation.KeypointIndex.BASE_TAIL,
-                                            bearings)
-        self._per_frame['left_front_paw_velocity_mag'], self._per_frame['left_front_paw_velocity_dir'] = \
-            self.__compute_point_velocities(pose_est,
-                                            PoseEstimation.KeypointIndex.LEFT_FRONT_PAW,
-                                            bearings)
-        self._per_frame['right_front_paw_velocity_mag'], self._per_frame[
-            'right_front_paw_velocity_dir'] = \
-            self.__compute_point_velocities(pose_est,
-                                            PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW,
-                                            bearings)
+        print(self._per_frame.keys())
 
         if self._identity_feature_dir is not None:
             self.__save_per_frame()

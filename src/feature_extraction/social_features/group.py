@@ -10,11 +10,11 @@ class SocialFeatureGroup(FeatureGroup):
 
     # build dictionary mapping feature name to class that implements it
     _features = {
-        ClosestDistances.name: ClosestDistances,
-        ClosestFovAngles.name: ClosestFovAngles,
-        ClosestFovDistances.name: ClosestFovDistances,
-        PairwiseSocialDistances.name: PairwiseSocialDistances,
-        PairwiseSocialFovDistances.name: PairwiseSocialFovDistances
+        ClosestDistances.name(): ClosestDistances,
+        ClosestFovAngles.name(): ClosestFovAngles,
+        ClosestFovDistances.name(): ClosestFovDistances,
+        PairwiseSocialDistances.name(): PairwiseSocialDistances,
+        PairwiseSocialFovDistances.name(): PairwiseSocialFovDistances
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

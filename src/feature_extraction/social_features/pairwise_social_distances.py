@@ -68,9 +68,7 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
     rather than closest_identities
     """
 
-    @property
-    def name(self) -> str:
-        return 'social_pairwise_fov_distances'
+    _name = 'social_pairwise_fov_distances'
 
     @property
     def feature_names(self) -> typing.List[str]:

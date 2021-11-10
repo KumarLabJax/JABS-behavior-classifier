@@ -1,4 +1,5 @@
 from .angles import Angles
+from .angular_velocity import AngularVelocity
 from .pairwise_distances import PairwisePointDistances
 from .point_mask import PointMask
 from .point_speeds import PointSpeeds
