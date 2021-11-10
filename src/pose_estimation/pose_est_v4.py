@@ -14,7 +14,9 @@ class PoseEstimationV4(PoseEstimation):
 
     __CACHE_FILE_VERSION = 1
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
+    def __init__(self, file_path: Path,
+                 cache_dir: typing.Optional[Path] = None,
+                 fps: int = 30):
         """
         :param file_path: Path object representing the location of the pose file
         """
@@ -83,6 +85,7 @@ class PoseEstimationV4(PoseEstimation):
         :param identity: identity that we want the points for
         :param scale: optional scale factor, set to cm_per_pixel to convert
         poses from pixel coordinates to cm coordinates
+        :param fps: video frames per second
         :return: points, mask if identity has data for this frame
         """
 

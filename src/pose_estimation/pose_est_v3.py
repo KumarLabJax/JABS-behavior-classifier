@@ -19,11 +19,13 @@ class PoseEstimationV3(PoseEstimation):
 
     __CACHE_FILE_VERSION = 2
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
+    def __init__(self, file_path: Path,
+                 cache_dir: typing.Optional[Path] = None,
+                 fps: int = 30):
         """
         :param file_path: Path object representing the location of the pose file
         """
-        super().__init__(file_path, cache_dir)
+        super().__init__(file_path, cache_dir, fps)
 
         self._identity_to_track = None
         self._identity_map = None

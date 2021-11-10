@@ -1,6 +1,5 @@
 import abc
 import typing
-from abc import ABC
 
 import numpy as np
 
@@ -8,54 +7,88 @@ from src.utils.utilities import rolling_window
 from src.pose_estimation import PoseEstimation
 
 
-class FeatureGroup(ABC):
+class Feature(abc.ABC):
     """
     Abstract Base Class to define a common interface for classes that implement
     one or more related features
     """
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float = 1.0):
+    # each subclass needs to define this name
+    _name = None
+
+    # _compute_window_feature uses numpy masked arrays, so we
+    # need to use the np.ma.* versions of these functions
+    # NOTE: Circular values need to override this as well as the window()
+    _window_operations = {
+        "mean": np.ma.mean,
+        "median": np.ma.median,
+        "std_dev": np.ma.std,
+        "max": np.ma.amax,
+        "min": np.ma.amin
+    }
+
+    def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
         self._pixel_scale = pixel_scale
+        if self._name is None:
+            raise NotImplementedError(
+                "Base class must override _name class member")
+
+    @classmethod
+    def name(cls) -> str:
+        """ return a string name of the feature """
+        return cls._name
 
     @property
     @abc.abstractmethod
-    def name(self) -> str:
-        """ return a string name of the feature group """
-        pass
-
-    @classmethod
-    @abc.abstractmethod
-    def feature_names(cls) -> dict:
+    def feature_names(self) -> typing.List[str]:
         """
-        return a dict of feature names, where each key in the dictionary is a
-        feature set name (for example 'pairwise_distances') and the value is
-        a list of strings containing the names of the features for that
-        feature set (for example, for pairwise distances
-        ['LEFT_EAR-LEFT_FRONT_PAW', ...])
+        return a list of strings containing the names of the features for the
+        feature set
         """
         pass
 
     @abc.abstractmethod
-    def compute_per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> np.ndarray:
         """
-        each FeatureGroup subclass will implement this to compute the
-        features in the group
+        each FeatureSet ubclass will implement this to compute the
+        features in the set
 
-        returns a dictionary where each key is a feature set in the group. A
-        feature set could be a single feature, where it would be a 1D numpy
-        ndarray, or it could be a set of related features (for example the
-        pairwise point distances, which is a 2D ndarray where each row
-        corresponds to the frame index, and each column is one of the point
-        distances)
+        returns an ndarray containing the feature values.
+        The feature set could be a single feature, where this would be a 1D
+        numpy ndarray, or it could be a 2D ndarray for a set of related
+        features (for example the pairwise point distances, which is a 2D
+        ndarray where each row corresponds to the frame index, and each column
+        is one of the pairwise point distances)
         """
         pass
 
-    @abc.abstractmethod
-    def compute_window(self, identity: int, window_size: int,
-                       per_frame_values: np.ndarray) -> dict:
-        pass
+    def window(self, identity: int, window_size: int,
+               per_frame_values: np.ndarray) -> typing.Dict:
+        """
+        standard method for computing window feature values
+
+        NOTE: some features may need to override this (for example, those with
+        circular values such as angles)
+        """
+        values = {}
+        for op in self._window_operations:
+            values[op] = self._compute_window_feature(
+                per_frame_values, self._poses.identity_mask(identity),
+                window_size, self._window_operations[op]
+            )
+        return values
+
+    def _window_circular(self, identity: int, window_size: int,
+                         per_frame_values: np.ndarray) -> typing.Dict:
+
+        values = {}
+        for op_name, op in self._window_operations.items():
+            values[op_name] = self._compute_window_features_circular(
+                per_frame_values, self._poses.identity_mask(identity),
+                window_size, op, op_name == 'std_dev')
+        return values
 
     @staticmethod
     def window_width(window_size: int) -> int:
@@ -123,7 +156,7 @@ class FeatureGroup(ABC):
             self, feature_values: np.ndarray, frame_mask: np.ndarray,
             window_size: int, op: typing.Callable,
             scipy_workaround: bool = False
-    ) -> dict:
+    ) -> typing.Dict:
         """
         special case compute_window_features for circular measurements
 

@@ -1,39 +1,38 @@
+import typing
+
 import numpy as np
 import scipy.stats
 
 from src.feature_extraction.angle_index import AngleIndex
 from src.pose_estimation import PoseEstimation
-from src.feature_extraction.feature_group import FeatureGroup
+from src.feature_extraction.feature_base_class import Feature
 
 
-class Angles(FeatureGroup):
+class Angles(Feature):
 
+    _name = 'angles'
+
+    # override for circular values
     _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, high=360),
         "std_dev": lambda x: scipy.stats.circstd(x, high=360),
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float = 1.0):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._num_angles = len(AngleIndex)
 
     @property
-    def name(self) -> str:
-        return 'angles'
-
-    @classmethod
-    def feature_names(cls) -> dict:
+    def feature_names(self) -> typing.List[str]:
         """
         return angle names, where each name is formed from the
         three points used to compute the angle, where the middle point name is
         the vertex point. For example, given points a,b, and c the angle between
         ab anb bc would be named 'point-name-a_point-name-b_point-name-c'
         """
-        return {
-            'angles': [AngleIndex.get_angle_name(i.value) for i in AngleIndex]
-        }
+        return [f'angle {AngleIndex.get_angle_name(i.value)}' for i in AngleIndex]
 
-    def compute_per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> np.ndarray:
         nframes = self._poses.num_frames
         values = np.zeros((nframes, self._num_angles), dtype=np.float32)
 
@@ -116,27 +115,26 @@ class Angles(FeatureGroup):
                 poses[:, PoseEstimation.KeypointIndex.TIP_TAIL]
             )
 
-        return {
-            self.name: values
-        }
+        return values
 
-    def compute_window(self, identity: int, window_size: int,
-                       per_frame_values: np.ndarray) -> dict:
-
-        values = {}
-
-        for op_name, op in self._window_operations.items():
-            values[op_name] = self._compute_window_features_circular(
-                per_frame_values, self._poses.identity_mask(identity),
-                window_size, op, op_name == 'std_dev')
-
-        return {
-            self.name: values
-        }
+    def window(self, identity: int, window_size: int,
+               per_frame_values: np.ndarray) -> dict:
+        # need to override to use special method for computing window features
+        # with circular values
+        return self._window_circular(identity, window_size, per_frame_values)
 
     @staticmethod
     def _compute_angles(
-            a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+            a: np.ndarray, b: np.ndarray, c: np.ndarray
+    ) -> np.ndarray:
+        """
+        compute angles for a set of points
+        :param a: array of point coordinates
+        :param b: array of vertex point coordinates
+        :param c: array of point coordinates
+        :return: array containing angles, in degrees, formed from the lines
+        ab and ba for each row in a, b, and c
+        """
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0]) -
             np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])
