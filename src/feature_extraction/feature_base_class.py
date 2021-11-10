@@ -16,6 +16,8 @@ class Feature(abc.ABC):
     # each subclass needs to define this name
     _name = None
 
+    _SMOOTHING_WINDOW = 5
+
     # _compute_window_feature uses numpy masked arrays, so we
     # need to use the np.ma.* versions of these functions
     # NOTE: Circular values need to override this as well as the window()

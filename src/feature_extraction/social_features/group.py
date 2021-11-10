@@ -20,9 +20,6 @@ class SocialFeatureGroup(FeatureGroup):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-        # by default, all features are turned on
-        self._config = list(self._features.keys())
-
     def _init_feature_mods(self, identity: int):
         """
         initialize all of the feature modules specified in the current config

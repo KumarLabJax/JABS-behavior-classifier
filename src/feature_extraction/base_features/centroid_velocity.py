@@ -7,47 +7,14 @@ from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
 
 
-class CentroidVelocityMag(Feature):
-
-    _name = 'centroid_velocity_mag'
-
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
-        super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['centroid_velocity_mag']
-
-    def per_frame(self, identity: int) -> np.ndarray:
-        values = np.zeros(self._poses.num_frames, dtype=np.float32)
-        fps = self._poses.fps
-        frame_valid = self._poses.get_identity_point_mask(identity)
-
-        # compute the velocity of the center of mass.
-        # first, grab convex hulls for this identity
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-
-        # get an array of the indexes of valid frames only
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-
-        # get centroids for all frames where this identity is present
-        centroids = [convex_hulls[i].centroid for i in indexes]
-
-        # convert to numpy array of x,y points of the centroids
-        points = np.asarray([[p.x, p.y] for p in centroids])
-
-        if points.shape[0] > 1:
-            # compute x,y velocities, pass indexes so numpy can figure out spacing
-            v = np.gradient(points, indexes, axis=0)
-
-            # compute magnitude and direction of velocities
-            values[indexes] = np.sqrt(
-                np.square(v[:, 0]) + np.square(v[:, 1])) * fps
-
-        return values
-
+# TODO: merge CentroidVelocityMag and CentroidVelocityDir into a single feature
+#  with a 2D numpy array of values
+# these are currently separate features in the features file, so we keep them
+# separate here for ease of implementation, but this results in duplicated
+# work computing each feature. Fix at next update to feature h5 file format.
 
 class CentroidVelocityDir(Feature):
+    """ feature for the direction of the center of mass velocity """
 
     _name = 'centroid_velocity_dir'
 
@@ -67,7 +34,7 @@ class CentroidVelocityDir(Feature):
     def per_frame(self, identity: int) -> np.ndarray:
         values = np.zeros(self._poses.num_frames, dtype=np.float32)
         bearings = self._poses.compute_all_bearings(identity)
-        frame_valid = self._poses.get_identity_point_mask(identity)
+        frame_valid = self._poses.identity_mask(identity)
 
         # compute the velocity of the center of mass.
         # first, grab convex hulls for this identity
@@ -83,7 +50,8 @@ class CentroidVelocityDir(Feature):
         points = np.asarray([[p.x, p.y] for p in centroids])
 
         if points.shape[0] > 1:
-            # compute x,y velocities, pass indexes so numpy can figure out spacing
+            # compute x,y velocities
+            # pass indexes so numpy can figure out spacing
             v = np.gradient(points, indexes, axis=0)
 
             # compute direction of velocities
@@ -91,7 +59,48 @@ class CentroidVelocityDir(Feature):
 
             # subtract animal bearing from orientation
             # convert angle to range -180 to 180
-            values[indexes][indexes] = (((d - bearings[
-                indexes]) + 360) % 360) - 180
+            values[indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
+
+        return values
+
+
+class CentroidVelocityMag(Feature):
+    """ feature for the magnitude of the center of mass velocity """
+
+    _name = 'centroid_velocity_mag'
+
+    def __init__(self, poses: PoseEstimation, pixel_scale: float):
+        super().__init__(poses, pixel_scale)
+
+    @property
+    def feature_names(self) -> typing.List[str]:
+        return ['centroid_velocity_mag']
+
+    def per_frame(self, identity: int) -> np.ndarray:
+        values = np.zeros(self._poses.num_frames, dtype=np.float32)
+        fps = self._poses.fps
+        frame_valid = self._poses.identity_mask(identity)
+
+        # compute the velocity of the center of mass.
+        # first, grab convex hulls for this identity
+        convex_hulls = self._poses.get_identity_convex_hulls(identity)
+
+        # get an array of the indexes of valid frames only
+        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
+
+        # get centroids for all frames where this identity is present
+        centroids = [convex_hulls[i].centroid for i in indexes]
+
+        # convert to numpy array of x,y points of the centroids
+        points = np.asarray([[p.x, p.y] for p in centroids])
+
+        if points.shape[0] > 1:
+            # compute x,y velocities
+            # pass indexes so numpy can figure out spacing
+            v = np.gradient(points, indexes, axis=0)
+
+            # compute magnitude of velocities
+            values[indexes] = np.sqrt(
+                np.square(v[:, 0]) + np.square(v[:, 1])) * fps
 
         return values

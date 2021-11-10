@@ -16,6 +16,8 @@ class FeatureGroup(abc.ABC):
         self._poses = poses
         self._pixel_scale = pixel_scale
 
+        # _features above defines all features that are part of this group,
+        # but self._config lists which features are currently enabled
         # by default, all features are turned on
         self._config = list(self._features.keys())
 

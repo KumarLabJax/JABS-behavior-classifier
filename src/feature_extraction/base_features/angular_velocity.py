@@ -9,7 +9,6 @@ from src.utils.utilities import smooth
 
 class AngularVelocity(Feature):
 
-    _SMOOTHING_WINDOW = 5
     _name = 'angular_velocity'
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

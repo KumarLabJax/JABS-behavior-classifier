@@ -199,6 +199,19 @@ class PoseEstimation(ABC):
                 bearings[i] = self.compute_bearing(points)
         return bearings
 
+    def compute_all_bearings2(self, identity):
+        bearings = np.zeros(self.num_frames, dtype=np.float32)
+        # get an array of the indexes of valid frames only
+        indexes = np.arange(self._num_frames)[self.identity_mask(identity) == 1]
+        poses, _ = self.get_identity_poses(identity)
+        base_tail = poses[indexes, self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
+        base_neck = poses[indexes, self.KeypointIndex.BASE_NECK.value].astype(np.float32)
+        offsets = base_neck - base_tail
+
+        angle_rad = np.arctan2(offsets[:, 1], offsets[:, 0])
+        bearings[indexes] = angle_rad * (180 / np.pi)
+        return bearings
+
     @staticmethod
     def get_pose_file_attributes(path: Path) -> dict:
         with h5py.File(path, 'r') as pose_h5:
