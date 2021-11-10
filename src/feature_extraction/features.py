@@ -212,8 +212,6 @@ class IdentityFeatures:
                                                  self._distance_scale_factor)
             self._per_frame.update(social_features.per_frame(self._identity))
 
-        print(self._per_frame.keys())
-
         if self._identity_feature_dir is not None:
             self.__save_per_frame()
 
