@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 
 import h5py
@@ -7,7 +6,7 @@ import scipy.stats
 
 import src.project.track_labels
 from src.feature_extraction.angle_index import AngleIndex
-from src.utils.utilities import rolling_window, smooth, n_choose_r
+from src.utils.utilities import n_choose_r
 from src.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
@@ -39,9 +38,6 @@ class IdentityFeatures:
         PoseEstimation.KeypointIndex.BASE_TAIL,
     ]
 
-    _num_distances = n_choose_r(len(PoseEstimation.KeypointIndex), 2)
-    _num_social_distances = len(_social_point_subset) ** 2
-    _num_angles = len(AngleIndex)
     _version = FEATURE_VERSION
 
     # The operations that are performed on windows of per-frame features to
@@ -164,14 +160,14 @@ class IdentityFeatures:
                 str(self._identity)
         )
         self._compute_social_features = pose_est.format_major_version >= 3
+
+        self._feature_modules = [
+            BaseFeatureGroup(pose_est, self._distance_scale_factor)
+        ]
         if self._compute_social_features:
-            self._closest_identities = np.full(self._num_frames, -1,
-                                               dtype=np.int16)
-            self._closest_fov_identities = np.full(self._num_frames, -1,
-                                                   dtype=np.int16)
-        else:
-            self._closest_identities = None
-            self._closest_fov_identities = None
+            self._feature_modules.append(
+                SocialFeatureGroup(pose_est, self._distance_scale_factor))
+
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -204,13 +200,8 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        base_features = BaseFeatureGroup(pose_est, self._distance_scale_factor)
-        self._per_frame = base_features.per_frame(self._identity)
-
-        if self._compute_social_features:
-            social_features = SocialFeatureGroup(pose_est,
-                                                 self._distance_scale_factor)
-            self._per_frame.update(social_features.per_frame(self._identity))
+        for feature_module in self._feature_modules:
+            self._per_frame.update(feature_module.per_frame(self._identity))
 
         if self._identity_feature_dir is not None:
             self.__save_per_frame()
@@ -440,7 +431,7 @@ class IdentityFeatures:
         else:
             feature_intersection = set(self._window_features)
 
-        feature_intersection &= set(features.keys())
+        #feature_intersection &= set(features.keys())
 
         if labels is None:
             final_features = features
@@ -565,181 +556,11 @@ class IdentityFeatures:
         }
         """
 
-        max_window_size = 2 * window_size + 1
-
         window_features = {}
-        for feature in self._window_features:
-            window_features[feature] = {}
 
-        # allocate arrays
-        for operation in self._window_feature_operations_circular:
-            window_features['angles'][operation] = np.zeros(
-                [self._num_frames, self._num_angles], dtype=np.float32)
-            window_features['centroid_velocity_dir'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['nose_velocity_dir'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['base_tail_velocity_dir'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['left_front_paw_velocity_dir'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['right_front_paw_velocity_dir'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
+        for feature_module in self._feature_modules:
+            window_features.update(feature_module.window(self._identity, window_size, self._per_frame))
 
-        for operation in self._window_feature_operations:
-            window_features['pairwise_distances'][operation] = np.zeros(
-                [self._num_frames, self._num_distances], dtype=np.float32)
-            window_features['point_speeds'][operation] = np.zeros(
-                [self._num_frames, len(PoseEstimation.KeypointIndex)],
-                dtype=np.float32)
-            window_features['angular_velocity'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['centroid_velocity_mag'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['nose_velocity_mag'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['base_tail_velocity_mag'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['left_front_paw_velocity_mag'][operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-            window_features['right_front_paw_velocity_mag'][
-                operation] = np.zeros(
-                self._num_frames, dtype=np.float32)
-
-        # allocate arrays for social
-        if self._compute_social_features:
-            for feature_name in self._window_social_features:
-                window_features[feature_name] = {}
-                if feature_name in ('social_pairwise_distances', 'social_pairwise_fov_distances'):
-                    for operation in self._window_feature_operations:
-                        window_features[feature_name][operation] = np.zeros(
-                            (self._num_frames, self._num_social_distances),
-                            dtype=np.float32)
-                else:
-                    if feature_name in self._circular_features:
-                        operations = self._window_feature_operations_circular
-                    elif feature_name in self._circular_features_2:
-                        operations = self._window_feature_operations_circular_2
-                    else:
-                        operations = self._window_feature_operations
-                    for operation in operations:
-                        window_features[feature_name][operation] = np.zeros(
-                            self._num_frames, dtype=np.float32)
-
-        mask = np.full(self._num_frames, 1)
-        mask[self._frame_valid == 1] = 0
-        window_masks = rolling_window(
-            np.pad(mask, window_size, 'constant', constant_values=(1)),
-            max_window_size
-        )
-
-        if self._compute_social_features:
-            full_window_features = self._window_features + self._window_social_features
-        else:
-            full_window_features = self._window_features
-
-        for op_name, op in self._window_feature_operations.items():
-            for feature_name in full_window_features:
-                if feature_name in self._circular_features + self._circular_features_2:
-                    # these get handled elsewhere
-                    continue
-
-                if self._per_frame[feature_name].ndim == 1:
-                    windows = rolling_window(
-                        np.pad(self._per_frame[feature_name], window_size),
-                        max_window_size
-                    )
-                    mx = np.ma.masked_array(windows, window_masks)
-                    window_features[feature_name][op_name][:] = op(mx, axis=1)
-                else:
-                    for j in range(self._per_frame[feature_name].shape[1]):
-                        windows = rolling_window(
-                            np.pad(self._per_frame[feature_name][:, j], window_size),
-                            max_window_size
-                        )
-                        mx = np.ma.masked_array(windows, window_masks)
-                        window_features[feature_name][op_name][:, j] = op(mx, axis=1)
-
-        # compute circular window features
-        for i in range(self._num_frames):
-
-            # identity doesn't exist for this frame don't bother to compute
-            if not self._frame_valid[i]:
-                continue
-
-            slice_start = max(0, i - window_size)
-            slice_end = min(i + window_size + 1, self._num_frames)
-
-            frame_valid = self._frame_valid[slice_start:slice_end]
-
-            # compute window features for angles
-            for angle_index in range(0, self._num_angles):
-                window_values = self._per_frame['angles'][slice_start:slice_end,
-                                angle_index][frame_valid == 1]
-                for op_name, op in self._window_feature_operations_circular.items():
-                    if op_name == 'std_dev':
-                        # XXX
-                        # scipy.stats.circstd has a bug that can result in nan
-                        # and a warning message to stderr if passed an array of
-                        # nearly identical values
-                        # this will be fixed when 1.6.0 is released, so this
-                        # work-around can be removed once we can upgrade to
-                        # scipy 1.6.0
-                        # our work around is to suppress the warning and replace
-                        # the nan with 0
-                        with np.errstate(invalid='ignore'):
-                            val = op(window_values)
-                        if np.isnan(val):
-                            window_features['angles'][op_name][i, angle_index] = 0.0
-                        else:
-                            window_features['angles'][op_name][i, angle_index] = val
-                    else:
-                        window_features['angles'][op_name][i, angle_index] = op(window_values)
-
-            # compute window features for point velocity orientations
-            for feature in ['centroid_velocity_dir',
-                            'nose_velocity_dir',
-                            'base_tail_velocity_dir',
-                            'left_front_paw_velocity_dir',
-                            'right_front_paw_velocity_dir']:
-                for op_name, op in self._window_feature_operations_circular_2.items():
-                    window_values = self._per_frame[feature][slice_start:slice_end][frame_valid == 1]
-                    if op_name == 'std_dev':
-                        # see comment for std_dev above
-                        with np.errstate(invalid='ignore'):
-                            val = op(window_values)
-                        if np.isnan(val):
-                            window_features[feature][op_name][i] = 0.0
-                        else:
-                            window_features[feature][op_name][i] = val
-                    else:
-                        window_features[feature][op_name][i] = op(window_values)
-
-            # handle circular social features
-            if self._compute_social_features:
-                for feature_name in self._window_social_features:
-                    window_values = self._per_frame[feature_name][slice_start:slice_end, ...]
-                    assert window_values.ndim == 1 or window_values.ndim == 2
-                    if feature_name in self._circular_features:
-                        operations = self._window_feature_operations_circular
-                    elif feature_name in self._circular_features_2:
-                        operations = self._window_feature_operations_circular_2
-                    else:
-                        continue
-                    for op_name, op in operations.items():
-                        if op_name == 'std_dev':
-                            # XXX see comment above for explanation
-                            with np.errstate(invalid='ignore'):
-                                val = op(window_values[frame_valid == 1])
-                            if np.isnan(val):
-                                window_features[feature_name][
-                                    op_name][i] = 0
-                            else:
-                                window_features[feature_name][
-                                    op_name][i] = val
-                        else:
-                            window_features[feature_name][op_name][i] = op(
-                                window_values[frame_valid == 1])
         return window_features
 
     @classmethod
@@ -925,37 +746,6 @@ class IdentityFeatures:
 
         return merged
 
-    def _compute_pairwise_distance(self, points):
-        """
-        compute distances between all pairs of points
-        :param points: collection of points
-        :return: list of distances between all pairwise combinations of points
-        """
-        distances = []
-        for i in range(0, len(points)):
-            p1 = points[i]
-            for p2 in points[i + 1:]:
-                dist = math.dist(p1, p2)
-                distances.append(dist)
-        return distances
-
-    def _compute_social_pairwise_distance(self, points1, points2):
-        """
-        compute distances between all pairs of points
-        :param points1: 1st collection of points
-        :param points2: 2st collection of points
-        :return: list of distances between all pairwise combinations of points
-            from points1 and points2
-        """
-        distances = []
-
-        for p1 in points1:
-            for p2 in points2:
-                dist = math.dist(p1, p2)
-                distances.append(dist)
-
-        return distances
-
     @staticmethod
     def get_distance_names():
         """
@@ -986,202 +776,3 @@ class IdentityFeatures:
                 dist_names.append(f"{kpi1.name}-{kpi2.name}")
         return dist_names
 
-    @staticmethod
-    def compute_angle(a, b, c):
-        """
-        compute angle created by three connected points
-        :param a: point
-        :param b: vertex point
-        :param c: point
-        :return: angle between AB and BC
-        """
-
-        angle = math.degrees(
-            math.atan2(c[1] - b[1], c[0] - b[0]) -
-            math.atan2(a[1] - b[1], a[0] - b[0])
-        )
-        return angle + 360 if angle < 0 else angle
-
-    @classmethod
-    def _compute_angles(cls, keypoints):
-        """
-        compute angles between a subset of connected points.
-
-        :param keypoints: 12 keypoints from pose estimation
-        :return: numpy float array of computed angles, see AngleIndex enum for order
-        """
-        idx = PoseEstimation.KeypointIndex
-        angles = np.empty(cls._num_angles, dtype=np.float32)
-
-        angles[AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW] = cls.compute_angle(
-            keypoints[idx.NOSE],
-            keypoints[idx.BASE_NECK],
-            keypoints[idx.RIGHT_FRONT_PAW]
-        )
-
-        angles[AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW] = cls.compute_angle(
-            keypoints[idx.NOSE],
-            keypoints[idx.BASE_NECK],
-            keypoints[idx.LEFT_FRONT_PAW]
-        )
-
-        angles[AngleIndex.RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls.compute_angle(
-            keypoints[idx.RIGHT_FRONT_PAW],
-            keypoints[idx.BASE_NECK],
-            keypoints[idx.CENTER_SPINE]
-        )
-
-        angles[AngleIndex.LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = cls.compute_angle(
-            keypoints[idx.LEFT_FRONT_PAW],
-            keypoints[idx.BASE_NECK],
-            keypoints[idx.CENTER_SPINE]
-        )
-
-        angles[AngleIndex.BASE_NECK_CENTER_SPINE_BASE_TAIL] = cls.compute_angle(
-            keypoints[idx.BASE_NECK],
-            keypoints[idx.CENTER_SPINE],
-            keypoints[idx.BASE_TAIL]
-        )
-
-        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls.compute_angle(
-            keypoints[idx.RIGHT_REAR_PAW],
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.CENTER_SPINE]
-        )
-
-        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = cls.compute_angle(
-            keypoints[idx.LEFT_REAR_PAW],
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.CENTER_SPINE]
-        )
-
-        angles[AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls.compute_angle(
-            keypoints[idx.RIGHT_REAR_PAW],
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.MID_TAIL]
-        )
-
-        angles[AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL] = cls.compute_angle(
-            keypoints[idx.LEFT_REAR_PAW],
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.MID_TAIL]
-        )
-
-        angles[AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL] = cls.compute_angle(
-            keypoints[idx.CENTER_SPINE],
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.MID_TAIL]
-        )
-
-        angles[AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL] = cls.compute_angle(
-            keypoints[idx.BASE_TAIL],
-            keypoints[idx.MID_TAIL],
-            keypoints[idx.TIP_TAIL]
-        )
-
-        return angles
-
-    def _compute_point_speeds(self, poses, point_masks):
-        """
-        compute point speeds for post currently selected identity
-        :param poses: pose estimations for an identity
-        :param point_masks: corresponding point masks for poses
-        :param fps: frames per second
-        :return: numpy array with shape (#frames, #key points)
-        """
-
-        num_frames = poses.shape[0]
-
-        # generate an array of indexes so numpy gradient will know the spacing
-        # between values since there may be gaps
-        # should we convert to time based values rather than frame numbers?
-        indexes = np.arange(num_frames)
-        point_velocities = np.zeros(poses.shape)
-
-        # calculate velocities for each point
-        for point_index in range(poses.shape[1]):
-
-            # grab all of the values for this point
-            points = poses[:, point_index, :]
-
-            # get the mask for each point too
-            masks = point_masks[:, point_index]
-
-            # and the indexes for the frames where the mask == 1
-            valid_indexes = indexes[masks == 1]
-
-            # if there are > 1 frame indexes where this point is valid, compute
-            # the velocities
-            if valid_indexes.shape[0] > 1:
-                point_velocities[masks == 1, point_index, :] = np.gradient(
-                    points[masks == 1],
-                    valid_indexes, axis=0)
-
-        # convert the velocities to speed and convert units
-        speeds = np.linalg.norm(point_velocities, axis=-1) * self._fps
-
-        # smooth speeds
-        for point_index in range(speeds.shape[1]):
-            speeds[:, point_index] = smooth(speeds[:, point_index],
-                                            smoothing_window=3)
-        return speeds
-
-    @staticmethod
-    def _compute_angular_velocities(angles, fps):
-        velocities = np.zeros_like(angles)
-
-        for i in range(len(angles) - 1):
-
-            angle1 = angles[i]
-            angle1 = angle1 % 360
-            if angle1 < 0:
-                angle1 += 360
-
-            angle2 = angles[i + 1]
-            angle2 = angle2 % 360
-            if angle2 < 0:
-                angle2 += 360
-
-            diff1 = angle2 - angle1
-            abs_diff1 = abs(diff1)
-            diff2 = (360 + angle2) - angle1
-            abs_diff2 = abs(diff2)
-            diff3 = angle2 - (360 + angle1)
-            abs_diff3 = abs(diff3)
-
-            if abs_diff1 <= abs_diff2 and abs_diff1 <= abs_diff3:
-                velocities[i] = diff1
-            elif abs_diff2 <= abs_diff3:
-                velocities[i] = diff2
-            else:
-                velocities[i] = diff3
-        return velocities * fps
-
-    def __compute_point_velocities(self, pose_est, point_index, bearings):
-        points, mask = pose_est.get_identity_poses(self._identity,
-                                                   self._distance_scale_factor)
-
-        # get an array of the indexes where this point exists
-        indexes = np.arange(self._num_frames)[mask[:, point_index] == 1]
-
-        # get points where this point exists
-        points = points[indexes, point_index]
-
-        m = np.zeros(pose_est.num_frames, dtype=np.float32)
-        d = np.zeros(pose_est.num_frames, dtype=np.float32)
-
-        if indexes.shape[0] > 1:
-            # compute x,y velocities
-            # pass indexes so numpy can figure out spacing
-            v = np.gradient(points, indexes, axis=0)
-
-            # compute magnitude of velocities
-            m[indexes] = np.sqrt(np.square(v[:, 0]) + np.square(v[:, 1])) * self._fps
-
-            # compute the orientation, and adjust based on the animal's bearing
-            d[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[indexes]) + 360) % 360) - 180
-
-            m = smooth(m, smoothing_window=5)
-            d = smooth(d, smoothing_window=5)
-
-        return m, d

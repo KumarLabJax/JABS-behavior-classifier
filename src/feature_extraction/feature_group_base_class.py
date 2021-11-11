@@ -1,6 +1,5 @@
 import abc
-
-import numpy as np
+import typing
 
 from src.pose_estimation import PoseEstimation
 
@@ -29,7 +28,7 @@ class FeatureGroup(abc.ABC):
         }
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> dict:
+               per_frame_values: typing.Dict) -> typing.Dict:
         feature_modules = self._init_feature_mods(identity)
         return {
             name: mod.window(identity, window_size, per_frame_values[name]) for name, mod in
