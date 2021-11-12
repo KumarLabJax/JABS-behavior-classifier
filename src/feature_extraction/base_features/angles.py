@@ -1,5 +1,3 @@
-import typing
-
 import numpy as np
 import scipy.stats
 
@@ -9,6 +7,12 @@ from src.feature_extraction.feature_base_class import Feature
 
 
 class Angles(Feature):
+
+    """
+    this module computes joint angles
+    the result is a 2D numpy array with #frames rows, and #angles columns
+    (#angles different features for input to the classifier)
+    """
 
     _name = 'angles'
     _feature_names = [f'angle {AngleIndex.get_angle_name(i.value)}' for i in AngleIndex]
