@@ -3,4 +3,4 @@ from .closest_fov_distances import ClosestFovDistances
 from .closest_fov_angles import ClosestFovAngles
 from .pairwise_social_distances import PairwiseSocialDistances, \
     PairwiseSocialFovDistances
-from .group import SocialFeatureGroup
+from .social_group import SocialFeatureGroup
