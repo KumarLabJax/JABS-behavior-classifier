@@ -21,7 +21,7 @@ class PointVelocityDir(Feature, abc.ABC):
     _point_index = None
 
     # override for circular values
-    _window_operations_circular_2 = {
+    _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
         "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
     }
@@ -54,6 +54,12 @@ class PointVelocityDir(Feature, abc.ABC):
             values = smooth(values, smoothing_window=self._SMOOTHING_WINDOW)
 
         return values
+
+    def window(self, identity: int, window_size: int,
+               per_frame_values: np.ndarray) -> dict:
+        # need to override to use special method for computing window features
+        # with circular values
+        return self._window_circular(identity, window_size, per_frame_values)
 
 
 class PointVelocityMag(Feature, abc.ABC):
@@ -96,74 +102,54 @@ class NoseVelocityDir(PointVelocityDir):
     """ feature for the direction of the nose velocity """
 
     _name = 'nose_velocity_dir'
+    _feature_names = ['nose velocity direction']
     _point_index = PoseEstimation.KeypointIndex.NOSE
-
-    # override for circular values
-    _window_operations_circular_2 = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
-    }
-
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
-        super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['nose velocity direction']
 
 
 class NoseVelocityMag(PointVelocityMag):
     """ feature for the magnitude of the nose velocity """
 
     _name = 'nose_velocity_mag'
+    _feature_names = ['nose velocity magnitude']
     _point_index = PoseEstimation.KeypointIndex.NOSE
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['nose velocity magnitude']
 
 
 class BaseTailVelocityDir(PointVelocityDir):
     """ feature for the direction of the base_tail velocity """
 
     _name = 'base_tail_velocity_dir'
+    _feature_names = ['base tail velocity direction']
     _point_index = PoseEstimation.KeypointIndex.BASE_TAIL
 
     # override for circular values
-    _window_operations_circular_2 = {
+    _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
         "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['base tail velocity direction']
 
 
 class BaseTailVelocityMag(PointVelocityMag):
     """ feature for the magnitude of the base_tail velocity """
 
     _name = 'base_tail_velocity_mag'
+    _feature_names = ['base tail velocity magnitude']
     _point_index = PoseEstimation.KeypointIndex.BASE_TAIL
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['base tail velocity magnitude']
 
 
 class LeftFrontPawVelocityDir(PointVelocityDir):
     """ feature for the direction of the left front paw velocity """
 
     _name = 'left_front_paw_velocity_dir'
+    _feature_names = ['left front paw velocity direction']
     _point_index = PoseEstimation.KeypointIndex.LEFT_FRONT_PAW
 
     # override for circular values
@@ -174,30 +160,24 @@ class LeftFrontPawVelocityDir(PointVelocityDir):
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['left front paw velocity direction']
 
 
 class LeftFrontPawVelocityMag(PointVelocityMag):
     """ feature for the magnitude of the left front paw velocity """
 
     _name = 'left_front_paw_velocity_mag'
+    _feature_names = ['left front paw velocity magnitude']
     _point_index = PoseEstimation.KeypointIndex.LEFT_FRONT_PAW
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['left front paw velocity magnitude']
 
 
 class RightFrontPawVelocityDir(PointVelocityDir):
     """ feature for the direction of the right front paw velocity """
 
     _name = 'right_front_paw_velocity_dir'
+    _feature_names = ['right front paw velocity direction']
     _point_index = PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW
 
     # override for circular values
@@ -209,20 +189,13 @@ class RightFrontPawVelocityDir(PointVelocityDir):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['right front paw velocity direction']
-
 
 class RightFrontPawVelocityMag(PointVelocityMag):
     """ feature for the magnitude of the right front paw velocity """
 
     _name = 'right_front_paw_velocity_mag'
+    _feature_names = ['right front paw velocity magnitude']
     _point_index = PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['right front paw velocity magnitude']

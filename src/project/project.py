@@ -593,7 +593,7 @@ class Project:
         all_window = []
         all_labels = []
         all_groups = []
-
+        column_names = None
         group_mapping = {}
 
         group_id = 0
@@ -616,6 +616,9 @@ class Project:
                     video, identity, self.feature_dir, pose_est, fps=fps,
                     distance_scale_factor=distance_scale_factor
                 )
+                if column_names is None:
+                    column_names = features.get_feature_names(
+                        use_social_features)
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
@@ -647,6 +650,7 @@ class Project:
                 all_per_frame, use_social_features),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
+            'column_names': column_names
         }, group_mapping
 
     def __update_version(self):

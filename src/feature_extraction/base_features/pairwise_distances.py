@@ -7,27 +7,27 @@ from src.feature_extraction.feature_base_class import Feature
 from src.utils.utilities import n_choose_r
 
 
+def _init_feature_names() -> typing.List[str]:
+    """
+    "distance_name_1-distance_name_2"
+    """
+    distances = []
+    point_names = [p.name for p in PoseEstimation.KeypointIndex]
+    for i in range(0, len(point_names)):
+        p1 = point_names[i]
+        for p2 in point_names[i + 1:]:
+            distances.append(f"{p1}-{p2}")
+    return distances
+
+
 class PairwisePointDistances(Feature):
 
     _name = 'pairwise_distances'
+    _feature_names = _init_feature_names()
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._num_distances = n_choose_r(len(PoseEstimation.KeypointIndex), 2)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        """
-        "distance_name_1-distance_name_2"
-        """
-        distances = []
-        point_names = [p.name for p in PoseEstimation.KeypointIndex]
-        for i in range(0, len(point_names)):
-            p1 = point_names[i]
-            for p2 in point_names[i + 1:]:
-                distances.append(f"{p1}-{p2}")
-
-        return distances
 
     def per_frame(self, identity: int) -> np.ndarray:
         values = np.zeros(

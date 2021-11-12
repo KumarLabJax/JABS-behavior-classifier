@@ -10,13 +10,10 @@ from src.utils.utilities import smooth
 class AngularVelocity(Feature):
 
     _name = 'angular_velocity'
+    _feature_names = ['angular_velocity']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['angular_velocity']
 
     def per_frame(self, identity: int) -> np.ndarray:
         fps = self._poses.fps

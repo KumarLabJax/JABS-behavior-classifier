@@ -12,15 +12,12 @@ if typing.TYPE_CHECKING:
 class ClosestDistances(Feature):
 
     _name = 'closest_distances'
+    _feature_names = ['closest social distance']
 
     def __init__(self, poses: 'PoseEstimation', pixel_scale: float,
                  social_distance_info: 'ClosestIdentityInfo'):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['closest social distance']
 
     def per_frame(self, identity: int) -> np.ndarray:
         return self._social_distance_info.compute_distances(

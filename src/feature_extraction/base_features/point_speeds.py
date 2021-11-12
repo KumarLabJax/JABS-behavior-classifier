@@ -10,13 +10,10 @@ from src.utils.utilities import smooth
 class PointSpeeds(Feature):
 
     _name = 'point_speeds'
+    _feature_names = [f"{p.name} speed" for p in PoseEstimation.KeypointIndex]
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return [f"{p.name} speed" for p in PoseEstimation.KeypointIndex]
 
     def per_frame(self, identity: int) -> np.ndarray:
         num_frames = self._poses.num_frames

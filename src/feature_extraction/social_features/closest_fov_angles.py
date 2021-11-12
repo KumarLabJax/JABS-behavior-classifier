@@ -13,9 +13,10 @@ if typing.TYPE_CHECKING:
 class ClosestFovAngles(Feature):
 
     _name = 'closest_fov_angles'
+    _feature_names =  ['angle of closest social distance in FoV']
 
     # override for circular values
-    _window_operations_circular_2 = {
+    _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
         "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
     }
@@ -24,10 +25,6 @@ class ClosestFovAngles(Feature):
                  social_distance_info: 'ClosestIdentityInfo'):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['angle of closest social distance in FoV']
 
     def per_frame(self, identity: int) -> np.ndarray:
         # this is already computed

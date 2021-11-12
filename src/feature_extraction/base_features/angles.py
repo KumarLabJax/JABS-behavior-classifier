@@ -11,6 +11,7 @@ from src.feature_extraction.feature_base_class import Feature
 class Angles(Feature):
 
     _name = 'angles'
+    _feature_names = [f'angle {AngleIndex.get_angle_name(i.value)}' for i in AngleIndex]
 
     # override for circular values
     _window_operations = {
@@ -21,16 +22,6 @@ class Angles(Feature):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
         self._num_angles = len(AngleIndex)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        """
-        return angle names, where each name is formed from the
-        three points used to compute the angle, where the middle point name is
-        the vertex point. For example, given points a,b, and c the angle between
-        ab anb bc would be named 'point-name-a_point-name-b_point-name-c'
-        """
-        return [f'angle {AngleIndex.get_angle_name(i.value)}' for i in AngleIndex]
 
     def per_frame(self, identity: int) -> np.ndarray:
         nframes = self._poses.num_frames

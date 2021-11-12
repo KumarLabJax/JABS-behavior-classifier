@@ -36,6 +36,22 @@ class FeatureGroup(abc.ABC):
         }
 
     @property
+    def feature_names(self):
+        return {
+            feature: self._features[feature].feature_names()
+            for feature in self._config
+        }
+
+    @property
+    def window_feature_names(self):
+        features = {}
+        for feature_mod in sorted(self._config):
+            features[feature_mod] = {}
+            for feature_name in self._features[feature_mod].feature_names():
+                features[feature_mod][feature_name] = list(self._features[feature_mod]._window_operations.keys())
+        return features
+
+    @property
     def config(self):
         return self._config
 
@@ -46,3 +62,7 @@ class FeatureGroup(abc.ABC):
     @abc.abstractmethod
     def _init_feature_mods(self, identity: int) -> dict:
         pass
+
+    @classmethod
+    def module_names(cls):
+        return list(cls._features.keys())

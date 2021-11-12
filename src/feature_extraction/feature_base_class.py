@@ -13,8 +13,10 @@ class Feature(abc.ABC):
     one or more related features
     """
 
-    # each subclass needs to define this name
+    # each subclass needs to define this name and feature_names
     _name = None
+    # list of feature names, correspond to columns of feature values
+    _feature_names = None
 
     _SMOOTHING_WINDOW = 5
 
@@ -36,20 +38,22 @@ class Feature(abc.ABC):
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
+        if self._feature_names is None:
+            raise NotImplementedError(
+                "Base class must override _feature_names class member")
 
     @classmethod
     def name(cls) -> str:
         """ return a string name of the feature """
         return cls._name
 
-    @property
-    @abc.abstractmethod
-    def feature_names(self) -> typing.List[str]:
+    @classmethod
+    def feature_names(cls) -> typing.List[str]:
         """
         return a list of strings containing the names of the features for the
         feature set
         """
-        pass
+        return cls._feature_names
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> np.ndarray:

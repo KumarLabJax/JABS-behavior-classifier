@@ -2,11 +2,8 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-import scipy.stats
 
 import src.project.track_labels
-from src.feature_extraction.angle_index import AngleIndex
-from src.utils.utilities import n_choose_r
 from src.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
@@ -14,6 +11,11 @@ from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
 
 FEATURE_VERSION = 3
+
+_FEATURE_MODULES = [
+    BaseFeatureGroup,
+    SocialFeatureGroup
+]
 
 
 class FeatureVersionException(Exception):
@@ -29,101 +31,7 @@ class IdentityFeatures:
     per frame and window features for a single identity
     """
 
-    # For social interaction we will consider a subset
-    # of points to capture just the most important
-    # information for social.
-    _social_point_subset = [
-        PoseEstimation.KeypointIndex.NOSE,
-        PoseEstimation.KeypointIndex.BASE_NECK,
-        PoseEstimation.KeypointIndex.BASE_TAIL,
-    ]
-
     _version = FEATURE_VERSION
-
-    # The operations that are performed on windows of per-frame features to
-    # generate the window features. This is organized in a dictionary where the
-    # key is the operation name and the value is a function that takes an numpy
-    # array of values and returns a single feature value.
-    _window_feature_operations = {
-        "mean": np.ma.mean,
-        "median": np.ma.median,
-        "std_dev": np.ma.std,
-        "max": np.ma.amax,
-        "min": np.ma.amin
-    }
-
-    # window feature operations used for angle based features
-    _window_feature_operations_circular = {
-        "mean": lambda x: scipy.stats.circmean(x, high=360),
-        "std_dev": lambda x: scipy.stats.circstd(x, high=360),
-    }
-
-    # window feature operations used for angle based features
-    _window_feature_operations_circular_2 = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
-    }
-
-    _per_frame_features = [
-        'angles',
-        'pairwise_distances',
-        'point_speeds',
-        'point_mask',
-        'angular_velocity',
-        'centroid_velocity_mag',
-        'centroid_velocity_dir',
-        'nose_velocity_mag',
-        'nose_velocity_dir',
-        'base_tail_velocity_mag',
-        'base_tail_velocity_dir',
-        'left_front_paw_velocity_mag',
-        'left_front_paw_velocity_dir',
-        'right_front_paw_velocity_mag',
-        'right_front_paw_velocity_dir'
-    ]
-
-    _per_frame_social_features = [
-        'closest_distances',
-        'closest_fov_distances',
-        'closest_fov_angles',
-        'social_pairwise_distances',
-        'social_pairwise_fov_distances',
-    ]
-
-    _window_features = [
-        'angles',
-        'pairwise_distances',
-        'point_speeds',
-        'angular_velocity',
-        'centroid_velocity_mag',
-        'centroid_velocity_dir',
-        'nose_velocity_mag',
-        'nose_velocity_dir',
-        'base_tail_velocity_mag',
-        'base_tail_velocity_dir',
-        'left_front_paw_velocity_mag',
-        'left_front_paw_velocity_dir',
-        'right_front_paw_velocity_mag',
-        'right_front_paw_velocity_dir'
-    ]
-
-    _window_social_features = [
-        'closest_distances',
-        'closest_fov_distances',
-        'closest_fov_angles',
-        'social_pairwise_distances',
-        'social_pairwise_fov_distances',
-    ]
-
-    _circular_features = ['angles']
-    _circular_features_2 = ['centroid_velocity_dir', 'nose_velocity_dir',
-                            'closest_fov_angles', 'base_tail_velocity_dir',
-                            'left_front_paw_velocity_dir',
-                            'right_front_paw_velocity_dir']
-
-    # TODO  For now this is taken from the ICY paper where the full field of
-    # view is 240 degrees. Do we want this to be configurable?
-    half_fov_deg = 120
 
     def __init__(self, source_file, identity, directory, pose_est, force=False,
                  fps=30, distance_scale_factor: float = 1.0):
@@ -161,13 +69,11 @@ class IdentityFeatures:
         )
         self._compute_social_features = pose_est.format_major_version >= 3
 
-        self._feature_modules = [
-            BaseFeatureGroup(pose_est, self._distance_scale_factor)
-        ]
-        if self._compute_social_features:
-            self._feature_modules.append(
-                SocialFeatureGroup(pose_est, self._distance_scale_factor))
-
+        self._feature_modules = []
+        for m in _FEATURE_MODULES:
+            if not self._compute_social_features and m is SocialFeatureGroup:
+                continue
+            self._feature_modules.append(m(pose_est, self._distance_scale_factor))
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -178,6 +84,7 @@ class IdentityFeatures:
             'point_mask': pose_est.get_identity_point_mask(identity)
         }
 
+        # load or compute remaining per frame features
         if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
         else:
@@ -243,7 +150,7 @@ class IdentityFeatures:
             self._frame_valid = features_h5['frame_valid'][:]
 
             # load per frame features
-            for feature in self._per_frame_features:
+            for feature in self.available_feature_modules(self._compute_social_features):
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
@@ -255,10 +162,6 @@ class IdentityFeatures:
             if self._compute_social_features:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
-
-                for feature in self._per_frame_social_features:
-                    self._per_frame[feature] = feature_grp[feature][:]
-                    assert self._per_frame[feature].shape[0] == self._num_frames
 
     def __save_per_frame(self):
         """
@@ -281,7 +184,7 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            for feature in self._per_frame_features:
+            for feature in self.available_feature_modules(self._compute_social_features):
                 # point mask is obtained from the pose file, don't save it
                 if feature in ['point_mask']:
                     continue
@@ -290,9 +193,6 @@ class IdentityFeatures:
             if self._compute_social_features:
                 features_h5['closest_identities'] = self._closest_identities
                 features_h5['closest_fov_identities'] = self._closest_fov_identities
-
-                for feature in self._per_frame_social_features:
-                    grp[feature] = self._per_frame[feature]
 
     def __save_window_features(self, features, window_size):
         """
@@ -315,16 +215,16 @@ class IdentityFeatures:
 
             grp = features_h5.create_group('features')
 
-            for feature in self._window_features:
+            for feature in features:
                 for op in features[feature]:
                     grp.create_dataset(f'{feature}/{op}',
                                        data=features[feature][op])
 
-            if self._compute_social_features:
-                for feature_name in self._window_social_features:
-                    for op in features[feature_name]:
-                        grp.create_dataset(f'{feature_name}/{op}',
-                                           data=features[feature_name][op])
+            #if self._compute_social_features:
+            #    for feature_name in self._window_social_features:
+            #        for op in features[feature_name]:
+            #            grp.create_dataset(f'{feature_name}/{op}',
+            #                               data=features[feature_name][op])
 
     def __load_window_features(self, window_size):
         """
@@ -344,7 +244,6 @@ class IdentityFeatures:
         path = self._identity_feature_dir / f"window_features_{window_size}.h5"
 
         window_features = {}
-
         with h5py.File(path, 'r') as features_h5:
 
             # if the version of the feature file is not what we expect for
@@ -371,20 +270,17 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
-            for feature_name in self._window_features:
+            for feature_name in self.available_feature_modules(self._compute_social_features):
+                # point_mask is loaded from the post estimation, not the
+                # feature file
+                if feature_name == 'point_mask':
+                    continue
                 window_features[feature_name] = {}
                 for op in feature_grp[feature_name].keys():
                     window_features[feature_name][op] = \
                         feature_grp[f'{feature_name}/{op}'][:]
                     assert len(
                         window_features[feature_name][op]) == self._num_frames
-
-            if self._compute_social_features:
-                for feature_name in self._window_social_features:
-                    window_features[feature_name] = {}
-                    for op in feature_grp[feature_name].keys():
-                        window_features[feature_name][op] = feature_grp[f'{feature_name}/{op}'][:]
-                        assert len(window_features[feature_name][op]) == self._num_frames
 
             return window_features
 
@@ -426,15 +322,12 @@ class IdentityFeatures:
                 if self._identity_feature_dir is not None:
                     self.__save_window_features(features, window_size)
 
-        if use_social:
-            feature_intersection = set(self._window_features + self._window_social_features)
-        else:
-            feature_intersection = set(self._window_features)
-
-        #feature_intersection &= set(features.keys())
+        feature_intersection = self.available_feature_modules(use_social)
+        feature_intersection &= set(features.keys())
 
         if labels is None:
             final_features = features
+
         else:
             # return only features for labeled frames
             filtered_features = {}
@@ -468,13 +361,6 @@ class IdentityFeatures:
         }
         """
 
-        if use_social:
-            feature_intersection = set(self._per_frame_features + self._per_frame_social_features)
-        else:
-            feature_intersection = set(self._per_frame_features)
-
-        feature_intersection &= set(self._per_frame.keys())
-
         if labels is None:
             features = self._per_frame
 
@@ -487,7 +373,7 @@ class IdentityFeatures:
 
         return {
             feature_name: features[feature_name]
-            for feature_name in feature_intersection
+            for feature_name in self.available_feature_modules(use_social)
         }
 
     def get_features(self, window_size: int, use_social: bool):
@@ -510,10 +396,7 @@ class IdentityFeatures:
         per_frame = {}
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
-        if self._compute_social_features and use_social:
-            all_features = self._per_frame_features + self._per_frame_social_features
-        else:
-            all_features = self._per_frame_features
+        all_features = self.available_feature_modules(use_social)
 
         for feature in all_features:
             per_frame[feature] = self._per_frame[feature][
@@ -563,106 +446,31 @@ class IdentityFeatures:
 
         return window_features
 
-    @classmethod
-    def get_feature_names(cls, include_social_features):
-        """
-        return list of human readable feature names, starting with per frame
-        features followed by window features. feature names in each group are
-        sorted
+    def get_feature_names(self, use_social: bool):
+        """ build up a list of column names """
+        column_names = []
+        # start with point_mask as a special case, as it is not computed in
+        # a feature module -- it's just added directly from self._pose_est
+        per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
+        window_features = {}
+        for feature_module in self._feature_modules:
+            if not use_social and type(feature_module) is SocialFeatureGroup:
+                continue
+            per_frame_features.update(feature_module.feature_names)
+            window_features.update(feature_module.window_feature_names)
 
-        NOTE: the order of the list that is returned must match the order of
-        the columns in the nframes x nfeatures arrays passed to the training and
-        classification functions. This needs to sort the features the same way
-        as Classifier.combine_data()
-        :return: list of human readable feature names
-        """
-        feature_list = []
+        # generate a list of column names in the same order the data is
+        # assembled in Classifier.combine_data()
 
-        if include_social_features:
-            full_per_frame_features = cls._per_frame_features + cls._per_frame_social_features
-        else:
-            full_per_frame_features = cls._per_frame_features
+        # first, iterate over the per frame feature module names alphabetically
+        for f in sorted(per_frame_features):
+            column_names += per_frame_features[f]
 
-        for feature in sorted(full_per_frame_features):
-            if feature == 'angles':
-                feature_list.extend([
-                    f"angle {AngleIndex.get_angle_name(angle)}" for angle in
-                    AngleIndex])
-            elif feature == 'pairwise_distances':
-                feature_list.extend(IdentityFeatures.get_distance_names())
-            elif feature == 'point_speeds':
-                feature_list.extend([
-                    f"{p.name} speed" for p in PoseEstimation.KeypointIndex])
-            elif feature == 'closest_distances':
-                feature_list.append("closest social distance")
-            elif feature == 'closest_fov_distances':
-                feature_list.append("closest social distance in FoV")
-            elif feature == 'closest_fov_angles':
-                feature_list.append("angle of closest social distance in FoV")
-            elif feature == 'social_pairwise_distances':
-                feature_list.extend([
-                    f"social dist. {sdn}"
-                    for sdn in IdentityFeatures.get_social_distance_names()])
-            elif feature == 'social_pairwise_fov_distances':
-                feature_list.extend([
-                    f"social fov dist. {sdn}"
-                    for sdn in IdentityFeatures.get_social_distance_names()])
-            elif feature == 'point_mask':
-                feature_list.extend([
-                    f"{p.name} point mask" for p in PoseEstimation.KeypointIndex
-                ])
-            else:
-                feature_list.append(feature)
-
-        if include_social_features:
-            full_window_features = cls._window_features + cls._window_social_features
-        else:
-            full_window_features = cls._window_features
-
-        for feature in sorted(full_window_features):
-            # [source_feature_name][operator_applied] : numpy array
-            # iterate over operator names
-            if feature in cls._circular_features + cls._circular_features_2:
-                for op in sorted(cls._window_feature_operations_circular):
-                    if feature == 'angles':
-                        feature_list.extend(
-                            [f"{op} angle {AngleIndex.get_angle_name(angle)}" for angle in
-                             AngleIndex])
-                    elif feature == 'closest_fov_angles':
-                        feature_list.append(f"{op} angle of closest social distance in FoV")
-                    elif feature == 'centroid_velocity_dir':
-                        feature_list.append(f"{op} centroid velocity orientation")
-                    elif feature == 'nose_velocity_dir':
-                        feature_list.append(f"{op} nose velocity orientation")
-                    else:
-                        feature_list.append(f"{op} {feature}")
-            else:
-                for op in sorted(cls._window_feature_operations):
-                    if feature == 'pairwise_distances':
-                        feature_list.extend(
-                            [f"{op} {d}" for d in IdentityFeatures.get_distance_names()])
-                    elif feature == 'point_speeds':
-                        feature_list.extend([
-                            f"{op} {p.name} speed" for p in
-                            PoseEstimation.KeypointIndex])
-                    elif feature == 'closest_distances':
-                        feature_list.append(f"{op} closest social distance")
-                    elif feature == 'closest_fov_distances':
-                        feature_list.append(f"{op} closest social distance in FoV")
-                    elif feature == 'social_pairwise_distances':
-                        feature_list.extend([
-                            f"{op} social dist. {sdn}"
-                            for sdn in IdentityFeatures.get_social_distance_names()])
-                    elif feature == 'social_pairwise_fov_distances':
-                        feature_list.extend([
-                            f"{op} social fov dist. {sdn}"
-                            for sdn in IdentityFeatures.get_social_distance_names()])
-                    elif feature == 'centroid_velocity_mag':
-                        feature_list.append(f"{op} centroid velocity magnitude")
-                    else:
-                        feature_list.append(f"{op} {feature}")
-
-        return feature_list
+        for f in sorted(window_features):
+            for col in sorted(window_features[f]):
+                for op in sorted(window_features[f][col]):
+                    column_names.append(f"{op} {col}")
+        return column_names
 
     @classmethod
     def merge_per_frame_features(cls, features, include_social):
@@ -682,10 +490,7 @@ class IdentityFeatures:
 
         # determine which features are in common between total feature set and
         # available computed features
-        if include_social:
-            feature_intersection = set(cls._per_frame_features + cls._per_frame_social_features)
-        else:
-            feature_intersection = set(cls._per_frame_features)
+        feature_intersection = cls.available_feature_modules(include_social)
 
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
@@ -723,56 +528,29 @@ class IdentityFeatures:
 
         # determine which features are in common between total feature set and
         # available computed features
-        if include_social:
-            feature_intersection = set(
-                cls._window_features
-                + cls._window_social_features
-            )
-        else:
-            feature_intersection = set(cls._window_features)
+        feature_intersection = cls.available_feature_modules(include_social)
 
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
 
         for feature_name in feature_intersection:
             merged[feature_name] = {}
-            if feature_name in cls._circular_features + cls._circular_features_2:
-                operations = cls._window_feature_operations_circular
-            else:
-                operations = cls._window_feature_operations
-            for op in operations:
+            # grab list of operations for this window feature from the first
+            # dictionary in features
+            window_ops = features[0][feature_name].keys()
+            for f in features:
+                assert (set(window_ops) == set(f[feature_name].keys()))
+            for op in window_ops:
                 merged[feature_name][op] = np.concatenate(
                     [x[feature_name][op] for x in features])
 
         return merged
 
-    @staticmethod
-    def get_distance_names():
-        """
-        get list of human readable names for each value computed by
-        _compute_pairwise_distances
-        :return: list of distance names where each is a string of the form
-        "distance_name_1-distance_name_2"
-        """
-        distances = []
-        point_names = [p.name for p in PoseEstimation.KeypointIndex]
-        for i in range(0, len(point_names)):
-            p1 = point_names[i]
-            for p2 in point_names[i + 1:]:
-                distances.append(f"{p1}-{p2}")
-        return distances
-
     @classmethod
-    def get_social_distance_names(cls):
-        """
-        get list of human readable names for each value computed by
-        _compute_social_pairwise_distance
-        :return: list of distance names where each is a string of the form
-        "distance_name_1-distance_name_2"
-        """
-        dist_names = []
-        for kpi1 in cls._social_point_subset:
-            for kpi2 in cls._social_point_subset:
-                dist_names.append(f"{kpi1.name}-{kpi2.name}")
-        return dist_names
-
+    def available_feature_modules(cls, include_social):
+        module_names = {'point_mask'}
+        for m in _FEATURE_MODULES:
+            if not include_social and m is SocialFeatureGroup:
+                continue
+            module_names.update(m.module_names())
+        return module_names

@@ -17,19 +17,16 @@ class CentroidVelocityDir(Feature):
     """ feature for the direction of the center of mass velocity """
 
     _name = 'centroid_velocity_dir'
+    _feature_names =  ['centroid_velocity_dir']
 
     # override for circular values
-    _window_operations_circular_2 = {
+    _window_operations = {
         "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
         "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['centroid_velocity_dir']
 
     def per_frame(self, identity: int) -> np.ndarray:
         values = np.zeros(self._poses.num_frames, dtype=np.float32)
@@ -63,18 +60,21 @@ class CentroidVelocityDir(Feature):
 
         return values
 
+    def window(self, identity: int, window_size: int,
+               per_frame_values: np.ndarray) -> dict:
+        # need to override to use special method for computing window features
+        # with circular values
+        return self._window_circular(identity, window_size, per_frame_values)
+
 
 class CentroidVelocityMag(Feature):
     """ feature for the magnitude of the center of mass velocity """
 
     _name = 'centroid_velocity_mag'
+    _feature_names = ['centroid_velocity_mag']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-
-    @property
-    def feature_names(self) -> typing.List[str]:
-        return ['centroid_velocity_mag']
 
     def per_frame(self, identity: int) -> np.ndarray:
         values = np.zeros(self._poses.num_frames, dtype=np.float32)
