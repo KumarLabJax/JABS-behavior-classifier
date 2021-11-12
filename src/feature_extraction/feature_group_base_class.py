@@ -8,12 +8,16 @@ class FeatureGroup(abc.ABC):
 
     # to be defined in subclass
     _features = {}
+    _name = None
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._config = []
         self._poses = poses
         self._pixel_scale = pixel_scale
+        if self._name is None:
+            raise NotImplementedError(
+                "Base class must override _name class member")
 
         # _features above defines all features that are part of this group,
         # but self._config lists which features are currently enabled
@@ -66,3 +70,7 @@ class FeatureGroup(abc.ABC):
     @classmethod
     def module_names(cls):
         return list(cls._features.keys())
+
+    @classmethod
+    def name(cls):
+        return cls._name

@@ -8,6 +8,8 @@ from .social_distance import ClosestIdentityInfo
 
 class SocialFeatureGroup(FeatureGroup):
 
+    _name = 'social'
+
     # build dictionary mapping feature name to class that implements it
     _features = {
         ClosestDistances.name(): ClosestDistances,
@@ -19,6 +21,7 @@ class SocialFeatureGroup(FeatureGroup):
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
+        self._closest_identities = None
 
     def _init_feature_mods(self, identity: int):
         """
@@ -26,12 +29,16 @@ class SocialFeatureGroup(FeatureGroup):
         :param identity: subject identity to use when computing social features
         :return: dictionary of initialized feature modules for this group
         """
-        closest_identities = ClosestIdentityInfo(self._poses, identity,
+        self._closest_identities = ClosestIdentityInfo(self._poses, identity,
                                                  self._pixel_scale)
 
         # initialize all of the feature modules specified in the current config
         return {
             feature: self._features[feature](self._poses, self._pixel_scale,
-                                             closest_identities)
+                                             self._closest_identities)
             for feature in self._config
         }
+
+    @property
+    def closest_identities(self):
+        return self._closest_identities

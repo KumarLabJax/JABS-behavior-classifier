@@ -69,11 +69,14 @@ class IdentityFeatures:
         )
         self._compute_social_features = pose_est.format_major_version >= 3
 
-        self._feature_modules = []
+        self._feature_modules = {}
         for m in _FEATURE_MODULES:
+            # don't include the social feature module if it is not supported by
+            # the pose file
             if not self._compute_social_features and m is SocialFeatureGroup:
                 continue
-            self._feature_modules.append(m(pose_est, self._distance_scale_factor))
+            self._feature_modules[m.name()] = m(pose_est,
+                                                self._distance_scale_factor)
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -107,8 +110,9 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
-        for feature_module in self._feature_modules:
-            self._per_frame.update(feature_module.per_frame(self._identity))
+        for key in self._feature_modules:
+            self._per_frame.update(
+                self._feature_modules[key].per_frame(self._identity))
 
         if self._identity_feature_dir is not None:
             self.__save_per_frame()
@@ -191,8 +195,9 @@ class IdentityFeatures:
                 grp.create_dataset(feature, data=self._per_frame[feature])
 
             if self._compute_social_features:
-                features_h5['closest_identities'] = self._closest_identities
-                features_h5['closest_fov_identities'] = self._closest_fov_identities
+                closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
+                features_h5['closest_identities'] = closest_data.closest_identities
+                features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
 
     def __save_window_features(self, features, window_size):
         """
@@ -219,12 +224,6 @@ class IdentityFeatures:
                 for op in features[feature]:
                     grp.create_dataset(f'{feature}/{op}',
                                        data=features[feature][op])
-
-            #if self._compute_social_features:
-            #    for feature_name in self._window_social_features:
-            #        for op in features[feature_name]:
-            #            grp.create_dataset(f'{feature_name}/{op}',
-            #                               data=features[feature_name][op])
 
     def __load_window_features(self, window_size):
         """
@@ -441,8 +440,10 @@ class IdentityFeatures:
 
         window_features = {}
 
-        for feature_module in self._feature_modules:
-            window_features.update(feature_module.window(self._identity, window_size, self._per_frame))
+        for key in self._feature_modules:
+            window_features.update(
+                self._feature_modules[key].window(self._identity, window_size,
+                                                  self._per_frame))
 
         return window_features
 
@@ -453,11 +454,11 @@ class IdentityFeatures:
         # a feature module -- it's just added directly from self._pose_est
         per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
         window_features = {}
-        for feature_module in self._feature_modules:
-            if not use_social and type(feature_module) is SocialFeatureGroup:
+        for key in self._feature_modules:
+            if not use_social and type(self._feature_modules[key]) is SocialFeatureGroup:
                 continue
-            per_frame_features.update(feature_module.feature_names)
-            window_features.update(feature_module.window_feature_names)
+            per_frame_features.update(self._feature_modules[key].feature_names)
+            window_features.update(self._feature_modules[key].window_feature_names)
 
         # generate a list of column names in the same order the data is
         # assembled in Classifier.combine_data()

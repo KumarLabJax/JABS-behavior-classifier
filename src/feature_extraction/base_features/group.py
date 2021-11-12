@@ -12,6 +12,8 @@ from . import Angles, PairwisePointDistances, PointSpeeds, \
 
 class BaseFeatureGroup(FeatureGroup):
 
+    _name = 'base'
+
     # build a dictionary that maps a feature name to the class that
     # implements it
     _features = {
