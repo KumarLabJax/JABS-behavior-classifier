@@ -77,6 +77,11 @@ class CentroidVelocityMag(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+        compute the value of the per frame features for a specific identity
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
+        """
         values = np.zeros(self._poses.num_frames, dtype=np.float32)
         fps = self._poses.fps
         frame_valid = self._poses.identity_mask(identity)

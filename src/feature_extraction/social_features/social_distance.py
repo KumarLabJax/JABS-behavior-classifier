@@ -8,7 +8,7 @@ from src.pose_estimation import PoseEstimation
 class ClosestIdentityInfo:
     """
     this info is needed to compute a number of different social features.
-    It can be done once for a given identity, and then and an instance of this
+    It can be done once for a given identity, and then an instance of this
     object can be passed into all the features that need it
     """
 

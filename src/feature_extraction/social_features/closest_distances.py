@@ -20,5 +20,10 @@ class ClosestDistances(Feature):
         self._social_distance_info = social_distance_info
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+        compute the value of the per frame features for a specific identity
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
+        """
         return self._social_distance_info.compute_distances(
             self._social_distance_info.closest_identities)

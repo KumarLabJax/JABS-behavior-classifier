@@ -30,6 +30,11 @@ class PairwisePointDistances(Feature):
         self._num_distances = n_choose_r(len(PoseEstimation.KeypointIndex), 2)
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+                compute the value of the per frame features for a specific identity
+                :param identity: identity to compute features for
+                :return: np.ndarray with feature values
+                """
         values = np.zeros(
             (self._poses.num_frames, self._num_distances), dtype=np.float32)
 

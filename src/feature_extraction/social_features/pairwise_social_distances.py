@@ -19,6 +19,10 @@ _social_point_subset = [
 
 
 def _init_feature_names():
+    """
+    build a list of feature names that correspond to the columns returned
+    by the PairwiseSocialDistances and PairwiseSocialFovDistances modules
+    """
     dist_names = []
     for kpi1 in _social_point_subset:
         for kpi2 in _social_point_subset:
@@ -43,6 +47,11 @@ class PairwiseSocialDistances(Feature):
         self._poses = poses
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+        compute the value of the per frame features for a specific identity
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
+        """
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset,
             self._social_distance_info.closest_identities
@@ -64,6 +73,11 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
     ]
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+                compute the value of the per frame features for a specific identity
+                :param identity: identity to compute features for
+                :return: np.ndarray with feature values
+                """
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset,
             self._social_distance_info.closest_fov_identities

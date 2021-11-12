@@ -21,7 +21,7 @@ class SocialFeatureGroup(FeatureGroup):
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
-        self._closest_identities = None
+        self._closest_identities_cache = None
 
     def _init_feature_mods(self, identity: int):
         """
@@ -29,16 +29,24 @@ class SocialFeatureGroup(FeatureGroup):
         :param identity: subject identity to use when computing social features
         :return: dictionary of initialized feature modules for this group
         """
-        self._closest_identities = ClosestIdentityInfo(self._poses, identity,
-                                                 self._pixel_scale)
+
+        # cache the most recent ClosestIdentityInfo, it's needed by
+        # the IdentityFeatures class when saving the social features to the
+        # h5 file
+        self._closest_identities_cache = ClosestIdentityInfo(
+            self._poses, identity, self._pixel_scale)
 
         # initialize all of the feature modules specified in the current config
         return {
             feature: self._features[feature](self._poses, self._pixel_scale,
-                                             self._closest_identities)
+                                             self._closest_identities_cache)
             for feature in self._config
         }
 
     @property
     def closest_identities(self):
-        return self._closest_identities
+        """
+        return the closest identities computed during the last call to
+        per_frame() (per_frame inherited from super class)
+        """
+        return self._closest_identities_cache

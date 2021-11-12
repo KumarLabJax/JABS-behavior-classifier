@@ -16,6 +16,11 @@ class PointSpeeds(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+        compute the value of the per frame features for a specific identity
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
+        """
         num_frames = self._poses.num_frames
         fps = self._poses.fps
         poses, point_masks = self._poses.get_identity_poses(identity, self._pixel_scale)

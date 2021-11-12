@@ -72,6 +72,11 @@ class PointVelocityMag(Feature, abc.ABC):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """
+        compute the value of the per frame features for a specific identity
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
+        """
         fps = self._poses.fps
         points, mask = self._poses.get_identity_poses(identity,
                                                       self._pixel_scale)
