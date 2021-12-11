@@ -24,6 +24,10 @@ class PoseEstimationV3(PoseEstimation):
                  fps: int = 30):
         """
         :param file_path: Path object representing the location of the pose file
+        :param cache_dir: optional cache directory, used to cache convex hulls
+        for faster loading
+        :param fps: frames per second, used for scaling time series features
+        from "per frame" to "per second"
         """
         super().__init__(file_path, cache_dir, fps)
 

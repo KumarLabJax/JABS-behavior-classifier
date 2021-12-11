@@ -69,6 +69,9 @@ class TestProject(unittest.TestCase):
         ).open('w', newline='\n') as f:
             json.dump(labels.as_dict(), f)
 
+        # open project
+        cls.project = Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
+
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls._EXISTING_PROJ_PATH)
@@ -76,7 +79,7 @@ class TestProject(unittest.TestCase):
     def test_create(self):
         """ test creating a new empty Project """
         project_dir = Path('test_project_dir')
-        proj = Project(project_dir)
+        _ = Project(project_dir)
 
         # make sure that the empty project directory was created
         self.assertTrue(project_dir.exists())
@@ -97,21 +100,17 @@ class TestProject(unittest.TestCase):
 
     def test_get_video_list(self):
         """ get list of video files in an existing project """
-        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
-        self.assertListEqual(project.videos, self._FILENAMES)
+        self.assertListEqual(self.project.videos, self._FILENAMES)
 
     def test_load_annotations(self):
         """ test loading annotations from a saved project """
-
-        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
-
-        labels = project.load_video_labels(self._FILENAMES[0])
+        labels = self.project.load_video_labels(self._FILENAMES[0])
 
         with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
-        self.assertTrue(len(project.videos), 2)
+        self.assertTrue(len(self.project.videos), 2)
 
         # check to see that calling as_dict() on the VideoLabels object
         # matches what was used to load the annotation track from disk
@@ -119,15 +118,14 @@ class TestProject(unittest.TestCase):
 
     def test_save_annotations(self):
         """ test saving annotations """
-        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
-        labels = project.load_video_labels(self._FILENAMES[0])
+        labels = self.project.load_video_labels(self._FILENAMES[0])
         walking_labels = labels.get_track_labels('0', 'Walking')
 
         # make some changes
         walking_labels.label_behavior(5000, 5500)
 
         # save changes
-        project.save_annotations(labels)
+        self.project.save_annotations(labels)
 
         # make sure the .json file in the project directory matches the new
         # state
@@ -141,21 +139,26 @@ class TestProject(unittest.TestCase):
         """
         test load annotations for a file that doesn't exist raises ValueError
         """
-        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
-
         with self.assertRaises(ValueError):
-            project.load_video_labels('bad_filename.avi')
+            self.project.load_video_labels('bad_filename.avi')
 
     def test_exception_creating_video_labels(self):
         """
         test OPError raised if unable to open avi file to get num frames
         """
-        project = Project(self._EXISTING_PROJ_PATH, enable_video_check=False)
         with self.assertRaises(IOError):
             with hide_stderr():
-                project.load_video_labels(self._FILENAMES[1])
+                self.project.load_video_labels(self._FILENAMES[1])
 
     def test_bad_video_file(self):
         with self.assertRaises(IOError):
             with hide_stderr():
                 _ = Project(self._EXISTING_PROJ_PATH)
+
+    def test_min_pose_version(self):
+        # dummy project contains version 3 and 4 pose files
+        # min should be 3
+        self.assertEqual(self.project._min_pose_version, 3)
+
+    def test_can_use_social_true(self):
+        self.assertTrue(self.project.can_use_social_features)

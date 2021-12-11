@@ -101,7 +101,7 @@ def main():
         print('-' * 70)
         print("Top 10 features by importance:")
         classifier.print_feature_importance(
-            IdentityFeatures.get_feature_names(
+            IdentityFeatures.get_feature_column_names(
                 features['has_social_features']),
             10)
 

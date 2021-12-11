@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import sys
+import typing
 from datetime import datetime
 from pathlib import Path
 
@@ -12,7 +13,8 @@ import numpy as np
 
 import src.feature_extraction as fe
 from src.pose_estimation import get_pose_path, open_pose_file, \
-    get_frames_from_file, PoseEstimation
+    get_frames_from_file, get_pose_file_major_version, \
+    get_static_objects_in_file, PoseEstimation
 from src.project import TrackLabels
 from src.version import version_str
 from src.video_stream import VideoStream
@@ -63,6 +65,9 @@ class Project:
                                 'classifiers')
         self._archive_dir = (self._project_dir_path / self._PROJ_DIR /
                              'archive')
+
+        self._supported_static_objects = set()
+        self._enabled_extended_features = {}
 
         if use_cache:
             self._cache_dir = (self._project_dir_path / self._PROJ_DIR /
@@ -141,15 +146,30 @@ class Project:
             video_metadata[video] = vinfo
         self.save_metadata({'video_files': video_metadata})
 
-        # determine if this project can use social features or not
-        # if any of the videos are V2, social features will be disabled
-        self._can_use_social = True
-        for i, vid in enumerate(self._videos):
+        # get minimum pose version in the project. This sets a baseline
+        # for the features to be enabled in the project
+        # also build a set of static objects common to all pose files in the
+        # project
+        pose_versions = []
+        for vid in self._videos:
             vid_path = self.video_path(vid)
             pose_path = get_pose_path(vid_path)
-            if pose_path.name.endswith('v2.h5'):
-                self._can_use_social = False
-                break
+            pose_versions.append(get_pose_file_major_version(pose_path))
+            self._supported_static_objects.update(
+                get_static_objects_in_file(pose_path))
+        self._min_pose_version = min(pose_versions) if len(pose_versions) else 0
+
+
+        # determine if this project can use social features or not
+        # if all pose files are V3 or greater, enable social features for this
+        # project
+        self._can_use_social = True if self._min_pose_version >= 3 else False
+
+        # default enabled extended features to all that are supported
+        self._enabled_extended_features.update(
+            fe.IdentityFeatures.get_available_extended_features(
+                self._min_pose_version, self.static_objects)
+        )
 
         # determine if project should use cm or pixels as units for
         # distance-based features
@@ -186,8 +206,30 @@ class Project:
         return self._annotations_dir
 
     @property
-    def can_use_social_features(self):
+    def can_use_social_features(self) -> bool:
         return self._can_use_social
+
+    @property
+    def static_objects(self) -> typing.List[str]:
+        """
+        return a list of the static objects that are common for all of the
+        pose files in the project
+        """
+        return list(self._supported_static_objects)
+
+    @property
+    def extended_features(self) -> typing.Dict[str, typing.List[str]]:
+        """
+        get the enabled extended features for this project
+        :return: dictionary describing enabled extended features
+
+        format is dictionary with feature group names as keys, and list of
+        feature names in that group that are enabled
+        {
+          'feature_group_name': [str]
+        }
+        """
+        return self._enabled_extended_features
 
     @property
     def metadata(self):
@@ -239,7 +281,7 @@ class Project:
             return VideoLabels(video_filename, nframes)
 
     @staticmethod
-    def to_safe_name(behavior: str):
+    def to_safe_name(behavior: str) -> str:
         """
         Create a version of the given behavior name that
         should be safe to use in filenames.
@@ -614,10 +656,11 @@ class Project:
 
                 features = fe.IdentityFeatures(
                     video, identity, self.feature_dir, pose_est, fps=fps,
-                    distance_scale_factor=distance_scale_factor
+                    distance_scale_factor=distance_scale_factor,
+                    extended_features=self._enabled_extended_features
                 )
                 if column_names is None:
-                    column_names = features.get_feature_names(
+                    column_names = features.get_feature_column_names(
                         use_social_features)
 
                 labels = self.load_video_labels(video).get_track_labels(
@@ -645,9 +688,11 @@ class Project:
 
         return {
             'window': fe.IdentityFeatures.merge_window_features(
-                all_window, use_social_features),
+                all_window, use_social_features,
+                extended_features=self._enabled_extended_features),
             'per_frame': fe.IdentityFeatures.merge_per_frame_features(
-                all_per_frame, use_social_features),
+                all_per_frame, use_social_features,
+                extended_features=self._enabled_extended_features),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
             'column_names': column_names

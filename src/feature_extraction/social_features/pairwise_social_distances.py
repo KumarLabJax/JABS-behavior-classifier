@@ -34,6 +34,7 @@ class PairwiseSocialDistances(Feature):
 
     _name = 'social_pairwise_distances'
     _feature_names = _init_feature_names()
+    _min_pose = 3
 
 
     # total number of values created by pairwise distances between the

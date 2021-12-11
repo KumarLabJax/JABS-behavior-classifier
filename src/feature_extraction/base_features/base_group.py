@@ -33,9 +33,6 @@ class BaseFeatureGroup(FeatureGroup):
         RightFrontPawVelocityMag.name(): RightFrontPawVelocityMag,
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
-        super().__init__(poses, pixel_scale)
-
     def _init_feature_mods(self, identity: int):
         """
         initialize all of the feature modules specified in the current config

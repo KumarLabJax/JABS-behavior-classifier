@@ -1,4 +1,5 @@
 from pathlib import Path
+import typing
 
 import h5py
 import numpy as np
@@ -9,12 +10,18 @@ from src.pose_estimation import PoseEstimation, PoseHashException
 # import feature modules
 from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
+from .landmark_features import LandmarkFeatureGroup
 
-FEATURE_VERSION = 3
+
+FEATURE_VERSION = 4
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
     SocialFeatureGroup
+]
+
+_EXTENDED_FEATURE_MODULES = [
+    LandmarkFeatureGroup
 ]
 
 
@@ -34,7 +41,8 @@ class IdentityFeatures:
     _version = FEATURE_VERSION
 
     def __init__(self, source_file, identity, directory, pose_est, force=False,
-                 fps=30, distance_scale_factor: float = 1.0):
+                 fps=30, distance_scale_factor: float = 1.0,
+                 extended_features: typing.Optional[typing.Dict[str, typing.List[str]]] = None):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -50,12 +58,16 @@ class IdentityFeatures:
         degrees per frame to degrees per second
         :param distance_scale_factor: set to cm_per_pixel to convert pixel
         distances into cm, defaults to 1.0 (do not scale pixel coordinates)
+        :param extended_features: optional extended feature configuration,
+        dict with feature groups as keys, lists of feature module names as
+        values. If None, all extended features are enabled.
         """
 
         self._num_frames = pose_est.num_frames
         self._fps = fps
         self._pose_hash = pose_est.hash
         self._identity = identity
+        self._extended_features = extended_features
 
         # make sure distance_scale_factor is a float, passing 1 instead of 1.0
         # for using pixel units would cause some computations to use integer
@@ -71,10 +83,15 @@ class IdentityFeatures:
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
-            # don't include the social feature module if it is not supported by
+            # don't include the social features if it is not supported by
             # the pose file
             if not self._compute_social_features and m is SocialFeatureGroup:
                 continue
+            self._feature_modules[m.name()] = m(pose_est,
+                                                self._distance_scale_factor)
+
+        # load extended feature modules
+        for m in _EXTENDED_FEATURE_MODULES:
             self._feature_modules[m.name()] = m(pose_est,
                                                 self._distance_scale_factor)
 
@@ -154,7 +171,7 @@ class IdentityFeatures:
             self._frame_valid = features_h5['frame_valid'][:]
 
             # load per frame features
-            for feature in self.available_feature_modules(self._compute_social_features):
+            for feature in self.get_feature_names(self._compute_social_features):
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
@@ -188,7 +205,7 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            for feature in self.available_feature_modules(self._compute_social_features):
+            for feature in self.get_feature_names(self._compute_social_features):
                 # point mask is obtained from the pose file, don't save it
                 if feature in ['point_mask']:
                     continue
@@ -269,7 +286,7 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
-            for feature_name in self.available_feature_modules(self._compute_social_features):
+            for feature_name in self.get_feature_names(self._compute_social_features):
                 # point_mask is loaded from the post estimation, not the
                 # feature file
                 if feature_name == 'point_mask':
@@ -283,8 +300,8 @@ class IdentityFeatures:
 
             return window_features
 
-    def get_window_features(self, window_size, use_social: bool, labels=None,
-                            force=False):
+    def get_window_features(self, window_size: int, use_social: bool,
+                            labels=None, force: bool = False):
         """
         get window features for a given window size, computing if not previously
         computed and saved as h5 file
@@ -321,7 +338,8 @@ class IdentityFeatures:
                 if self._identity_feature_dir is not None:
                     self.__save_window_features(features, window_size)
 
-        feature_intersection = self.available_feature_modules(use_social)
+        feature_intersection = self.get_feature_names(
+            use_social, self._extended_features)
         feature_intersection &= set(features.keys())
 
         if labels is None:
@@ -372,7 +390,8 @@ class IdentityFeatures:
 
         return {
             feature_name: features[feature_name]
-            for feature_name in self.available_feature_modules(use_social)
+            for feature_name in self.get_feature_names(
+                use_social, self._extended_features)
         }
 
     def get_features(self, window_size: int, use_social: bool):
@@ -395,7 +414,8 @@ class IdentityFeatures:
         per_frame = {}
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
-        all_features = self.available_feature_modules(use_social)
+        all_features = self.get_feature_names(
+            use_social, self._extended_features)
 
         for feature in all_features:
             per_frame[feature] = self._per_frame[feature][
@@ -413,7 +433,7 @@ class IdentityFeatures:
             'frame_indexes': indexes
         }
 
-    def __compute_window_features(self, window_size):
+    def __compute_window_features(self, window_size: int):
         """
         compute all window features using a given window size
         :param window_size: number of frames on each side of the current frame
@@ -447,23 +467,44 @@ class IdentityFeatures:
 
         return window_features
 
-    def get_feature_names(self, use_social: bool):
-        """ build up a list of column names """
+    def get_feature_column_names(self, use_social: bool, ):
+        """
+        build up a list of column names for the 2D feature array that will be
+        passed to the classifier
+        """
+
         column_names = []
         # start with point_mask as a special case, as it is not computed in
         # a feature module -- it's just added directly from self._pose_est
         per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
         window_features = {}
+        base_groups = [m.name() for m in _FEATURE_MODULES]
         for key in self._feature_modules:
-            if not use_social and type(self._feature_modules[key]) is SocialFeatureGroup:
-                continue
-            per_frame_features.update(self._feature_modules[key].feature_names)
-            window_features.update(self._feature_modules[key].window_feature_names)
+            # handle base (& social) features
+            if key in base_groups:
+                if not use_social and key == SocialFeatureGroup.name():
+                    continue
+                per_frame_features.update(
+                    self._feature_modules[key].feature_names())
+                window_features.update(
+                    self._feature_modules[key].window_feature_names())
+            else:
+                # handle extended features
+                if self._extended_features is None:
+                    per_frame_features.update(
+                        self._feature_modules[key].feature_names())
+                    window_features.update(
+                        self._feature_modules[key].window_feature_names())
+                elif key in self._extended_features:
+                    per_frame_features.update(
+                        self._feature_modules[key].feature_names(self._extended_features[key]))
+                    window_features.update(
+                        self._feature_modules[key].window_feature_names(self._extended_features[key]))
 
         # generate a list of column names in the same order the data is
         # assembled in Classifier.combine_data()
 
-        # first, iterate over the per frame feature module names alphabetically
+        # first, iterate over the per frame feature names alphabetically
         for f in sorted(per_frame_features):
             column_names += per_frame_features[f]
 
@@ -474,12 +515,17 @@ class IdentityFeatures:
         return column_names
 
     @classmethod
-    def merge_per_frame_features(cls, features, include_social):
+    def merge_per_frame_features(cls, features: dict, include_social: bool,
+                                 extended_features=None):
         """
         merge a list of per-frame features where each element in the list is
         a set of per-frame features computed for an individual animal
         :param features: list of per-frame feature instances
         :param include_social:
+        :param extended_features: optional extended feature configuration,
+        dict with feature groups as keys, lists of feature names as
+        values. If None, all extended features are enabled.
+
         :return: dict of the form
         {
             'pairwise_distances':,
@@ -491,7 +537,8 @@ class IdentityFeatures:
 
         # determine which features are in common between total feature set and
         # available computed features
-        feature_intersection = cls.available_feature_modules(include_social)
+        feature_intersection = cls.get_feature_names(
+            include_social, extended_features)
 
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
@@ -502,11 +549,20 @@ class IdentityFeatures:
         }
 
     @classmethod
-    def merge_window_features(cls, features, include_social):
+    def merge_window_features(
+            cls,
+            features: dict,
+            include_social: bool,
+            extended_features: typing.Optional[typing.Dict] = None
+    ):
         """
         merge a list of window features where each element in the list is the
         set of window features computed for an individual animal
         :param features: list of window feature instances
+        :param include_social:
+        :param extended_features: optional extended feature configuration,
+        dict with feature groups as keys, lists of feature module names as
+        values. If None, all extended features are enabled.
         :return: dictionary of the form:
         {
             'angles' {
@@ -529,7 +585,8 @@ class IdentityFeatures:
 
         # determine which features are in common between total feature set and
         # available computed features
-        feature_intersection = cls.available_feature_modules(include_social)
+        feature_intersection = cls.get_feature_names(
+            include_social, extended_features)
 
         for feature_dict in features:
             feature_intersection &= set(feature_dict.keys())
@@ -548,10 +605,52 @@ class IdentityFeatures:
         return merged
 
     @classmethod
-    def available_feature_modules(cls, include_social):
+    def get_feature_names(
+            cls, include_social: bool,
+            extended_features: typing.Optional[
+                typing.Dict[str, typing.List[str]]] = None
+    ) -> typing.Set[str]:
+        """
+        get all the feature module names
+        :param include_social: if true, include all social features
+        :param extended_features: if None, include all extended features,
+        otherwise only include those specified
+        :return: set of feature module names
+        """
         module_names = {'point_mask'}
         for m in _FEATURE_MODULES:
             if not include_social and m is SocialFeatureGroup:
                 continue
             module_names.update(m.module_names())
+        if extended_features is None:
+            for m in _EXTENDED_FEATURE_MODULES:
+                module_names.update(m.module_names())
+        else:
+            for _, features in extended_features.items():
+                module_names.update(features)
         return module_names
+
+    @classmethod
+    def get_available_extended_features(
+            cls,
+            pose_version: int,
+            static_objects: typing.List[str]
+    ) -> typing.Dict[str, typing.List[str]]:
+        """
+        get all of the extended features that can be used given a minimum pose
+        version and list of available static objects
+        :param pose_version: integer pose version
+        :param static_objects: list of static object names
+        :return: dictionary of supported extended features, where the keys
+        are "feature group" name(s) and values are feature names that can
+        be used from that group
+
+        TODO social features probably should get moved into the 'extended'
+          features, but they are still handled as a special case
+        """
+
+        return {
+            feature_group.name(): feature_group.get_supported_feature_modules(
+                pose_version, static_objects) for feature_group in
+            _EXTENDED_FEATURE_MODULES
+        }

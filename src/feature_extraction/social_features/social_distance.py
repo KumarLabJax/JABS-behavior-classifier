@@ -99,9 +99,11 @@ class ClosestIdentityInfo:
         :return: angle between AB and BC
         """
 
+        # point types in the pose files are typically unsigned 16 bit integers,
+        # cast to signed types to avoid underflow during subtraction
         angle = math.degrees(
-            math.atan2(c[1] - b[1], c[0] - b[0]) -
-            math.atan2(a[1] - b[1], a[0] - b[0])
+            math.atan2(int(c[1]) - int(b[1]), int(c[0]) - int(b[0])) -
+            math.atan2(int(a[1]) - int(b[1]), int(a[0]) - int(b[0]))
         )
         return angle + 360 if angle < 0 else angle
 
