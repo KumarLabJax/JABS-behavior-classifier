@@ -1,13 +1,11 @@
 import argparse
 import itertools
+
 import numpy as np
-from pathlib import Path
-import sys
 from tabulate import tabulate
 
 from classify import train
-from src.classifier import Classifier, ClassifierType
-from src.feature_extraction import IdentityFeatures
+from src.classifier import Classifier
 from src.project import ProjectDistanceUnit
 from src.project.export_training import load_training_data
 
@@ -60,6 +58,7 @@ def main():
             features['behavior'],
             features['window_size'],
             features['has_social_features'],
+            features['extended_features'],
             features['distance_unit'])
         predictions = classifier.predict(data['test_data'])
 
@@ -99,11 +98,18 @@ def main():
         print("CONFUSION MATRIX:")
         print(f"{confusion}")
         print('-' * 70)
-        print("Top 10 features by importance:")
-        classifier.print_feature_importance(
-            IdentityFeatures.get_feature_column_names(
-                features['has_social_features']),
-            10)
+
+        # get_feature_column_names is no longer a class instance so it
+        # won't work here
+        # TODO: can we reimplement get_feature_column_names so it no longer has
+        #  to be an instance method? Do we care about printing the top features
+        #  here? It's mostly a sanity check while developing the classifier
+        #  interactively.
+        #print("Top 10 features by importance:")
+        #classifier.print_feature_importance(
+        #    IdentityFeatures.get_feature_column_names(
+        #        features['has_social_features']),
+        #    10)
 
     if iter_count >= 1:
         print('\n' + '=' * 70)
