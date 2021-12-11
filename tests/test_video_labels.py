@@ -7,7 +7,7 @@ class TestVideoLabels(unittest.TestCase):
     """ test project.video_labels.VideoLabels """
     def test_create(self):
         """ test initializing new VideoLabels """
-        labels = VideoLabels('filename.avi', 100)
+        _ = VideoLabels('filename.avi', 100)
 
     def test_getting_new_track(self):
         """ test initializing new VideoLabels """
@@ -22,7 +22,7 @@ class TestVideoLabels(unittest.TestCase):
         labels = VideoLabels('filename.avi', 100)
 
         with self.assertRaises(ValueError):
-            track = labels.get_track_labels(1, 'behavior name')
+            _ = labels.get_track_labels(1, 'behavior name')
 
     def test_load_from_dict(self):
         """ test creating new VideoLabels object from dict representation """
