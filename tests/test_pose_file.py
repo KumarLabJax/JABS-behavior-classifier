@@ -6,6 +6,12 @@ from pathlib import Path
 
 import src.pose_estimation
 
+_TEST_FILES = [
+    'sample_pose_est_v3.h5.gz',
+    'sample_pose_est_v4.h5.gz',
+    'sample_pose_est_v5.h5.gz'
+]
+
 
 class TestOpenPose(unittest.TestCase):
     _tmpdir = None
@@ -16,19 +22,13 @@ class TestOpenPose(unittest.TestCase):
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
-        # decompress v3 pose file in tempdir
-        with gzip.open(cls._test_data_dir / 'sample_pose_est_v3.h5.gz',
-                       'rb') as f_in:
-            with open(cls._tmpdir_path / 'sample_pose_est_v3.h5',
-                      'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        # decompress pose file into tempdir
 
-        # decompress v4 pose file in tempdir
-        with gzip.open(cls._test_data_dir / 'sample_pose_est_v4.h5.gz',
-                       'rb') as f_in:
-            with open(cls._tmpdir_path / 'sample_pose_est_v4.h5',
-                      'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        for f in _TEST_FILES:
+            with gzip.open(cls._test_data_dir / f, 'rb') as f_in:
+                with open(cls._tmpdir_path / f.replace('.h5.gz', '.h5'),
+                          'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
 
         cls._pose_est_v3 = src.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v3.h5')
@@ -36,27 +36,35 @@ class TestOpenPose(unittest.TestCase):
         cls._pose_est_v4 = src.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v4.h5')
 
+        cls._pose_est_v5 = src.pose_estimation.open_pose_file(
+            cls._tmpdir_path / 'sample_pose_est_v5.h5')
+
     @classmethod
     def tearDownClass(cls) -> None:
         cls._tmpdir.cleanup()
 
     def test_open_pose_est_v3(self) -> None:
-        """
-        test that open_pose_file can open a V3 pose file and it returns the
-        correct type
-        """
+        """ test that open_pose_file can open a V3 pose file """
         self.assertIsInstance(self._pose_est_v3,
                               src.pose_estimation.PoseEstimationV3)
         self.assertEqual(self._pose_est_v3.format_major_version, 3)
 
     def test_open_pose_est_v4(self) -> None:
-        """
-        test that open_pose_file can open a V4 pose file and it returns the
-        correct type
-        """
+        """ test that open_pose_file can open a V4 pose file """
         self.assertIsInstance(self._pose_est_v4,
                               src.pose_estimation.PoseEstimationV4)
         self.assertEqual(self._pose_est_v4.format_major_version, 4)
+
+    def test_open_pose_est_v5(self) -> None:
+        """ test that open_pose_file can open a V5 pose file """
+        self.assertIsInstance(self._pose_est_v5,
+                              src.pose_estimation.PoseEstimationV5)
+        self.assertEqual(self._pose_est_v5.format_major_version, 5)
+
+        # the test v5 pose file has 'corners' in static objects dataset
+        static_objs = self._pose_est_v5.static_objects
+        self.assertTrue('corners' in static_objs)
+        self.assertEqual(static_objs['corners'].shape, (4, 2))
 
     def test_get_points(self) -> None:
         """ test getting pose points from PoseEstimation instance """
