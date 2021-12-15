@@ -35,7 +35,8 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None):
+    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None,
+                 fps: int = 30):
         super().__init__()
         self._num_frames = 0
         self._identities = []
@@ -44,6 +45,7 @@ class PoseEstimation(ABC):
         self._cache_dir = cache_dir
         self._cm_per_pixel = None
         self._hash = hash_file(file_path)
+        self._fps = fps
 
     @property
     def num_frames(self) -> int:
@@ -64,12 +66,16 @@ class PoseEstimation(ABC):
         return self._cm_per_pixel
 
     @property
+    def fps(self):
+        return self._fps
+
+    @property
     def hash(self):
         return self._hash
 
     @abstractmethod
     def get_points(self, frame_index: int, identity: int,
-                   scale: typing.Optional[float]):
+                   scale: typing.Optional[float] = None):
         """
         return points and point masks for an individual frame
         :param frame_index: frame index of points and masks to be returned
@@ -81,7 +87,8 @@ class PoseEstimation(ABC):
         pass
 
     @abstractmethod
-    def get_identity_poses(self, identity: int, scale: typing.Optional[float]):
+    def get_identity_poses(self, identity: int,
+                           scale: typing.Optional[float] = None):
         """
         return all points and point masks
         :param identity: identity to return points for
@@ -190,6 +197,19 @@ class PoseEstimation(ABC):
             points, mask = self.get_points(i, identity)
             if points is not None:
                 bearings[i] = self.compute_bearing(points)
+        return bearings
+
+    def compute_all_bearings2(self, identity):
+        bearings = np.zeros(self.num_frames, dtype=np.float32)
+        # get an array of the indexes of valid frames only
+        indexes = np.arange(self._num_frames)[self.identity_mask(identity) == 1]
+        poses, _ = self.get_identity_poses(identity)
+        base_tail = poses[indexes, self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
+        base_neck = poses[indexes, self.KeypointIndex.BASE_NECK.value].astype(np.float32)
+        offsets = base_neck - base_tail
+
+        angle_rad = np.arctan2(offsets[:, 1], offsets[:, 0])
+        bearings[indexes] = angle_rad * (180 / np.pi)
         return bearings
 
     @staticmethod

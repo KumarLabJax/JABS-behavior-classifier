@@ -3,6 +3,7 @@
 test-reports
 .DS_Store
 jabs.venv
+rotta.venv
 venv
 *.sif
 temp

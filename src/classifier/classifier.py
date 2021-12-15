@@ -338,14 +338,11 @@ class Classifier:
         # add window features to our data set
         # sort the feature names in the dict so the order is consistent
         for feature in sorted(window):
-            if isinstance(window[feature], dict):
-                # [source_feature_name][operator_applied] : numpy array
-                # iterate over operator names
-                for op in sorted(window[feature]):
-                    # append the numpy array to the dataset
-                    datasets.append(window[feature][op])
-            else:
-                datasets.append(window[feature])
+            # [source_feature_name][operator_applied] : numpy array
+            # iterate over operator names
+            for op in sorted(window[feature]):
+                # append the numpy array to the dataset
+                datasets.append(window[feature][op])
 
         # expand any 1D features to 2D so that we can concatenate in one call
         datasets = [(d[:, np.newaxis] if d.ndim == 1 else d) for d in datasets]

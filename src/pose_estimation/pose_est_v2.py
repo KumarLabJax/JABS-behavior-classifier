@@ -12,13 +12,15 @@ class PoseEstimationV2(PoseEstimation):
     read in pose_est_v2.h5 file
     """
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path]=None):
+    def __init__(self, file_path: Path,
+                 cache_dir: typing.Optional[Path] = None,
+                 fps: int = 30):
         """
         initialize new object from h5 file
         :param file_path: path to pose_est_v2.h5 file
         """
 
-        super().__init__(file_path, cache_dir)
+        super().__init__(file_path, cache_dir, fps)
 
         # we will make this look like the PoseEstimationV3 but with a single
         # identity so the main program won't care which type it is
