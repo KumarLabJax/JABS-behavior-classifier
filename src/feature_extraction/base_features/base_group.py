@@ -1,5 +1,3 @@
-
-from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 
 from . import Angles, PairwisePointDistances, PointSpeeds, \
@@ -41,5 +39,5 @@ class BaseFeatureGroup(FeatureGroup):
         """
         return {
             feature: self._features[feature](self._poses, self._pixel_scale)
-            for feature in self._config
+            for feature in self._enabled_features
         }

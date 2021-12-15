@@ -13,7 +13,7 @@ class FeatureGroup(abc.ABC):
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
-        self._config = []
+        self._enabled_features = []
         self._poses = poses
         self._pixel_scale = pixel_scale
         if self._name is None:
@@ -21,9 +21,9 @@ class FeatureGroup(abc.ABC):
                 "Base class must override _name class member")
 
         # _features above defines all features that are part of this group,
-        # but self._config lists which features are currently enabled
+        # but self._enabled_features lists which features are currently enabled.
         # by default, all features are turned on
-        self._config = list(self._features.keys())
+        self._enabled_features = list(self._features.keys())
 
     def per_frame(self, identity: int) -> typing.Dict:
         """
@@ -61,7 +61,7 @@ class FeatureGroup(abc.ABC):
         return a dictionary mapping feature module names to the
         feature (column) names for that module
         """
-        modules = self._config if features is None else features
+        modules = self._enabled_features if features is None else features
         return {
             feature: self._features[feature].feature_names()
             for feature in modules
@@ -74,7 +74,7 @@ class FeatureGroup(abc.ABC):
         feature (column) names for that module
         """
         features = {}
-        modules = self._config if feature_modules is None else feature_modules
+        modules = self._enabled_features if feature_modules is None else feature_modules
         for feature_mod in modules:
             features[feature_mod] = {}
             for feature_name in self._features[feature_mod].feature_names():
@@ -82,12 +82,8 @@ class FeatureGroup(abc.ABC):
         return features
 
     @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config: list):
-        self._config = config
+    def enabled_features(self):
+        return self._enabled_features
 
     @abc.abstractmethod
     def _init_feature_mods(self, identity: int) -> dict:

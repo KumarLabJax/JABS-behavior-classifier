@@ -40,7 +40,7 @@ class SocialFeatureGroup(FeatureGroup):
         return {
             feature: self._features[feature](self._poses, self._pixel_scale,
                                              self._closest_identities_cache)
-            for feature in self._config
+            for feature in self._enabled_features
         }
 
     @property

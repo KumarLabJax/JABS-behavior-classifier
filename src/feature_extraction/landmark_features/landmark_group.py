@@ -22,9 +22,9 @@ class LandmarkFeatureGroup(FeatureGroup):
         super().__init__(poses, pixel_scale)
 
         # only enable the features supported by this particular pose file
-        self._config = []
+        self._enabled_features = []
         for o in poses.static_objects:
-            self._config.extend(self.static_object_features(o))
+            self._enabled_features.extend(self.static_object_features(o))
 
     def _init_feature_mods(self, identity: int):
         """

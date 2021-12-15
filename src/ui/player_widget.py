@@ -137,7 +137,6 @@ class _PlayerThread(QtCore.QThread):
             frame = self._stream.read()
 
             if frame['data'] is not None:
-
                 if self._identity is not None:
 
                     if self._show_track:
@@ -149,7 +148,7 @@ class _PlayerThread(QtCore.QThread):
                             frame['data'],
                             *self._pose_est.get_points(frame['index'], self._identity)
                         )
-                    overlay_corners(frame['data'], self._pose_est)
+                        overlay_corners(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
@@ -810,7 +809,7 @@ class PlayerWidget(QtWidgets.QWidget):
                             *self._pose_est.get_points(frame['index'],
                                                        self._active_identity)
                         )
-                    overlay_corners(frame['data'], self._pose_est)
+                        overlay_corners(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(

@@ -15,7 +15,7 @@ class CornerDistanceInfo:
     because we have two features that both need to know which corner is the
     closest, we compute that information once in this helper class and then
     pass it to both of the features
-    (the features are not merged into a single feature because one (bearing to
+    The features are not merged into a single feature because one (bearing to
     corner) needs to use the circular window feature methods, and the other
     does not, so it can't easily be implemented as one multi-column Feature
     class
@@ -27,6 +27,12 @@ class CornerDistanceInfo:
         self._cached_distances = {}
 
     def get_distances(self, identity: int) -> typing.Tuple[np.ndarray, np.ndarray]:
+        """
+        get corner distances and bearings for a given identity
+        :param identity: integer identity to get distances for
+        :return: tuple containing distances to nearest corner and bearing to
+        nearest corner
+        """
 
         if identity in self._cached_distances:
             return self._cached_distances[identity]
@@ -111,9 +117,9 @@ class DistanceToCorner(Feature):
 
     def per_frame(self, identity: int) -> np.ndarray:
         """
-
-        :param identity:
-        :return:
+        get the per frame distance to nearest corner values
+        :param identity: identity to get feature values for
+        :return: numpy ndarray of values with shape (nframes,)
         """
 
         distances, _ = self._cached_distances.get_distances(identity)
@@ -140,9 +146,9 @@ class BearingToCorner(Feature):
 
     def per_frame(self, identity: int) -> np.ndarray:
         """
-
-        :param identity:
-        :return:
+        get the per frame bearing to nearest corner values
+        :param identity: identity to get feature values for
+        :return: numpy ndarray of values with shape (nframes,)
         """
 
         _, bearings = self._cached_distances.get_distances(identity)
