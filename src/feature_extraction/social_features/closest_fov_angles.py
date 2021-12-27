@@ -13,7 +13,8 @@ if typing.TYPE_CHECKING:
 class ClosestFovAngles(Feature):
 
     _name = 'closest_fov_angles'
-    _feature_names =  ['angle of closest social distance in FoV']
+    _feature_names = ['angle of closest social distance in FoV']
+    _min_pose = 3
 
     # override for circular values
     _window_operations = {

@@ -66,9 +66,26 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         dtype=np.int8)
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-    if use_social and str(input_pose_file).endswith('v2.h5'):
+    if use_social and pose_est.format_major_version < 3:
         print(f"Skipping {input_pose_file}")
         print("  classifier requires v3 or higher pose files")
+        return
+
+    # make sure the pose file supports all required extended features
+    supported_features = IdentityFeatures.get_available_extended_features(
+        pose_est.format_major_version, pose_est.static_objects)
+    required_features = classifier.extended_features
+    extended_feature_check_ok = True
+    for group, features in required_features.items():
+        if group not in supported_features:
+            extended_feature_check_ok = False
+        else:
+            for f in required_features[group]:
+                if f not in supported_features[group]:
+                    extended_feature_check_ok = False
+    if not extended_feature_check_ok:
+        print(f"Skipping {input_pose_file}")
+        print("  pose file does not support all required features")
         return
 
     distance_scale_factor = 1.0
@@ -89,7 +106,8 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
         features = IdentityFeatures(
             input_pose_file, curr_id, feature_dir, pose_est, fps=fps,
-            distance_scale_factor=distance_scale_factor
+            distance_scale_factor=distance_scale_factor,
+            extended_features=classifier.extended_features
         ).get_features(window_size, use_social)
 
         data = Classifier.combine_data(
@@ -132,7 +150,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 def train(
         training_file: Path,
         override_classifier: typing.Optional[ClassifierType] = None
-):
+) -> Classifier:
 
     try:
         training_file, _ = load_training_data(training_file)
@@ -152,11 +170,12 @@ def train(
         classifier.set_classifier(classifier_type)
     else:
         print(f"Specified classifier type ({classifier_type.name}) "
-              f"is unavailable, using default "
+              "is unavailable, using default "
               f"({classifier.classifier_type.name})")
 
     print("Training classifier for:", behavior)
-    print(f"  Classifier Type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
+    print("  Classifier Type: "
+          f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
     print(f"  Window Size: {training_file['window_size']}")
     print(f"  Social: {training_file['has_social_features']}")
     print(f"  Distance Unit: {training_file['distance_unit'].name}")
@@ -171,6 +190,7 @@ def train(
         behavior,
         training_file['window_size'],
         training_file['has_social_features'],
+        training_file['extended_features'],
         training_file['distance_unit'],
         random_seed=training_file['training_seed']
     )

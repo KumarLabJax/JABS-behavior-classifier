@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 from PySide2 import QtCore, QtGui, QtWidgets
 
-from src.feature_extraction.features import IdentityFeatures
+from src.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import (VideoStream, label_identity, label_all_identities,
-                              draw_track, overlay_pose)
+                              draw_track, overlay_pose, overlay_corners)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -44,7 +44,7 @@ def _get_closest_animal_id(ref_id, frame_index, pose_est, half_fov_deg=None):
                             ref_nose_point = points[idx.NOSE, :]
                             other_centroid = np.array(other_shape.centroid)
 
-                            view_angle = IdentityFeatures.compute_angle(
+                            view_angle = ClosestIdentityInfo.compute_angle(
                                 ref_nose_point,
                                 ref_base_neck_point,
                                 other_centroid)
@@ -137,7 +137,6 @@ class _PlayerThread(QtCore.QThread):
             frame = self._stream.read()
 
             if frame['data'] is not None:
-
                 if self._identity is not None:
 
                     if self._show_track:
@@ -149,11 +148,12 @@ class _PlayerThread(QtCore.QThread):
                             frame['data'],
                             *self._pose_est.get_points(frame['index'], self._identity)
                         )
+                        overlay_corners(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
                             self._identity, frame['index'],
-                            self._pose_est, IdentityFeatures.half_fov_deg)
+                            self._pose_est, ClosestIdentityInfo._half_fov_deg)
                         if closest_fov_id is not None:
                             label_identity(frame['data'], self._pose_est,
                                            closest_fov_id, frame['index'],
@@ -809,11 +809,12 @@ class PlayerWidget(QtWidgets.QWidget):
                             *self._pose_est.get_points(frame['index'],
                                                        self._active_identity)
                         )
+                        overlay_corners(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
                             self._active_identity, frame['index'],
-                            self._pose_est, IdentityFeatures.half_fov_deg)
+                            self._pose_est, ClosestIdentityInfo._half_fov_deg)
                         if closest_fov_id is not None:
                             label_identity(frame['data'], self._pose_est,
                                            closest_fov_id, frame['index'],

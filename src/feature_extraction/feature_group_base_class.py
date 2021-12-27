@@ -2,17 +2,18 @@ import abc
 import typing
 
 from src.pose_estimation import PoseEstimation
+from .feature_base_class import Feature
 
 
 class FeatureGroup(abc.ABC):
 
     # to be defined in subclass
-    _features = {}
+    _features: typing.Dict[str, typing.Type[Feature]] = {}
     _name = None
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
-        self._config = []
+        self._enabled_features = []
         self._poses = poses
         self._pixel_scale = pixel_scale
         if self._name is None:
@@ -20,9 +21,9 @@ class FeatureGroup(abc.ABC):
                 "Base class must override _name class member")
 
         # _features above defines all features that are part of this group,
-        # but self._config lists which features are currently enabled
+        # but self._enabled_features lists which features are currently enabled.
         # by default, all features are turned on
-        self._config = list(self._features.keys())
+        self._enabled_features = list(self._features.keys())
 
     def per_frame(self, identity: int) -> typing.Dict:
         """
@@ -55,37 +56,34 @@ class FeatureGroup(abc.ABC):
             feature_modules.items()
         }
 
-    @property
-    def feature_names(self):
+    def feature_names(self, features: typing.Optional[str] = None):
         """
         return a dictionary mapping feature module names to the
         feature (column) names for that module
         """
+        modules = self._enabled_features if features is None else features
         return {
             feature: self._features[feature].feature_names()
-            for feature in self._config
+            for feature in modules
         }
 
-    @property
-    def window_feature_names(self):
+    def window_feature_names(self,
+                             feature_modules: typing.Optional[str] = None):
         """
         return a dictionary mapping module names to the
         feature (column) names for that module
         """
         features = {}
-        for feature_mod in sorted(self._config):
+        modules = self._enabled_features if feature_modules is None else feature_modules
+        for feature_mod in modules:
             features[feature_mod] = {}
             for feature_name in self._features[feature_mod].feature_names():
                 features[feature_mod][feature_name] = list(self._features[feature_mod]._window_operations.keys())
         return features
 
     @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config: list):
-        self._config = config
+    def enabled_features(self):
+        return self._enabled_features
 
     @abc.abstractmethod
     def _init_feature_mods(self, identity: int) -> dict:
@@ -98,3 +96,22 @@ class FeatureGroup(abc.ABC):
     @classmethod
     def name(cls):
         return cls._name
+
+    @classmethod
+    def get_supported_feature_modules(
+            cls,
+            pose_version: int,
+            static_objects: typing.List[str]
+    ) -> typing.List[str]:
+        """
+
+        :param pose_version:
+        :param static_objects:
+        :return:
+        """
+        features = []
+        for feature_name, feature_class in cls._features.items():
+            if feature_class.is_supported(pose_version, static_objects):
+                features.append(feature_name)
+
+        return features

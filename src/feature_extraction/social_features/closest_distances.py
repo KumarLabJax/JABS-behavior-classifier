@@ -13,6 +13,7 @@ class ClosestDistances(Feature):
 
     _name = 'closest_distances'
     _feature_names = ['closest social distance']
+    _min_pose = 3
 
     def __init__(self, poses: 'PoseEstimation', pixel_scale: float,
                  social_distance_info: 'ClosestIdentityInfo'):

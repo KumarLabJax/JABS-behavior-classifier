@@ -37,6 +37,14 @@ class PoseEstimation(ABC):
 
     def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
+        """
+        initialize new object from h5 file
+        :param file_path: path to pose_est_v2.h5 file
+        :param cache_dir: optional cache directory, used to cache convex hulls
+        for faster loading
+        :param fps: frames per second, used for scaling time series features
+        from "per frame" to "per second"
+        """
         super().__init__()
         self._num_frames = 0
         self._identities = []
@@ -46,6 +54,8 @@ class PoseEstimation(ABC):
         self._cm_per_pixel = None
         self._hash = hash_file(file_path)
         self._fps = fps
+
+        self._static_objects = {}
 
     @property
     def num_frames(self) -> int:
@@ -130,6 +140,10 @@ class PoseEstimation(ABC):
         an integer giving the major version of the format
         """
         pass
+
+    @property
+    def static_objects(self):
+        return self._static_objects
 
     def get_identity_convex_hulls(self, identity):
         """

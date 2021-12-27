@@ -9,6 +9,8 @@ _ACTIVE_COLOR = (0, 0, 255)
 _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
 
+_CORNER_COLOR = (215, 222, 0)
+
 
 __CONNECTED_SEGMENTS = [
     [
@@ -103,8 +105,8 @@ def label_all_identities(img, pose_est, identities, frame_index, subject=None):
                         lineType=cv2.LINE_AA)
 
 
-def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int, frame_index: int,
-               future_points: int=10, past_points: int=5,
+def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
+               frame_index: int, future_points: int = 10, past_points: int = 5,
                point_index=PoseEstimation.KeypointIndex.NOSE):
     """
     draw a track for a specified identity
@@ -202,9 +204,19 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
         # now draw a thin line with the specified color
         cv2.polylines(img, [np.asarray(segment_points, dtype=np.int32)], False, color, 1, cv2.LINE_AA)
 
-
     # draw points at each keypoint of the pose (if it exists at this frame)
     for point, point_mask in zip(points, mask):
         if point_mask:
             cv2.circle(img, (point[1], point[0]), 2, color,
+                       -1, lineType=cv2.LINE_AA)
+
+
+def overlay_corners(img: np.ndarray, pose_est: PoseEstimation):
+    static_objects = pose_est.static_objects
+
+    if 'corners' in static_objects:
+        # draw a marker at this location.
+        corners = static_objects['corners']
+        for i in range(4):
+            cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
                        -1, lineType=cv2.LINE_AA)

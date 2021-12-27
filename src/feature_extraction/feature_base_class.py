@@ -18,6 +18,10 @@ class Feature(abc.ABC):
     # list of feature names, correspond to columns of feature values
     _feature_names = None
 
+    # requirements for this feature to be available
+    _min_pose = 2
+    _static_objects = []
+
     _SMOOTHING_WINDOW = 5
 
     # _compute_window_feature uses numpy masked arrays, so we
@@ -54,6 +58,29 @@ class Feature(abc.ABC):
         feature set
         """
         return cls._feature_names
+
+    @classmethod
+    def is_supported(
+            cls, pose_version: int, static_objects: typing.List[str]) -> bool:
+        """
+
+        :param pose_version:
+        :param static_objects:
+        :return:
+        """
+
+        # check that the minimum pose version is met
+        if cls._min_pose > pose_version:
+            return False
+
+        # check that any static objects required by the feature are
+        # available
+        for obj in cls._static_objects:
+            if obj not in static_objects:
+                return False
+
+        return True
+
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> np.ndarray:

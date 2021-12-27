@@ -5,7 +5,6 @@ from PySide2 import QtCore
 from tabulate import tabulate
 
 from src.project import ProjectDistanceUnit
-from src.feature_extraction import IdentityFeatures
 from src.utils import FINAL_TRAIN_SEED
 
 
@@ -82,17 +81,17 @@ class TrainingThread(QtCore.QThread):
                 # train classifier, and then use it to classify our test data
                 self._classifier.train(data, self._behavior, self._window_size,
                                        self._uses_social,
+                                       self._project.extended_features,
                                        self._project.distance_unit)
                 predictions = self._classifier.predict(data['test_data'])
 
-                # calculate some performance metrics using the classifications of
-                # the test data
-                accuracy = self._classifier.accuracy_score(data['test_labels'],
-                                                           predictions)
-                pr = self._classifier.precision_recall_score(data['test_labels'],
-                                                             predictions)
-                confusion = self._classifier.confusion_matrix(data['test_labels'],
-                                                              predictions)
+                # calculate some performance metrics using the classifications
+                accuracy = self._classifier.accuracy_score(
+                    data['test_labels'], predictions)
+                pr = self._classifier.precision_recall_score(
+                    data['test_labels'], predictions)
+                confusion = self._classifier.confusion_matrix(
+                    data['test_labels'], predictions)
 
                 table_rows.append([
                     accuracy, pr[0][0], pr[0][1], pr[1][0], pr[1][1], pr[2][0],
@@ -157,6 +156,7 @@ class TrainingThread(QtCore.QThread):
             self._behavior,
             self._window_size,
             self._uses_social,
+            self._project.extended_features,
             self._project.distance_unit,
             random_seed=FINAL_TRAIN_SEED
         )

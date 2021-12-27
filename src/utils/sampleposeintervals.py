@@ -102,7 +102,7 @@ def main():
         help='give the integer version number that should be used for pose',
         default=2,
         type=int,
-        choices=(2, 3, 4),
+        choices=(2, 3, 4, 5),
     )
     parser.add_argument(
         '--only-pose',
@@ -118,6 +118,8 @@ def main():
         pose_suffix = '_pose_est_v3.h5'
     elif args.pose_version == 4:
         pose_suffix = '_pose_est_v4.h5'
+    elif args.pose_version == 5:
+        pose_suffix = '_pose_est_v5.h5'
     else:
         raise NotImplementedError('pose version not implemented: ' + str(args.pose_version))
 
@@ -177,8 +179,6 @@ def main():
                             pose_out['poseest/instance_embedding'] = pose_in['poseest/instance_embedding'][start:stop, ...]
                         if 'instance_track_id' in pose_in['poseest']:
                             pose_out['poseest/instance_track_id'] = pose_in['poseest/instance_track_id'][start:stop, ...]
-                        if 'version' in pose_in['poseest'].attrs:
-                            pose_out['poseest'].attrs['version'] = pose_in['poseest'].attrs['version']
 
                         # pose v4 stuff
                         if 'id_mask' in pose_in['poseest']:
@@ -189,6 +189,16 @@ def main():
                             pose_out['poseest/instance_embed_id'] = pose_in['poseest/instance_embed_id'][start:stop, ...]
                         if 'instance_id_center' in pose_in['poseest']:
                             pose_out['poseest/instance_id_center'] = pose_in['poseest/instance_id_center'][:]
+
+                        # v5 specific stuff
+                        if 'static_objects' in pose_in:
+                            static_group = pose_out.create_group('static_objects')
+                            for dataset in pose_in['static_objects']:
+                                static_group.create_dataset(dataset, data=pose_in['static_objects'][dataset])
+
+                        # copy attributes
+                        for attr in pose_in['poseest'].attrs:
+                            pose_out['poseest'].attrs[attr] = pose_in['poseest'].attrs[attr]
 
                     cap = None
                     writer = None

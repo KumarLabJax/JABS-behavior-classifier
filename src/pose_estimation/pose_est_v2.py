@@ -18,6 +18,10 @@ class PoseEstimationV2(PoseEstimation):
         """
         initialize new object from h5 file
         :param file_path: path to pose_est_v2.h5 file
+        :param cache_dir: optional cache directory, used to cache convex hulls
+        for faster loading
+        :param fps: frames per second, used for scaling time series features
+        from "per frame" to "per second"
         """
 
         super().__init__(file_path, cache_dir, fps)

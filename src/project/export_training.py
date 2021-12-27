@@ -1,3 +1,8 @@
+"""
+TODO: change exported training data from a single h5 file with pre-computed
+ features to a bundle of pose files, labels, and list of features used for
+ the classifier
+"""
 import h5py
 import typing
 from pathlib import Path
@@ -25,7 +30,7 @@ def export_training_data(project: 'Project',
                          use_social: bool,
                          classifier_type: 'ClassifierType',
                          training_seed: int,
-                         out_file: typing.Optional[Path]=None):
+                         out_file: typing.Optional[Path] = None):
     """
     export training data from a project in a format that can be used to
     retrain a classifier elsewhere (for example, by the command line batch
@@ -90,6 +95,15 @@ def export_training_data(project: 'Project',
                                          (1,), dtype=string_type)
             dset[:] = group_mapping[group]['video']
 
+        # store extended features used for this training file
+        # structure is:
+        #   extended_features/<feature_group_name> = list of feature names
+        if project.extended_features is not None:
+            feature_group = out_h5.create_group('extended_features')
+            for ef in project.extended_features:
+                feature_group.create_dataset(
+                    ef, data=project.extended_features[ef], dtype=string_type)
+
     # return output path, so if it was generated automatically the caller
     # will know
     return out_file
@@ -112,6 +126,7 @@ def load_training_data(training_file: Path):
             'behavior': str,
             'distance_unit': ProjectDistanceUnit,
             'classifier':
+            'extended_features': {}
         }
 
         group_mapping: dict containing group to identity/video mapping:
@@ -168,5 +183,15 @@ def load_training_data(training_file: Path):
                 'identity': val['identity'][0],
                 'video': val['video_name'][0]
             }
+
+        # load required extended features
+        if 'extended_features' in in_h5:
+            features['extended_features'] = {}
+            for group in in_h5['extended_features']:
+                features['extended_features'][group] = []
+                for f in in_h5[f'extended_features/{group}']:
+                    features['extended_features'][group].append(f.decode('utf-8'))
+        else:
+            features['extended_features'] = None
 
     return features, group_mapping

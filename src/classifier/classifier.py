@@ -20,7 +20,7 @@ from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from src.project import TrackLabels
 from src.project import ProjectDistanceUnit
 
-_VERSION = 2
+_VERSION = 3
 
 
 class ClassifierType(IntEnum):
@@ -48,7 +48,6 @@ except Exception:
 
 
 class Classifier:
-    TRAINING_FILE_VERSION = 1
     LABEL_THRESHOLD = 20
 
     _classifier_names = {
@@ -69,6 +68,7 @@ class Classifier:
         self._classifier = None
         self._window_size = None
         self._uses_social = None
+        self._extended_features = None
         self._behavior = None
         self._distance_unit = None
         self._n_jobs = n_jobs
@@ -95,6 +95,10 @@ class Classifier:
     @property
     def uses_social(self) -> bool:
         return self._uses_social
+
+    @property
+    def extended_features(self) -> typing.Dict[str, typing.List[str]]:
+        return self._extended_features
 
     @property
     def behavior_name(self) -> str:
@@ -231,6 +235,7 @@ class Classifier:
         }
 
     def train(self, data, behavior: str, window_size: int, uses_social: bool,
+              extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
               random_seed: typing.Optional[int] = None):
         """
@@ -239,10 +244,16 @@ class Classifier:
         :param behavior: string name of behavior we are training for
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
+        :param extended_features: additional features used by classifier
         :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
         results between trainings)
         :return: None
+
+        NOTE: window_size, uses_social, extended_features, and distance_unit
+        is used only to verify that a trained classifer can be used
+        (check the classifier doesn't use features that are not supported the
+        project)
         """
         features = data['training_data']
         labels = data['training_labels']
@@ -251,6 +262,7 @@ class Classifier:
         self._window_size = window_size
         self._behavior = behavior
         self._distance_unit = distance_unit
+        self._extended_features = extended_features
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,
