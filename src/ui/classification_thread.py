@@ -63,7 +63,8 @@ class ClassifyThread(QtCore.QThread):
                 # get the features for this identity
                 features = IdentityFeatures(
                     video, ident, self._project.feature_dir, pose_est, fps=fps,
-                    distance_scale_factor=distance_scale_factor
+                    distance_scale_factor=distance_scale_factor,
+                    extended_features=self._project.extended_features
                 )
                 identity = str(ident)
                 feature_values = features.get_features(
