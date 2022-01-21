@@ -68,16 +68,24 @@ class PoseEstimationV4(PoseEstimation):
             self._num_frames = len(all_points)
             self._num_identities = np.max(np.ma.array(instance_embed_id[...], mask=id_mask[...]))
 
-            # generate list of identities based on the max number of instances in
-            # the pose file
+            # generate list of identities based on the max number of instances
+            # in the pose file
             if self._num_identities > 0:
                 self._identities = [*range(self._num_identities)]
 
-                points_by_id_tmp = np.zeros_like(all_points)
-                points_by_id_tmp[np.where(id_mask == 0)[0],
+                # tmp array used to reorder points
+                points_tmp = np.zeros_like(all_points)
+
+                # first use instance_embed_id to group points by identity
+                points_tmp[np.where(id_mask == 0)[0],
                 instance_embed_id[id_mask == 0] - 1, :, :] = all_points[
                                                              id_mask == 0, :, :]
-                self._points = np.transpose(points_by_id_tmp, [1, 0, 2, 3])
+
+                # then transpose to make the first index the "identity" rather
+                # than frame
+                # indexes before transpose: [frame][ident][point idx][pt axis]
+                # indexes after transpose: [ident][frame][point idx][pt axis]
+                self._points = np.transpose(points_tmp, [1, 0, 2, 3])
 
                 confidence_by_id_tmp = np.zeros_like(all_confidence)
                 confidence_by_id_tmp[np.where(id_mask == 0)[0],
