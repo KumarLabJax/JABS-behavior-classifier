@@ -465,6 +465,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = None
         self._identities = None
         self._pose_est = None
+        self._active_identity = None
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
         self._play_button.setEnabled(False)
@@ -573,6 +574,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # this will cause set_active_identity() to be called, which will load
         # and display the current frame
         self.updateIdentities.emit(self._pose_est.identities)
+        self.set_identities(self._pose_est.identities)
 
         # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
