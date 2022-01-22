@@ -104,7 +104,7 @@ class TestOpenPose(unittest.TestCase):
 
         Converting v4/v5 pose files to the format used by JABS is expensive
         enough that we don't want to have to do it every time a pose file is
-        opened. tte JABS UI will cache data after it's been structured in the
+        opened. The JABS UI will cache data after it's been structured in the
         way JABS expects as an h5 file. This tests that we can open the file
         after it's been cached and get the expected results.
         """
