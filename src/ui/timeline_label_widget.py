@@ -110,13 +110,21 @@ class TimelineLabelWidget(QWidget):
         self.update()
 
     def set_num_frames(self, num_frames):
-        """ set the number of frames in the current video """
+        """
+        sets the number of frames in the current video
+        """
         self._num_frames = num_frames
         self._update_scale()
+        self._update_bar()
 
     def update_labels(self):
         self._update_bar()
         self.update()
+
+    def reset(self):
+        self._labels = None
+        self._update_scale()
+        self._update_bar()
 
     def _update_bar(self):
         """

@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 import src.pose_estimation
 
 _TEST_FILES = [
@@ -95,3 +97,45 @@ class TestOpenPose(unittest.TestCase):
         points, _ = self._pose_est_v4.get_points(10, 0)
         scaled_points, _ = self._pose_est_v4.get_points(10, 0, 0.03)
         self.assertTrue((points * 0.03 == scaled_points).all())
+
+    def test_v4_read_from_cache(self) -> None:
+        """
+        test that we can open a V4 pose file from its cached h5 file
+
+        Converting v4/v5 pose files to the format used by JABS is expensive
+        enough that we don't want to have to do it every time a pose file is
+        opened. The JABS UI will cache data after it's been structured in the
+        way JABS expects as an h5 file. This tests that we can open the file
+        after it's been cached and get the expected results.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir_path = Path(temp_dir)
+
+            # this will be uncached, so it will read raw data from the pose file
+            # and manipulate it to generate data in the form we need, and then
+            # will write it back out to the cache directory
+            pose_v4 = src.pose_estimation.open_pose_file(
+                self._tmpdir_path / 'sample_pose_est_v4.h5',
+                cache_dir=cache_dir_path)
+
+            # open it again, this time it should be read from the cached
+            # file
+            pose_v4_from_cache = src.pose_estimation.open_pose_file(
+                self._tmpdir_path / 'sample_pose_est_v4.h5',
+                cache_dir=cache_dir_path)
+
+
+        # make sure the list of identities is the same
+        self.assertListEqual(pose_v4.identities,
+                             pose_v4_from_cache.identities)
+
+        # they should have the same number of frames
+        self.assertEqual(pose_v4.num_frames,
+                         pose_v4_from_cache.num_frames)
+
+        # make sure the points and point masks are equal for all identities
+        for ident in pose_v4.identities:
+            poses, mask = pose_v4.get_identity_poses(ident)
+            poses_cached, mask_cached = pose_v4_from_cache.get_identity_poses(ident)
+            self.assertTrue(np.alltrue(poses == poses_cached))
+            self.assertTrue(np.alltrue(mask == mask_cached))

@@ -16,7 +16,7 @@ class PoseEstimationV4(PoseEstimation):
     class for opening and parsing version 4 of the pose estimation HDF5 file
     """
 
-    __CACHE_FILE_VERSION = 2
+    __CACHE_FILE_VERSION = 3
 
     def __init__(self, file_path: Path,
                  cache_dir: typing.Optional[Path] = None,
@@ -68,28 +68,49 @@ class PoseEstimationV4(PoseEstimation):
             self._num_frames = len(all_points)
             self._num_identities = np.max(np.ma.array(instance_embed_id[...], mask=id_mask[...]))
 
-            # generate list of identities based on the max number of instances in
-            # the pose file
-            self._identities = [*range(self._num_identities)]
+            # generate list of identities based on the max number of instances
+            # in the pose file
+            if self._num_identities > 0:
+                self._identities = [*range(self._num_identities)]
 
-            points_by_id_tmp = np.zeros_like(all_points)
-            points_by_id_tmp[np.where(id_mask == 0)[0], instance_embed_id[id_mask == 0] - 1, :, :] = all_points[id_mask == 0, :, :]
-            self._points = np.transpose(points_by_id_tmp, [1, 0, 2, 3])
+                # tmp array used to reorder points
+                points_tmp = np.zeros_like(all_points)
 
-            confidence_by_id_tmp = np.zeros_like(all_confidence)
-            confidence_by_id_tmp[np.where(id_mask == 0)[0], instance_embed_id[id_mask == 0] - 1, :] = all_confidence[id_mask == 0, :]
-            confidence_by_id = np.transpose(confidence_by_id_tmp, [1, 0, 2])
+                # first use instance_embed_id to group points by identity
+                points_tmp[np.where(id_mask == 0)[0],
+                instance_embed_id[id_mask == 0] - 1, :, :] = all_points[
+                                                             id_mask == 0, :, :]
 
-            self._point_mask = confidence_by_id > 0
+                # then transpose to make the first index the "identity" rather
+                # than frame
+                # indexes before transpose: [frame][ident][point idx][pt axis]
+                # indexes after transpose: [ident][frame][point idx][pt axis]
+                self._points = np.transpose(points_tmp, [1, 0, 2, 3])
 
-            # build a mask for each identity that indicates if it exists or not
-            # in the frame
-            init_func = np.vectorize(
-                lambda x, y: 0 if np.sum(self._point_mask[x][y][:-2]) == 0 else 1,
-                otypes=[np.uint8])
-            self._identity_mask = np.fromfunction(
-                init_func, (self._num_identities, self._num_frames),
-                dtype=np.int_)
+                confidence_by_id_tmp = np.zeros_like(all_confidence)
+                confidence_by_id_tmp[np.where(id_mask == 0)[0],
+                instance_embed_id[id_mask == 0] - 1, :] = all_confidence[
+                                                          id_mask == 0, :]
+                confidence_by_id = np.transpose(confidence_by_id_tmp, [1, 0, 2])
+
+                self._point_mask = confidence_by_id > 0
+
+                # build a mask for each identity that indicates if it exists or not
+                # in the frame
+                init_func = np.vectorize(
+                    lambda x, y: 0 if np.sum(
+                        self._point_mask[x][y][:-2]) == 0 else 1,
+                    otypes=[np.uint8])
+
+                self._identity_mask = np.fromfunction(
+                    init_func, (self._num_identities, self._num_frames),
+                    dtype=np.int_)
+            else:
+                self._identities = []
+                self._point_mask = None
+                self._points = None
+                self._identity_mask = None
+
             # cache pose data
             if cache_dir:
                 self._cache_poses()
@@ -113,7 +134,6 @@ class PoseEstimationV4(PoseEstimation):
         :param fps: video frames per second
         :return: points, mask if identity has data for this frame
         """
-
         if not self._identity_mask[identity, frame_index]:
             return None, None
 
@@ -177,15 +197,17 @@ class PoseEstimationV4(PoseEstimation):
                 raise PoseHashException
 
             pose_grp = cache_h5['poseest']
-            self._points = pose_grp['points'][:]
-            self._point_mask = pose_grp['point_mask'][:]
-            self._identity_mask = pose_grp['identity_mask'][:]
-            self._num_identities =self._identity_mask.shape[0]
-            self._num_frames = self._points.shape[1]
+            self._num_identities = int(cache_h5.attrs['num_identities'])
+            self._num_frames = int(cache_h5.attrs['num_frames'])
             self._identities = [*range(self._num_identities)]
 
             # get pixel size
             self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+
+            if self._num_identities > 0:
+                self._points = pose_grp['points'][:]
+                self._point_mask = pose_grp['point_mask'][:]
+                self._identity_mask = pose_grp['identity_mask'][:]
 
     def _cache_poses(self):
         """
@@ -198,9 +220,13 @@ class PoseEstimationV4(PoseEstimation):
         with h5py.File(cache_file_path, 'w') as cache_h5:
             cache_h5.attrs['version'] = self.__CACHE_FILE_VERSION
             cache_h5.attrs['source_pose_hash'] = self.hash
+            cache_h5.attrs['num_identities'] = self._num_identities
+            cache_h5.attrs['num_frames'] = self._num_frames
             group = cache_h5.create_group('poseest')
             if self._cm_per_pixel is not None:
                 group.attrs['cm_per_pixel'] = self._cm_per_pixel
-            group.create_dataset('points', data=self._points)
-            group.create_dataset('point_mask', data=self._point_mask)
-            group.create_dataset('identity_mask', data=self._identity_mask)
+
+            if self._num_identities > 0:
+                group.create_dataset('points', data=self._points)
+                group.create_dataset('point_mask', data=self._point_mask)
+                group.create_dataset('identity_mask', data=self._identity_mask)
