@@ -100,8 +100,8 @@ user removes a behavior from a project.
 
 ### rotta/cache
 
-Files cached by Rotta to speed up performance. Some of these files may not be
-portable, so this directory should be deleted if a Rotta project is copied to a
+Files cached by JABS to speed up performance. Some of these files may not be
+portable, so this directory should be deleted if a JABS project is copied to a
 different platform.
 
 ### rotta/classifiers
@@ -113,15 +113,15 @@ Python Pickle files and should be considered non-portable.
 
 This directory contains the computed features. There is one directory per
 project video, and within each video directory there will be one feature
-directory per identity. Feature files are usually portable, but Rotta may need
+directory per identity. Feature files are usually portable, but JABS may need
 to recompute the features if they were created with a different version of
-Rotta.
+JABS.
 
 ### rotta/predictions
 
 This directory contains prediction files. There will be one subdirectory per
 behavior containing one prediction file per video. Prediction files are
-automatically opened and displayed by Rotta if they exist. Prediction files are
+automatically opened and displayed by JABS if they exist. Prediction files are
 portable, and are the same format as the output of the command line classifier
 tool (`classify.py`).
 
@@ -206,8 +206,7 @@ tool (`classify.py`).
 - **File→Export Training Data:** Create a file with the information needed to
   share a classifier. This exported file is written to the project directory and
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
-  used as one input for the `classify.py` script in the Rotta root app
-  directory.
+  used as one input for the `classify.py` script.
 - **View→View Playlist:** can be used to hide/show video playlist
 - **View→Show Track:** show/hide track overlay for the subject. The track
   overlay shows the nose position for the previous 5 frames and the next 10
@@ -292,7 +291,7 @@ the predicted class visualization, the gaps are colored white.
 
 Actions under the file menu have keyboard shortcuts.
 
-- Control Q (Command Q on Mac) quit Rotta
+- Control Q (Command Q on Mac) quit JABS
 - Control T (Command T on Mac) export training data
 
 ### Navigation
