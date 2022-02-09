@@ -170,8 +170,8 @@ class CentralWidget(QtWidgets.QWidget):
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
 
-        self._controls.select_button_set_enabled(True)
         self._controls.kslider_set_enabled(True)
+
         self._set_train_button_enabled_state()
 
     def load_video(self, path):
@@ -182,8 +182,6 @@ class CentralWidget(QtWidgets.QWidget):
         :raises: OSError if unable to open video
         """
 
-        # if we have labels loaded, cache them before opening labels for
-        # new video
         if self._labels is not None:
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
@@ -212,7 +210,19 @@ class CentralWidget(QtWidgets.QWidget):
             self.inference_timeline_widget.set_num_frames(
                 self._player_widget.num_frames()
             )
+            self._set_label_track()
             self._set_prediction_vis()
+
+            # update ui components based on some properties of new video
+            if self._pose_est.num_identities > 0:
+                self._controls.select_button_set_enabled(True)
+            else:
+                # if video has no identities, disable the select frames button
+                self._controls.select_button_set_enabled(False)
+
+                # and make sure the label visualization widgets are cleared
+                self.manual_labels.set_labels(None)
+                self.timeline_widget.reset()
 
         except OSError as e:
             # error loading
@@ -359,7 +369,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _set_identities(self, identities):
         """ populate the identity_selection combobox """
         self._controls.set_identities(identities)
-        self._player_widget.set_identities(identities)
 
     def _change_identity(self):
         """ handle changing value of identity_selection """
