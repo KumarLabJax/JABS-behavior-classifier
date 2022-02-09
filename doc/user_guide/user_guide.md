@@ -9,6 +9,7 @@ JABS to save project state, including labels and current predictions.
 
 ### Example JABS project directory listing:
 
+```text
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_08-00-00_500.avi
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_08-00-00_500_pose_est_v3.h5
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_09-00-00_500.avi
@@ -23,6 +24,7 @@ NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_13-00-00_500.avi
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_13-00-00_500_pose_est_v3.h5
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_14-00-00_500.avi
 NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_14-00-00_500_pose_est_v3.h5 rotta
+```
 
 ## Initializing  A JABS Project Directory
 
