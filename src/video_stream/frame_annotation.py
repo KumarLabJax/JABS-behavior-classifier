@@ -10,6 +10,7 @@ _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
 
 _CORNER_COLOR = (215, 222, 0)
+_LIXIT_COLOR = (66, 164, 245)
 
 
 __CONNECTED_SEGMENTS = [
@@ -211,7 +212,7 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
                        -1, lineType=cv2.LINE_AA)
 
 
-def overlay_corners(img: np.ndarray, pose_est: PoseEstimation):
+def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     static_objects = pose_est.static_objects
 
     if 'corners' in static_objects:
@@ -219,4 +220,11 @@ def overlay_corners(img: np.ndarray, pose_est: PoseEstimation):
         corners = static_objects['corners']
         for i in range(4):
             cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
+                       -1, lineType=cv2.LINE_AA)
+
+    if 'lixit' in pose_est.static_objects:
+        lixit = pose_est.static_objects['lixit']
+        for i in range(lixit.shape[0]):
+            x, y = lixit[i][0], lixit[i][1]
+            cv2.circle(img, (int(y), int(x)), 2, _LIXIT_COLOR,
                        -1, lineType=cv2.LINE_AA)

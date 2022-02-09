@@ -88,6 +88,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_pose.triggered.connect(self._toggle_pose_overlay)
         view_menu.addAction(self.overlay_pose)
 
+        self.overlay_landmark = QtWidgets.QAction('Overlay Landmarks', self)
+        self.overlay_landmark.setCheckable(True)
+        self.overlay_landmark.triggered.connect(self._toggle_landmark_overlay)
+        view_menu.addAction(self.overlay_landmark)
+
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
@@ -126,13 +131,15 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Key_X,
             QtCore.Qt.Key_C,
             QtCore.Qt.Key_Escape,
-            QtCore.Qt.Key_L
+            QtCore.Qt.Key_Question
         ]:
             self.centralWidget().keyPressEvent(event)
         elif key == QtCore.Qt.Key_T:
             self.show_track.trigger()
         elif key == QtCore.Qt.Key_P:
             self.overlay_pose.trigger()
+        elif key == QtCore.Qt.Key_L:
+            self.overlay_landmark.trigger()
         else:
             # anything else pass on to the super class keyPressEvent
             super(MainWindow, self).keyPressEvent(event)
@@ -215,6 +222,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_pose_overlay(self, checked):
         """ show/hide pose overlay for subject """
         self._central_widget.overlay_pose(checked)
+
+    def _toggle_landmark_overlay(self, checked):
+        self._central_widget.overlay_landmarks(checked)
 
     def _video_list_selection(self, filename):
         """

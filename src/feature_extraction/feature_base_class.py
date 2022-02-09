@@ -63,10 +63,10 @@ class Feature(abc.ABC):
     def is_supported(
             cls, pose_version: int, static_objects: typing.List[str]) -> bool:
         """
-
-        :param pose_version:
-        :param static_objects:
-        :return:
+        check that a feature is supported by a pose file
+        :param pose_version: pose file version
+        :param static_objects: list of static object available in pose file
+        :return: True if the pose file supports the feature, false otherwise
         """
 
         # check that the minimum pose version is met
@@ -80,7 +80,6 @@ class Feature(abc.ABC):
                 return False
 
         return True
-
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> np.ndarray:

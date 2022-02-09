@@ -261,7 +261,7 @@ class CentralWidget(QtWidgets.QWidget):
             if self._controls.select_button_is_checked:
                 self._controls.select_button_set_checked(False)
                 self._start_selection(False)
-        elif key == QtCore.Qt.Key_L:
+        elif key == QtCore.Qt.Key_Question:
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
 
@@ -270,6 +270,9 @@ class CentralWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
+
+    def overlay_landmarks(self, new_val: bool):
+        self._player_widget.overlay_landmarks(new_val)
 
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
