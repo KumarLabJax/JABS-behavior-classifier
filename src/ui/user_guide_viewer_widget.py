@@ -1,10 +1,10 @@
 import os
 from pathlib import Path
 
+import markdown2
 from PySide2.QtWidgets import QVBoxLayout, QDialog, QPushButton
 from PySide2.QtWebEngineWidgets import QWebEngineView
 from PySide2.QtCore import Qt, QUrl
-import markdown2
 
 
 class UserGuideDialog(QDialog):
