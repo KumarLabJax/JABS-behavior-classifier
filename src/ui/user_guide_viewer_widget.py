@@ -35,7 +35,7 @@ class UserGuideDialog(QDialog):
 
         # need to specify a base URL when displaying the html content due to
         # the relative img urls in the user_guide.md document
-        base_url = QUrl(f'file://{user_guide_path.parent}{os.path.sep}')
+        base_url = QUrl(f'{user_guide_path.parent.as_uri()}/')
 
         try:
             html = markdown2.markdown_path(user_guide_path,  extras=['fenced-code-blocks'])
