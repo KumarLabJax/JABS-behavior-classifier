@@ -36,7 +36,7 @@ class SocialFeatureGroup(FeatureGroup):
         self._closest_identities_cache = ClosestIdentityInfo(
             self._poses, identity, self._pixel_scale)
 
-        # initialize all of the feature modules specified in the current config
+        # initialize all the feature modules specified in the current config
         return {
             feature: self._features[feature](self._poses, self._pixel_scale,
                                              self._closest_identities_cache)

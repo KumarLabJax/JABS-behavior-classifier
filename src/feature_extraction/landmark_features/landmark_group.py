@@ -1,6 +1,7 @@
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
+from .lixit import DistanceToLixit
 
 
 class LandmarkFeatureGroup(FeatureGroup):
@@ -11,11 +12,13 @@ class LandmarkFeatureGroup(FeatureGroup):
     _features = {
         DistanceToCorner.name(): DistanceToCorner,
         BearingToCorner.name(): BearingToCorner,
+        DistanceToLixit.name(): DistanceToLixit
     }
 
     # maps static objects to the names of features derived from that object
     _feature_map = {
-        'corners': [DistanceToCorner.name(), BearingToCorner.name()]
+        'corners': [DistanceToCorner.name(), BearingToCorner.name()],
+        'lixit': [DistanceToLixit.name()]
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -28,21 +31,22 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     def _init_feature_mods(self, identity: int):
         """
-        initialize all of the feature modules specified in the current config
+        initialize all the feature modules specified in the current config
         :param identity: unused, specified by abstract base class
         :return: dictionary of initialized feature modules for this group
         """
+        modules = {}
 
         corner_distances = CornerDistanceInfo(self._poses, self._pixel_scale)
 
-        return {
-            DistanceToCorner.name(): DistanceToCorner(self._poses,
-                                                      self._pixel_scale,
-                                                      corner_distances),
-            BearingToCorner.name(): BearingToCorner(self._poses,
-                                                    self._pixel_scale,
-                                                    corner_distances),
-        }
+        # initialize all the feature modules specified in the current config
+        for feature in self._enabled_features:
+            if feature in [DistanceToCorner.name(), BearingToCorner.name()]:
+                modules[feature] = self._features[feature](self._poses, self._pixel_scale, corner_distances)
+            else:
+                modules[feature] = self._features[feature](self._poses, self._pixel_scale)
+
+        return modules
 
     @classmethod
     def static_object_features(cls, static_object: str):
