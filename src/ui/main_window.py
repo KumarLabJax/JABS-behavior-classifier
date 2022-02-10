@@ -11,6 +11,7 @@ from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
 from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .license_dialog import LicenseAgreementDialog
+from .user_guide_viewer_widget import UserGuideDialog
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -31,6 +32,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self._status_bar)
 
+        self._user_guide_window = UserGuideDialog(
+            f"{self._app_name_long} ({self._app_name})")
+
         menu = self.menuBar()
 
         app_menu = menu.addMenu(self._app_name)
@@ -50,8 +54,15 @@ class MainWindow(QtWidgets.QMainWindow):
         about_action.triggered.connect(self._show_about_dialog)
         app_menu.addAction(about_action)
 
+        # user guide
+        user_guide_action = QtWidgets.QAction(' &User Guide', self)
+        user_guide_action.setStatusTip('Open User Guide')
+        user_guide_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_U))
+        user_guide_action.triggered.connect(self._open_user_guide)
+        app_menu.addAction(user_guide_action)
+
         # exit action
-        exit_action = QtWidgets.QAction(' &Exit', self)
+        exit_action = QtWidgets.QAction(f' &Quit {self._app_name}', self)
         exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_Q))
         exit_action.setStatusTip('Exit application')
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
@@ -175,6 +186,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_about_dialog(self):
         dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})")
         dialog.exec_()
+
+    def _open_user_guide(self):
+        """ show the user guide document in a separate window """
+        self._user_guide_window.show()
 
     def _export_training_data(self):
 
