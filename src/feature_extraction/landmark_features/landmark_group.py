@@ -41,10 +41,17 @@ class LandmarkFeatureGroup(FeatureGroup):
 
         # initialize all the feature modules specified in the current config
         for feature in self._enabled_features:
+
+            # the distance to corner and bearing to corner features use
+            # some pre-computed data (so it doesn't have to be recomputed for
+            # each). We need to special case the initialization of these
+            # to pass in the "corner_distances" object
             if feature in [DistanceToCorner.name(), BearingToCorner.name()]:
-                modules[feature] = self._features[feature](self._poses, self._pixel_scale, corner_distances)
+                modules[feature] = self._features[feature](
+                    self._poses, self._pixel_scale, corner_distances)
             else:
-                modules[feature] = self._features[feature](self._poses, self._pixel_scale)
+                modules[feature] = self._features[feature](
+                    self._poses, self._pixel_scale)
 
         return modules
 

@@ -30,18 +30,14 @@ class DistanceToLixit(Feature):
         num_lixit = lixit.shape[0]
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
+        # if there are multiple lixit, we compute the distance from nose to
+        # each one, resulting in a numpy array of shape #frames, #lixit
         for i in range(num_lixit):
-            distances[:, i] = self._compute_distance(
-                points[:, self._nose_index, :], lixit[i])
+            pts = points[:, self._nose_index, :]
+            ref = lixit[i]
+            distances[:, i] = np.sqrt(np.sum((pts - ref) ** 2, axis=1))
 
+        # return the min of each row, to give us a numpy array with a shape
+        # (#nframes,) containing the distance from the nose to the closest lixit
+        # for each frame
         return distances.min(axis=1)
-
-    @staticmethod
-    def _compute_distance(points: np.ndarray, reference: np.ndarray) -> np.ndarray:
-        """
-        compute the distance between an array of points and a reference point
-        :param points: numpy array of points with shape = (npoints, 2)
-        :param reference: point (numpy array of length 2)
-        :return: numpy array of distances
-        """
-        return np.sqrt(np.sum((points - reference) ** 2, axis=1))
