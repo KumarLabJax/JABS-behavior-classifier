@@ -32,8 +32,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self._status_bar)
 
-        self._user_guide_window = UserGuideDialog(
-            f"{self._app_name_long} ({self._app_name})")
+        self._user_guide_window = None
 
         menu = self.menuBar()
 
@@ -189,6 +188,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _open_user_guide(self):
         """ show the user guide document in a separate window """
+        if self._user_guide_window is None:
+            self._user_guide_window = UserGuideDialog(
+                f"{self._app_name_long} ({self._app_name})")
         self._user_guide_window.show()
 
     def _export_training_data(self):
