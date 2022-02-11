@@ -19,15 +19,17 @@ class DistanceToLixit(Feature):
         """
 
         lixit = self._poses.static_objects['lixit']
+
+        # there might be more than one: shape of lixit is <number of lixit> x 2
+        num_lixit = lixit.shape[0]
+
+        # convert lixit coordinates from pixels to cm if we can
         if self._pixel_scale is not None:
             lixit = lixit * self._pixel_scale
 
-        # first compute the distance to lixit
-        # there might be more than one: shape of lixit is <number of lixit> x 2
-        distances = np.zeros((self._poses.num_frames, lixit.shape[0]),
+        distances = np.zeros((self._poses.num_frames, num_lixit),
                              dtype=np.float32)
 
-        num_lixit = lixit.shape[0]
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         # if there are multiple lixit, we compute the distance from nose to

@@ -40,6 +40,14 @@ class PoseEstimationV5(PoseEstimationV4):
                     for d in pose_h5['static_objects']:
                         self._static_objects[d] = pose_h5['static_objects'][d][:]
 
+        # drop "lixit" from the static objects if it is an empty array
+        try:
+            if self._static_objects['lixit'].shape[0] == 0:
+                del self._static_objects['lixit']
+        except KeyError:
+            # lixit was not in static objects, ignore
+            pass
+
     @property
     def format_major_version(self) -> int:
         return 5
