@@ -36,8 +36,11 @@ class FoodHopper(Feature):
 
         values = np.zeros((self._poses.num_frames, len(self._feature_names)))
 
+        # for each keypoint we will find if that keypoint is within the
+        # food hopper at each frame, then we will set values to 1.0 everywhere
+        # this is true
         for key_point in PoseEstimation.KeypointIndex:
-            # skip over the few points we don't care about
+            # skip over the key points we don't care about
             if key_point in _EXCLUDED_POINTS:
                 continue
 
@@ -45,7 +48,8 @@ class FoodHopper(Feature):
             hits = [hopper_poly.contains(geometry.Point(p)) for p in
                     points[:, key_point.value, :]]
 
-            # set any frame where hits is true to 1
+            # use boolean indexing to set any frame where hits equals True to 1
+            # for this keypoint
             values[hits, key_point.value] = 1.0
 
         return values
