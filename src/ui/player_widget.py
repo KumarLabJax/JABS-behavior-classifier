@@ -8,7 +8,7 @@ from PySide2 import QtCore, QtGui, QtWidgets
 from src.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import (VideoStream, label_identity, label_all_identities,
-                              draw_track, overlay_pose, overlay_corners)
+                              draw_track, overlay_pose, overlay_landmarks)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -76,7 +76,7 @@ class _PlayerThread(QtCore.QThread):
     endOfFile = QtCore.Signal()
 
     def __init__(self, video_stream, pose_est, identity, show_track=False,
-                 overlay_pose=False, identities=None):
+                 overlay_pose=False, identities=None, overlay_landmarks=False):
         super().__init__()
         self._stream = video_stream
         self._pose_est = pose_est
@@ -84,6 +84,7 @@ class _PlayerThread(QtCore.QThread):
         self._label_closest = False
         self._show_track = show_track
         self._overlay_pose = overlay_pose
+        self._overlay_landmarks = overlay_landmarks
         self._identities = identities if identities is not None else []
 
     def terminate(self):
@@ -111,6 +112,9 @@ class _PlayerThread(QtCore.QThread):
 
     def set_overlay_pose(self, new_val: bool):
         self._overlay_pose = new_val
+
+    def set_overlay_landmarks(self, new_val: bool):
+        self._overlay_landmarks = new_val
 
     def run(self):
         """
@@ -148,7 +152,8 @@ class _PlayerThread(QtCore.QThread):
                             frame['data'],
                             *self._pose_est.get_points(frame['index'], self._identity)
                         )
-                        overlay_corners(frame['data'], self._pose_est)
+                    if self._overlay_landmarks:
+                        overlay_landmarks(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
@@ -350,6 +355,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._label_closest = False
         self._show_track = False
         self._overlay_pose = False
+        self._overlay_landmarks = False
         self._identities = []
 
         # currently selected identity -- if set will be labeled in the video
@@ -536,6 +542,28 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._player_thread:
             self._player_thread.set_overlay_pose(self._overlay_pose)
+        else:
+            # if not playing, reload current frame to apply current track state
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
+            self._update_frame(self._video_stream.read())
+
+    def overlay_landmarks(self, new_val: typing.Optional[bool]=None):
+        """
+        change "overlay landmarks" state. Accepts a new boolean value, or
+        toggles current state if no value given.
+        """
+        if new_val is None:
+            self._overlay_landmarks = not self._overlay_landmarks
+        else:
+            self._overlay_landmarks = new_val
+
+        # don't do anything else if a video isn't loaded
+        if self._video_stream is None:
+            return
+
+        if self._player_thread:
+            self._player_thread.set_overlay_landmarks(self._overlay_landmarks)
         else:
             # if not playing, reload current frame to apply current track state
             self._video_stream.seek(self._position_slider.value())
@@ -811,7 +839,8 @@ class PlayerWidget(QtWidgets.QWidget):
                             *self._pose_est.get_points(frame['index'],
                                                        self._active_identity)
                         )
-                        overlay_corners(frame['data'], self._pose_est)
+                    if self._overlay_landmarks:
+                        overlay_landmarks(frame['data'], self._pose_est)
 
                     if self._label_closest:
                         closest_fov_id = _get_closest_animal_id(
@@ -900,7 +929,8 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         self._player_thread = _PlayerThread(
             self._video_stream, self._pose_est, self._active_identity,
-            self._show_track, self._overlay_pose, self._identities)
+            self._show_track, self._overlay_pose, self._identities,
+            self._overlay_landmarks)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)

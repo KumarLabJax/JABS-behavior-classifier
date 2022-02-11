@@ -1,35 +1,9 @@
-import gzip
-import shutil
-import tempfile
-import unittest
-from pathlib import Path
 
-import src.pose_estimation
 import src.feature_extraction.landmark_features.corner as corner_module
+from tests.feature_modules.base import TestFeatureBase
 
 
-class TestCornerFeatures(unittest.TestCase):
-    _tmpdir = None
-    _test_file = Path(__file__).parent.parent / 'data' / 'sample_pose_est_v5.h5.gz'
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._tmpdir = tempfile.TemporaryDirectory()
-        cls._tmpdir_path = Path(cls._tmpdir.name)
-
-        pose_path = cls._tmpdir_path / 'sample_pose_est_v5.h5'
-
-        # decompress pose file into tempdir
-        with gzip.open(cls._test_file, 'rb') as f_in:
-            with open(pose_path, 'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
-
-        cls._pose_est_v5 = src.pose_estimation.open_pose_file(
-            cls._tmpdir_path / 'sample_pose_est_v5.h5')
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls._tmpdir.cleanup()
+class TestCornerFeatures(TestFeatureBase):
 
     def test_compute_corner_distances(self):
         pixel_scale = self._pose_est_v5.cm_per_pixel
