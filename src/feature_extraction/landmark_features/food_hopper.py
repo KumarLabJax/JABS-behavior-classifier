@@ -1,5 +1,6 @@
 import numpy as np
-from shapely import geometry
+
+import cv2
 
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
@@ -31,7 +32,9 @@ class FoodHopper(Feature):
         if self._pixel_scale is not None:
             hopper = hopper * self._pixel_scale
 
-        hopper_poly = geometry.Polygon(hopper)
+        # swap the point x,y values and change dtype to float32 for open cv
+        hopper_pts = hopper[:, [1, 0]].astype(np.float32)
+
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         values = np.zeros((self._poses.num_frames, len(self._feature_names)))
@@ -44,13 +47,12 @@ class FoodHopper(Feature):
             if key_point in _EXCLUDED_POINTS:
                 continue
 
-            # find out which frames the point is within the food hopper polygon
-            hits = [hopper_poly.contains(geometry.Point(p)) for p in
-                    points[:, key_point.value, :]]
+            # swap our x,y to match the opencv coordinate space
+            pts = points[:, key_point.value, [1, 0]]
 
-            # use boolean indexing to set any frame where hits equals True to 1
-            # for this keypoint
-            values[hits, key_point.value] = 1.0
+            values[:, key_point.value] = np.asarray(
+                [cv2.pointPolygonTest(hopper_pts, (p[0], p[1]), True) for p in pts]
+            )
 
         return values
 
