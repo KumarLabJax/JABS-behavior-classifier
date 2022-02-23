@@ -78,7 +78,7 @@ will use up to 4 processes.
 
 ## The Rotta Directory
 
-JABS creates a subdirectory called "rotta" inside of the project directory (this
+JABS creates a subdirectory called "rotta" inside the project directory (this
 directory is called "rotta" for historical reasons and may change prior to the
 1.0.0 release of JABS). This directory contains app-specific data such as
 project settings, generated features, user labels, cache files, and the latest
@@ -200,6 +200,9 @@ tool (`classify.py`).
 
 ### Menu
 
+- **JABS→About:** Display About Dialog
+- **JABS→User Guide:** Display User Guide
+- **JABS→Quit JABS:** Quit Program
 - **File→Open Project:** Select a project directory to open. If a project is
   already opened, it will be closed and the newly selected project will be
   opened.
