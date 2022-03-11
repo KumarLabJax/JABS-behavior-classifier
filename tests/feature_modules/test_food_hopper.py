@@ -16,7 +16,7 @@ class TestCornerFeatures(TestFeatureBase):
         pixel_scale = cls._pose_est_v5.cm_per_pixel
         cls.food_hopper_feature = FoodHopper(cls._pose_est_v5, pixel_scale)
 
-    def test_dimensions(self):
+    def test_dimensions(self) -> None:
         # check dimensions of per frame feature values
         for i in range(self._pose_est_v5.num_identities):
             values = self.food_hopper_feature.per_frame(i)
@@ -31,7 +31,7 @@ class TestCornerFeatures(TestFeatureBase):
                                  (self._pose_est_v5.num_frames,
                                   len(self.food_hopper_feature.feature_names())))
 
-    def test_signed_dist(self):
+    def test_signed_dist(self) -> None:
         values = self.food_hopper_feature.per_frame(0)
 
         # perform a couple manual computations of signed distance and check
@@ -57,3 +57,11 @@ class TestCornerFeatures(TestFeatureBase):
                 signed_dist = cv2.pointPolygonTest(
                     hopper_pts, (pts[i, 0], pts[i, 1]), True)
                 self.assertAlmostEqual(signed_dist, values[i, key_point])
+
+    def test_frame_out_of_range(self) -> None:
+        with self.assertRaises(IndexError):
+            _ = self.food_hopper_feature.per_frame(0)[100000]
+
+    def test_identity_out_of_range(self) -> None:
+        with self.assertRaises(IndexError):
+            _ = self.food_hopper_feature.per_frame(100)[0]
