@@ -216,30 +216,22 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     static_objects = pose_est.static_objects
 
-    try:
-        # draw a marker at this location.
-        corners = static_objects['corners']
+    # draw a marker at this location.
+    corners = static_objects.get('corners')
+    if corners is not None:
         for i in range(4):
             cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
                        -1, lineType=cv2.LINE_AA)
-    except KeyError:
-        # corners not in static objects, skip
-        pass
 
-    try:
-        lixit = pose_est.static_objects['lixit']
+    lixit = pose_est.static_objects.get('lixit')
+    if lixit is not None:
         for i in range(lixit.shape[0]):
             x, y = lixit[i][0], lixit[i][1]
             cv2.circle(img, (int(y), int(x)), 2, _LIXIT_COLOR,
                        -1, lineType=cv2.LINE_AA)
-    except KeyError:
-        # lixit not in static objects, skip
-        pass
 
-    try:
-        hopper = [(p[1], p[0]) for p in pose_est.static_objects['food_hopper']]
+    hopper_points = pose_est.static_objects.get('food_hopper')
+    if hopper_points is not None:
+        hopper = [(p[1], p[0]) for p in hopper_points]
         cv2.polylines(img, np.int32([hopper]), True, _HOPPER_COLOR,
                       1, lineType=cv2.LINE_AA)
-    except KeyError:
-        # hopper not in static objects, skip
-        pass
