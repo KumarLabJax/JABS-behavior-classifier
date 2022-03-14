@@ -92,6 +92,10 @@ class TestOpenPose(unittest.TestCase):
         self.assertTrue((points == points_all_frame[10, :]).all())
         self.assertTrue((point_mask == point_mask_all_frames[10, :]).all())
 
+    def test_get_points_out_of_range(self) -> None:
+        with self.assertRaises(IndexError):
+            _, _ = self._pose_est_v4.get_points(1000000, 0)
+
     def test_scaling_points(self) -> None:
         """ test scaling points """
         points, _ = self._pose_est_v4.get_points(10, 0)

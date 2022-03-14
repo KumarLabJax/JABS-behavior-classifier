@@ -2,6 +2,7 @@ from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
 from .lixit import DistanceToLixit
+from .food_hopper import FoodHopper
 
 
 class LandmarkFeatureGroup(FeatureGroup):
@@ -12,13 +13,15 @@ class LandmarkFeatureGroup(FeatureGroup):
     _features = {
         DistanceToCorner.name(): DistanceToCorner,
         BearingToCorner.name(): BearingToCorner,
-        DistanceToLixit.name(): DistanceToLixit
+        DistanceToLixit.name(): DistanceToLixit,
+        FoodHopper.name(): FoodHopper
     }
 
     # maps static objects to the names of features derived from that object
     _feature_map = {
         'corners': [DistanceToCorner.name(), BearingToCorner.name()],
-        'lixit': [DistanceToLixit.name()]
+        'lixit': [DistanceToLixit.name()],
+        'food_hopper': [FoodHopper.name()]
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

@@ -29,9 +29,14 @@ class TestFeatureBase(unittest.TestCase):
             cls._tmpdir_path / 'sample_pose_est_v5.h5')
 
         # V5 pose file in the data directory does not currently have "lixit"
-        # as one of its satic objects, so we'll manually add it
+        # as one of its static objects, so we'll manually add it
         cls._pose_est_v5.static_objects['lixit'] = np.asarray([[62, 166]],
                                                               dtype=np.uint16)
+
+        # V5 pose file also doesn't have the food hopper static object
+        cls._pose_est_v5.static_objects['food_hopper'] = np.asarray(
+            [[7, 291], [7, 528], [44, 296], [44, 518]]
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -9,8 +9,9 @@ _ACTIVE_COLOR = (0, 0, 255)
 _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
 
-_CORNER_COLOR = (215, 222, 0)
-_LIXIT_COLOR = (66, 164, 245)
+_CORNER_COLOR = (0, 135, 252)
+_LIXIT_COLOR = (215, 222, 0)
+_HOPPER_COLOR = (0, 255, 0)
 
 
 __CONNECTED_SEGMENTS = [
@@ -131,9 +132,9 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
 
         # get points for the 'future' track
         hulls = convex_hulls[frame_index:frame_index + future_points]
-        centroids = [x.centroid for x in hulls if x is not None]
+        centroids = [h.centroid for h in hulls if h is not None]
         # openCV needs points to be ordered y,x
-        future_track_points = [(int(x.y), int(x.x)) for x in centroids]
+        future_track_points = [(int(c.y), int(c.x)) for c in centroids]
 
         # get points for 'past' track points
         hulls = convex_hulls[slice_start:frame_index+1]
@@ -215,16 +216,22 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     static_objects = pose_est.static_objects
 
-    if 'corners' in static_objects:
-        # draw a marker at this location.
-        corners = static_objects['corners']
+    # draw a marker at this location.
+    corners = static_objects.get('corners')
+    if corners is not None:
         for i in range(4):
             cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
                        -1, lineType=cv2.LINE_AA)
 
-    if 'lixit' in pose_est.static_objects:
-        lixit = pose_est.static_objects['lixit']
+    lixit = pose_est.static_objects.get('lixit')
+    if lixit is not None:
         for i in range(lixit.shape[0]):
             x, y = lixit[i][0], lixit[i][1]
             cv2.circle(img, (int(y), int(x)), 2, _LIXIT_COLOR,
                        -1, lineType=cv2.LINE_AA)
+
+    hopper_points = pose_est.static_objects.get('food_hopper')
+    if hopper_points is not None:
+        hopper = [(p[1], p[0]) for p in hopper_points]
+        cv2.polylines(img, np.int32([hopper]), True, _HOPPER_COLOR,
+                      1, lineType=cv2.LINE_AA)
