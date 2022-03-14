@@ -1,7 +1,7 @@
 h5py==3.1.0
 joblib==1.0.1
 markdown2==2.4.2
-numpy==1.20.1
+numpy==1.21
 opencv-python-headless==4.5.1.48
 pip-licenses==3.3.1
 PTable==0.9.2
