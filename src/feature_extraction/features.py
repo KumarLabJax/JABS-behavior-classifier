@@ -171,7 +171,8 @@ class IdentityFeatures:
             self._frame_valid = features_h5['frame_valid'][:]
 
             # load per frame features
-            for feature in self.get_feature_names(self._compute_social_features):
+            for feature in self.get_feature_names(self._compute_social_features,
+                                                  self._extended_features):
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
@@ -205,7 +206,8 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            for feature in self.get_feature_names(self._compute_social_features):
+            for feature in self.get_feature_names(self._compute_social_features,
+                                                  self._extended_features):
                 # point mask is obtained from the pose file, don't save it
                 if feature in ['point_mask']:
                     continue
@@ -286,7 +288,8 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
-            for feature_name in self.get_feature_names(self._compute_social_features):
+            for feature_name in self.get_feature_names(
+                    self._compute_social_features, self._extended_features):
                 # point_mask is loaded from the post estimation, not the
                 # feature file
                 if feature_name == 'point_mask':
