@@ -34,7 +34,9 @@ def generate_files_worker(params: dict):
 
     features = src.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
-        force=params['force'], distance_scale_factor=distance_scale_factor)
+        force=params['force'], distance_scale_factor=distance_scale_factor,
+        extended_features=project.extended_features
+    )
 
     # unlike per frame features, window features are not automatically
     # generated when opening the file. They are computed as needed based
