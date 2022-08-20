@@ -518,8 +518,8 @@ class IdentityFeatures:
         return column_names
 
     @classmethod
-    def merge_per_frame_features(cls, features: dict, include_social: bool,
-                                 extended_features=None):
+    def merge_per_frame_features(cls, features: list, include_social: bool,
+                                 extended_features=None) -> dict:
         """
         merge a list of per-frame features where each element in the list is
         a set of per-frame features computed for an individual animal
@@ -554,10 +554,10 @@ class IdentityFeatures:
     @classmethod
     def merge_window_features(
             cls,
-            features: dict,
+            features: list,
             include_social: bool,
             extended_features: typing.Optional[typing.Dict] = None
-    ):
+    ) -> dict:
         """
         merge a list of window features where each element in the list is the
         set of window features computed for an individual animal
