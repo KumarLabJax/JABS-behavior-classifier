@@ -289,6 +289,10 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
+            # load window features. Always load all the features from the
+            # file even if some are disabled by the project (for example,
+            # not supported by all pose files in the project), then those
+            # features will be excluded from training & classification
             for feature_name in feature_grp.keys():
                 # point_mask is loaded from the post estimation, not the
                 # feature file
