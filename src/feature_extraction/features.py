@@ -289,8 +289,7 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
-            for feature_name in self.get_feature_names(
-                    self._compute_social_features, self._extended_features):
+            for feature_name in feature_grp.keys():
                 # point_mask is loaded from the post estimation, not the
                 # feature file
                 if feature_name == 'point_mask':
