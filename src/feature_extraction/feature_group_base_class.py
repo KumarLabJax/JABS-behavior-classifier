@@ -53,7 +53,7 @@ class FeatureGroup(abc.ABC):
         feature_modules = self._init_feature_mods(identity)
         return {
             name: mod.window(identity, window_size, per_frame_values[name]) for name, mod in
-            feature_modules.items() if name in per_frame_values.keys()
+            feature_modules.items()
         }
 
     def feature_names(self, features: typing.Optional[str] = None):

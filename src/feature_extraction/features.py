@@ -170,9 +170,11 @@ class IdentityFeatures:
 
             self._frame_valid = features_h5['frame_valid'][:]
 
-            # load per frame features
-            for feature in self.get_feature_names(self._compute_social_features,
-                                                  self._extended_features):
+            # load per frame features. Always load all the features from the
+            # file if some are disabled by the project (for example, not
+            # supported by all pose files in the project), then those
+            # features will be excluded from training & classification
+            for feature in feature_grp.keys():
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
@@ -206,8 +208,7 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            for feature in self.get_feature_names(self._compute_social_features,
-                                                  self._extended_features):
+            for feature in self._per_frame.keys():
                 # point mask is obtained from the pose file, don't save it
                 if feature in ['point_mask']:
                     continue
