@@ -1,8 +1,7 @@
-Template for the Read the Docs tutorial
+JABS:Jax Animal Behavior System
 =======================================
 
-This GitHub template includes fictional Python library
-with some basic Sphinx docs.
+This is a tutorial to JABS. 
 
 Read the tutorial here:
 
