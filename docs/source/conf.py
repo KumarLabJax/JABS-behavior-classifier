@@ -3,7 +3,7 @@
 # -- Project information
 
 project = 'JABS'
-copyright = '2022, Jackson Labs'
+copyright = '2022, The Jackson Laboratory'
 author = 'KumarLab'
 
 release = '0.1'
