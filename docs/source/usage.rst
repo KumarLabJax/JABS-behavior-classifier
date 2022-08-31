@@ -60,7 +60,7 @@ directory and run the following commands:
    jabs.venv\Scripts\activate.bat
    python app.py
 
-If everything run smoothly, you should see a JABS startup window like the following:
+If everything runs smoothly, you should see a JABS startup window like the following:
 
 .. image:: images/JABS_startup.png
     :width: 300px
