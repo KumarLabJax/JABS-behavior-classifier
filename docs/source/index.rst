@@ -6,8 +6,8 @@ community for data acquisition, machine learning based behavior annotation, clas
 and automated genetic analysis.
 
 .. image:: images/JABS_overview.png
-  :width: 800
-  :height: 400
+  :width: 600
+  :height: 300
   :alt: JABS Overview
 
 
