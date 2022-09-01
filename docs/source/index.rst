@@ -19,6 +19,10 @@ Contents
 .. toctree::
 
    usage
-   api
+   Lesson-1: 10 minutes to JABS
+   Lesson-2
+   Lesson-3
+   
+   
 
 
