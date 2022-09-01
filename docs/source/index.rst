@@ -8,6 +8,7 @@ and automated genetic analysis.
 .. image:: images/JABS_overview.png
   :width: 600
   :height: 300
+  :align: center
   :alt: JABS Overview
 
 
