@@ -27,9 +27,8 @@ Contents
 .. toctree::
 
    usage
-   10 minutes to JABS
    Lesson-2
    Lesson-3
-   
+   10 minutes to JABS
 
 
