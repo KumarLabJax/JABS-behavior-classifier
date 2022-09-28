@@ -1,16 +1,17 @@
 Once the JABS environment is activated, prepare your project folder. The folder should contain the videos for labeling and the corresponding pose file for each video. 
 Once prepared, you may either proceed to open the JABS GUI or initialize the project folder prior to working using initialize_project.py.
 
-.. code-block:: console
+'
 python initialize_project.py <project_dir>
-
+'
 
 This will generate the JABS features for the project for the default window size of 5. The argument ‘-w’ can be used to set the initial window size for feature generation. 
 
 Once this has run, you can open the JABS GUI with the command:
 
-.. code-block:: console
+'
 python app.py
+'
 
 Click the ‘File’ tab and select ‘Open Project’ and open your project folder. This will load the videos and prompt you to enter the name of the behavior you want to label. (You will be able to add multiple other behaviors for labeling as desired.)
 On the left hand panel are the project videos. You can select the video to label by clicking on it. If the video has multiple mice, you can select the mouse identity to label using the dropdown menu for Subject Identity on the right hand of the GUI. 
@@ -48,13 +49,14 @@ You should now go through the classifier’s predictions and fix false positives
 
 In order to classify behavior in other videos not in the project folder, open up the command line and set your working directory to the JABS-behavior-classifier folder and activate the environment. 
 
-.. code-block:: console
+'
 source jabs.venv/bin/activate
 #for window:
 jabs.venv\Scripts\activate.bat
+'
 
-To classify the video 
-.. code-block:: console
+To classify the video :
+'
 python classify.py --training <Training_data_file> --input-pose <Posefile_for_video> --out-dir <Directory_to_save_to>
-
+'
 This will save the inference file in the directory listed for ‘--out-dir’.  
