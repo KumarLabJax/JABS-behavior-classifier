@@ -28,7 +28,9 @@ To label a set of frames, click the button ‘Select Frames’ in the Labeling p
 .. image:: images/labeling.png
     :width: 300px
     :align: left
-    :alt: alternate text
+    
+    
+    
 
 
 Training the Classifier
@@ -39,7 +41,7 @@ In order to train a classifier, at least 20 frames of behavior and 20 frames of 
 .. image:: images/labels.png
     :width: 300px
     :align: left
-    :alt: alternate text
+    
 
 Adjust the ‘Cross validation k’ slider for the amount of videos that have enough labels (the ‘Train’ button should be selectable). You can change the Classifier type between Random Forest, Gradient Boosting, and XGBoost with the drop down menu. 
 You can change the window size for the feature generation either by the drop down menu showing the available calculated window sizes, or by adding a new window size by clicking the ‘+’ button next to the drop down menu. Window sizes are statistical measures of all the per-frame features inside that window. For example, if the window size is 5, JABS looks at 5 frames before and after a labeled frame, computes window features using all those per-frame features, and then trains using window features. For a shorter behavior, the ideal window size may be small, while for a longer behavior, it may be large.
@@ -47,7 +49,7 @@ You can change the window size for the feature generation either by the drop dow
 .. image:: images/train.png
     :width: 300px
     :align: left
-    :alt: alternate text
+  
 
 Once you are ready to train the classifier, click the train button. If the features for the selected window size have not been calculated before hand, this process may take longer. Once training has finished, the command line output will look like this:
 
@@ -55,7 +57,7 @@ Once you are ready to train the classifier, click the train button. If the featu
 .. image:: images/commandline.png
     :width: 600px
     :align: center
-    :alt: alternate text
+ 
 
 You have now trained your first classifier. The Summary table contains accuracy measures for the k-fold cross validation on each video with enough labels. It then summarizes the mean accuracy and f1beta scores for the video set. 
 
