@@ -27,7 +27,7 @@ Contents
 .. toctree::
 
    usage
-   Classifier_training.rst
+   Classifier_training
    Lesson-2
    Lesson-3
    10 minutes to JABS
