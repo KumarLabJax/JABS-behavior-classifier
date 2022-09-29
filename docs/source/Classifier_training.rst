@@ -27,7 +27,7 @@ To label a set of frames, click the button ‘Select Frames’ in the Labeling p
 
 .. image:: images/labeling.png
     :width: 300px
-    :align: center
+    :align: left
     :alt: alternate text
 
 
@@ -38,7 +38,7 @@ In order to train a classifier, at least 20 frames of behavior and 20 frames of 
 
 .. image:: images/labels.png
     :width: 300px
-    :align: center
+    :align: left
     :alt: alternate text
 
 Adjust the ‘Cross validation k’ slider for the amount of videos that have enough labels (the ‘Train’ button should be selectable). You can change the Classifier type between Random Forest, Gradient Boosting, and XGBoost with the drop down menu. 
@@ -46,7 +46,7 @@ You can change the window size for the feature generation either by the drop dow
 
 .. image:: images/train.png
     :width: 300px
-    :align: center
+    :align: left
     :alt: alternate text
 
 Once you are ready to train the classifier, click the train button. If the features for the selected window size have not been calculated before hand, this process may take longer. Once training has finished, the command line output will look like this:
