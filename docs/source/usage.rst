@@ -12,13 +12,14 @@ Creating the Virtual Environment
 You will need to create the virtual environment before you can run the labeler 
 for the first time. The following commands will create a new Python3 virtual 
 environment, activate it, and install the required packages. Note, your python 
-executable may be named ``python` or `python3`` depending on your installation.
+executable may be named ``python`` or ``python3`` depending on your installation.
 
 .. code-block:: console
 
+   cd <path-to-JABS-folder>
    python -m venv jabs.venv
    source jabs.venv/bin/activate
-   (.venv) $ pip install -r requirements.txt
+   pip install -r requirements.txt
 
 Activating
 #####
@@ -67,3 +68,29 @@ If everything runs smoothly, you should see a JABS startup window like the follo
     :align: center
     :height: 200px
     :alt: alternate text
+    
+    
+
+Preparing the JABS Project
+--------------------------
+
+Once the JABS environment is activated, prepare your project folder. The folder should contain the videos for labeling and the corresponding pose file for each video. 
+Once prepared, you may either proceed to open the JABS GUI or initialize the project folder prior to working using initialize_project.py.
+
+.. code-block:: console
+
+    python initialize_project.py <project_dir>
+
+
+
+This will generate the JABS features for the project for the default window size of 5. The argument ‘-w’ can be used to set the initial window size for feature generation. 
+
+Starting up 
+
+You can open the JABS GUI with the command:
+
+.. code-block:: console
+
+    python app.py
+
+
