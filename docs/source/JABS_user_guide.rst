@@ -137,8 +137,7 @@ tool (`classify.py`).
 
     
 .. image:: images/main_window.png
-    :width: 500px
-    :align: center
+  
 
 - **Behavior Selection:** Select current behavior to label
 - **Add New Behavior Button:** Add new behavior label to project
@@ -193,7 +192,7 @@ tool (`classify.py`).
 
 ### Label and Prediction Visualizations
 
-.. image:: images//label_viz.png "JABS Label Visualizations")
+.. image:: images//label_viz.png
 
 - **Manual Labels (sliding window):** Displays manually assigned labels for a
   sliding window of frames. The window range is the current frame +/-50 frames.
