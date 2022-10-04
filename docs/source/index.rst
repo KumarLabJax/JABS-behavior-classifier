@@ -27,10 +27,7 @@ Contents
 .. toctree::
 
    usage
-   Classifier_training
-   Lesson-2
-   Lesson-3
-   10 minutes to JABS
+   JABS_user_guide
    notebooks/JABS_intro
 
 
