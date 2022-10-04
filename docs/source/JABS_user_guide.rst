@@ -1,6 +1,6 @@
 JABS User Guide
 #####
-
+.. The JABS Project Directory: 
 The JABS Project Directory
 ==========================================
 A JABS project is a directory of video files and their corresponding pose estimation files. The first time a project directory is opened in JABS, it will create a subdirectory called "rotta", which contains various files created by JABS to save project state, including labels and current predictions.
@@ -39,7 +39,7 @@ NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*14-00-00_500.avi
 NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*14-00-00*500*pose*est*v3.h5 rotta
 
 
-
+.. Initializing  A JABS Project Directory:
 Initializing  A JABS Project Directory
 ========================================
 
@@ -113,6 +113,7 @@ will use up to 4 processes.
 .. code-block:: console
   ./initialize_project.py -p8 -w2 -w5 -w10 <path/to/project/dir>`
 
+.. The Rotta Directory :
 The Rotta Directory
 =====================
 
@@ -168,7 +169,7 @@ automatically opened and displayed by JABS if they exist. Prediction files are
 portable, and are the same format as the output of the command line classifier
 tool (`classify.py`).
 
-
+.. JABS GUI:
 GUI
 =====
 
@@ -293,6 +294,7 @@ Menu
 
 .. image:: images/poseoverlay.png
 
+.. Labeling:
 Labeling
 ==========
 
@@ -373,8 +375,10 @@ indicated with a pattern fill instead of the solid gray/orange/blue colors. In
 
 the predicted class visualization, the gaps are colored white.
 
-!`Identity Gaps <imgs/identity*gaps.png>`*
+.. image:: images/identitygaps.png
 
+
+.. Keyboard Shortcuts:
 All Keyboard Shortcuts
 ========================
 
@@ -417,6 +421,8 @@ Other
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
 
+
+.. The Command Line Classifier:
 The Command Line Classifier
 =============================
 
@@ -527,19 +533,19 @@ Note: fps parameter is used to specify the frames per second (used for scaling
 
 time unit for speed and velocity features from "per frame" to "per second").
 
+
+.. File Formats:
 File Formats
-#####
+=============
 
 This section documents the format of JABS output files that may be needed for
 
 downstream analysis.
 
 Inference File
-==============
+---------------
 
-An inference file represents the predicted classes for each identity present in
-
-one video file.
+An inference file represents the predicted classes for each identity present in one video file.
 
 Location
 ----------
