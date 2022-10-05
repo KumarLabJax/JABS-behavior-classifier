@@ -8,36 +8,7 @@ A JABS project is a directory of video files and their corresponding pose estima
 Example JABS project directory listing:
 ---------------------------------------
 
-
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*08-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*08-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*09-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*09-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*10-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*10-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*11-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*11-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*12-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*12-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*13-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*13-00-00*500*pose*est*v3.h5
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*14-00-00_500.avi
-
-NV11-CBAX2+2019-07-26+MDX0009*2019-07-26*14-00-00*500*pose*est*v3.h5 rotta
-
+.. image:: images/exampledir.png
 
 .. Initializing  A JABS Project Directory:
 Initializing  A JABS Project Directory
@@ -176,7 +147,7 @@ GUI
 Main Window
 -----------------
 
-.. image:: images/mainwindow.png
+.. image:: images/main_window.png
 
 - **Behavior Selection:** Select current behavior to label
 - **Add New Behavior Button:** Add new behavior label to project
@@ -206,7 +177,7 @@ Main Window
 Classifier Controls
 -----------------
 
-.. image:: images/classifiercontrols.png
+.. image:: images/classifier_controls.png
 
 - **Train Button:** Train the classifier with the current parameters. This
   button is disabled until minimum number of frames have been labeled for a
@@ -237,7 +208,7 @@ Classifier Controls
 Label and Prediction Visualizations
 ---------------------------------------
 
-.. image:: images/labelviz.png
+.. image:: images/label_viz.png
 
 - **Manual Labels (sliding window):** Displays manually assigned labels for a
   sliding window of frames. The window range is the current frame +/-50 frames.
@@ -288,11 +259,11 @@ Menu
 
 **Track Overlay Example:**  
 
-.. image:: images/trackoverlay.png
+.. image:: images/track_overlay.png
 
 **Pose Overlay Example:**  
 
-.. image:: images/poseoverlay.png
+.. image:: images/pose_overlay.png
 
 .. Labeling:
 Labeling
@@ -316,7 +287,7 @@ the current selection and leaves "Select Mode".
 
 The current selection range is shown on the "Manual Labels" display: 
 
-.. image:: images/selectingframes.png  
+.. image:: images/selecting_frames.png  
 
 Clicking the "Select Frames" button again or pressing the Escape key will unselect the frames and leave select mode without making a change to the labels.
 
@@ -375,7 +346,7 @@ indicated with a pattern fill instead of the solid gray/orange/blue colors. In
 
 the predicted class visualization, the gaps are colored white.
 
-.. image:: images/identitygaps.png
+.. image:: images/identity_gaps.png
 
 
 .. Keyboard Shortcuts:
