@@ -1,5 +1,5 @@
-Usage
-=====
+Set up
+======
 
 .. _installation:
 
