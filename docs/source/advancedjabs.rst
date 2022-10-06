@@ -17,3 +17,12 @@ If you have labelled most of the videos in your project and are not satisfied wi
 Ground Truth Validation
 =======================
 Once you have a classifier you want to validate, it may be helpful to densely label a set of ground truth videos to test your classifier on. The simplest way to validate is a frame-based approach of counting the amount of true positives, false positives, true negatives, and false negatives for your classifier. You can use these to calculate Precision, Recall, Accuracy, and F1 beta. 
+
+However, it is important to note that while machine learning techniques are often evaluated using frame accuracies, behaviorists may find detecting the same bouts of behavior more important than the exact starting and ending frame of these bouts. Even between two humans labeling the same behavior, there are unavoidable discrepancies in the exact frames of the behavior. Consider the folling example where 4 annotators labeled grooming bouts:
+
+.. image:: images/ethogrooming.png 
+  :width: 600
+
+
+
+Though many of the same bouts are found by all annotators, taking a frame-based approach may cause the agreement between annotators to seem deceptively low. Therefore, you may wish to pursue a bout-based agreement for validation.
