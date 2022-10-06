@@ -39,11 +39,11 @@ initialize_project.py usage:
 
 							 project\_dir
 
-positional arguments:
+  positional arguments:
 
   project_dir
 
-optional arguments:
+  optional arguments:
 
   -h, --help            show this help message and exit
 
@@ -65,11 +65,11 @@ optional arguments:
 
 						a default of 5 will be used.
 
-  --force-pixel-distances
+   --force-pixel-distances
 
 						use pixel distances when computing features even if project supports cm
 
-```
+
 
 example initialize_project.py command
 
