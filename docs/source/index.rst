@@ -29,6 +29,7 @@ Contents
    usage
    JABS_user_guide
    vidtutorial
+   advancedjabs
    notebooks/JABS_intro
 
 
