@@ -30,5 +30,5 @@ Contents
    JABS_user_guide
    vidtutorial
    notebooks/JABS_intro
-
+   ML-Course-2022-JABS-RTD
 
