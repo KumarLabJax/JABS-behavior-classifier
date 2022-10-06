@@ -32,7 +32,7 @@ Expected takeaways of the course
 ..
     This is a static web-version of the ipython notebook found `here<notebooks/ML-Course-2022-JABS.ipynb>`_.
 
-This is a static web-version of the ipython notebook found `here <notebooks/ML-Course-2022-JABS.ipynb>` _.
+This is a static web-version of the ipython notebook found `here <notebooks/ML-Course-2022-JABS.ipynb>`_.
 
 
 
