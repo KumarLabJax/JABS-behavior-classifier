@@ -29,7 +29,12 @@ Expected takeaways of the course
 * Become familiar with key components to take into account when training these types of classifiers
 * Gain insight for some of the design decision considerations our group integrated into the JABS software
 
-This is a static web-version of the ipython notebook found `here<notebooks/ML-Course-2022-JABS.ipynb>`_.
+..
+    This is a static web-version of the ipython notebook found `here<notebooks/ML-Course-2022-JABS.ipynb>`_.
+
+This is a static web-version of the ipython notebook found `here <notebooks/ML-Course-2022-JABS.ipynb>` _.
+
+
 
 Step 0
 ------
