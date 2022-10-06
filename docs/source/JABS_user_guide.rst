@@ -38,6 +38,7 @@ initialize_project.py usage:
 							 [\-\-force\-pixel\-distances]
 
 							 project\_dir
+.. code-block:: console
 
   positional arguments:
 
