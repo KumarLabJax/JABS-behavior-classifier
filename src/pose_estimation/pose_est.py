@@ -177,6 +177,7 @@ class PoseEstimation(ABC):
 
             if convex_hulls is None:
                 points, point_masks = self.get_identity_poses(identity)
+                # Omit tail from convex hull
                 body_points = points[:, :-2, :]
                 body_point_masks = point_masks[:, :-2]
                 convex_hulls = []
