@@ -101,7 +101,7 @@ class PoseEstimationV4(PoseEstimation):
                 # build a mask for each identity that indicates if it exists or not
                 # in the frame
                 # require a minimum number of points to be > 3
-		# this is because the convex hull requires 3 points
+                # this is because the convex hull requires 3 points
                 init_func = np.vectorize(
                     lambda x, y: np.sum(
                         self._point_mask[x][y][:-2]) >= 3,
