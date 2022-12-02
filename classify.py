@@ -256,7 +256,7 @@ def classify_main():
 
     required_args.add_argument(
         '--input-pose',
-        help='input HDF5 pose file (v2, v3, or v4).',
+        help='input HDF5 pose file (v2, v3, v4, or v5).',
         required=True,
     )
     required_args.add_argument(
