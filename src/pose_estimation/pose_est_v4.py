@@ -74,7 +74,10 @@ class PoseEstimationV4(PoseEstimation):
                 self._identities = [*range(self._num_identities)]
 
                 # tmp array used to reorder points
-                points_tmp = np.zeros_like(all_points)
+                # sometimes not all identities are used so need to shrink the array
+                tmp_shape = np.array(np.shape(all_points))
+                tmp_shape[1] = self._num_identities
+                points_tmp = np.zeros(tmp_shape, dtype=all_points.dtype)
 
                 # first use instance_embed_id to group points by identity
                 points_tmp[np.where(id_mask == 0)[0],
@@ -87,7 +90,7 @@ class PoseEstimationV4(PoseEstimation):
                 # indexes after transpose: [ident][frame][point idx][pt axis]
                 self._points = np.transpose(points_tmp, [1, 0, 2, 3])
 
-                confidence_by_id_tmp = np.zeros_like(all_confidence)
+                confidence_by_id_tmp = np.zeros(tmp_shape[:3], dtype=all_confidence.dtype)
                 confidence_by_id_tmp[np.where(id_mask == 0)[0],
                 instance_embed_id[id_mask == 0] - 1, :] = all_confidence[
                                                           id_mask == 0, :]
@@ -97,9 +100,11 @@ class PoseEstimationV4(PoseEstimation):
 
                 # build a mask for each identity that indicates if it exists or not
                 # in the frame
+                # require a minimum number of points to be > 3
+                # this is because the convex hull requires 3 points
                 init_func = np.vectorize(
-                    lambda x, y: 0 if np.sum(
-                        self._point_mask[x][y][:-2]) == 0 else 1,
+                    lambda x, y: np.sum(
+                        self._point_mask[x][y][:-2]) >= 3,
                     otypes=[np.uint8])
 
                 self._identity_mask = np.fromfunction(
