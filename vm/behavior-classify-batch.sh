@@ -3,14 +3,14 @@
 #SBATCH --job-name=behavior-classify
 #
 #SBATCH --qos=batch
-#SBATCH --time=6:00:00
+#SBATCH --time=1:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=16G
+#SBATCH --mem=6G
 
 # This is a self-submitting SLURM script which can be used to classify a batch
 # of video poses on JAX's sumner cluster. This script assumes that there will be
-# a "behavior-classifier.sif" Singularity VM image located on the cluster to use.
+# a Singularity VM image located on the cluster (CLASSIFICATION_IMG) to use.
 # You can build this VM using the "behavior-classifier-vm.def" Singularity
 # definition in the repository or use one that has been pre-built.
 #
@@ -38,8 +38,25 @@
 #   /projects/kumar-lab/video-data/LL1-B2B/2017-01-01_SPD/LL1-4_002105-M-AX12-5.28571428571429-42640-4-S331.avi
 #   /projects/kumar-lab/video-data/LL1-B2B/2017-01-12_SPD/LL1-4_001144-F-F29-4-42661-4-S344.avi
 #   /projects/kumar-lab/video-data/LL1-B2B/2016-05-23_SPD/B6J_Male_S6730806_ep3-PSY.avi
+# 
+# Performance Notes for adjusting job requests:
+#
+# Inputs: Features:
+#   base + social + landmark (pose_v5)
+#   3 animals
+#   xgboost classifier
+# Cluster Specs:
+#   2.7GHz cpu
+#   DDR4 RAM
+#   Isilon NAS Storage (~5GB/s read/write speed)
+# Expected Resources: 
+#   22-28m time to compute
+#   1.3-2.2GB RAM usage
+# Max Resources:
+#   35m time to compute
+#   3GB RAM usage
 
-CLASSIFICATION_IMG=/projects/kumar-lab/JABS/JABS-GUI-2022-10-12-FIX-V4-TEST.sif
+CLASSIFICATION_IMG=/projects/kumar-lab/JABS/JABS-Classify-current.sif
 
 trim_sp() {
     local var="$*"
@@ -75,7 +92,7 @@ find_pose_file() {
 
 if [[ -z "${SLURM_JOB_ID}" ]]
 then
-    # the script is being run from command line. We should do a self-submit as an array job
+    # The script is being run from command line. We should do a self-submit as an array job
     if [[ ( -f "${1}" ) && ( -f "${2}" ) ]]
     then
         # echo "${1} is set and not empty"
@@ -120,8 +137,11 @@ else
     # the "v1" is for output format versioning. If format changes this should be updated
     OUT_DIR="${VIDEO_FILE%.*}_behavior/v1"
 
+    # The batch file can either contain fully qualified paths for files to process OR local paths relative to where the batch file exists
+    # Change the working directory to support local paths
     cd "$(dirname "${BATCH_FILE}")"
 
+    # Detect the pose file based on the batch line provided
     POSE_FILE=$(find_pose_file ${BATCH_LINE})
 
     if [[ ! ( -f "${POSE_FILE}" ) ]]
