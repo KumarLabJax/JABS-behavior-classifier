@@ -151,14 +151,14 @@ class Project:
         # also build a set of static objects common to all pose files in the
         # project
         pose_versions = []
+        static_object_sets = []
         for vid in self._videos:
             vid_path = self.video_path(vid)
             pose_path = get_pose_path(vid_path)
             pose_versions.append(get_pose_file_major_version(pose_path))
-            self._supported_static_objects.update(
-                get_static_objects_in_file(pose_path))
+            static_object_sets.append(set(get_static_objects_in_file(pose_path)))
         self._min_pose_version = min(pose_versions) if len(pose_versions) else 0
-
+        self._supported_static_objects = set.intersection(*static_object_sets)
 
         # determine if this project can use social features or not
         # if all pose files are V3 or greater, enable social features for this
@@ -595,7 +595,7 @@ class Project:
                              use_social_features,
                              progress_callable=None):
         """
-        the the features for all labeled frames
+        the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 

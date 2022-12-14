@@ -117,7 +117,7 @@ class DistanceToCorner(Feature):
 
     def per_frame(self, identity: int) -> np.ndarray:
         """
-        get the per frame distance to nearest corner values
+        get the per frame distance to the nearest corner values
         :param identity: identity to get feature values for
         :return: numpy ndarray of values with shape (nframes,)
         """
@@ -146,7 +146,7 @@ class BearingToCorner(Feature):
 
     def per_frame(self, identity: int) -> np.ndarray:
         """
-        get the per frame bearing to nearest corner values
+        get the per frame bearing to the nearest corner values
         :param identity: identity to get feature values for
         :return: numpy ndarray of values with shape (nframes,)
         """

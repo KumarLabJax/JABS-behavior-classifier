@@ -170,9 +170,11 @@ class IdentityFeatures:
 
             self._frame_valid = features_h5['frame_valid'][:]
 
-            # load per frame features
-            for feature in self.get_feature_names(self._compute_social_features,
-                                                  self._extended_features):
+            # load per frame features. Always load all the features from the
+            # file if some are disabled by the project (for example, not
+            # supported by all pose files in the project), then those
+            # features will be excluded from training & classification
+            for feature in feature_grp.keys():
                 if feature in ['point_mask']:
                     continue
                 self._per_frame[feature] = feature_grp[feature][:]
@@ -206,8 +208,7 @@ class IdentityFeatures:
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
             grp = features_h5.create_group('features')
-            for feature in self.get_feature_names(self._compute_social_features,
-                                                  self._extended_features):
+            for feature in self._per_frame.keys():
                 # point mask is obtained from the pose file, don't save it
                 if feature in ['point_mask']:
                     continue
@@ -288,8 +289,11 @@ class IdentityFeatures:
 
             feature_grp = features_h5['features']
 
-            for feature_name in self.get_feature_names(
-                    self._compute_social_features, self._extended_features):
+            # load window features. Always load all the features from the
+            # file even if some are disabled by the project (for example,
+            # not supported by all pose files in the project), then those
+            # features will be excluded from training & classification
+            for feature_name in feature_grp.keys():
                 # point_mask is loaded from the post estimation, not the
                 # feature file
                 if feature_name == 'point_mask':
@@ -518,8 +522,8 @@ class IdentityFeatures:
         return column_names
 
     @classmethod
-    def merge_per_frame_features(cls, features: dict, include_social: bool,
-                                 extended_features=None):
+    def merge_per_frame_features(cls, features: list, include_social: bool,
+                                 extended_features=None) -> dict:
         """
         merge a list of per-frame features where each element in the list is
         a set of per-frame features computed for an individual animal
@@ -554,10 +558,10 @@ class IdentityFeatures:
     @classmethod
     def merge_window_features(
             cls,
-            features: dict,
+            features: list,
             include_social: bool,
             extended_features: typing.Optional[typing.Dict] = None
-    ):
+    ) -> dict:
         """
         merge a list of window features where each element in the list is the
         set of window features computed for an individual animal
