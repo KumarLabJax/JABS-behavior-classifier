@@ -4,7 +4,6 @@ import typing
 import numpy as np
 import scipy.stats
 
-from src.utils.utilities import smooth
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
 
@@ -51,8 +50,6 @@ class PointVelocityDir(Feature, abc.ABC):
             values[indexes] = (((np.degrees(np.arctan2(v[:, 1], v[:, 0])) - bearings[
                 indexes]) + 360) % 360) - 180
 
-            values = smooth(values, smoothing_window=self._SMOOTHING_WINDOW)
-
         return values
 
     def window(self, identity: int, window_size: int,
@@ -97,8 +94,6 @@ class PointVelocityMag(Feature, abc.ABC):
             # compute magnitude of velocities
             values[indexes] = np.sqrt(
                 np.square(v[:, 0]) + np.square(v[:, 1])) * fps
-
-            values = smooth(values, smoothing_window=self._SMOOTHING_WINDOW)
 
         return values
 

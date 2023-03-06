@@ -4,8 +4,6 @@ import numpy as np
 
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
-from src.utils.utilities import smooth
-
 
 class AngularVelocity(Feature):
 
@@ -55,4 +53,4 @@ class AngularVelocity(Feature):
                 velocities[i] = diff3
         velocities = velocities * fps
 
-        return smooth(velocities, smoothing_window=self._SMOOTHING_WINDOW)
+        return velocities

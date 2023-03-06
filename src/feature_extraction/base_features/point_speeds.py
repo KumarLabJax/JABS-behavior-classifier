@@ -4,8 +4,6 @@ import numpy as np
 
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
-from src.utils.utilities import smooth
-
 
 class PointSpeeds(Feature):
 
@@ -53,8 +51,4 @@ class PointSpeeds(Feature):
         # convert the velocities to speed and convert units
         speeds = np.linalg.norm(point_velocities, axis=-1) * fps
 
-        # smooth speeds
-        for point_index in range(speeds.shape[1]):
-            speeds[:, point_index] = smooth(speeds[:, point_index],
-                                            smoothing_window=3)
         return speeds
