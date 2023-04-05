@@ -212,6 +212,97 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
             cv2.circle(img, (point[1], point[0]), 2, color,
                        -1, lineType=cv2.LINE_AA)
 
+def overlay_segmentation_DEPRECTAED(img: np.ndarray, pose_est: PoseEstimation,
+    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+    """
+    :param img: The current video frame.
+    :param pose_est: This will be a pose estimation object >= v6.
+    :param identity: This integer identifies which mouse the segmentation will be applied to.
+    :param frameIndex: This integer identifies the current video frame index.
+    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+
+    identities = [identity] if identities is None else identities
+
+    for curr_identity in identities:
+        seg_data = pose_est.get_segmentation_data(curr_identity)
+        if seg_data is None:
+            # No segmentation data available to render.
+            continue
+
+        # draw segmentation contours
+        contours = [seg_data[frameIndex, cnt_num, :, :]
+                for cnt_num in range(seg_data.shape[1])]
+
+        # Discard values < 0.
+        contours = [contour[contour >= 0] for contour in contours]
+
+        # Filter missing contours and coerce type to satisfy drawContours
+        # method.
+        contours = [contour.reshape((len(contour)//2, 2)).astype(int)
+                    for contour in contours if len(contour) > 0]
+        
+        cv2.drawContours(img, contours, -1, _ACTIVE_COLOR if curr_identity == identity else _ID_COLOR, 2)
+
+def overlay_segmentation_old(img: np.ndarray, pose_est: PoseEstimation,
+    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+    """
+    :param img: The current video frame.
+    :param pose_est: This will be a pose estimation object >= v6.
+    :param identity: This integer identifies which mouse the segmentation will be applied to.
+    :param frameIndex: This integer identifies the current video frame index.
+    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+
+    true_id = pose_est.get_seg_id(frameIndex, identity)
+
+    seg_data = pose_est.get_segmentation_data(true_id)
+    if seg_data is None:
+        # No segmentation data available to render.
+        return
+
+    # draw segmentation contours
+    contour = seg_data[frameIndex, ...]
+
+    # Discard values < 0.
+    contour = contour[contour >= 0]
+    if len(contour) > 0: 
+        # Filter missing contours and coerce type to satisfy drawContours
+        # method.
+        contour = contour.reshape((len(contour)//2, 2)).astype(int)
+
+        cv2.drawContours(img, [contour], -1, _ACTIVE_COLOR, 2)
+
+
+def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
+    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+    """
+    :param img: The current video frame.
+    :param pose_est: This will be a pose estimation object >= v6.
+    :param identity: This integer identifies which mouse the segmentation will be applied to.
+    :param frameIndex: This integer identifies the current video frame index.
+    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+
+    true_id = pose_est.get_seg_id(frameIndex, identity)
+
+    contour = pose_est.get_segmentation_data_per_frame(frameIndex, true_id)
+    if contour is None:
+        # No segmentation data available to render.
+        return
+
+    # Discard values < 0.
+    contour = contour[contour >= 0]
+    if len(contour) > 0: 
+        # Filter missing contours and coerce type to satisfy drawContours
+        # method.
+        contour = contour.reshape((len(contour)//2, 2)).astype(int)
+
+        cv2.drawContours(img, [contour], -1, _ACTIVE_COLOR, 2)
+
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     static_objects = pose_est.static_objects
