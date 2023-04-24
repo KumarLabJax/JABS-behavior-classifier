@@ -7,6 +7,7 @@ import scipy.stats
 from scipy import signal
 from scipy.stats import kurtosis, skew
 
+from src.utils.utilities import rolling_window
 from src.feature_extraction.feature_base_class import Feature
 from ..base_features import hu_moments, ellipse_fitting, moments
 
@@ -39,7 +40,7 @@ colnames = [s + c for s in signals for c in colnames_surfix]
 samplerate = 30.
 filterOrder = 5
 criticalFrequencies = [1. / samplerate, 29. / samplerate]
-a, b = signal.butter(filterOrder, criticalFrequencies, 'bandpass')
+b, a = signal.butter(filterOrder, criticalFrequencies, 'bandpass')
 
 
 class FFT(Feature):
@@ -56,10 +57,16 @@ class FFT(Feature):
         self.ellipse = ellipse_fitting.EllipseFit(poses, pixel_scale)
         self.humoments = hu_moments.HuMoments(poses, pixel_scale)
         self.moments = moments.Moments(poses, pixel_scale)
+
+        # create a callable operation to be used by window.
+        self._op = lambda wave: self.get_frequency_feature(wave, a, b, samplerate)
+    
     
     def get_signals(self, identity: int) -> np.ndarray:
         ''' Compute all of the required signals for signal processing and aggregate them into a 
         numpy array.
+        :param identity: identity to compute features for
+        :return: np.ndarray with feature values
         '''
         ellipse_features = self.ellipse.per_frame(identity)
         moments_features = self.moments.per_frame(identity)
@@ -107,8 +114,49 @@ class FFT(Feature):
 
         # combine features into a single numpy array
         signals = np.hstack((m00, perimeter_feature, w, l, wl_ratio, dx, dy, dx2_plus_dy2, humoments_features))
-
+        
         return signals
+
+
+    def get_frequency_feature(self, wave: np.ndarray, a, b, samplerate)->dict:
+        '''
+        :param wave: an array representing the signals for each frame for a given identity for a particular window size.
+        :param a: The denominator coefficient vector of the filter. 
+        :param b: The numerator coefficient vector of the filter.
+        :param samplerate: average number of samples per unit time.
+        :return: np.ndarray with feature values
+        '''
+        wave = signal.filtfilt(b, a, wave)
+        freqs, psd = signal.welch(wave)
+        freqs = freqs * samplerate
+        idx_1 = np.logical_and(freqs >= 0.1, freqs < 1)
+        idx_3 = np.logical_and(freqs >= 1, freqs < 3)
+        idx_5 = np.logical_and(freqs >= 3, freqs < 5)
+        idx_8 = np.logical_and(freqs >= 5, freqs < 8)
+        idx_15 = np.logical_and(freqs >= 8, freqs < 15)
+        return {
+            "__k": kurtosis(wave),
+            "__k_psd": kurtosis(psd), 
+            "__s_psd": skew(psd),
+            "__MPL_1": np.mean(psd[idx_1]), 
+            "__MPL_3": np.mean(psd[idx_3]),
+			"__MPL_5": np.mean(psd[idx_5]), 
+            "__MPL_8": np.mean(psd[idx_8]), 
+            "__MPL_15": np.mean(psd[idx_15]), 
+            "__Tot_PSD": np.sum(psd), 
+            "__Max_PSD": max(psd), 
+            "__Min_PSD": min(psd),
+			"__Ave_PSD": np.average(psd), 
+            "__Std_PSD": np.average(psd), 
+            "__Ave_Signal": np.average(wave), 
+            "__Std_Signal": np.std(wave),
+			"__Max_Signal": max(wave), 
+            "__Min_Signal": min(wave), 
+            "__Top_Signal": freqs[psd == max(psd)][0], 
+            "__Med_Signal": np.median(wave), 
+            "__Med_PSD": np.median(psd)
+        }
+
 
     def per_frame(self, identity: int) -> np.ndarray:
         """
@@ -116,26 +164,67 @@ class FFT(Feature):
         :param identity: identity to compute features for
         :return: np.ndarray with feature values
         """
-        return np.ndarray((self._poses.num_frames, len(FFT._feature_names)))
+        return self.get_signals(identity)
+
 
     # this is the standard way of working with window features outlined in the parent abstract Feature
     # class.
-    '''
-    def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> typing.Dict:
-        """
-        standard method for computing window feature values
+    # _compute_window_features should work for my 2d feature array.  
+    # [x] I will however need an operation callable which represents the applied fft.
+    # [x] What is this? self._poses.identity_mask(identity)
+    #   a mask for each identity that indicates if it exists or not in the frame.
 
-        NOTE: some features may need to override this (for example, those with
-        circular values such as angles)
+
+    def window(self, identity: int, window_size: int, per_frame_values: np.ndarray):
         """
-        values = {}
-        for op in self._window_operations:
-            values[op] = self._compute_window_feature(
+        Overriding the standard method for computing window feature values.
+
+        NOTE: Alternatively, I could make each dictionary entry from get_frequency_feature
+        an 'operation', which is in turn invoked via _compute_window_feature.
+        """
+        return self._compute_window_feature(
                 per_frame_values, self._poses.identity_mask(identity),
-                window_size, self._window_operations[op]
+                window_size, self._op
             )
+    
+
+    def _compute_window_feature(self, feature_values: np.ndarray,
+                            frame_mask: np.ndarray, window_size: int,
+                            op: typing.Callable) -> np.ndarray:
+        """
+        Overriding the helper function to compute window feature values.  
+
+        :param feature_values: per frame feature values. Can be a 1D ndarray
+        for a single feature, or a 2D array for a set of related features
+        (e.g. pairwise point distances are stored as a 2D array)
+        :param frame_mask: array indicating which frames are valid for the
+        current identity
+        :param window_size: number of frames (in each direction) to include
+        in the window. The actual number of frames is 2 * window_size + 1
+        :param op: function to perform the actual computation
+        :return: numpy nd array containing feature values
+        """
+        window_masks = self._window_masks(frame_mask, window_size)
+
+        window_width = self.window_width(window_size)
+        values = np.zeros_like(feature_values)
+
+        # The feature is 2D, the window features are computed for each column.
+        i = 0
+        for j in range(feature_values.shape[1]):
+            windows = rolling_window(
+                np.pad(feature_values[:, j], window_size),
+                window_width
+            )
+            mx = np.ma.masked_array(windows, window_masks)
+
+            fft_features = self._op(mx, axis=1)
+
+            for feature_name in fft_features:
+                values[:, i] = fft_features[feature_name]
+                i += 1
+
         return values
-    ''' 
+
 
 if __name__=="__main__": assert True
