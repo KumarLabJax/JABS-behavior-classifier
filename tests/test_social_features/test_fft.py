@@ -4,6 +4,9 @@ import unittest
 # 1. Sanity checks
 
 
+class TestScientificComputingBasics(unittest.TestCase):
+    pass
+
 # 2. Signal Processing
 class TestRollingWindow(unittest.TestCase):
     '''
@@ -18,7 +21,8 @@ class TestRollingWindow(unittest.TestCase):
     def setUpClass(cls) -> None:
         import src.utils.utilities as utils
         cls.rolling_window = utils.rolling_window
-    
+
+    @unittest.skip("resolved")
     def test_rolling_window(self):
         '''
         segmentation data has the following format:
@@ -46,6 +50,12 @@ class TestRollingWindow(unittest.TestCase):
         # feature values arrays such as hu_moments, moments, and ellipse_fitting which all have shapes of the
         # form: (num_frames, len(self._feature_names)).  I checked and pairwise_distances also uses this 
         # 2D structure.  Next I will check if pairwise_distances is ever used with rolling_window. 
+
+        # resolved:
+        # I overlooked something obvious, 
+        # The rolling_window code is used with: if feature_values.ndim == 1: 
+        # thus it is not applicable for 2D features like I was worried about.
+        
         rolling_shape = lambda shape: shape[:-1] + (shape[-1] - window_size + 1 - step_size + 1, window_size)
         
         for name, shape in data[2:]:

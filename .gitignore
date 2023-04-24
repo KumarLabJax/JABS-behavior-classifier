@@ -7,3 +7,5 @@ rotta.venv
 venv
 *.sif
 temp
+docs/notes.txt
+docs/work_history.md
