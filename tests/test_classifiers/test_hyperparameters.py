@@ -37,6 +37,7 @@ class TestHyperparameters(unittest.TestCase):
         cls.parameters = parameters
 
     def test_build_classifiers(self):
+        
         RandomForestClassifier(**self.parameters["random_forest"])
         GradientBoostingClassifier(**self.parameters["gradient_boost"])
         RandomForestClassifier(**self.parameters["random_forest"])
@@ -45,7 +46,6 @@ class TestHyperparameters(unittest.TestCase):
     def test_load_hyperparameters(self):
 
         test_classifier = ClassifierType.RANDOM_FOREST
-
         classifier_hyperparameters = load_hyperparameters()
         self.assertIn("criterion", classifier_hyperparameters[test_classifier])
     
