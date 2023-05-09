@@ -40,13 +40,14 @@ class Feature(abc.ABC):
         "max": np.ma.amax,
         "min": np.ma.amin
     }
+    _nan_fill_value = 0
 
     # signal processing constants.
     _samplerate = 30.
     _filterOrder = 5
     _criticalFrequencies = [1. / _samplerate, 29. / _samplerate]
     _b, _a = signal.butter(_filterOrder, _criticalFrequencies, 'bandpass')
-
+    
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
@@ -206,6 +207,7 @@ class Feature(abc.ABC):
         :param samplerate: average number of samples per unit time.
         :return: np.ndarray with feature values
         '''
+        
         if j in self._frequency_cache:
             return self._frequency_cache[j][key]
         else:
@@ -239,6 +241,10 @@ class Feature(abc.ABC):
 				"__Med_Signal": np.median(wave), 
 				"__Med_PSD": np.median(psd)
 			}
+            for k in output_dict:
+                if np.isnan(output_dict[k]):
+                    output_dict[k] = self._nan_fill_value
+                
             self._frequency_cache[j] = output_dict
             return output_dict[key]
     
@@ -362,7 +368,7 @@ class Feature(abc.ABC):
             with np.errstate(invalid='ignore'):
                 v = op(_values)
             if np.isnan(v):
-                return 0.0
+                return self._nan_fill_value
             return v
 
         # unfortunately the scipy.stats.circmean/circstd functions don't work
