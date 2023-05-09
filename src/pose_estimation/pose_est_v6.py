@@ -38,6 +38,14 @@ class PoseEstimationV6_REF(PoseEstimationV5):
                     self._segmentation_dict.keys()):
                 self._segmentation_dict[seg_key] = \
                     pose_h5[f"poseest/{seg_key}"][:]
+                
+        # sort the segmentation data
+        self._segmentation_dict["longterm_seg_id"][:,self._segmentation_dict["seg_data"].shape[1] - 1] = self._segmentation_dict["seg_data"].shape[1] - 1
+        seg_data_tmp = np.zeros_like(self._segmentation_dict["seg_data"])
+        for frame in range(self._segmentation_dict["seg_data"].shape[0]):
+            seg_data_tmp[frame,...] = self._segmentation_dict["seg_data"][frame, self._segmentation_dict["longterm_seg_id"][frame], ...]
+        
+        self._segmentation_dict["seg_data"] = seg_data_tmp
 
     def get_segmentation_data(self, identity: int) -> np.ndarray:
         ''' Given a particular identity, return the appropriate segmentation
