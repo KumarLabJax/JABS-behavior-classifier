@@ -1,3 +1,7 @@
+# This entire file to replaced.
+# The idea will be to make it even more abstract and push it up into the 
+# parent Feature class so that it can be reused by any feature.
+
 import typing
 
 import cv2
@@ -65,6 +69,8 @@ class FFT(Feature):
     def get_signals(self, identity: int) -> np.ndarray:
         ''' Compute all of the required signals for signal processing and aggregate them into a 
         numpy array.
+
+        arbitrary per_frame features.
         :param identity: identity to compute features for
         :return: np.ndarray with feature values
         '''

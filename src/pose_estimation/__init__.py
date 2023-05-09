@@ -9,6 +9,7 @@ from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v4 import PoseEstimationV4
 from .pose_est_v5 import PoseEstimationV5
+from .pose_est_v6 import PoseEstimationV6
 
 
 def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
@@ -24,6 +25,8 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
         return PoseEstimationV4(path, cache_dir)
     elif path.name.endswith('v5.h5'):
         return PoseEstimationV5(path, cache_dir)
+    elif path.name.endswith('v6.h5'):
+        return PoseEstimationV6(path, cache_dir)
     else:
         raise ValueError("not a valid pose estimate filename")
 

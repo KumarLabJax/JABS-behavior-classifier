@@ -21,14 +21,14 @@ class EllipseFit(Feature):
 
         seg_data = self._poses.get_segmentation_data(identity)
 
-        x = self.feature_names.index('x')
-        y = self.feature_names.index('y')
-        a = self.feature_names.index('a')
-        b = self.feature_names.index('b')
-        c = self.feature_names.index('c')
-        w = self.feature_names.index('w')
-        ln = self.feature_names.index('l')
-        t = self.feature_names.index('theta')
+        x = self._feature_names.index('x')
+        y = self._feature_names.index('y')
+        a = self._feature_names.index('a')
+        b = self._feature_names.index('b')
+        c = self._feature_names.index('c')
+        w = self._feature_names.index('w')
+        ln = self._feature_names.index('l')
+        t = self._feature_names.index('theta')
         # Use cython?
         for frame in range(values.shape[0]):
             contours = seg_data[frame, ...]
