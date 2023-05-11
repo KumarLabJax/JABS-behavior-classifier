@@ -28,7 +28,7 @@ class EllipseFit(Feature):
         w = self.feature_names.index('w')
         ln = self.feature_names.index('l')
         t = self.feature_names.index('theta')
-        # Use cython?
+
         for frame in range(values.shape[0]):
             contours = seg_data[frame, ...]
             contours = contours.reshape(
