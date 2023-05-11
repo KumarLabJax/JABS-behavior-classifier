@@ -217,7 +217,7 @@ def trim_seg(arr: np.ndarray) -> np.ndarray:
     """
     Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
 
-    :param array: A numpy array with contour data.
+    :param arr: A numpy array with contour data.
     :return: np.ndarray
     """
     assert arr.ndim == 2
@@ -230,7 +230,7 @@ def trim_seg_list(arr: np.ndarray) -> List:
     """
     Trims all contours for an individual.
 
-    :param array: A numpy array with contour data.
+    :param arr: A numpy array with contour data.
     :return: List
     """
     assert arr.ndim == 3
@@ -242,10 +242,8 @@ def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, i
     Draw all contours given data for a particular mouse in a particular video frame.
 
     :param img: The current video frame.
-    :param pose_est: This will be a pose estimation object >= v6.
-    :param identity: This integer identifies which mouse the segmentation will be applied to.
-    :param frameIndex: This integer identifies the current video frame index.
-    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :param seg_data: This will be the segmentation for a particular frame and indentity.
+    :param color: color of segmentation contours rendered on the GUI.
     :return: None
     """
     trimmed_contours = trim_seg_list(seg_data)
