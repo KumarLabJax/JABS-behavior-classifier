@@ -4,7 +4,46 @@ import numpy as np
 
 from pathlib import Path
 
-	
+def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
+    """
+    This method attempts to sort the segmentation data according to the longterm segmentation id.  
+    This code is highly inefficient and ugly should be replaced with a vectorized expression.
+
+    :return: sorted segmentation data
+    """
+    seg_data_tmp = np.zeros_like(seg_data) # np.full_like(self.seg_data, -1)
+    for frame in range(seg_data.shape[0]):
+        map = longterm_seg_id[frame]
+        B = np.full_like(seg_data[frame, ...], -1)
+        for a_index in range(len(map)):
+            b_index = (map-1)[a_index]
+            if seg_data.shape[1] > b_index >= 0:
+                B[b_index, :] = seg_data[frame, a_index, :]
+
+        seg_data_tmp[frame, ...] = B  
+    
+    return seg_data_tmp
+
+def ugly_segmentation_sort_v2(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
+    """
+    This method attempts to sort the segmentation data according to the longterm segmentation id.  
+    This code is highly inefficient and ugly should be replaced with a vectorized expression.
+
+    :return: sorted segmentation data
+    """
+    seg_data_tmp = np.zeros_like(seg_data) # np.full_like(self.seg_data, -1)
+    for frame in range(seg_data.shape[0]):
+        map = longterm_seg_id[frame]
+        B = np.full_like(seg_data[frame, ...], -1)
+        for a_index in range(len(map)):
+            b_index = (map-1)[a_index]
+            if seg_data.shape[1] > b_index >= 0:
+                B[a_index, :] = seg_data[frame, b_index, :]
+
+        seg_data_tmp[frame, ...] = B  
+    
+    return seg_data_tmp
+
 class TestPoseMatchSegmentation(unittest.TestCase):
     """
     Ensure that the segmentation data is sorted properly so that 
@@ -37,20 +76,48 @@ class TestPoseMatchSegmentation(unittest.TestCase):
         #print(self.longterm_seg_sorting, self.longterm_seg_sorting.dtype)
         
         # Attempt 1
-        if True:
-            print(self.longterm_seg_sorting.dtype)
+        if False:
+            # print(self.longterm_seg_sorting.dtype)
             # self.longterm_seg_sorting[:,self.seg_data.shape[1] - 1] = self.seg_data.shape[1] - 1
-            
+            # print(seg_data_tmp.shape, self.seg_data.shape)
             seg_data_tmp = np.zeros_like(self.seg_data)
             for frame in range(self.seg_data.shape[0]):
-                #print(self.longterm_seg_sorting[frame])
                 seg_data_tmp[frame,...] = self.seg_data[frame, self.longterm_seg_sorting[frame], ...]
 
-
             idx = 1
-            print(seg_data_tmp.shape, self.seg_data.shape)
             frame = 950
-            print(seg_data_tmp[frame, :, 0, 0, :],"-"*10, self.seg_data[frame, :, 0, 0, :], self.longterm_seg_sorting[frame], sep="\n")
+            # print(seg_data_tmp[frame, :, 0, 0, :])
+            print("-"*10, self.seg_data[frame, :, 0, 0, :], self.longterm_seg_sorting[frame], sep="\n")
+
+        # Attempt 2
+        # ugly, but should work
+        if False:
+
+            seg_data_tmp = np.zeros_like(self.seg_data) # np.full_like(self.seg_data, -1)
+
+            for frame in range(self.seg_data.shape[0]):
+                map = self.longterm_seg_sorting[frame]
+                A = self.seg_data[frame, ...]
+                B = np.full_like(self.seg_data[frame, ...], -1)
+                for a_index in range(len(map)):
+                    b_index = (map-1)[a_index]
+                    if A.shape[0] > b_index >= 0:
+                        B[b_index, :] = A[a_index, :]
+                seg_data_tmp[frame, ...] = B  
+
+
+            print(seg_data_tmp[950,:, 0, 0, :])   
+
+        # Attempt 3, put into a function.
+        if True:
+            frame = 5
+            sorted_seg_dat = ugly_segmentation_sort_v2(self.seg_data, self.longterm_seg_sorting)
+            print("SEG ID:")
+            print(self.longterm_seg_sorting[frame])
+            print("RAW:")
+            print(self.seg_data[frame,:, 0, 0, :])
+            print("SORTED:")
+            print(sorted_seg_dat[frame, :, 0, 0, :])
 
         if False:
             seg_data_tmp[np.where(extended_id_mask == 0)[0],

@@ -287,9 +287,9 @@ def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
     :return: None
     """
 
-    true_id = pose_est.get_seg_id(frameIndex, identity)
+    # true_id = pose_est.get_seg_id(frameIndex, identity)
 
-    contour = pose_est.get_segmentation_data_per_frame(frameIndex, true_id)
+    contour = pose_est.get_segmentation_data_per_frame(frameIndex, identity)
     if contour is None:
         # No segmentation data available to render.
         return
