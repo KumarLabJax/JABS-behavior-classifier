@@ -16,7 +16,7 @@ class HuMoments(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)))
+        values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
         
         # Computing moments... again, it would obviously be more efficient to
         # only make this calculation once, will return to this design decision
@@ -31,7 +31,7 @@ class HuMoments(Feature):
 
             # Compute the moments from contours
             moments = cv2.moments(
-                contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
+                ((contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]) * self._pixel_scale).astype(np.float32)
                 )
 
             values[frame, :] = cv2.HuMoments(moments).T

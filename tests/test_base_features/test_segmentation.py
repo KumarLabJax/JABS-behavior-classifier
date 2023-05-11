@@ -24,25 +24,6 @@ def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) ->
     
     return seg_data_tmp
 
-def ugly_segmentation_sort_v2(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
-    """
-    This method attempts to sort the segmentation data according to the longterm segmentation id.  
-    This code is highly inefficient and ugly should be replaced with a vectorized expression.
-
-    :return: sorted segmentation data
-    """
-    seg_data_tmp = np.zeros_like(seg_data) # np.full_like(self.seg_data, -1)
-    for frame in range(seg_data.shape[0]):
-        map = longterm_seg_id[frame]
-        B = np.full_like(seg_data[frame, ...], -1)
-        for a_index in range(len(map)):
-            b_index = (map-1)[a_index]
-            if seg_data.shape[1] > b_index >= 0:
-                B[a_index, :] = seg_data[frame, b_index, :]
-
-        seg_data_tmp[frame, ...] = B  
-    
-    return seg_data_tmp
 
 class TestPoseMatchSegmentation(unittest.TestCase):
     """
@@ -111,7 +92,7 @@ class TestPoseMatchSegmentation(unittest.TestCase):
         # Attempt 3, put into a function.
         if True:
             frame = 5
-            sorted_seg_dat = ugly_segmentation_sort_v2(self.seg_data, self.longterm_seg_sorting)
+            sorted_seg_dat = ugly_segmentation_sort(self.seg_data, self.longterm_seg_sorting)
             print("SEG ID:")
             print(self.longterm_seg_sorting[frame])
             print("RAW:")

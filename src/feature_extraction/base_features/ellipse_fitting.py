@@ -16,7 +16,7 @@ class EllipseFit(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)))
+        values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
 
         seg_data = self._poses.get_segmentation_data(identity)
 
@@ -35,10 +35,8 @@ class EllipseFit(Feature):
                 contours.shape[0] * contours.shape[1], contours.shape[-1]
                 ).astype(np.int32)
 
-            # Moments computed again. Should moments be computed at a higher
-            # level so they can be reused by other features?
             moments = cv2.moments(
-                contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
+                ((contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]) * self._pixel_scale).astype(np.float32)
                 )
             values[frame, x] = moments['m10'] / moments['m00']
             values[frame, y] = moments['m01'] / moments['m00']
