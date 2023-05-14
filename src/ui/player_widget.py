@@ -158,8 +158,6 @@ class _PlayerThread(QtCore.QThread):
                             *self._pose_est.get_points(frame['index'], self._identity)
                         )
                     if self._overlay_segmentation:
-                        # verify that frame['index'] is what I think it is.
-                        # this is needed so that I can extract the correct contours
                         overlay_segmentation(
                             frame['data'],
                             self._pose_est,

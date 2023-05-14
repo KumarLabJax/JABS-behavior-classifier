@@ -269,16 +269,6 @@ def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
     
     draw_all_contours(img, contours, _ACTIVE_COLOR)
 
-    # Old way (< 5/11/2023)
-    if False:
-        # Discard values < 0.
-        contours = contours[contours >= 0]
-        if len(contours) > 0: 
-            # Filter missing contours and coerce type to satisfy drawContours
-            # method.
-            contours = contours.reshape((len(contours)//2, 2)).astype(int)
-            cv2.drawContours(img, [contours], -1, _ACTIVE_COLOR, 2)
-
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     static_objects = pose_est.static_objects
