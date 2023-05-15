@@ -6,6 +6,7 @@ import numpy as np
 from PySide2 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.social_features.social_distance import ClosestIdentityInfo
+from src.feature_extraction.base_features.moments import Moments
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import (VideoStream, label_identity, label_all_identities,
                               draw_track, overlay_pose, overlay_landmarks, overlay_segmentation, overlay_all_pose)
@@ -77,7 +78,7 @@ class _PlayerThread(QtCore.QThread):
 
     def __init__(self, video_stream, pose_est, identity, show_track=False,
                  overlay_pose=False, identities=None, overlay_landmarks=False, 
-                 overlay_segmentation=False, overlay_all_pose=False):
+                 overlay_segmentation=False, overlay_all_pose=False, moments=None, moments_per_frame=None):
         super().__init__()
         self._stream = video_stream
         self._pose_est = pose_est
@@ -89,6 +90,8 @@ class _PlayerThread(QtCore.QThread):
         self._overlay_segmentation = overlay_segmentation
         self._overlay_landmarks = overlay_landmarks
         self._identities = identities if identities is not None else []
+        self._moments = moments
+        self._moments_per_frame = moments_per_frame
 
     def terminate(self):
         """
@@ -106,6 +109,10 @@ class _PlayerThread(QtCore.QThread):
 
     def set_identities(self, identities):
         self._identities = identities
+    
+    def set_moments(self, moments, moments_per_frame):
+        self._moments = moments
+        self._moments_per_frame = moments_per_frame
 
     def label_closest(self, new_val: bool):
         self._label_closest = new_val
@@ -185,21 +192,27 @@ class _PlayerThread(QtCore.QThread):
                             self._identity, frame['index'],
                             self._pose_est, ClosestIdentityInfo._half_fov_deg)
                         if closest_fov_id is not None:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_fov_id, frame['index'],
+                            label_identity(frame['data'],
+                                           self._moments_per_frame[closest_fov_id],
+                                           self._moments._feature_names,
+                                           frame['index'],
                                            color=_CLOSEST_FOV_LABEL_COLOR)
 
                         closest_id = _get_closest_animal_id(
                             self._identity, frame['index'], self._pose_est)
                         if closest_id is not None and closest_id != closest_fov_id:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_id, frame['index'],
-                                           color=_CLOSEST_LABEL_COLOR)
+                            label_identity(frame['data'],
+                                           self._moments_per_frame[closest_id],
+                                           self._moments._feature_names,
+                                           frame['index'],
+                                           color=_CLOSEST_FOV_LABEL_COLOR)
 
                 # label all identities
                 label_all_identities(frame['data'],
-                                     self._pose_est, self._identities,
-                                     frame['index'], subject=self._identity)
+                                     self._moments_per_frame, 
+                                     self._moments._feature_names, self._identities,
+                                     frame['index'], self._pose_est,
+                                     subject=self._identity)
 
                 # convert OpenCV image (numpy array) to QImage
                 image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -384,6 +397,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
+        self._moments = None
+        self._moments_per_frame = None
 
         # currently selected identity -- if set will be labeled in the video
         self._active_identity = None
@@ -498,6 +513,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = None
         self._identities = None
         self._pose_est = None
+        self._moments = None
+        self._moments_per_frame = None
         self._active_identity = None
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
@@ -643,6 +660,8 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def set_identities(self, identities):
         self._identities = identities
+        
+        self._moments_per_frame = {identity: self._moments.per_frame_pixel(identity) for identity in identities}
         if self._player_thread:
             self._player_thread.set_identities(self._identities)
         else:
@@ -664,6 +683,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoStream(path)
 
         self._pose_est = pose_est
+        self._moments = Moments(pose_est, pose_est._cm_per_pixel)
 
         # setup the position slider
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
@@ -933,20 +953,26 @@ class PlayerWidget(QtWidgets.QWidget):
                             self._active_identity, frame['index'],
                             self._pose_est, ClosestIdentityInfo._half_fov_deg)
                         if closest_fov_id is not None:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_fov_id, frame['index'],
+                            label_identity(frame['data'],
+                                           self._moments_per_frame[closest_fov_id],
+                                           self._moments._feature_names,
+                                           frame['index'],
                                            color=_CLOSEST_FOV_LABEL_COLOR)
 
                         closest_id = _get_closest_animal_id(self._active_identity,
                                                             frame['index'],
                                                             self._pose_est)
                         if closest_id is not None and closest_id != closest_fov_id:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_id, frame['index'],
+                            label_identity(frame['data'], 
+                                           self._moments_per_frame[closest_id],
+                                           self._moments._feature_names,
+                                           frame['index'],
                                            color=_CLOSEST_LABEL_COLOR)
 
-                label_all_identities(frame['data'], self._pose_est,
+                label_all_identities(frame['data'], self._moments_per_frame, 
+                                     self._moments._feature_names,
                                      self._identities, frame['index'],
+                                     self._pose_est,
                                      subject=self._active_identity)
 
             image = QtGui.QImage(frame['data'], frame['data'].shape[1],
@@ -1016,7 +1042,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread = _PlayerThread(
             self._video_stream, self._pose_est, self._active_identity,
             self._show_track, self._overlay_pose, self._identities,
-            self._overlay_landmarks, self._overlay_segmentation, self._overlay_all_pose)
+            self._overlay_landmarks, self._overlay_segmentation, self._overlay_all_pose, 
+            self._moments, self._moments_per_frame)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)
