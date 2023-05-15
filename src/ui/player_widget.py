@@ -8,7 +8,7 @@ from PySide2 import QtCore, QtGui, QtWidgets
 from src.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from src.pose_estimation import PoseEstimationV3
 from src.video_stream import (VideoStream, label_identity, label_all_identities,
-                              draw_track, overlay_pose, overlay_landmarks, overlay_segmentation)
+                              draw_track, overlay_pose, overlay_landmarks, overlay_segmentation, overlay_all_pose)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
@@ -77,7 +77,7 @@ class _PlayerThread(QtCore.QThread):
 
     def __init__(self, video_stream, pose_est, identity, show_track=False,
                  overlay_pose=False, identities=None, overlay_landmarks=False, 
-                 overlay_segmentation=False):
+                 overlay_segmentation=False, overlay_all_pose=False):
         super().__init__()
         self._stream = video_stream
         self._pose_est = pose_est
@@ -85,6 +85,7 @@ class _PlayerThread(QtCore.QThread):
         self._label_closest = False
         self._show_track = show_track
         self._overlay_pose = overlay_pose
+        self._overlay_all_pose = overlay_all_pose
         self._overlay_segmentation = overlay_segmentation
         self._overlay_landmarks = overlay_landmarks
         self._identities = identities if identities is not None else []
@@ -114,6 +115,9 @@ class _PlayerThread(QtCore.QThread):
 
     def set_overlay_pose(self, new_val: bool):
         self._overlay_pose = new_val
+
+    def set_overlay_all_pose(self, new_val: bool):
+        self._overlay_all_pose = new_val
 
     def set_overlay_segmentation(self, new_val: bool):
         self._overlay_segmentation = new_val
@@ -157,6 +161,14 @@ class _PlayerThread(QtCore.QThread):
                             frame['data'],
                             *self._pose_est.get_points(frame['index'], self._identity)
                         )
+                    if self._overlay_all_pose:
+                        overlay_all_pose(
+                            frame['data'],
+                            self._pose_est.get_points,
+                            frame['index'],
+                            self._identities
+                        )
+
                     if self._overlay_segmentation:
                         overlay_segmentation(
                             frame['data'],
@@ -368,6 +380,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._label_closest = False
         self._show_track = False
         self._overlay_pose = False
+        self._overlay_all_pose = False
         self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
@@ -556,6 +569,28 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._player_thread:
             self._player_thread.set_overlay_pose(self._overlay_pose)
+        else:
+            # if not playing, reload current frame to apply current track state
+            self._video_stream.seek(self._position_slider.value())
+            self._video_stream.load_next_frame()
+            self._update_frame(self._video_stream.read())
+    
+    def overlay_all_pose(self, new_val: typing.Optional[bool]=None):
+        """
+        change "overlay pose" state. Accepts a new boolean value, or toggles
+        current state if no value given.
+        """
+        if new_val is None:
+            self._overlay_all_pose = not self._overlay_all_pose
+        else:
+            self._overlay_all_pose = new_val
+
+        # don't do anything else if a video isn't loaded
+        if self._video_stream is None:
+            return
+
+        if self._player_thread:
+            self._player_thread.set_overlay_all_pose(self._overlay_all_pose)
         else:
             # if not playing, reload current frame to apply current track state
             self._video_stream.seek(self._position_slider.value())
@@ -875,6 +910,13 @@ class PlayerWidget(QtWidgets.QWidget):
                             *self._pose_est.get_points(frame['index'],
                                                        self._active_identity)
                         )
+                    if self._overlay_all_pose:
+                        overlay_all_pose(
+                            frame['data'],
+                            self._pose_est.get_points,
+                            frame['index'],
+                            self._identities  
+                        )
                     if self._overlay_segmentation:
                         overlay_segmentation(
                             frame['data'],
@@ -974,7 +1016,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread = _PlayerThread(
             self._video_stream, self._pose_est, self._active_identity,
             self._show_track, self._overlay_pose, self._identities,
-            self._overlay_landmarks, self._overlay_segmentation)
+            self._overlay_landmarks, self._overlay_segmentation, self._overlay_all_pose)
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
         self._player_thread.endOfFile.connect(self.stop)

@@ -98,12 +98,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_pose.triggered.connect(self._toggle_pose_overlay)
         view_menu.addAction(self.overlay_pose)
 
+        # Overlay all poses
+        self.overlay_all_pose = QtWidgets.QAction('Overlay all Poses', self)
+        self.overlay_all_pose.setCheckable(True)
+        self.overlay_all_pose.triggered.connect(self._toggle_all_pose_overlay)
+        view_menu.addAction(self.overlay_all_pose)
+
         self.overlay_landmark = QtWidgets.QAction('Overlay Landmarks', self)
         self.overlay_landmark.setCheckable(True)
         self.overlay_landmark.triggered.connect(self._toggle_landmark_overlay)
         view_menu.addAction(self.overlay_landmark)
 
-        # Test add check mark for overlay segmentation
         self.overlay_segmentation = QtWidgets.QAction('Overlay Segmentation', self)
         self.overlay_segmentation.setCheckable(True)
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
@@ -245,6 +250,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_pose_overlay(self, checked):
         """ show/hide pose overlay for subject. """
         self._central_widget.overlay_pose(checked)
+    
+    def _toggle_all_pose_overlay(self, checked):
+        """ show/hide pose overlay for subject. """
+        self._central_widget.overlay_all_pose(checked)
 
     def _toggle_landmark_overlay(self, checked):
         """ show/hide landmark features. """

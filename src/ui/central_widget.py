@@ -282,6 +282,9 @@ class CentralWidget(QtWidgets.QWidget):
     # "checked" seems like a more intuitive parameter name.
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
+    
+    def overlay_all_pose(self, new_val: bool):
+        self._player_widget.overlay_all_pose(new_val)
 
     def overlay_landmarks(self, new_val: bool):
         self._player_widget.overlay_landmarks(new_val)

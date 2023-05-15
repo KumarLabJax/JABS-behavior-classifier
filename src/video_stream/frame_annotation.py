@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Tuple, List
+from typing import Tuple, List, Callable
 from src.pose_estimation import PoseEstimation
 
 _ID_COLOR = (215, 222, 0)
@@ -211,6 +211,24 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
         if point_mask:
             cv2.circle(img, (point[1], point[0]), 2, color,
                        -1, lineType=cv2.LINE_AA)
+
+
+def overlay_all_pose(img: np.ndarray, getPoints: Callable, frameIndex: int,
+                 identities: List, color=(255, 255, 255)):
+    """
+    :param img:
+    :param getPoints:
+    :param frameIndex:
+    :param identities:
+    :param color:
+    :return:
+    """
+    for identity in identities:
+        overlay_pose(
+                    img,
+                    *getPoints(frameIndex, identity),
+                    color=color
+                        )
 
 
 def trim_seg(arr: np.ndarray) -> np.ndarray:
