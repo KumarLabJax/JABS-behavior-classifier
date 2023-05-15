@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
-
+from typing import Tuple, List, Callable
 from src.pose_estimation import PoseEstimation
+from src.feature_extraction.base_features.moments import Moments
 
 _ID_COLOR = (215, 222, 0)
 _ACTIVE_COLOR = (0, 0, 255)
@@ -58,7 +59,59 @@ def __gen_line_fragments(exclude_points):
         curr_fragment = []
 
 
-def label_identity(img, pose_est, identity, frame_index,
+def label_identity_moment(img, per_frame: np.ndarray, feature_names: np.ndarray, 
+                   frame_index, color=_ID_COLOR, identity=None):
+    """
+    label the identity on an image
+    :param img: image to label
+    :param pose_est: pose estimations for this video
+    :param identity: identity to label
+    :param frame_index: index of frame to label
+    :param color: color to use for label
+    If point = None, use center of mass.
+    :return: None
+    """
+
+    # ValueError
+    # print(per_frame[frame_index, feature_names.index('m01')]/per_frame[frame_index, feature_names.index('m00')])
+
+    x = per_frame[frame_index, feature_names.index('m01')] / per_frame[frame_index, feature_names.index('m00')]
+    y = per_frame[frame_index, feature_names.index('m10')] / per_frame[frame_index, feature_names.index('m00')]
+
+    # draw a marker at this location.
+    if isinstance(identity, int):
+        cv2.putText(img, str(identity), (int(y), int(x)),
+            cv2.FONT_HERSHEY_PLAIN, 1.25, color, 2,
+            lineType=cv2.LINE_AA)
+    else:
+        cv2.circle(img, (int(y), int(x)), 2, color,
+                    -1, lineType=cv2.LINE_AA)
+
+
+def label_all_identities_moment(img, per_frame: np.ndarray, feature_names: np.ndarray, identities, frame_index, pose_est, subject=None):
+    """
+    label all of the identities in the frame
+    :param img: image to draw the labels on
+    :param pose_est: pose estimations for this video
+    :param identities: list of identity names
+    :param frame_index: index of frame, used to get all poses for frame
+    :param subject: identity to label as 'subject'
+    :return: None
+    """
+     
+    for identity in identities:
+        if identity == subject:
+            color = _ACTIVE_COLOR
+        else:
+            color = _ID_COLOR
+        try:
+            label_identity(img, per_frame[identity], feature_names, frame_index, color, identity=identity)
+        except Exception:
+            # we could try invoking the convex hull method on error.
+            label_one_identity_ConvexHull(img, pose_est, identity, frame_index, subject)
+
+
+def label_identity_ConvexHull(img, pose_est, identity, frame_index,
                    color=_ID_COLOR):
     """
     label the identity on an image
@@ -81,7 +134,7 @@ def label_identity(img, pose_est, identity, frame_index,
                    -1, lineType=cv2.LINE_AA)
 
 
-def label_all_identities(img, pose_est, identities, frame_index, subject=None):
+def label_one_identity_ConvexHull(img, pose_est, identity, frame_index, subject=None):
     """
     label all of the identities in the frame
     :param img: image to draw the labels on
@@ -92,19 +145,38 @@ def label_all_identities(img, pose_est, identities, frame_index, subject=None):
     :return: None
     """
 
-    for identity in identities:
-        shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
-        if shape is not None:
-            center = shape.centroid
 
-            if identity == subject:
-                color = _ACTIVE_COLOR
-            else:
-                color = _ID_COLOR
-            # write the identity at that location
-            cv2.putText(img, str(identity), (int(center.y), int(center.x)),
-                        cv2.FONT_HERSHEY_PLAIN, 1.25, color, 2,
-                        lineType=cv2.LINE_AA)
+    shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
+    if shape is not None:
+        center = shape.centroid
+
+        if identity == subject:
+            color = _ACTIVE_COLOR
+        else:
+            color = _ID_COLOR
+        # write the identity at that location
+        cv2.putText(img, str(identity), (int(center.y), int(center.x)),
+                    cv2.FONT_HERSHEY_PLAIN, 1.25, color, 2,
+                    lineType=cv2.LINE_AA)
+            
+
+def label_all_identities_ConvexHull(img, pose_est, identities, frame_index, subject=None):
+    """
+    label all of the identities in the frame
+    :param img: image to draw the labels on
+    :param pose_est: pose estimations for this video
+    :param identities: list of identity names
+    :param frame_index: index of frame, used to get all poses for frame
+    :param subject: identity to label as 'subject'
+    :return: None
+    """
+    for identity in identities:
+        label_one_identity_ConvexHull(img, pose_est, identity, frame_index, subject)
+
+
+
+label_identity = label_identity_moment
+label_all_identities = label_all_identities_moment
 
 
 def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
@@ -211,6 +283,81 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
         if point_mask:
             cv2.circle(img, (point[1], point[0]), 2, color,
                        -1, lineType=cv2.LINE_AA)
+
+
+def overlay_all_pose(img: np.ndarray, getPoints: Callable, frameIndex: int,
+                 identities: List, color=(255, 255, 255)):
+    """
+    :param img:
+    :param getPoints:
+    :param frameIndex:
+    :param identities:
+    :param color:
+    :return:
+    """
+    for identity in identities:
+        overlay_pose(
+                    img,
+                    *getPoints(frameIndex, identity),
+                    color=color
+                        )
+
+
+def trim_seg(arr: np.ndarray) -> np.ndarray:
+    """
+    Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
+
+    :param arr: A numpy array with contour data.
+    :return: np.ndarray
+    """
+    assert arr.ndim == 2
+    return_arr = arr[np.all(arr!=-1, axis=1),:]
+    if len(return_arr)>0:
+        return return_arr.astype(int)
+
+
+def trim_seg_list(arr: np.ndarray) -> List:
+    """
+    Trims all contours for an individual.
+
+    :param arr: A numpy array with contour data.
+    :return: List
+    """
+    assert arr.ndim == 3
+    return [trim_seg(x) for x in arr if np.any(x!=-1)]
+
+
+def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, int, int]):
+    """
+    Draw all contours given data for a particular mouse in a particular video frame.
+
+    :param img: The current video frame.
+    :param seg_data: This will be the segmentation for a particular frame and indentity.
+    :param color: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+    trimmed_contours = trim_seg_list(seg_data)
+    cv2.drawContours(img, trimmed_contours, -1, color, 2)
+        
+
+def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
+    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+    """
+    :param img: The current video frame.
+    :param pose_est: This will be a pose estimation object >= v6.
+    :param identity: This integer identifies which mouse the segmentation will be applied to.
+    :param frameIndex: This integer identifies the current video frame index.
+    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+
+    contours = pose_est.get_segmentation_data_per_frame(frameIndex, identity)
+    
+    if contours is None:
+        # No segmentation data available to render.
+        return
+    
+    draw_all_contours(img, contours, _ACTIVE_COLOR)
 
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):

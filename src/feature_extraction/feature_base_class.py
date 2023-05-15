@@ -84,7 +84,7 @@ class Feature(abc.ABC):
     @abc.abstractmethod
     def per_frame(self, identity: int) -> np.ndarray:
         """
-        each FeatureSet ubclass will implement this to compute the
+        each FeatureSet subclass will implement this to compute the
         features in the set
 
         returns an ndarray containing the feature values.

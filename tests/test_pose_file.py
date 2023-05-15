@@ -21,6 +21,11 @@ class TestOpenPose(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        '''11/14/2022 - This method throws an error: gzip.BadGzipFile: Not a gzipped file (x89H).  Noticed this when 
+        I tried to create my own base feature tests.  Is gzip.open() necessary, simply reading the file without gzip 
+        appears to work.  Please see my file test_pose_ancillary.py
+        '''
+
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
