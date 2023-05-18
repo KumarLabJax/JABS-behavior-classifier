@@ -1,16 +1,11 @@
 import abc
 import typing
-
 import numpy as np
+from scipy import signal
+from scipy.stats import kurtosis, skew
 
 from src.utils.utilities import rolling_window
 from src.pose_estimation import PoseEstimation
-
-import cv2
-import pandas as pd
-import scipy.stats
-from scipy import signal
-from scipy.stats import kurtosis, skew
 
 
 class Feature(abc.ABC):
@@ -47,14 +42,34 @@ class Feature(abc.ABC):
     _filterOrder = 5
     _criticalFrequencies = [1. / _samplerate, 29. / _samplerate]
     _b, _a = signal.butter(_filterOrder, _criticalFrequencies, 'bandpass')
-    
+    _signal_keys = [
+        "__k",
+        "__k_psd",
+        "__s_psd",
+        "__MPL_1",
+        "__MPL_3",
+        "__MPL_5",
+        "__MPL_8",
+        "__MPL_15",
+        "__Tot_PSD",
+        "__Max_PSD",
+        "__Min_PSD",
+        "__Ave_PSD",
+        "__Std_PSD",
+        "__Ave_Signal",
+        "__Std_Signal",
+        "__Max_Signal",
+        "__Min_Signal",
+        "__Top_Signal",
+        "__Med_Signal",
+        "__Med_PSD"
+    ]
+
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
         self._pixel_scale = pixel_scale
-        self._frequency_cache = {}
-        # self._sub_op = lambda x:  self.get_frequency_feature(x, self._a, self._b, self._samplerate)
-        # self._op = lambda x: np.ma.apply_along_axis(self._sub_op, 1, x)
+
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
@@ -138,50 +153,107 @@ class Feature(abc.ABC):
                 window_size, op, op_name == 'std_dev')
         return values
 
-    def signal_processing(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> typing.Dict:
-               """
-               The standard method for computing signal processing features.
-               """
-               signal_keys = {
-                    "__k",
-                    "__k_psd", 
-                    "__s_psd",
-                    "__MPL_1", 
-                    "__MPL_3",
-                    "__MPL_5", 
-                    "__MPL_8", 
-                    "__MPL_15", 
-                    "__Tot_PSD", 
-                    "__Max_PSD", 
-                    "__Min_PSD",
-                    "__Ave_PSD", 
-                    "__Std_PSD", 
-                    "__Ave_Signal", 
-                    "__Std_Signal",
-                    "__Max_Signal", 
-                    "__Min_Signal", 
-                    "__Top_Signal", 
-                    "__Med_Signal", 
-                    "__Med_PSD"
-                }
-               output_values = {key: None for key in signal_keys}
-               for key in signal_keys:
-                    output_values[key] = self._compute_frequency_features(
-                        per_frame_values, self._poses.identity_mask(identity),
-                        window_size, key
-                        ) 
-               # lambda x, j: self.get_frequency_feature(x, key, j)
-               print("output:", output_values)
-               # reset the frequency cache
-               self._frequency_cache = {}
-               return output_values
+    def signal_processing(
+        self, identity: int, window_size: int,
+        per_frame_values: np.ndarray
+    ) -> typing.Dict:
+        """
+        The standard method for computing signal processing features.
+
+        :return: a dictionary of the signal processing features.
+        """
+
+        values = self._compute_frequency_features(
+            per_frame_values, self._poses.identity_mask(identity),
+            window_size
+            )
+
+        return {self._signal_keys[i]: values[:, :, i]
+                for i in range(len(self._signal_keys))}
+
+    def get_frequency_feature(
+            self, wave: np.ndarray, a: np.ndarray = _a, b: np.ndarray = _b,
+            samplerate: float = _samplerate) -> dict:
+        """
+        :param wave: an array representing the signals for each frame for a
+            given identity for a particular window size.
+        :param a: The denominator coefficient vector of the filter.
+        :param b: The numerator coefficient vector of the filter.
+        :param samplerate: average number of samples per unit time.
+        :return: np.ndarray with feature values with the ith value
+            corresponding to the ith key in self.signal_keys.
+        """
+        # wave = signal.filtfilt(b=b, a=a, x=wave)
+        freqs, psd = signal.welch(wave, fs=30, nperseg=16, nfft=64)
+        # freqs = freqs * samplerate
+
+        return np.array([
+            kurtosis(wave),
+            kurtosis(psd),
+            skew(psd),
+            np.mean(psd[np.logical_and(freqs > 0.1, freqs < 1)]),
+            np.mean(psd[np.logical_and(freqs > 1, freqs < 3)]),
+            np.mean(psd[np.logical_and(freqs > 3, freqs < 5)]),
+            np.mean(psd[np.logical_and(freqs > 5, freqs < 8)]),
+            np.mean(psd[np.logical_and(freqs > 8, freqs < 15)]),
+            np.sum(psd),
+            max(psd),
+            min(psd),
+            np.average(psd),
+            np.std(psd),
+            np.average(wave),
+            np.std(wave),
+            max(wave),
+            min(wave),
+            freqs[psd == max(psd)][0],
+            np.median(wave),
+            np.median(psd)])
+
+    def _compute_frequency_features(
+            self, feature_values: np.ndarray,
+            frame_mask: np.ndarray, window_size: int) -> np.ndarray:
+        """
+        Overriding the helper function to compute window feature values.
+
+        :param feature_values: per frame feature values. Can be a 1D ndarray
+        for a single feature, or a 2D array for a set of related features
+        (e.g. pairwise point distances are stored as a 2D array)
+        :param frame_mask: array indicating which frames are valid for the
+        current identity
+        :param window_size: number of frames (in each direction) to include
+        in the window. The actual number of frames is 2 * window_size + 1
+        :param op: function to perform the actual computation
+        :return: numpy nd array containing feature values
+        """
+
+        window_masks = self._window_masks(frame_mask, window_size)
+        window_width = self.window_width(window_size)
+        values = np.zeros((*feature_values.shape, 20))
+
+        # The feature is 2D, the window features are computed for each column.
+        for j in range(feature_values.shape[1]):
+            windows = rolling_window(
+                np.pad(feature_values[:, j], window_size),
+                window_width
+            )
+
+            mx = np.ma.masked_array(windows, window_masks)
+            fft_features = np.ma.apply_along_axis(
+                self.get_frequency_feature, 1, mx)
+
+            values[:, j, :] = fft_features
+
+            # print("fft shape:", fft_features.shape, "j:",
+            #      j," value shape:", values.shape)
+
+        return values
 
     @staticmethod
     def window_width(window_size: int) -> int:
         return 2 * window_size + 1
 
-    def _window_masks(self, frame_mask: np.ndarray, window_size: int) -> np.ndarray:
+    def _window_masks(self, frame_mask: np.ndarray, window_size: int
+                      ) -> np.ndarray:
         """
         helper function for generating masks for all of the windows to be used
         to compute window feature values
@@ -198,95 +270,6 @@ class Feature(abc.ABC):
             np.pad(mask, window_size, 'constant', constant_values=1),
             window_width
         )
-    
-    def get_frequency_feature(self, wave: np.ndarray, key: str, j: int, a: np.ndarray = _a, b: np.ndarray = _b, samplerate: float = _samplerate)->dict:
-        '''
-        :param wave: an array representing the signals for each frame for a given identity for a particular window size.
-        :param a: The denominator coefficient vector of the filter. 
-        :param b: The numerator coefficient vector of the filter.
-        :param samplerate: average number of samples per unit time.
-        :return: np.ndarray with feature values
-        '''
-        
-        if j in self._frequency_cache:
-            return self._frequency_cache[j][key]
-        else:
-            wave = signal.filtfilt(b, a, wave, padlen=len(wave)-1)
-            freqs, psd = signal.welch(wave)
-            freqs = freqs * samplerate
-            idx_1 = np.logical_and(freqs >= 0.1, freqs < 1)
-            idx_3 = np.logical_and(freqs >= 1, freqs < 3)
-            idx_5 = np.logical_and(freqs >= 3, freqs < 5)
-            idx_8 = np.logical_and(freqs >= 5, freqs < 8)
-            idx_15 = np.logical_and(freqs >= 8, freqs < 15)
-            output_dict = {
-				"__k": kurtosis(wave),
-				"__k_psd": kurtosis(psd), 
-				"__s_psd": skew(psd),
-				"__MPL_1": np.mean(psd[idx_1]), 
-				"__MPL_3": np.mean(psd[idx_3]),
-				"__MPL_5": np.mean(psd[idx_5]), 
-				"__MPL_8": np.mean(psd[idx_8]), 
-				"__MPL_15": np.mean(psd[idx_15]), 
-				"__Tot_PSD": np.sum(psd), 
-				"__Max_PSD": max(psd), 
-				"__Min_PSD": min(psd),
-				"__Ave_PSD": np.average(psd), 
-				"__Std_PSD": np.average(psd), 
-				"__Ave_Signal": np.average(wave), 
-				"__Std_Signal": np.std(wave),
-				"__Max_Signal": max(wave), 
-				"__Min_Signal": min(wave), 
-				"__Top_Signal": freqs[psd == max(psd)][0], 
-				"__Med_Signal": np.median(wave), 
-				"__Med_PSD": np.median(psd)
-			}
-            for k in output_dict:
-                if np.isnan(output_dict[k]):
-                    output_dict[k] = self._nan_fill_value
-                
-            self._frequency_cache[j] = output_dict
-            return output_dict[key]
-    
-    def _compute_frequency_features(self, feature_values: np.ndarray,
-                            frame_mask: np.ndarray, window_size: int,
-                            key: str):
-        """
-        Overriding the helper function to compute window feature values.  
-
-        :param feature_values: per frame feature values. Can be a 1D ndarray
-        for a single feature, or a 2D array for a set of related features
-        (e.g. pairwise point distances are stored as a 2D array)
-        :param frame_mask: array indicating which frames are valid for the
-        current identity
-        :param window_size: number of frames (in each direction) to include
-        in the window. The actual number of frames is 2 * window_size + 1
-        :param op: function to perform the actual computation
-        :return: numpy nd array containing feature values
-        """
-        window_masks = self._window_masks(frame_mask, window_size)
-
-        window_width = self.window_width(window_size)
-        values = np.zeros_like(feature_values)
-
-        # The feature is 2D, the window features are computed for each column.
-        i = 0
-        for j in range(feature_values.shape[1]):
-            windows = rolling_window(
-                np.pad(feature_values[:, j], window_size),
-                window_width
-            )
-            mx = np.ma.masked_array(windows, window_masks)
-
-            # the operations are masked operations and they operate on axis 1.  Therefore I used the masked version of 
-            # apply_along_axis.
-            fft_features = np.ma.apply_along_axis(lambda x: self.get_frequency_feature(x, key, j), 1, mx)
-
-            values[:, i] = fft_features
-            i += 1
-        
-        #print(values, values.shape)
-        return values
 
     def _compute_window_feature(self, feature_values: np.ndarray,
                                 frame_mask: np.ndarray, window_size: int,
@@ -396,7 +379,8 @@ class Feature(abc.ABC):
                     values[i] = op(window_values)
             else:
                 for j in range(feature_values.shape[1]):
-                    window_values = feature_values[slice_start:slice_end, j][slice_frames_valid == 1]
+                    window_values = feature_values[
+                        slice_start:slice_end, j][slice_frames_valid == 1]
 
                     if scipy_workaround:
                         values[i, j] = func_wrapper(window_values)

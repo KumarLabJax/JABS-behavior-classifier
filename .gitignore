@@ -9,3 +9,8 @@ venv
 temp
 docs/notes.txt
 docs/work_history.md
+/data
+/data/*
+tests/data/*.h5
+tests/feature_tests/signal_protyping_custom.py
+.vscode

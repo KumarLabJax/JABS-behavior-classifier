@@ -41,28 +41,31 @@ class EllipseFit(Feature):
             moments = cv2.moments(
                 contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
                 )
-            values[frame, x] = moments['m10'] / moments['m00']
-            values[frame, y] = moments['m01'] / moments['m00']
-            values[frame, a] = moments['m20'] / moments['m00'] \
-                - values[frame, x]**2
-            values[frame, b] = 2*(
-                moments['m11'] / moments['m00'] -
-                values[frame, x] * values[frame, y]
-                )
-            values[frame, c] = moments['m02'] / moments['m00'] \
-                - values[frame, y]**2
-            values[frame, w] = 0.5 * np.sqrt(
-                8*(values[frame, a] + values[frame, c] -
-                    np.sqrt(values[frame, b]**2 +
-                            (values[frame, a] - values[frame, c])**2))
-                )
-            values[frame, ln] = 0.5 * np.sqrt(
-                8*(values[frame, a] + values[frame, c] +
-                    np.sqrt(values[frame, b]**2 +
-                            (values[frame, a] - values[frame, c])**2))
-                )
-            values[frame, t] = 0.5 * np.arctan(
-                2 * values[frame, b] / (values[frame, a] - values[frame, c])
-                )
+
+            with np.errstate(invalid='ignore'):
+                values[frame, x] = moments['m10'] / moments['m00']
+                values[frame, y] = moments['m01'] / moments['m00']
+                values[frame, a] = moments['m20'] / moments['m00'] \
+                    - values[frame, x]**2
+                values[frame, b] = 2*(
+                    moments['m11'] / moments['m00'] -
+                    values[frame, x] * values[frame, y]
+                    )
+                values[frame, c] = moments['m02'] / moments['m00'] \
+                    - values[frame, y]**2
+                values[frame, w] = 0.5 * np.sqrt(
+                    8*(values[frame, a] + values[frame, c] -
+                        np.sqrt(values[frame, b]**2 +
+                                (values[frame, a] - values[frame, c])**2))
+                    )
+                values[frame, ln] = 0.5 * np.sqrt(
+                    8*(values[frame, a] + values[frame, c] +
+                        np.sqrt(values[frame, b]**2 +
+                                (values[frame, a] - values[frame, c])**2))
+                    )
+                values[frame, t] = 0.5 * np.arctan(
+                    2 * values[frame, b] / (values[frame, a] - values[frame, c]
+                                            )
+                    )
 
         return values

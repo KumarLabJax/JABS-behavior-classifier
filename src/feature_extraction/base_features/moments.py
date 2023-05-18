@@ -32,9 +32,11 @@ class Moments(Feature):
                 contours.shape[0] * contours.shape[1], contours.shape[-1]
                 ).astype(np.int32)
 
-            # Compute the moments from
+            # Compute the moments
+            # I am temporarily adding my fix from branch TC-307 so that I can see if my computation matches Brian's.
+            # [deprecated, unscaled way] contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
             Moments = cv2.moments(
-                contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
+                ((contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]) * self._pixel_scale).astype(np.float32)
                 )
 
             # Update the output array with the desired moments for each frame.
