@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from time import time
+import warnings 
 
 import src.pose_estimation
 
