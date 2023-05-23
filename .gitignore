@@ -9,3 +9,4 @@ venv
 temp
 data
 tests/testing_notebook.ipynb
+tests/feature_tests/signal_protyping_custom.py

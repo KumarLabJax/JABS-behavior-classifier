@@ -166,7 +166,8 @@ class _PlayerThread(QtCore.QThread):
                             frame['data'],
                             self._pose_est.get_points,
                             frame['index'],
-                            self._identities
+                            self._identities,
+                            self._identity
                         )
 
                     if self._overlay_segmentation:
@@ -915,7 +916,8 @@ class PlayerWidget(QtWidgets.QWidget):
                             frame['data'],
                             self._pose_est.get_points,
                             frame['index'],
-                            self._identities  
+                            self._identities,
+                            self._active_identity  
                         )
                     if self._overlay_segmentation:
                         overlay_segmentation(

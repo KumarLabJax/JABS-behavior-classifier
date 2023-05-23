@@ -214,7 +214,7 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
 
 
 def overlay_all_pose(img: np.ndarray, getPoints: Callable, frameIndex: int,
-                 identities: List, color=(255, 255, 255)):
+                 identities: List, active_identity: int, color=(255, 255, 255)):
     """
     :param img:
     :param getPoints:
@@ -227,7 +227,7 @@ def overlay_all_pose(img: np.ndarray, getPoints: Callable, frameIndex: int,
         overlay_pose(
                     img,
                     *getPoints(frameIndex, identity),
-                    color=color
+                    color=_ACTIVE_COLOR if identity == active_identity else color
                         )
 
 
