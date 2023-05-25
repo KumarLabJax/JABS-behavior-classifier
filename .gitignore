@@ -15,3 +15,5 @@ tests/data/*.h5
 tests/feature_tests/signal_protyping_custom.py
 tests/testing_notebook.ipynb
 .vscode
+data.npz
+_data.npz
