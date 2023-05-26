@@ -17,3 +17,5 @@ tests/testing_notebook.ipynb
 .vscode
 data.npz
 _data.npz
+get_frequency_feature_profile.txt
+signal_processing_profile.txt

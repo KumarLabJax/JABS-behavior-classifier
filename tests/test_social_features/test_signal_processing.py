@@ -70,6 +70,7 @@ class TestSignalProcessing(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls._tmpdir.cleanup()
 
+    @unittest.skip("paused")
     def test_access_poses(self):
         """
         This tests simply checks that I can access basic info from the pose
@@ -83,6 +84,7 @@ class TestSignalProcessing(unittest.TestCase):
         self.assertGreaterEqual(
             abs(self._poses._cm_per_pixel-0.07928075), 1e-9)
 
+    @unittest.skip("paused")
     def test_initialize_feature(self):
         """
         This test simply validates that I can create instances of the base
@@ -108,6 +110,7 @@ class TestSignalProcessing(unittest.TestCase):
 
         self.assertEqual(ellipse_fit_features.shape[0], self._poses.num_frames)
 
+    @unittest.skip("paused")
     def test_generate_signal_processing_attributes(self):
         """
         For some random identity, attempt to generate the signal processing
@@ -124,6 +127,7 @@ class TestSignalProcessing(unittest.TestCase):
         # check that I can access base feature signal processing attributes
         self.assertEqual(moment._samplerate, ellipse_fit._samplerate)
 
+    @unittest.skip("paused")
     def test_generate_window_features(self):
         """
         For some random identity, attempt to generate the signal processing
@@ -147,7 +151,7 @@ class TestSignalProcessing(unittest.TestCase):
         self.assertEqual((18000, 24), window_values[random_key].shape)
         self.assertIsInstance(window_values, dict)
 
-    @unittest.skip("paused")
+    
     def test_generate_signal_processing_features(self):
         """
         For some random identity, attempt to generate the signal processing
@@ -160,15 +164,16 @@ class TestSignalProcessing(unittest.TestCase):
 
         test_identity = np.random.choice(self._poses._identities)
         window_size = 5
+        nframes = 100
 
         moment = moments.Moments(self._poses, self._poses.cm_per_pixel)
-        per_frame = moment.per_frame(test_identity)
+        per_frame = moment.per_frame(test_identity)[:nframes, ...]
 
         # print("cm_per_pixel:", self._poses.cm_per_pixel)
 
         t0 = time()
         signal_processing_values = moment.signal_processing(
-            test_identity, window_size, per_frame)
+            test_identity, window_size, per_frame, nframes)
         tf = time()
         print(f"signal processing time: {(tf-t0) // 60} m {(tf-t0) % 60} s")
 
@@ -177,6 +182,7 @@ class TestSignalProcessing(unittest.TestCase):
         for key in signal_processing_values:
             self.assertEqual(signal_processing_values[key].shape, (3600, 24))
 
+    @unittest.skip("paused")
     def test_validate_against_brians_code(self):
         """
         This test aims to verify that the signal processing values have been

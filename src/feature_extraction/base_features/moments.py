@@ -34,7 +34,6 @@ class Moments(Feature):
 
             # Compute the moments
             # I am temporarily adding my fix from branch TC-307 so that I can see if my computation matches Brian's.
-            # [deprecated, unscaled way] contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]
             Moments = cv2.moments(
                 ((contours[(contours[..., 0] > -1) & (contours[..., 1] > -1)]) * self._pixel_scale).astype(np.float32)
                 )

@@ -153,7 +153,63 @@ class Feature(abc.ABC):
                 window_size, op, op_name == 'std_dev')
         return values
 
+    def build_mx_array(
+        self, identity: int, window_size: int,
+        feature_values: np.ndarray,
+        nframes: int
+    ) -> typing.Dict:
+        """
+        This method returns the mx array which is used by np.ma.apply_along_axis.
+        :return: A masked np.ndarray.
+        """
+        
+        frame_mask = self._poses.identity_mask(identity)[:nframes, ...]
+        window_masks = self._window_masks(frame_mask, window_size, nframes)
+        window_width = self.window_width(window_size)
+
+        # The feature is 2D, the window features are computed for each column.
+        for j in range(feature_values.shape[1]):
+            windows = rolling_window(
+                np.pad(feature_values[:, j], window_size),
+                window_width
+            )
+
+            return np.ma.masked_array(windows, window_masks)
+
     def signal_processing(
+        self, identity: int, window_size: int,
+        feature_values: np.ndarray,
+        nframes: int
+    ) -> typing.Dict:
+        """
+        This method combines the helper functions, compute_frequency_features
+        and get_frequency_feature for better line profiling.
+
+        :return: a dictionary of the signal processing features.
+        """
+        
+        frame_mask = self._poses.identity_mask(identity)[:nframes, ...]
+        window_masks = self._window_masks(frame_mask, window_size, nframes)
+        window_width = self.window_width(window_size)
+        values = np.zeros((*feature_values.shape, 20))
+
+        # The feature is 2D, the window features are computed for each column.
+        for j in range(feature_values.shape[1]):
+            windows = rolling_window(
+                np.pad(feature_values[:, j], window_size),
+                window_width
+            )
+
+            mx = np.ma.masked_array(windows, window_masks)
+            fft_features = np.ma.apply_along_axis(
+                self.get_frequency_feature, 1, mx)
+
+            values[:, j, :] = fft_features
+
+        return {self._signal_keys[i]: values[:, :, i]
+                for i in range(len(self._signal_keys))}
+
+    def _signal_processing(
         self, identity: int, window_size: int,
         per_frame_values: np.ndarray
     ) -> typing.Dict:
@@ -184,8 +240,7 @@ class Feature(abc.ABC):
             corresponding to the ith key in self.signal_keys.
         """
         # wave = signal.filtfilt(b=b, a=a, x=wave)
-        freqs, psd = signal.welch(wave, fs=30, nperseg=16, nfft=64)
-        # freqs = freqs * samplerate
+        freqs, psd = signal.welch(wave, fs=samplerate, nperseg=16, nfft=64)
 
         return np.array([
             kurtosis(wave),
@@ -252,7 +307,7 @@ class Feature(abc.ABC):
     def window_width(window_size: int) -> int:
         return 2 * window_size + 1
 
-    def _window_masks(self, frame_mask: np.ndarray, window_size: int
+    def _window_masks(self, frame_mask: np.ndarray, window_size: int, nframes: int = 0
                       ) -> np.ndarray:
         """
         helper function for generating masks for all of the windows to be used
@@ -262,7 +317,7 @@ class Feature(abc.ABC):
         window_width = self.window_width(window_size)
 
         # generate a numpy mask array to mask out invalid frames
-        mask = np.full(self._poses.num_frames, 1)
+        mask = np.full(nframes or self._poses.num_frames, 1)
         mask[frame_mask == 1] = 0
 
         # generate masks for all of the rolling windows
