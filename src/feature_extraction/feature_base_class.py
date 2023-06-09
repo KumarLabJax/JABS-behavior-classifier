@@ -154,12 +154,17 @@ class Feature(abc.ABC):
         return values
 
     def signal_processing(
-        self, identity: int, window_size: int,
+        self,
+        identity: int,
+        window_size: int,
         per_frame_values: np.ndarray
     ) -> typing.Dict:
         """
         The standard method for computing signal processing features.
 
+        :param identity: The identity of the mouse.
+        :param window_size: The window size used for signal formation.
+        :param per_frame_values: The values for a particular feature.
         :return: a dictionary of the signal processing features.
         """
 
@@ -172,9 +177,16 @@ class Feature(abc.ABC):
                 for i in range(len(self._signal_keys))}
 
     def get_frequency_feature(
-            self, wave: np.ndarray, a: np.ndarray = _a, b: np.ndarray = _b,
-            samplerate: float = _samplerate) -> dict:
+            self,
+            wave: np.ndarray,
+            a: np.ndarray = _a,
+            b: np.ndarray = _b,
+            samplerate: float = _samplerate
+    ) -> dict:
         """
+        Compute various features from the frequencies and power spectral density of 
+        the input wave array.
+
         :param wave: an array representing the signals for each frame for a
             given identity for a particular window size.
         :param a: The denominator coefficient vector of the filter.
@@ -183,9 +195,7 @@ class Feature(abc.ABC):
         :return: np.ndarray with feature values with the ith value
             corresponding to the ith key in self.signal_keys.
         """
-        # wave = signal.filtfilt(b=b, a=a, x=wave)
-        freqs, psd = signal.welch(wave, fs=30, nperseg=16, nfft=64)
-        # freqs = freqs * samplerate
+        freqs, psd = signal.welch(wave, fs=samplerate, nperseg=16, nfft=64)
 
         return np.array([
             kurtosis(wave),
@@ -242,9 +252,6 @@ class Feature(abc.ABC):
                 self.get_frequency_feature, 1, mx)
 
             values[:, j, :] = fft_features
-
-            # print("fft shape:", fft_features.shape, "j:",
-            #      j," value shape:", values.shape)
 
         return values
 

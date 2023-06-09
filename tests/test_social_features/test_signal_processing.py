@@ -101,11 +101,6 @@ class TestSignalProcessing(unittest.TestCase):
         ellipse_fit_features = ellipse_fit.per_frame(test_identity)
 
         self.assertEqual(moment_features.shape[0], self._poses.num_frames)
-
-        # BUG [RESOLVED] Attribute Error:
-        # x = self.feature_names.index('x') AttributeError: 'function' object
-        # has no attribute 'index'.  feature names was missing a _ prefix.
-
         self.assertEqual(ellipse_fit_features.shape[0], self._poses.num_frames)
 
     def test_generate_signal_processing_attributes(self):
@@ -113,9 +108,6 @@ class TestSignalProcessing(unittest.TestCase):
         For some random identity, attempt to generate the signal processing
         features for an arbitrary base feature.
         """
-        # print(self._poses._identities)
-
-        # test_identity = np.random.choice(self._poses._identities)
 
         moment = moments.Moments(self._poses, self._poses.cm_per_pixel)
         ellipse_fit = ellipse_fitting.EllipseFit(
@@ -193,7 +185,7 @@ class TestSignalProcessing(unittest.TestCase):
             self._poses.get_identity_poses(
                 animal_idx, self._poses.cm_per_pixel)
 
-        # (alternate way to get points)
+        # Alternate way to get points
         # self._points[:, animal_idx, ...] * self._poses.cm_per_pixel
 
         points_for_individual = np.zeros(np.delete(np.shape(self._points), 1),
@@ -247,8 +239,6 @@ class TestSignalProcessing(unittest.TestCase):
             Path(__file__).parent / "nose_speeds.txt",
             delimiter=","
         )
-
-        # print("nose speeds shape:", nose_speeds.shape)
 
         nose_speeds = nose_speeds.reshape(nose_speeds.shape[0], 1)
 

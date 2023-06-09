@@ -1,0 +1,40 @@
+Timer unit: 1e-07 s
+
+Total time: 298.832 s
+File: c:\Users\sebasn\Documents\Programs\JABS-behavior-classifier\src\feature_extraction\feature_base_class.py
+Function: signal_processing at line 156
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   156                                               def signal_processing(
+   157                                                   self, identity: int, window_size: int,
+   158                                                   feature_values: np.ndarray,
+   159                                                   frame_mask: np.ndarray,
+   160                                                   nframes: int
+   161                                               ) -> typing.Dict:
+   162                                                   """
+   163                                                   This method combines the helper functions, compute_frequency_features
+   164                                                   and get_frequency_feature for better line profiling.
+   165                                           
+   166                                                   :return: a dictionary of the signal processing features.
+   167                                                   """
+   168                                           
+   169         1       5511.0   5511.0      0.0          window_masks = self._window_masks(frame_mask, window_size, nframes)
+   170         1         43.0     43.0      0.0          window_width = self.window_width(window_size)
+   171         1        407.0    407.0      0.0          values = np.zeros((*feature_values.shape, 20))
+   172                                           
+   173                                                   # The feature is 2D, the window features are computed for each column.
+   174        24        257.0     10.7      0.0          for j in range(feature_values.shape[1]):
+   175        24       8426.0    351.1      0.0              windows = rolling_window(
+   176        24      39061.0   1627.5      0.0                  np.pad(feature_values[:, j], window_size),
+   177        24         78.0      3.2      0.0                  window_width
+   178                                                       )
+   179                                           
+   180        24      20096.0    837.3      0.0              mx = np.ma.masked_array(windows, window_masks)
+   181        24 2988178832.0 124507451.3    100.0              fft_features = np.ma.apply_along_axis(
+   182        24        244.0     10.2      0.0                  self.get_frequency_feature, 1, mx)
+   183                                           
+   184        24      71423.0   2976.0      0.0              values[:, j, :] = fft_features
+   185                                           
+   186         1        216.0    216.0      0.0          return {self._signal_keys[i]: values[:, :, i]
+   187         1         48.0     48.0      0.0                  for i in range(len(self._signal_keys))}

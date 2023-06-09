@@ -1,0 +1,44 @@
+Timer unit: 1e-07 s
+
+Total time: 0.0027578 s
+File: c:\Users\sebasn\Documents\Programs\JABS-behavior-classifier\src\feature_extraction\feature_base_class.py
+Function: get_frequency_feature at line 230
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   230                                               def get_frequency_feature(
+   231                                                       self, wave: np.ndarray, a: np.ndarray = _a, b: np.ndarray = _b,
+   232                                                       samplerate: float = _samplerate) -> dict:
+   233                                                   """
+   234                                                   :param wave: an array representing the signals for each frame for a
+   235                                                       given identity for a particular window size.
+   236                                                   :param a: The denominator coefficient vector of the filter.
+   237                                                   :param b: The numerator coefficient vector of the filter.
+   238                                                   :param samplerate: average number of samples per unit time.
+   239                                                   :return: np.ndarray with feature values with the ith value
+   240                                                       corresponding to the ith key in self.signal_keys.
+   241                                                   """
+   242                                                   # wave = signal.filtfilt(b=b, a=a, x=wave)
+   243         1       7160.0   7160.0     26.0          freqs, psd = signal.welch(wave, fs=samplerate, nperseg=16, nfft=64)
+   244                                           
+   245         1         35.0     35.0      0.1          return np.array([
+   246         1       3621.0   3621.0     13.1              kurtosis(wave),
+   247         1       1674.0   1674.0      6.1              kurtosis(psd),
+   248         1       1672.0   1672.0      6.1              skew(psd),
+   249         1        261.0    261.0      0.9              np.mean(psd[np.logical_and(freqs > 0.1, freqs < 1)]),
+   250         1        177.0    177.0      0.6              np.mean(psd[np.logical_and(freqs > 1, freqs < 3)]),
+   251         1        170.0    170.0      0.6              np.mean(psd[np.logical_and(freqs > 3, freqs < 5)]),
+   252         1        186.0    186.0      0.7              np.mean(psd[np.logical_and(freqs > 5, freqs < 8)]),
+   253         1        169.0    169.0      0.6              np.mean(psd[np.logical_and(freqs > 8, freqs < 15)]),
+   254         1         98.0     98.0      0.4              np.sum(psd),
+   255         1         69.0     69.0      0.3              max(psd),
+   256         1         28.0     28.0      0.1              min(psd),
+   257         1        201.0    201.0      0.7              np.average(psd),
+   258         1        528.0    528.0      1.9              np.std(psd),
+   259         1        705.0    705.0      2.6              np.average(wave),
+   260         1       5774.0   5774.0     20.9              np.std(wave),
+   261         1       1059.0   1059.0      3.8              max(wave),
+   262         1        778.0    778.0      2.8              min(wave),
+   263         1         94.0     94.0      0.3              freqs[psd == max(psd)][0],
+   264         1       2476.0   2476.0      9.0              np.median(wave),
+   265         1        643.0    643.0      2.3              np.median(psd)])
