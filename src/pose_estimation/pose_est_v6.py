@@ -40,7 +40,6 @@ class PoseEstimationV6(PoseEstimationV5):
             # transpose seg_data similar to the way the points are transposed.
 
         # sort the segmentation data
-        print("new sorting initiated")
         self._segmentation_dict["seg_data"] = self._segmentation_sort(self._segmentation_dict["seg_data"], self._segmentation_dict["longterm_seg_id"])
     
     def get_seg_id(self, frameIndex: int, identity: int) -> int:
