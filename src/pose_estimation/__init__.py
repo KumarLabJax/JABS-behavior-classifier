@@ -9,6 +9,8 @@ from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v4 import PoseEstimationV4
 from .pose_est_v5 import PoseEstimationV5
+# +[NS] import newly created PoseEstimationV6
+from .pose_est_v6 import PoseEstimationV6
 
 
 def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
@@ -24,6 +26,9 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
         return PoseEstimationV4(path, cache_dir)
     elif path.name.endswith('v5.h5'):
         return PoseEstimationV5(path, cache_dir)
+    # +[NS] ADD v6 condition here.
+    elif path.name.endswith('v6.h5'):
+        return PoseEstimationV6(path, cache_dir)
     else:
         raise ValueError("not a valid pose estimate filename")
 
@@ -40,7 +45,10 @@ def get_pose_path(video_path: Path):
     file_base = video_path.with_suffix('')
 
     # default to the highest version pose file for a video
-    if video_path.with_name(file_base.name + '_pose_est_v5.h5').exists():
+    # +[NS] ADD v6 condition here.
+    if video_path.with_name(file_base.name + '_pose_est_v6.h5').exists():
+        return video_path.with_name(file_base.name + '_pose_est_v6.h5')
+    elif video_path.with_name(file_base.name + '_pose_est_v5.h5').exists():
         return video_path.with_name(file_base.name + '_pose_est_v5.h5')
     elif video_path.with_name(file_base.name + '_pose_est_v4.h5').exists():
         return video_path.with_name(file_base.name + '_pose_est_v4.h5')

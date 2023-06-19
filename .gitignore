@@ -7,3 +7,5 @@ rotta.venv
 venv
 *.sif
 temp
+data
+tests/testing_notebook.ipynb
