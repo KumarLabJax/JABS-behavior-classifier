@@ -5,7 +5,7 @@ from . import Angles, PairwisePointDistances, PointSpeeds, \
     NoseVelocityMag, BaseTailVelocityDir, BaseTailVelocityMag, \
     LeftFrontPawVelocityDir, LeftFrontPawVelocityMag, \
     RightFrontPawVelocityDir, RightFrontPawVelocityMag, \
-    AngularVelocity, Moments
+    AngularVelocity
 
 
 class BaseFeatureGroup(FeatureGroup):
@@ -29,7 +29,6 @@ class BaseFeatureGroup(FeatureGroup):
         LeftFrontPawVelocityMag.name(): LeftFrontPawVelocityMag,
         RightFrontPawVelocityDir.name(): RightFrontPawVelocityDir,
         RightFrontPawVelocityMag.name(): RightFrontPawVelocityMag,
-        Moments.name(): Moments,
     }
 
     def _init_feature_mods(self, identity: int):

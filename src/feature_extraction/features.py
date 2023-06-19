@@ -11,13 +11,15 @@ from src.pose_estimation import PoseEstimation, PoseHashException
 from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
 from .landmark_features import LandmarkFeatureGroup
+from .segmentation_features import SegmentationFeatureGroup
 
 
 FEATURE_VERSION = 5
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
-    SocialFeatureGroup
+    SocialFeatureGroup,
+    SegmentationFeatureGroup
 ]
 
 _EXTENDED_FEATURE_MODULES = [
@@ -81,12 +83,17 @@ class IdentityFeatures:
                 str(self._identity)
         )
         self._compute_social_features = pose_est.format_major_version >= 3
+        self._compute_segmentation_features = pose_est.format_major_version >= 6
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
             # don't include the social features if it is not supported by
             # the pose file
             if not self._compute_social_features and m is SocialFeatureGroup:
+                continue
+            # don't include segmentation features if it is not supported by
+            # the pose file
+            if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est,
                                                 self._distance_scale_factor)
