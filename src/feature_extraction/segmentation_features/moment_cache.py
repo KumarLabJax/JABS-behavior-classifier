@@ -16,6 +16,7 @@ class MomentInfo:
                  pixel_scale: float):
         # These keys are necessary because opencv returns a dict which may not always be sorted
         self._moment_keys = [feature_name for feature_name in cv2.moments(np.empty(0))]
+        self._moment_conversion_powers = [self.get_pixel_power(feature_name) for feature_name in self._moment_keys]
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
@@ -29,8 +30,19 @@ class MomentInfo:
             moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
+                # self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])
                 self._moments[frame, j] = moments[self._moment_keys[j]]
-        
+    
+    def get_pixel_power(self, key):
+        """
+        get the degree that pixels influence this image moment
+        :param key: key of the image moment
+        :return: power that should be used for converting from pixels to cm space
+        """
+        # Only works for image moments 0-9 on either dimension
+        # opencv only does the first 3 moments (0-2)
+        return int(key[-1]) + int(key[-2]) + 2
+
     def get_moment(self, frame, key):
         """
         retrieve a single moment value

@@ -32,7 +32,6 @@ class EllipseFit(Feature):
         w = self._feature_names.index('w')
         ln = self._feature_names.index('l')
         t = self._feature_names.index('theta')
-        # Use cython?
         for frame in range(values.shape[0]):
             # Safety for division by 0 (no segmentation to calculate on)
             if self._moment_cache.get_moment(frame, 'm00')==0:

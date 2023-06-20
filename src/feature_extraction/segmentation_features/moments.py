@@ -26,7 +26,6 @@ class Moments(Feature):
 
         for frame in range(values.shape[0]):
             for j in range(len(self._feature_names)):
-                # TODO: Correct individually for pixel_scale
                 values[frame, j] = self._moment_cache.get_moment(frame, self._feature_names[j])
 
         return values
