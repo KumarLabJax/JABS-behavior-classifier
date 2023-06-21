@@ -13,7 +13,12 @@ class Moments(Feature):
     """
 
     _name = 'moments'
-    _feature_names = ['m00', 'm10', 'm01', 'm20', 'm11', 'm02', 'm30', 'm21', 'm12', 'm03', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
+    # These are all the opencv moments
+    # _feature_names = ['m00', 'm10', 'm01', 'm20', 'm11', 'm02', 'm30', 'm21', 'm12', 'm03', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
+    # However, we only want to look at egocentric (translational invariant)
+    # mu (central or relative to centroid) moments and nu (normalized central) moments meet this translational invariance criteria
+    # nu moments are also scale-invariant
+    _feature_names = ['m00', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float,
                  moment_cache: 'MomentInfo'):

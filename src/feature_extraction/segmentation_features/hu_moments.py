@@ -26,7 +26,9 @@ class HuMoments(Feature):
         values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
         
         for frame in range(values.shape[0]):
-
+            # Skip calculation if m00 is 0
+            if self._moment_cache.get_moment(frame, 'm00')==0:
+                continue
             values[frame, :] = cv2.HuMoments(self._moment_cache.get_all_moments(frame)).T
 
         return values

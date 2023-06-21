@@ -14,7 +14,9 @@ class EllipseFit(Feature):
     """
 
     _name = 'ellipse_fit'
-    _feature_names = ['x', 'y', 'a', 'b', 'c', 'w', 'l', 'theta']
+    # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
+    # These need to be handled similar to other angle terms (circular statistics)
+    _feature_names = ['centroid_speed', 'w', 'l']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float,
                  moment_cache: 'MomentInfo'):
@@ -22,37 +24,29 @@ class EllipseFit(Feature):
         self._moment_cache = moment_cache
 
     def per_frame(self, identity: int) -> np.ndarray:
+        x = np.zeros((self._poses.num_frames), dtype=np.float32)
+        y = np.zeros((self._poses.num_frames), dtype=np.float32)
         values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
 
-        x = self._feature_names.index('x')
-        y = self._feature_names.index('y')
-        a = self._feature_names.index('a')
-        b = self._feature_names.index('b')
-        c = self._feature_names.index('c')
+        fps = self._poses.fps
+        cs = self._feature_names.index('centroid_speed')
         w = self._feature_names.index('w')
         ln = self._feature_names.index('l')
-        t = self._feature_names.index('theta')
         for frame in range(values.shape[0]):
             # Safety for division by 0 (no segmentation to calculate on)
             if self._moment_cache.get_moment(frame, 'm00')==0:
                 continue
-            values[frame, x] = self._moment_cache.get_moment(frame, 'm10') / self._moment_cache.get_moment(frame, 'm00')
-            values[frame, y] = self._moment_cache.get_moment(frame, 'm01') / self._moment_cache.get_moment(frame, 'm00')
-            values[frame, a] = self._moment_cache.get_moment(frame, 'm20') / self._moment_cache.get_moment(frame, 'm00') - np.square(values[frame, x])
-            values[frame, b] = 2*(self._moment_cache.get_moment(frame, 'm11') / self._moment_cache.get_moment(frame, 'm00') - values[frame, x] * values[frame, y])
-            values[frame, c] = self._moment_cache.get_moment(frame, 'm02') / self._moment_cache.get_moment(frame, 'm00') - np.square(values[frame, y])
-            values[frame, w] = 0.5 * np.sqrt(
-                8*(values[frame, a] + values[frame, c] -
-                    np.sqrt(np.square(values[frame, b]) +
-                            np.square(values[frame, a] - values[frame, c])))
-                )
-            values[frame, ln] = 0.5 * np.sqrt(
-                8*(values[frame, a] + values[frame, c] +
-                    np.sqrt(np.square(values[frame, b]) +
-                            np.square(values[frame, a] - values[frame, c])))
-                )
-            values[frame, t] = 0.5 * np.arctan(
-                2 * values[frame, b] / (values[frame, a] - values[frame, c])
-                )
+            x[frame] = self._moment_cache.get_moment(frame, 'm10') / self._moment_cache.get_moment(frame, 'm00')
+            y[frame] = self._moment_cache.get_moment(frame, 'm01') / self._moment_cache.get_moment(frame, 'm00')
+            a = self._moment_cache.get_moment(frame, 'm20') / self._moment_cache.get_moment(frame, 'm00') - np.square(x[frame])
+            b = 2*(self._moment_cache.get_moment(frame, 'm11') / self._moment_cache.get_moment(frame, 'm00') - x[frame] * y[frame])
+            c = self._moment_cache.get_moment(frame, 'm02') / self._moment_cache.get_moment(frame, 'm00') - np.square(y[frame])
+            values[frame, w] = 0.5 * np.sqrt(8*(a + c - np.sqrt(np.square(b) + np.square(a - c))))
+            values[frame, ln] = 0.5 * np.sqrt(8*(a + c + np.sqrt(np.square(b) + np.square(a - c))))
+            # Theta needs the be handled uniquely because it's only 0-pi and needs circular statistics
+            # theta = 0.5 * np.arctan(2 * b / (a - c))
+        # Calculate the centroid speeds
+        centroid_speeds = np.hypot(np.gradient(x), np.gradient(y))
+        values[:,cs] = centroid_speeds
 
         return values
