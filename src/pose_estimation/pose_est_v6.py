@@ -41,33 +41,33 @@ class PoseEstimationV6(PoseEstimationV5):
 
         # sort the segmentation data
         self._segmentation_dict["seg_data"] = self._segmentation_sort(self._segmentation_dict["seg_data"], self._segmentation_dict["longterm_seg_id"])
-    
+        self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(self._segmentation_dict["seg_external_flag"], self._segmentation_dict["longterm_seg_id"])
+
     def get_seg_id(self, frameIndex: int, identity: int) -> int:
         if self._segmentation_dict["longterm_seg_id"] is None:
             return None
         else:
             return self._segmentation_dict['longterm_seg_id'][frameIndex, identity]
-    
+
     @classmethod
     def _segmentation_sort(cls, seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
         """
-        This method attempts to sort the segmentation data according to the longterm segmentation id.  
-        This code is highly inefficient and ugly should be replaced with a vectorized expression.
-
+        This method attempts to sort the segmentation data according to the longterm segmentation id.
+        :param seg_data: segmentation data with the first 2 dimensions being [frame,animal]
+        :param longterm_seg_id: identities to sort by, beginning with 1 (0 reserved for invalid data)
         :return: sorted segmentation data
         """
-        seg_data_tmp = np.zeros_like(seg_data) # np.full_like(self.seg_data, -1)
-        for frame in range(seg_data.shape[0]):
-            map = longterm_seg_id[frame]
-            B = np.full_like(seg_data[frame, ...], -1)
-            for a_index in range(len(map)):
-                b_index = (map-1)[a_index]
-                if seg_data.shape[1] > b_index >= 0:
-                    B[b_index, :] = seg_data[frame, a_index, :] # B[a_index, :] = seg_data[frame, b_index, :] 
-
-            seg_data_tmp[frame, ...] = B  
-        
-        return seg_data_tmp
+        # Copy the data into the new array, sorted
+        # Note that the -1 is the default for missing data
+        sorted_seg_data = np.zeros_like(seg_data)-1
+        # Need to do a loop here because numpy doesn't allow sorting 2D indices for differently shaped arrays
+        for animal_idx in np.arange(seg_data.shape[1]):
+            # Detect which frames have valid data
+            detected_idxs = longterm_seg_id == animal_idx + 1
+            animal_preset_frames = np.any(detected_idxs, axis=1)
+            # Sort the data
+            sorted_seg_data[animal_preset_frames, animal_idx, ...] = seg_data[np.where(detected_idxs)]
+        return sorted_seg_data
 
     def get_segmentation_data(self, identity: int) -> np.ndarray:
         ''' Given a particular identity, return the appropriate segmentation
@@ -81,7 +81,20 @@ class PoseEstimationV6(PoseEstimationV5):
             return None
         else:
             return self._segmentation_dict['seg_data'][:, identity, ...]
-    
+
+    def get_segmentation_flags(self, identity: int) -> np.ndarray:
+        ''' Given a particular identity, return the appropriate segmentation
+        internal/external flags.
+        :param identity: identity to return segmentation flags for.
+        :return: the ndarray of segmentation flags (if it exists) otherwise the 
+            function returns None.
+        '''
+
+        if self._segmentation_dict["seg_external_flag"] is None:
+            return None
+        else:
+            return self._segmentation_dict['seg_external_flag'][:, identity, ...] 
+
     def get_segmentation_data_per_frame(self, frameIndex, identity: int) -> np.ndarray:
         ''' Given a particular identity, return the appropriate segmentation
         data.
