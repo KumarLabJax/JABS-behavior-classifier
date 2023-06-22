@@ -9,6 +9,8 @@ class MomentInfo:
     It can be done once for a given identity, and then an instance of this
     object can be passed into all the features that need it
 
+    Image moments provided here are adjusted for pixel scaling
+
     get_moment(frame, key) retrieves the calculated image moment
     """
 
@@ -21,17 +23,23 @@ class MomentInfo:
         self._pixel_scale = pixel_scale
         self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
         self._seg_data = self._poses.get_segmentation_data(identity)
+        self._seg_flags = self._poses.get_segmentation_flags(identity)
 
+        # Parse out the contour matrix into a list of contour lists
+        tmp_contour_data = []
         for frame in range(self._moments.shape[0]):
-            contours = self.trim_contour_list(self._seg_data[frame, ...])
+            tmp_contour_data.append(self.trim_contour_list(self._seg_data[frame, ...]))
+
+        self._seg_data = tmp_contour_data
+
+        for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours)<1:
                 continue
             moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
-                # self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])
-                self._moments[frame, j] = moments[self._moment_keys[j]]
+                self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])
     
     def get_pixel_power(self, key):
         """
@@ -60,6 +68,22 @@ class MomentInfo:
         :return: dict of moment data
         """
         return {key:value for key,value in zip(self._moment_keys,self._moments[frame])}
+
+    def get_trimmed_contours(self, frame):
+        """
+        retrieves a contour for a specific frame
+        :param frame: frame to retrieve contour data
+        :return: an opencv-complaint list of contours
+        """
+        return self._seg_data[frame]
+
+    def get_flags(self, frame):
+        """
+        retrieves the internal/external flags for a specific frame
+        :param frame: frame to retrieve flags
+        :return: a binary vector of whether the segmentation contours are external (1) or internal (0)
+        """
+        return self._seg_flags[frame]
 
     def trim_contour(self, arr):
         """

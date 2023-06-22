@@ -1,7 +1,7 @@
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 from src.pose_estimation import PoseEstimation
 # import all feature modules for this group
-from . import Moments, HuMoments, EllipseFit, MomentInfo
+from . import Moments, HuMoments, ShapeDescriptors, MomentInfo
 
 class SegmentationFeatureGroup(FeatureGroup):
 
@@ -10,8 +10,8 @@ class SegmentationFeatureGroup(FeatureGroup):
     # build dictionary mapping feature name to class that implements it
     _features = {
         Moments.name(): Moments,
+        ShapeDescriptors.name(): ShapeDescriptors,
         HuMoments.name(): HuMoments,
-        EllipseFit.name(): EllipseFit,
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
