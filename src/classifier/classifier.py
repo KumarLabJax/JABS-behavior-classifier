@@ -68,6 +68,7 @@ class Classifier:
         self._classifier = None
         self._window_size = None
         self._uses_social = None
+        self._uses_balance = None
         self._extended_features = None
         self._behavior = None
         self._distance_unit = None
@@ -95,6 +96,10 @@ class Classifier:
     @property
     def uses_social(self) -> bool:
         return self._uses_social
+
+    @property
+    def uses_balance(self) -> bool:
+        return self._uses_balance
 
     @property
     def extended_features(self) -> typing.Dict[str, typing.List[str]]:
@@ -212,6 +217,32 @@ class Classifier:
         if count == 0:
             raise ValueError("unable to split data")
 
+    @staticmethod
+    def downsample_balance(features, labels, random_seed=None):
+        """
+        downsamples features and labels such that labels are equally distributed
+        :param features:
+        :param labels:
+        :return: tuple of downsampled features, labels
+        """
+        label_states, label_counts = np.unique(labels, return_counts=True)
+        max_examples_per_class = np.min(label_counts)
+        selected_samples = []
+        class_0_idxs = np.where(labels==0)[0]
+        class_1_idxs = np.where(labels==1)[0]
+        selected_samples = []
+        for cur_label in label_states:
+            idxs = np.where(labels==cur_label)[0]
+            if random_seed is not None:
+                np.random.seed(random_seed)
+            sampled_idxs = np.random.choice(idxs, max_examples_per_class, replace=False)
+            selected_samples.append(sampled_idxs)
+        selected_samples = np.sort(np.concatenate(selected_samples))
+        features = features[selected_samples,:]
+        labels = labels[selected_samples]
+        return features, labels
+
+
     def set_classifier(self, classifier):
         """ change the type of the classifier being used """
         if classifier not in _classifier_choices:
@@ -235,6 +266,7 @@ class Classifier:
         }
 
     def train(self, data, behavior: str, window_size: int, uses_social: bool,
+              uses_balance: bool,
               extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
               random_seed: typing.Optional[int] = None):
@@ -244,6 +276,7 @@ class Classifier:
         :param behavior: string name of behavior we are training for
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
+        :param uses_balance: does the training balance labels through downsampling before training?
         :param extended_features: additional features used by classifier
         :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
@@ -257,8 +290,11 @@ class Classifier:
         """
         features = data['training_data']
         labels = data['training_labels']
+        if uses_balance:
+            features, labels = self.downsample_balance(features, labels, random_seed)
 
         self._uses_social = uses_social
+        self._uses_balance = uses_balance
         self._window_size = window_size
         self._behavior = behavior
         self._distance_unit = distance_unit
@@ -307,6 +343,7 @@ class Classifier:
         self._behavior = c._behavior
         self._window_size = c._window_size
         self._uses_social = c._uses_social
+        self._uses_balance = c._uses_balance
         self._classifier_type = c._classifier_type
         self._distance_unit = c._distance_unit
 

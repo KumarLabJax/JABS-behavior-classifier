@@ -77,6 +77,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.new_window_sizes.connect(self._save_window_sizes)
         self._controls.use_social_feature_changed.connect(
             self._use_social_feature_changed)
+        self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -134,6 +135,10 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def uses_social(self):
         return self._controls.use_social_features
+
+    @property
+    def uses_balance(self):
+        return self._controls.use_balance_labels
 
     @property
     def classify_button_enabled(self):
@@ -420,11 +425,11 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
-        # does the classifier match the current window size and social feature
-        # settings?
+        # does the classifier match the current settings?
         if (
                 self._classifier.window_size == self.window_size and
-                self._controls.use_social_features == self._classifier.uses_social
+                self._controls.use_social_features == self._classifier.uses_social and
+                self._controls.use_balance_labels == self._classifier.uses_balance
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -444,6 +449,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.current_behavior,
             self._window_size,
             self._controls.use_social_features,
+            self._controls.use_balance_labels,
             self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
@@ -661,6 +667,19 @@ class CentralWidget(QtWidgets.QWidget):
             'optional_features', {})
         social_feature_settings = optional_feature_settings.get('social', {})
         social_feature_settings[self.behavior] = self._controls.use_social_features
+        optional_feature_settings['social'] = social_feature_settings
+        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._update_classifier_controls()
+
+    def _use_balance_labels_changed(self):
+        if self.behavior == '':
+            # Copy behavior of use_social_feature_changed
+            return
+
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings[self.behavior] = self._controls.use_balance_labels
+        optional_feature_settings['balance'] = balance_labels_settings
         self._project.save_metadata({'optional_features': optional_feature_settings})
         self._update_classifier_controls()
 
@@ -679,6 +698,10 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             # default to enabled if the videos support them
             self._controls.use_social_features = self._project.can_use_social_features
+        # set initial state for balance labels button
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        if self.behavior in balance_labels_settings:
+            self._controls.use_balance_labels = balance_labels_settings[self.behavior]
 
     def _load_cached_classifier(self):
         classifier_loaded = False
