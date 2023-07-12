@@ -178,6 +178,7 @@ def train(
           f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
     print(f"  Window Size: {training_file['window_size']}")
     print(f"  Social: {training_file['has_social_features']}")
+    print(f"  Balanced Labels: {training_file['balance_labels']}")
     print(f"  Distance Unit: {training_file['distance_unit'].name}")
 
     training_features = classifier.combine_data(training_file['per_frame'],
@@ -190,6 +191,7 @@ def train(
         behavior,
         training_file['window_size'],
         training_file['has_social_features'],
+        training_file['balance_labels'],
         training_file['extended_features'],
         training_file['distance_unit'],
         random_seed=training_file['training_seed']

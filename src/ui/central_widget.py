@@ -471,10 +471,23 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
-        # save the window size used for this behavior
+        # save the project metadata used for this behavior
+        # window setting metadata
         window_settings = self._project.metadata.get('window_size_pref', {})
         window_settings[self.behavior] = self._window_size
         self._project.save_metadata({'window_size_pref': window_settings})
+        # optional feature metadata
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        # social settings
+        social_feature_settings = optional_feature_settings.get('social', {})
+        social_feature_settings[self.behavior] = self.uses_social
+        optional_feature_settings['social'] = social_feature_settings
+        # balanced training settings
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings[self.behavior] = self.uses_balance
+        optional_feature_settings['balance'] = balance_labels_settings
+        # write all optional features out
+        self._project.save_metadata({'optional_features': optional_feature_settings})
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
