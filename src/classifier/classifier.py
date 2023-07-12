@@ -221,15 +221,12 @@ class Classifier:
     def downsample_balance(features, labels, random_seed=None):
         """
         downsamples features and labels such that labels are equally distributed
-        :param features:
-        :param labels:
+        :param features: features to downsample
+        :param labels: labels to downsample
         :return: tuple of downsampled features, labels
         """
         label_states, label_counts = np.unique(labels, return_counts=True)
         max_examples_per_class = np.min(label_counts)
-        selected_samples = []
-        class_0_idxs = np.where(labels==0)[0]
-        class_1_idxs = np.where(labels==1)[0]
         selected_samples = []
         for cur_label in label_states:
             idxs = np.where(labels==cur_label)[0]
@@ -241,7 +238,6 @@ class Classifier:
         features = features[selected_samples,:]
         labels = labels[selected_samples]
         return features, labels
-
 
     def set_classifier(self, classifier):
         """ change the type of the classifier being used """
