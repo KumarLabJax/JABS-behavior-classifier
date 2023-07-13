@@ -80,7 +80,7 @@ class TrainingThread(QtCore.QThread):
                 test_info = group_mapping[data['test_group']]
 
                 # train classifier, and then use it to classify our test data
-                self._classifier.train(data, self._behavior, self._window_size,
+                self._classifier.train(data, features['column_names'], self._behavior, self._window_size,
                                        self._uses_social, self._uses_balance,
                                        self._project.extended_features,
                                        self._project.distance_unit)
@@ -154,6 +154,7 @@ class TrainingThread(QtCore.QThread):
                     features['per_frame'], features['window']),
                 'training_labels': features['labels']
             },
+            features['column_names'],
             self._behavior,
             self._window_size,
             self._uses_social,

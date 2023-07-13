@@ -4,6 +4,7 @@ from enum import IntEnum
 from importlib import import_module
 from pathlib import Path
 import joblib
+import re
 
 import numpy as np
 from sklearn.ensemble import (
@@ -239,6 +240,36 @@ class Classifier:
         labels = labels[selected_samples]
         return features, labels
 
+    @staticmethod
+    def augment_symmetric(features, labels, feature_names, random_str='ASygRQDZJD'):
+        """
+        augments the features to include L-R and R-L duplicates
+        This requires 'left' or 'right' to be in the feature name to be swapped
+        Features that don't include these terms will not be swapped
+        :param features: features to augment
+        :param labels: labels to augment
+        :param feature_names: feature names to detect LR exchanges
+        :param random_str: a random string to use as a temporary replacement when swapping left/right
+        :return: tuple of augmented features, labels
+        """
+        assert len(feature_names)==np.shape(features)[1]
+        # Figure out the L-R swapping of features
+        lowercase_features = np.array([x.lower() for x in feature_names])
+        reflected_feature_names = [re.sub(r'left', random_str, x) for x in lowercase_features]
+        reflected_feature_names = [re.sub(r'right', 'left', x) for x in reflected_feature_names]
+        reflected_feature_names = [re.sub(random_str, 'right', x) for x in reflected_feature_names]
+        reflected_idxs = [np.where(lowercase_features==x)[0][0] if x in lowercase_features else i for i,x in enumerate(reflected_feature_names)]
+        # expand the features with reflections
+        features = np.concatenate([features, features[:,reflected_idxs]])
+        labels = np.concatenate([labels, labels])
+        # TODO: Add this as a test-case that these features are the complete list that should be swapped.
+        # They were manually checked with the full feature set
+        # print('Swapping the following features:')
+        # swapped_features = np.where(reflected_idxs!=np.arange(len(reflected_idxs)))[0]
+        # for idx in swapped_features:
+        #     print(str(lowercase_features[idx]) + ' -> ' + str(reflected_feature_names[idx]))
+        return features, labels
+
     def set_classifier(self, classifier):
         """ change the type of the classifier being used """
         if classifier not in _classifier_choices:
@@ -261,7 +292,7 @@ class Classifier:
             d: self._classifier_names[d] for d in _classifier_choices
         }
 
-    def train(self, data, behavior: str, window_size: int, uses_social: bool,
+    def train(self, data, feature_names, behavior: str, window_size: int, uses_social: bool,
               uses_balance: bool,
               extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
@@ -269,6 +300,7 @@ class Classifier:
         """
         train the classifier
         :param data: dict returned from train_test_split()
+        :param feature_names: a list of feature names
         :param behavior: string name of behavior we are training for
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
@@ -286,8 +318,10 @@ class Classifier:
         """
         features = data['training_data']
         labels = data['training_labels']
+        features, labels = self.augment_symmetric(features, labels, feature_names)
         if uses_balance:
             features, labels = self.downsample_balance(features, labels, random_seed)
+
 
         self._uses_social = uses_social
         self._uses_balance = uses_balance
