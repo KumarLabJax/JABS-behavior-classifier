@@ -138,8 +138,9 @@ class TrainingThread(QtCore.QThread):
 
             print(f"\nmean accuracy: {np.mean(accuracies):.5}")
             print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
-            print("mean fbeta score (not behavior): "
-                  f"{np.mean(fbeta_notbehavior):.5}")
+            print(f"std fbeta score (behavior): {np.std(fbeta_behavior):.05}")
+            print(f"mean fbeta score (not behavior): {np.mean(fbeta_notbehavior):.5}")
+            print(f"std fbeta score (not behavior): {np.std(fbeta_notbehavior):.05}")
             print(f"\nClassifier: {self._classifier.classifier_name}")
             print(f"Behavior: {self._behavior}")
             unit = "cm" if self._project.distance_unit == ProjectDistanceUnit.CM else "pixel"
