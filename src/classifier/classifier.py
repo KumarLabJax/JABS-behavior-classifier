@@ -70,6 +70,7 @@ class Classifier:
         self._window_size = None
         self._uses_social = None
         self._uses_balance = None
+        self._uses_symmetric = None
         self._extended_features = None
         self._behavior = None
         self._distance_unit = None
@@ -101,6 +102,10 @@ class Classifier:
     @property
     def uses_balance(self) -> bool:
         return self._uses_balance
+
+    @property
+    def uses_symmetric(self) -> bool:
+        return self._uses_symmetric
 
     @property
     def extended_features(self) -> typing.Dict[str, typing.List[str]]:
@@ -294,7 +299,7 @@ class Classifier:
         }
 
     def train(self, data, feature_names, behavior: str, window_size: int, uses_social: bool,
-              uses_balance: bool,
+              uses_balance: bool, uses_symmetric: bool,
               extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
               random_seed: typing.Optional[int] = None):
@@ -306,6 +311,7 @@ class Classifier:
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
         :param uses_balance: does the training balance labels through downsampling before training?
+        :param uses_symmetric: is the behavior symmetric to augment L-R reflection?
         :param extended_features: additional features used by classifier
         :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
@@ -319,13 +325,15 @@ class Classifier:
         """
         features = data['training_data']
         labels = data['training_labels']
-        features, labels = self.augment_symmetric(features, labels, feature_names)
+        if uses_symmetric:
+            features, labels = self.augment_symmetric(features, labels, feature_names)
         if uses_balance:
             features, labels = self.downsample_balance(features, labels, random_seed)
 
 
         self._uses_social = uses_social
         self._uses_balance = uses_balance
+        self._uses_symmetric = uses_symmetric
         self._window_size = window_size
         self._behavior = behavior
         self._distance_unit = distance_unit
@@ -375,6 +383,7 @@ class Classifier:
         self._window_size = c._window_size
         self._uses_social = c._uses_social
         self._uses_balance = c._uses_balance
+        self._uses_symmetric = c._uses_symmetric
         self._classifier_type = c._classifier_type
         self._distance_unit = c._distance_unit
 

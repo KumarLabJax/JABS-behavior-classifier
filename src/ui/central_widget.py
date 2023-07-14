@@ -74,6 +74,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.new_window_sizes.connect(self._save_window_sizes)
         self._controls.use_social_feature_changed.connect(self._use_social_feature_changed)
         self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
+        self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -135,6 +136,10 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def uses_balance(self):
         return self._controls.use_balance_labels
+
+    @property
+    def uses_symmetric(self):
+        return self._controls.use_symmetric
 
     @property
     def all_kfold(self):
@@ -429,7 +434,8 @@ class CentralWidget(QtWidgets.QWidget):
         if (
                 self._classifier.window_size == self.window_size and
                 self._controls.use_social_features == self._classifier.uses_social and
-                self._controls.use_balance_labels == self._classifier.uses_balance
+                self._controls.use_balance_labels == self._classifier.uses_balance and
+                self._controls.use_symmetric == self._classifier.uses_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -450,6 +456,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._window_size,
             self._controls.use_social_features,
             self._controls.use_balance_labels,
+            self._controls.use_symmetric,
             np.inf if self._controls.all_kfold else self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
@@ -492,6 +499,10 @@ class CentralWidget(QtWidgets.QWidget):
         balance_labels_settings = optional_feature_settings.get('balance', {})
         balance_labels_settings[self.behavior] = self.uses_balance
         optional_feature_settings['balance'] = balance_labels_settings
+        # symmetric training settings
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings[self.behavior] = self.uses_balance
+        optional_feature_settings['symmetric'] = symmetric_settings
         # write all optional features out
         self._project.save_metadata({'optional_features': optional_feature_settings})
 
@@ -702,6 +713,18 @@ class CentralWidget(QtWidgets.QWidget):
         self._project.save_metadata({'optional_features': optional_feature_settings})
         self._update_classifier_controls()
 
+    def _use_symmetric_changed(self):
+        if self.behavior == '':
+            # Copy behavior of use_social_feature_changed
+            return
+
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings[self.behavior] = self._controls.use_symmetric
+        optional_feature_settings['symmetric'] = symmetric_settings
+        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._update_classifier_controls()
+
     def _update_controls_from_project_settings(self):
         # set initial state for window size
         window_settings = self._project.metadata.get('window_size_pref', {})
@@ -721,6 +744,10 @@ class CentralWidget(QtWidgets.QWidget):
         balance_labels_settings = optional_feature_settings.get('balance', {})
         if self.behavior in balance_labels_settings:
             self._controls.use_balance_labels = balance_labels_settings[self.behavior]
+        # set initial state for symmetry button
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        if self.behavior in symmetric_settings:
+            self._controls.use_symmetric = symmetric_settings[self.behavior]
 
     def _load_cached_classifier(self):
         classifier_loaded = False

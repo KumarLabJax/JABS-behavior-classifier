@@ -25,7 +25,7 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
-    def __init__(self, project, classifier, behavior, window_size, uses_social, uses_balance,
+    def __init__(self, project, classifier, behavior, window_size, uses_social, uses_balance, uses_symmetric,
                  k=1):
         super().__init__()
         self._project = project
@@ -35,6 +35,7 @@ class TrainingThread(QtCore.QThread):
         self._window_size = window_size
         self._uses_social = uses_social
         self._uses_balance = uses_balance
+        self._uses_symmetric = uses_symmetric
         self._k = k
 
     def run(self):
@@ -83,7 +84,7 @@ class TrainingThread(QtCore.QThread):
 
                 # train classifier, and then use it to classify our test data
                 self._classifier.train(data, features['column_names'], self._behavior, self._window_size,
-                                       self._uses_social, self._uses_balance,
+                                       self._uses_social, self._uses_balance, self._uses_symmetric,
                                        self._project.extended_features,
                                        self._project.distance_unit)
                 predictions = self._classifier.predict(data['test_data'])
@@ -163,6 +164,7 @@ class TrainingThread(QtCore.QThread):
             self._window_size,
             self._uses_social,
             self._uses_balance,
+            self._uses_symmetric,
             self._project.extended_features,
             self._project.distance_unit,
             random_seed=FINAL_TRAIN_SEED

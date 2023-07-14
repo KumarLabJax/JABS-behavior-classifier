@@ -27,6 +27,7 @@ class MainControlWidget(QtWidgets.QWidget):
     new_window_sizes = QtCore.Signal(list)
     use_social_feature_changed = QtCore.Signal(int)
     use_balace_labels_changed = QtCore.Signal(int)
+    use_symmetric_changed = QtCore.Signal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -118,6 +119,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
         self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
 
+        self._symmetric_behavior_checkbox = QtWidgets.QCheckBox("Symmetric Behavior")
+        self._symmetric_behavior_checkbox.stateChanged.connect(self.use_symmetric_changed)
+
         self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
 
         #  classifier control layout
@@ -129,9 +133,10 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addLayout(window_size_layout, 2, 1)
         classifier_layout.addWidget(self._use_social_feature_checkbox, 3, 0, 1, 2)
         classifier_layout.addWidget(self._use_balace_labels_checkbox, 4, 0, 1, 2)
-        classifier_layout.addWidget(self._all_kfold_checkbox, 5, 0, 1, 2)
-        classifier_layout.addWidget(self._kslider, 6, 0, 1, 2)
-        classifier_layout.setContentsMargins(7, 5, 5, 5)
+        classifier_layout.addWidget(self._symmetric_behavior_checkbox, 5, 0, 1, 2)
+        classifier_layout.addWidget(self._all_kfold_checkbox, 6, 0, 1, 2)
+        classifier_layout.addWidget(self._kslider, 7, 0, 1, 2)
+        classifier_layout.setContentsMargins(8, 5, 5, 5)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
 
@@ -281,6 +286,15 @@ class MainControlWidget(QtWidgets.QWidget):
             self._use_balace_labels_checkbox.setChecked(val)
 
     @property
+    def use_symmetric(self):
+        return self._symmetric_behavior_checkbox.isChecked()
+
+    @use_symmetric.setter
+    def use_symmetric(self, val: bool):
+        if self._symmetric_behavior_checkbox.isEnabled():
+            self._symmetric_behavior_checkbox.setChecked(val)
+
+    @property
     def all_kfold(self):
         return self._all_kfold_checkbox.isChecked()
 
@@ -305,6 +319,11 @@ class MainControlWidget(QtWidgets.QWidget):
         self._use_balace_labels_checkbox.setEnabled(val)
         if not val:
             self._use_balace_labels_checkbox.setChecked(False)
+
+    def set_use_symmetric_checkbox_enabled(self, val: bool):
+        self._use_symmetric_checkbox.setEnabled(val)
+        if not val:
+            self._use_symmetric_checkbox.setChecked(False)
 
     def set_classifier_selection(self, classifier_type):
         try:
@@ -413,6 +432,10 @@ class MainControlWidget(QtWidgets.QWidget):
         balance_labels_settings = optional_feature_settings.get('balance', {})
         if self.current_behavior in balance_labels_settings:
             self.use_balance_labels = balance_labels_settings[self.current_behavior]
+
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        if self.current_behavior in symmetric_settings:
+            self.use_symmetric = symmetric_settings[self.current_behavior]
 
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
