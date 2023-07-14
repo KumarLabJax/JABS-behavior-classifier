@@ -74,7 +74,9 @@ class TrainingThread(QtCore.QThread):
 
         if self._k > 0:
 
-            for i, data in enumerate(itertools.islice(data_generator, self._k)):
+            for i, data in enumerate(data_generator):
+                if i>self._k:
+                    break
                 self.current_status.emit(f"cross validation iteration {i}")
 
                 test_info = group_mapping[data['test_group']]
@@ -137,6 +139,7 @@ class TrainingThread(QtCore.QThread):
                 "test - leave one out:\n(video [identity])"]))
 
             print(f"\nmean accuracy: {np.mean(accuracies):.5}")
+            print(f"std accuracy: {np.std(accuracies):.5}")
             print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
             print(f"std fbeta score (behavior): {np.std(fbeta_behavior):.05}")
             print(f"mean fbeta score (not behavior): {np.mean(fbeta_notbehavior):.5}")

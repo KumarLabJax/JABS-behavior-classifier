@@ -217,6 +217,7 @@ class Classifier:
         # the UI won't allow us to reach this case
         if count == 0:
             raise ValueError("unable to split data")
+        # If there are no more splits to yield, just let generator end
 
     @staticmethod
     def downsample_balance(features, labels, random_seed=None):
@@ -477,9 +478,9 @@ class Classifier:
             print(f"{feature:55} {importance:0.2f}")
 
     @staticmethod
-    def label_threshold_met(all_counts: dict, min_groups: int):
+    def count_label_threshold(all_counts: dict):
         """
-        determine if the labeling threshold is met
+        counts the number of groups that meet label threshold criteria
         :param all_counts: labeled frame and bout counts for the entire project
         parameter is a dict with the following form
         {
@@ -491,11 +492,7 @@ class Classifier:
                 ),
             ]
         }
-
-        :param min_groups: minimum number of groups required (more than one
-        group is always required for the "leave one group out" train/test split,
-        but may be more than 2 for k-fold cross validation if k > 2)
-
+        :return: number of groups that meet label criteria
         """
         group_count = 0
         for video, counts in all_counts.items():
@@ -503,5 +500,17 @@ class Classifier:
                 if (count[1][0] >= Classifier.LABEL_THRESHOLD and
                         count[1][1] >= Classifier.LABEL_THRESHOLD):
                     group_count += 1
+        return group_count
 
+    @staticmethod
+    def label_threshold_met(all_counts: dict, min_groups: int):
+        """
+        determine if the labeling threshold is met
+        :param all_counts: labeled frame and bout counts for the entire project
+        :param min_groups: minimum number of groups required (more than one
+        group is always required for the "leave one group out" train/test split,
+        but may be more than 2 for k-fold cross validation if k > 2)
+        :return: bool if requested valid groups is > valid group
+        """
+        group_count = Classifier.count_label_threshold(all_counts)
         return True if 1 < group_count >= min_groups else False

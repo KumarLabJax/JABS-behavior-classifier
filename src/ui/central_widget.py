@@ -68,15 +68,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._change_behavior)
-        self._controls.kfold_changed.connect(
-            self._set_train_button_enabled_state)
-        self._controls.behavior_list_changed.connect(
-            lambda b: self._project.save_metadata({'behaviors': b}))
-        self._controls.window_size_changed.connect(
-            self._window_feature_size_changed)
+        self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
+        self._controls.behavior_list_changed.connect(lambda b: self._project.save_metadata({'behaviors': b}))
+        self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_social_feature_changed.connect(
-            self._use_social_feature_changed)
+        self._controls.use_social_feature_changed.connect(self._use_social_feature_changed)
         self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
 
         # label & prediction vis widgets
@@ -139,6 +135,10 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def uses_balance(self):
         return self._controls.use_balance_labels
+
+    @property
+    def all_kfold(self):
+        return self._controls.all_kfold
 
     @property
     def classify_button_enabled(self):
@@ -450,7 +450,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._window_size,
             self._controls.use_social_features,
             self._controls.use_balance_labels,
-            self._controls.kfold_value)
+            np.inf if self._controls.all_kfold else self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
@@ -459,9 +459,15 @@ class CentralWidget(QtWidgets.QWidget):
             lambda m: self.parent().display_status_message(m, 0))
 
         # setup progress dialog
+        # adds 2 for final training
+        total_steps = self._project.total_project_identities + 2
+        if self._controls.all_kfold:
+            project_counts = self._project.counts(self._controls.current_behavior)
+            total_steps += self._classifier.count_label_threshold(project_counts)
+        else:
+            total_steps += self._controls.kfold_value
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Training', None, 0,
-            self._project.total_project_identities + self._controls.kfold_value + 1,
+            'Training', None, 0, total_steps,
             self)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)

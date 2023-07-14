@@ -118,6 +118,8 @@ class MainControlWidget(QtWidgets.QWidget):
         self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
         self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
 
+        self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
+
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
         classifier_layout.addWidget(self._train_button, 0, 0)
@@ -127,8 +129,9 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addLayout(window_size_layout, 2, 1)
         classifier_layout.addWidget(self._use_social_feature_checkbox, 3, 0, 1, 2)
         classifier_layout.addWidget(self._use_balace_labels_checkbox, 4, 0, 1, 2)
-        classifier_layout.addWidget(self._kslider, 5, 0, 1, 2)
-        classifier_layout.setContentsMargins(6, 5, 5, 5)
+        classifier_layout.addWidget(self._all_kfold_checkbox, 5, 0, 1, 2)
+        classifier_layout.addWidget(self._kslider, 6, 0, 1, 2)
+        classifier_layout.setContentsMargins(7, 5, 5, 5)
         classifier_group = QtWidgets.QGroupBox("Classifier")
         classifier_group.setLayout(classifier_layout)
 
@@ -276,6 +279,10 @@ class MainControlWidget(QtWidgets.QWidget):
     def use_balance_labels(self, val: bool):
         if self._use_balace_labels_checkbox.isEnabled():
             self._use_balace_labels_checkbox.setChecked(val)
+
+    @property
+    def all_kfold(self):
+        return self._all_kfold_checkbox.isChecked()
 
     def disable_label_buttons(self):
         """ disable labeling buttons that require a selected range of frames """
