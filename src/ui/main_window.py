@@ -217,6 +217,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                             self._central_widget.window_size,
                                             self._central_widget.uses_social,
                                             self._central_widget.uses_balance,
+                                            self._central_widget.uses_symmetric,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",

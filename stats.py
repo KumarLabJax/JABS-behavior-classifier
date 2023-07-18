@@ -105,6 +105,7 @@ def main():
         #  to be an instance method? Do we care about printing the top features
         #  here? It's mostly a sanity check while developing the classifier
         #  interactively.
+        # Note: new class method IdentityFeatures.get_feature_name_vector was written, but not integrated here.
         #print("Top 10 features by importance:")
         #classifier.print_feature_importance(
         #    IdentityFeatures.get_feature_column_names(

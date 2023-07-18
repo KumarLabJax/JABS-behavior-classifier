@@ -74,6 +74,7 @@ class Classifier:
         self._extended_features = None
         self._behavior = None
         self._distance_unit = None
+        self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
 
@@ -126,6 +127,13 @@ class Classifier:
         this classifier
         """
         return self._distance_unit
+
+    @property
+    def feature_names(self) -> list:
+        """
+        returns the list of feature names used when training this classifier
+        """
+        return self._feature_names
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -259,6 +267,7 @@ class Classifier:
         :return: tuple of augmented features, labels
         """
         assert len(feature_names)==np.shape(features)[1]
+
         # Figure out the L-R swapping of features
         lowercase_features = np.array([x.lower() for x in feature_names])
         reflected_feature_names = [re.sub(r'left', random_str, x) for x in lowercase_features]
@@ -298,7 +307,7 @@ class Classifier:
             d: self._classifier_names[d] for d in _classifier_choices
         }
 
-    def train(self, data, feature_names, behavior: str, window_size: int, uses_social: bool,
+    def train(self, data, behavior: str, window_size: int, uses_social: bool,
               uses_balance: bool, uses_symmetric: bool,
               extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
@@ -306,7 +315,6 @@ class Classifier:
         """
         train the classifier
         :param data: dict returned from train_test_split()
-        :param feature_names: a list of feature names
         :param behavior: string name of behavior we are training for
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
@@ -323,14 +331,7 @@ class Classifier:
         (check the classifier doesn't use features that are not supported the
         project)
         """
-        features = data['training_data']
-        labels = data['training_labels']
-        if uses_symmetric:
-            features, labels = self.augment_symmetric(features, labels, feature_names)
-        if uses_balance:
-            features, labels = self.downsample_balance(features, labels, random_seed)
-
-
+        # Update classifier parameters
         self._uses_social = uses_social
         self._uses_balance = uses_balance
         self._uses_symmetric = uses_symmetric
@@ -338,6 +339,21 @@ class Classifier:
         self._behavior = behavior
         self._distance_unit = distance_unit
         self._extended_features = extended_features
+        # import is down here to avoid circular imports
+        from src.feature_extraction.features import IdentityFeatures
+        from src.feature_extraction.landmark_features.landmark_group import LandmarkFeatureGroup
+        # This function requires objects instead of extended features
+        objects = LandmarkFeatureGroup.get_objects_from_features(self._extended_features['landmark'])
+        self._feature_names = IdentityFeatures.get_feature_name_vector(5, self._uses_social, objects)
+
+        # Obtain the feature and label matrices
+        features = data['training_data']
+        labels = data['training_labels']
+        # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
+        if uses_symmetric:
+            features, labels = self.augment_symmetric(features, labels, self._feature_names)
+        if uses_balance:
+            features, labels = self.downsample_balance(features, labels, random_seed)
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,

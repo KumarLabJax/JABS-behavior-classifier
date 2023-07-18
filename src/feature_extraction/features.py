@@ -63,6 +63,7 @@ class IdentityFeatures:
         values. If None, all extended features are enabled.
         """
 
+        self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
         self._fps = fps
         self._pose_hash = pose_est.hash
@@ -474,51 +475,68 @@ class IdentityFeatures:
 
         return window_features
 
+    @classmethod
+    def get_feature_name_vector(cls, pose_version: int, use_social: bool, extended_features: typing.Optional[typing.Dict] = None):
+        """
+        creates a list of feature names used in the feature vector
+        includes window features, unlike get_feature_names
+        this is a class method version of get_feature_column_names
+
+        :param pose_version: pose version for features
+        :param use_social: are social features included?
+        :param extended_features: optional extended feature configuration,
+        dict with feature groups as keys, lists of feature names as
+        values. If None, all extended features are enabled.
+        """
+        if use_social:
+            assert pose_version >= 3
+        if extended_features is not None and len(extended_features) > 0:
+            assert pose_version >= 5
+
+        column_names = []
+        per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
+        window_features = {}
+        # TODO: This is a dangerous operation. The None here is for a pose file (which doesn't exist).
+        # The init doesn't open the file, and we can use it for getting the names
+        # However, this should be adjusted to either use example data (valid pose files) or create new static methods for access
+        base_groups = [m(None, 1.0) for m in _FEATURE_MODULES]
+        # Landmark features 
+        extended_groups = _EXTENDED_FEATURE_MODULES
+        all_feature_modules = base_groups + _EXTENDED_FEATURE_MODULES
+        for i,key in enumerate(all_feature_modules):
+            if key in base_groups:
+                if not use_social and key.name() == SocialFeatureGroup.name():
+                    continue
+                per_frame_features.update(all_feature_modules[i].feature_names())
+                window_features.update(all_feature_modules[i].window_feature_names())
+            else:
+                # extended features
+                if extended_features is None and pose_version >= 5:
+                    # Assume all static objects are supported
+                    frame_feats, window_feats = key.get_feature_names()
+                    per_frame_features.update(frame_feats)
+                    window_features.update(window_feats)
+                elif extended_features is not None:
+                    frame_feats, window_feats = key.get_feature_names(extended_features)
+                    per_frame_features.update(frame_feats)
+                    window_features.update(window_feats)
+
+        # Sort alphabetically for per-frame and window independently
+        for f in sorted(per_frame_features):
+            column_names += per_frame_features[f]
+        for f in sorted(window_features):
+            for col in sorted(window_features[f]):
+                for op in sorted(window_features[f][col]):
+                    column_names.append(f"{op} {col}")
+        return column_names
+
     def get_feature_column_names(self, use_social: bool, ):
         """
         build up a list of column names for the 2D feature array that will be
         passed to the classifier
         """
 
-        column_names = []
-        # start with point_mask as a special case, as it is not computed in
-        # a feature module -- it's just added directly from self._pose_est
-        per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
-        window_features = {}
-        base_groups = [m.name() for m in _FEATURE_MODULES]
-        for key in self._feature_modules:
-            # handle base (& social) features
-            if key in base_groups:
-                if not use_social and key == SocialFeatureGroup.name():
-                    continue
-                per_frame_features.update(
-                    self._feature_modules[key].feature_names())
-                window_features.update(
-                    self._feature_modules[key].window_feature_names())
-            else:
-                # handle extended features
-                if self._extended_features is None:
-                    per_frame_features.update(
-                        self._feature_modules[key].feature_names())
-                    window_features.update(
-                        self._feature_modules[key].window_feature_names())
-                elif key in self._extended_features:
-                    per_frame_features.update(
-                        self._feature_modules[key].feature_names(self._extended_features[key]))
-                    window_features.update(
-                        self._feature_modules[key].window_feature_names(self._extended_features[key]))
-
-        # generate a list of column names in the same order the data is
-        # assembled in Classifier.combine_data()
-
-        # first, iterate over the per frame feature names alphabetically
-        for f in sorted(per_frame_features):
-            column_names += per_frame_features[f]
-
-        for f in sorted(window_features):
-            for col in sorted(window_features[f]):
-                for op in sorted(window_features[f][col]):
-                    column_names.append(f"{op} {col}")
+        column_names = self.get_feature_name_vector(pose_version=self._pose_version, use_social=use_social, extended_features=self._extended_features)
         return column_names
 
     @classmethod
