@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 def export_training_data(project: 'Project',
                          behavior: str,
+                         pose_version: int,
                          window_size: int,
                          use_social: bool,
                          use_balanced: bool,
@@ -41,6 +42,7 @@ def export_training_data(project: 'Project',
     writes exported data to the project directory
     :param project: Project from which to export training data
     :param behavior: Behavior to export
+    :param pose_version: Minimum required pose version for this classifier
     :param window_size: Window size used for this behavior
     :param use_social: does classifer use social features or not?
     :param use_balanced: should labels be balanced for export?
@@ -68,6 +70,7 @@ def export_training_data(project: 'Project',
     with h5py.File(out_file, 'w') as out_h5:
         out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
+        out_h5.attrs['min_pose_version'] = pose_version
         out_h5.attrs['has_social_features'] = use_social
         out_h5.attrs['balance_labels'] = use_balanced
         out_h5.attrs['symmetric'] = use_symmetric
@@ -154,6 +157,7 @@ def load_training_data(training_file: Path):
     group_mapping = {}
 
     with h5py.File(training_file, 'r') as in_h5:
+        features['min_pose_version'] = in_h5.attrs['min_pose_version']
         features['has_social_features'] = in_h5.attrs['has_social_features']
         features['balance_labels'] = in_h5.attrs['balance_labels']
         features['symmetric'] = in_h5.attrs['symmetric']

@@ -179,10 +179,12 @@ def train(
     print(f"  Window Size: {training_file['window_size']}")
     print(f"  Social: {training_file['has_social_features']}")
     print(f"  Balanced Labels: {training_file['balance_labels']}")
+    print(f"  Symmetric Behavior: {training_file['symmetric']}")
     print(f"  Distance Unit: {training_file['distance_unit'].name}")
 
     training_features = classifier.combine_data(training_file['per_frame'],
                                                 training_file['window'])
+    feature_names = IdentityFeatures.get_feature_name_vector(training_file['min_pose_version'], training_file['has_social_features'], training_file['extended_features'])
     classifier.train(
         {
             'training_data': training_features,
@@ -192,6 +194,7 @@ def train(
         training_file['window_size'],
         training_file['has_social_features'],
         training_file['balance_labels'],
+        training_file['symmetric'],
         training_file['extended_features'],
         training_file['distance_unit'],
         random_seed=training_file['training_seed']

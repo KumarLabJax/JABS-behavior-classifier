@@ -500,7 +500,7 @@ class IdentityFeatures:
         # The init doesn't open the file, and we can use it for getting the names
         # However, this should be adjusted to either use example data (valid pose files) or create new static methods for access
         base_groups = [m(None, 1.0) for m in _FEATURE_MODULES]
-        # Landmark features 
+        # Landmark features
         extended_groups = _EXTENDED_FEATURE_MODULES
         all_feature_modules = base_groups + _EXTENDED_FEATURE_MODULES
         for i,key in enumerate(all_feature_modules):
