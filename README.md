@@ -1,5 +1,8 @@
 # JAX Animal Behavior System (JABS)
 
+## ReadTheDocs Tutorial
+https://jabs-tutorial.readthedocs.io/en/latest/index.html
+
 ## Copyright
 
 Copyright 2021 The Jackson Laboratory -- All rights reserved.
