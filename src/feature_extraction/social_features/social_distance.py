@@ -59,7 +59,7 @@ class ClosestIdentityInfo:
 
                             self_base_neck_point = points[idx.BASE_NECK, :]
                             self_nose_point = points[idx.NOSE, :]
-                            other_centroid = np.array(other_shape.centroid)
+                            other_centroid = np.array(other_shape.centroid.coords[0])
 
                             view_angle = self.compute_angle(
                                 self_nose_point,
