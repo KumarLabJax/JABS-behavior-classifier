@@ -2,7 +2,7 @@
 #   singularity build --fakeroot JABS-GUI.sif behavior-classifier-vm-gui.def
 
 Bootstrap: docker
-From: python:3.8.6-buster
+From: python:3.10-bullseye
 
 %files
     .. /behavior-classifier
@@ -12,8 +12,11 @@ From: python:3.8.6-buster
 
 %post
     pip install -r /behavior-classifier/requirements.txt
+    export PYTHONPATH=$PYTHONPATH:/behavior-classifier
+    # Run unittests to ensure build environment should work as intended
+    python3 -m unittest discover -s /behavior-classifier/tests/
     # GUI libraries
-    apt-get update && apt-get install -y qt5-default libglu1-mesa-dev libgl1-mesa-glx libxcb-util0 libvtk6-dev alsa-utils
-    # Very unsafe symlink, but python is expecting v1 but ubuntu provides v0.0.0.
-    ln -s /usr/lib/x86_64-linux-gnu/libxcb-util.so.0.0.0 /usr/lib/x86_64-linux-gnu/libxcb-util.so.1
+    apt-get update && apt-get install -y qtbase5-dev libglu1-mesa-dev libgl1-mesa-glx libxcb-util1 libvtk6-dev alsa-utils
 
+%environment
+    export PYTHONPATH=$PYTHONPATH:/behavior-classifier
