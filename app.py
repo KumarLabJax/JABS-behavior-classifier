@@ -6,7 +6,7 @@ takes one optional positional argument: path to project directory
 import argparse
 import sys
 
-from PySide2 import QtWidgets
+from PySide6 import QtWidgets
 
 from src import APP_NAME, APP_NAME_LONG
 from src.ui import MainWindow

@@ -1,7 +1,7 @@
 import sys
 
-from PySide2 import QtWidgets, QtCore, QtGui
-from PySide2.QtCore import Qt
+from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6.QtCore import Qt
 
 from src.project import Project, export_training_data
 from src.version import version_str
@@ -41,34 +41,34 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menu.addMenu('View')
 
         # open action
-        open_action = QtWidgets.QAction('&Open Project', self)
+        open_action = QtGui.QAction('&Open Project', self)
         open_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_O))
         open_action.setStatusTip('Open Project')
         open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
 
         # about app
-        about_action = QtWidgets.QAction(f' &About {self._app_name}', self)
+        about_action = QtGui.QAction(f' &About {self._app_name}', self)
         about_action.setStatusTip('About this application')
         about_action.triggered.connect(self._show_about_dialog)
         app_menu.addAction(about_action)
 
         # user guide
-        user_guide_action = QtWidgets.QAction(' &User Guide', self)
+        user_guide_action = QtGui.QAction(' &User Guide', self)
         user_guide_action.setStatusTip('Open User Guide')
         user_guide_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_U))
         user_guide_action.triggered.connect(self._open_user_guide)
         app_menu.addAction(user_guide_action)
 
         # exit action
-        exit_action = QtWidgets.QAction(f' &Quit {self._app_name}', self)
+        exit_action = QtGui.QAction(f' &Quit {self._app_name}', self)
         exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_Q))
         exit_action.setStatusTip('Exit application')
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
         # export training data action
-        self._export_training = QtWidgets.QAction('Export Training Data', self)
+        self._export_training = QtGui.QAction('Export Training Data', self)
         self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_T))
         self._export_training.setStatusTip('Export training data for this classifier')
         self._export_training.setEnabled(False)
@@ -76,29 +76,29 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(self._export_training)
 
         # archive behavior action
-        self._archive_behavior = QtWidgets.QAction('Archive Behavior', self)
+        self._archive_behavior = QtGui.QAction('Archive Behavior', self)
         self._archive_behavior.setStatusTip('Open Archive Behavior Dialog')
         self._archive_behavior.setEnabled(True)
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
 
         # video playlist menu item
-        self.view_playlist = QtWidgets.QAction('View Playlist', self)
+        self.view_playlist = QtGui.QAction('View Playlist', self)
         self.view_playlist.setCheckable(True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
         view_menu.addAction(self.view_playlist)
 
-        self.show_track = QtWidgets.QAction('Show Track', self)
+        self.show_track = QtGui.QAction('Show Track', self)
         self.show_track.setCheckable(True)
         self.show_track.triggered.connect(self._toggle_track)
         view_menu.addAction(self.show_track)
 
-        self.overlay_pose = QtWidgets.QAction('Overlay Pose', self)
+        self.overlay_pose = QtGui.QAction('Overlay Pose', self)
         self.overlay_pose.setCheckable(True)
         self.overlay_pose.triggered.connect(self._toggle_pose_overlay)
         view_menu.addAction(self.overlay_pose)
 
-        self.overlay_landmark = QtWidgets.QAction('Overlay Landmarks', self)
+        self.overlay_landmark = QtGui.QAction('Overlay Landmarks', self)
         self.overlay_landmark.setCheckable(True)
         self.overlay_landmark.triggered.connect(self._toggle_landmark_overlay)
         view_menu.addAction(self.overlay_landmark)
