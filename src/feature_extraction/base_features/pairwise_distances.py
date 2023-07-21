@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
 from src.utils.utilities import n_choose_r
