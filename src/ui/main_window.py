@@ -42,7 +42,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # open action
         open_action = QtGui.QAction('&Open Project', self)
-        open_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_O))
+        open_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_O))
         open_action.setStatusTip('Open Project')
         open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
@@ -56,20 +56,20 @@ class MainWindow(QtWidgets.QMainWindow):
         # user guide
         user_guide_action = QtGui.QAction(' &User Guide', self)
         user_guide_action.setStatusTip('Open User Guide')
-        user_guide_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_U))
+        user_guide_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_U))
         user_guide_action.triggered.connect(self._open_user_guide)
         app_menu.addAction(user_guide_action)
 
         # exit action
         exit_action = QtGui.QAction(f' &Quit {self._app_name}', self)
-        exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_Q))
+        exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_Q))
         exit_action.setStatusTip('Exit application')
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
         # export training data action
         self._export_training = QtGui.QAction('Export Training Data', self)
-        self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL + Qt.Key_T))
+        self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_T))
         self._export_training.setStatusTip('Export training data for this classifier')
         self._export_training.setEnabled(False)
         self._export_training.triggered.connect(self._export_training_data)
