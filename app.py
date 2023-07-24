@@ -31,7 +31,7 @@ def main():
     main_window.show()
     if main_window.show_license_dialog() == QtWidgets.QDialog.Accepted:
         # user accepted license terms, run the main application loop
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
 
     # user rejected license terms
     sys.exit(1)

@@ -130,7 +130,7 @@ class ManualLabelWidget(QWidget):
                        * self._frame_width
 
             # clear background
-            qp.setBrush(self.palette().color(QPalette.Background))
+            qp.setBrush(self.palette().color(QPalette.Window))
             qp.drawRect(offset_x, 0, block_width, self._bar_height)
             qp.setBrush(self._padding_brush)
             qp.drawRect(offset_x, 0, block_width, self._bar_height)
