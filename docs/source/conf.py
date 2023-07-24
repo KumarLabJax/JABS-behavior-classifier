@@ -3,7 +3,7 @@
 # -- Project information
 
 project = 'JABS'
-copyright = '2022, The Jackson Laboratory'
+copyright = '2023, The Jackson Laboratory'
 author = 'KumarLab'
 
 release = '0.1'
@@ -34,3 +34,6 @@ html_theme = 'sphinx_rtd_theme'
 
 # -- Options for EPUB output
 epub_show_urls = 'footnote'
+
+nbsphinx_allow_errors = True
+
