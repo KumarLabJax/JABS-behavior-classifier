@@ -40,6 +40,19 @@ The virtual environment can be deactivated if you no longer need it:
    
    deactivate
 
+Installing on Apple M1/M2 Silicone
+#####
+
+To install the app on Apple's newer M1/M2 macbooks, the user needs to install via `anaconda <https://www.anaconda.com/download#macos>`_
+using the following instructions:
+
+.. code-block:: console
+
+   conda env create -n jabs -f environment_jabs.yml
+   conda activate jabs 
+   python app.py 
+
+
 Enabling XGBoost Classifier
 #####
 
