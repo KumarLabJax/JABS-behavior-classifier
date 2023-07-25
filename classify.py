@@ -5,6 +5,7 @@ import re
 import sys
 import typing
 from pathlib import Path
+import h5py
 
 import numpy as np
 
@@ -19,6 +20,17 @@ DEFAULT_FPS = 30
 
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
+
+
+def write_features(output_path: Path, features, poses):
+    print('we made it into the function!')
+    with h5py.File(output_path, 'w') as h5:
+        h5.attrs['source_pose_major_version'] = poses.format_major_version
+        # Adding the featuers dataset
+        feature_group = h5.create_group('features')
+        for i in range(features.shape[0]):
+            mouse_group = feature_group.create_group(f'mouse_{i}')
+            mouse_group.create_dataset('feature_matrix',data=features[i])
 
 
 def get_pose_stem(pose_path: Path):
@@ -99,6 +111,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
     print(f"Classifying {input_pose_file}...")
 
+    all_features = []
     # run prediction for each identity
     for curr_id in pose_est.identities:
         cli_progress_bar(curr_id, len(pose_est.identities),
@@ -109,6 +122,8 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
             distance_scale_factor=distance_scale_factor,
             extended_features=classifier.extended_features
         ).get_features(window_size, use_social)
+
+        all_features.append(features)
 
         data = Classifier.combine_data(
             features['per_frame'],
@@ -138,6 +153,10 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
     except OSError as e:
         sys.exit(f"Unable to create output directory: {e}")
     behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
+
+    # write out features to an h5 file
+    feature_out_path = behavior_out_dir/f'{pose_stem}_features.h5'
+    write_features(feature_out_path,all_features,pose_est)
 
     Project.write_predictions(
         behavior_out_path,
