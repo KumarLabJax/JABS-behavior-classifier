@@ -98,7 +98,7 @@ def export_training_data(project: 'Project',
         # store the video/identity to group mapping in the h5 file
         for group in group_mapping:
             dset = out_h5.create_dataset(f'group_mapping/{group}/identity',
-                                         (1,), dtype=np.int)
+                                         (1,), dtype=np.int64)
             dset[:] = group_mapping[group]['identity']
             dset = out_h5.create_dataset(f'group_mapping/{group}/video_name',
                                          (1,), dtype=string_type)
