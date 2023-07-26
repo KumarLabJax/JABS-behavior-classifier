@@ -28,7 +28,7 @@ def write_features(output_path: Path, features, poses):
         h5.attrs['source_pose_major_version'] = poses.format_major_version
         # Adding the featuers dataset
         feature_group = h5.create_group('features')
-        for i in range(features.shape[0]):
+        for i in range(len(features)):
             mouse_group = feature_group.create_group(f'mouse_{i}')
             mouse_group.create_dataset('feature_matrix',data=features[i])
 
@@ -123,7 +123,6 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
             extended_features=classifier.extended_features
         ).get_features(window_size, use_social)
 
-        all_features.append(features)
 
         data = Classifier.combine_data(
             features['per_frame'],
@@ -142,8 +141,12 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
             prediction_labels[curr_id, features['frame_indexes']] = pred
             prediction_prob[curr_id, features['frame_indexes']] = pred_prob
+            data_full = np.zeros([pose_est.num_frames,data.shape[1]],dtype=data.dtype) #padding my matrix with zeros for absolute frame
+            data_full[features['frame_indexes']] = data
+            all_features.append(data_full)
     cli_progress_bar(len(pose_est.identities), len(pose_est.identities),
                      complete_as_percent=False, suffix='identities')
+
 
     print(f"Writing predictions to {out_dir}")
 
