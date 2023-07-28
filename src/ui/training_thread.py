@@ -73,12 +73,16 @@ class TrainingThread(QtCore.QThread):
         fbeta_behavior = []
         fbeta_notbehavior = []
 
+        # Figure out the cross validation count if all were requested
+        if self._k == np.inf:
+            self._k = self._classifier.get_leave_one_group_out_max(features['labels'], features['groups'])
+
         if self._k > 0:
 
             for i, data in enumerate(data_generator):
-                if i>self._k:
+                if i+1>self._k:
                     break
-                self.current_status.emit(f"cross validation iteration {i}")
+                self.current_status.emit(f"cross validation iteration {i+1} of {self._k}")
 
                 test_info = group_mapping[data['test_group']]
 
@@ -107,7 +111,7 @@ class TrainingThread(QtCore.QThread):
 
                 # print performance metrics and feature importance to console
                 print('-' * 70)
-                print(f"training iteration {i}")
+                print(f"training iteration {i+1}")
                 print("TEST DATA:")
                 print(f"\tVideo: {test_info['video']}")
                 print(f"\tIdentity: {test_info['identity']}")

@@ -183,6 +183,20 @@ class Classifier:
         }
 
     @staticmethod
+    def get_leave_one_group_out_max(labels, groups):
+        """
+        counts the number of possible leave one out groups for k-fold cross validation
+        :param labels: labels to check if they were above the threshold
+        :param groups: group id corrosponding to the labels
+        :return: int of the maximum number of cross validation to use
+        """
+        unique_groups = np.unique(groups)
+        count_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.BEHAVIOR) for x in unique_groups]
+        count_not_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.NOT_BEHAVIOR) for x in unique_groups]
+        can_kfold = np.logical_and(np.asarray(count_behavior)>Classifier.LABEL_THRESHOLD, np.asarray(count_not_behavior)>Classifier.LABEL_THRESHOLD)
+        return np.sum(can_kfold)
+
+    @staticmethod
     def leave_one_group_out(per_frame_features, window_features, labels,
                             groups):
         """
