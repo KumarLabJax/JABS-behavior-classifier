@@ -355,10 +355,7 @@ class Classifier:
         self._extended_features = extended_features
         # import is down here to avoid circular imports
         from src.feature_extraction.features import IdentityFeatures
-        from src.feature_extraction.landmark_features.landmark_group import LandmarkFeatureGroup
-        # This function requires objects instead of extended features
-        objects = LandmarkFeatureGroup.get_objects_from_features(self._extended_features['landmark'])
-        self._feature_names = IdentityFeatures.get_feature_name_vector(5, self._uses_social, objects)
+        self._feature_names = IdentityFeatures.get_feature_name_vector(5, self._uses_social, self._extended_features)
 
         # Obtain the feature and label matrices
         features = data['training_data']

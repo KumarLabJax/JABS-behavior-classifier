@@ -184,7 +184,6 @@ def train(
 
     training_features = classifier.combine_data(training_file['per_frame'],
                                                 training_file['window'])
-    feature_names = IdentityFeatures.get_feature_name_vector(training_file['min_pose_version'], training_file['has_social_features'], training_file['extended_features'])
     classifier.train(
         {
             'training_data': training_features,

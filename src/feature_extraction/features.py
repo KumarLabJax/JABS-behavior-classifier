@@ -346,10 +346,6 @@ class IdentityFeatures:
                 if self._identity_feature_dir is not None:
                     self.__save_window_features(features, window_size)
 
-        feature_intersection = self.get_feature_names(
-            use_social, self._extended_features)
-        feature_intersection &= set(features.keys())
-
         if labels is None:
             final_features = features
 
@@ -363,6 +359,10 @@ class IdentityFeatures:
                     filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
             final_features = filtered_features
+
+        # Only return the subset of features assigned from the settings
+        feature_intersection = self.get_feature_names(use_social, self._extended_features)
+        feature_intersection &= set(features.keys())
 
         return {
             feature_name: final_features[feature_name]
@@ -516,8 +516,9 @@ class IdentityFeatures:
                     frame_feats, window_feats = key.get_feature_names()
                     per_frame_features.update(frame_feats)
                     window_features.update(window_feats)
-                elif extended_features is not None:
-                    frame_feats, window_feats = key.get_feature_names(extended_features)
+                elif extended_features is not None and 'landmark' in extended_features.keys():
+                    objects = LandmarkFeatureGroup.get_objects_from_features(extended_features['landmark'])
+                    frame_feats, window_feats = key.get_feature_names(objects)
                     per_frame_features.update(frame_feats)
                     window_features.update(window_feats)
 
