@@ -1,8 +1,8 @@
 # build like:
-#   singularity build --fakeroot behavior-classifier-2023-07-20.sif behavior-classifier-vm.def
+#   singularity build --fakeroot behavior-classifier.sif behavior-classifier-vm.def
 
 Bootstrap: docker
-From: python:3.10-bullseye
+From: python:3.10-bookworm
 
 %files
     .. /behavior-classifier
