@@ -280,7 +280,7 @@ class _FrameWidget(QtWidgets.QLabel):
         """
 
         # only draw if we have an image to show
-        if self.pixmap() is not None:
+        if self.pixmap() is not None and not self.pixmap().isNull():
             # current size of the widget
             size = self.size()
 
