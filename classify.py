@@ -68,7 +68,7 @@ def train_and_classify(
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                   behavior: str, window_size: int, use_social: bool,
-                  fps=DEFAULT_FPS, feature_dir: typing.Optional[str] = None):
+                  fps=DEFAULT_FPS, feature_dir: typing.Optional[str] = None, feature_out_dir='/flashscratch/choij/predicted_features/'):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -158,7 +158,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
     behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
 
     # write out features to an h5 file
-    feature_out_path = behavior_out_dir/f'{pose_stem}_features.h5'
+    feature_out_path = feature_out_dir + str(pose_stem) + '_features.h5'
     write_features(feature_out_path,all_features,pose_est)
 
     Project.write_predictions(
