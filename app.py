@@ -6,6 +6,11 @@ takes one optional positional argument: path to project directory
 import argparse
 import sys
 
+#### For Mac M1 compatibility ######
+import os
+os.environ['QT_MAC_WANTS_LAYER'] = '1'
+####################################
+
 from PySide2 import QtWidgets
 
 from src import APP_NAME, APP_NAME_LONG
