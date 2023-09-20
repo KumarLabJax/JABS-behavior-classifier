@@ -13,7 +13,7 @@ from .social_features import SocialFeatureGroup
 from .landmark_features import LandmarkFeatureGroup
 
 
-FEATURE_VERSION = 4
+FEATURE_VERSION = 5
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
