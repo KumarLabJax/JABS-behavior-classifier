@@ -1,7 +1,7 @@
 import sys
 
 import numpy as np
-from PySide2 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets, QtCore, QtGui
 from shapely.geometry import Point
 
 from src.classifier.classifier import Classifier

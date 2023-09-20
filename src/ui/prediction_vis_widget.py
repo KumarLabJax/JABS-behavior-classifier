@@ -1,6 +1,6 @@
-from PySide2.QtCore import QSize, Qt
-from PySide2.QtGui import QPainter, QColor, QBrush, QPen
-from PySide2.QtWidgets import QWidget, QSizePolicy
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPainter, QColor, QBrush, QPen
+from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from src.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
