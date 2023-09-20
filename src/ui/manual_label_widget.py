@@ -1,8 +1,8 @@
 from itertools import groupby
 
-from PySide2.QtCore import QSize, Qt
-from PySide2.QtGui import QPainter, QColor, QBrush, QPen, QPalette
-from PySide2.QtWidgets import QWidget, QSizePolicy
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QPalette
+from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR, SELECTION_COLOR)
@@ -130,7 +130,7 @@ class ManualLabelWidget(QWidget):
                        * self._frame_width
 
             # clear background
-            qp.setBrush(self.palette().color(QPalette.Background))
+            qp.setBrush(self.palette().color(QPalette.Window))
             qp.drawRect(offset_x, 0, block_width, self._bar_height)
             qp.setBrush(self._padding_brush)
             qp.drawRect(offset_x, 0, block_width, self._bar_height)

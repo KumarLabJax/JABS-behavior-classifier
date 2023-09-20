@@ -1,5 +1,5 @@
 # build like:
-#   singularity build --fakeroot behavior-classifier.sif behavior-classifier-vm.def
+#   singularity build --fakeroot JABS-GUI.sif behavior-classifier-vm-gui.def
 
 Bootstrap: docker
 From: python:3.10-bookworm
@@ -8,13 +8,16 @@ From: python:3.10-bookworm
     .. /behavior-classifier
 
 %runscript
-    exec python /behavior-classifier/classify.py "$@"
+    exec python /behavior-classifier/app.py "$@"
 
 %post
     pip install -r /behavior-classifier/requirements.txt
     export PYTHONPATH=$PYTHONPATH:/behavior-classifier
     # Run unittests to ensure build environment should work as intended
     python3 -m unittest discover -s /behavior-classifier/tests/
+    # GUI libraries
+    apt-get update && apt-get install -y qt6-base-dev libglu1-mesa-dev libgl1-mesa-glx alsa-utils libnss3 libxkbfile1 'libxcb*'
+    # Note that libxcb is wildcarded because it wasn't very clear which xcb library was missing, so we can just grab them all
 
 %environment
     export PYTHONPATH=$PYTHONPATH:/behavior-classifier

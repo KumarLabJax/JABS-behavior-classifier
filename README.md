@@ -1,11 +1,12 @@
 # JAX Animal Behavior System (JABS)
 
 ## ReadTheDocs Tutorial
+
 https://jabs-tutorial.readthedocs.io/en/latest/index.html
 
 ## Copyright
 
-Copyright 2021 The Jackson Laboratory -- All rights reserved.
+Copyright 2023 The Jackson Laboratory -- All rights reserved.
 
 ## Contact
 
@@ -24,10 +25,10 @@ training data and prediction output, are forthcoming.
 ## Pose Files
 
 JABS requires pose files generated from the Kumar Lab's mouse pose 
-estimation neural network. Contact us for more information.
+estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
 
 ## Requirements
-Developed and tested on Python 3.7, 3.8, and 3.9. See the `requirements.txt` 
+Developed and tested on Python 3.10. See the `requirements.txt` 
 for a list of required Python packages. These packages are available from the 
 Python Package Index (PyPI)
 
@@ -66,17 +67,6 @@ The virtual environment can be deactivated if you no longer need it:
 deactivate
 ```
 
-### Installing on Apple M1/M2 Silicone
-
-To install the app on Apple's newer M1/M2 macbooks, the user needs to install via [anaconda](https://www.anaconda.com/download#macos)
-using the following instructions:
-
-```commandline
-conda env create -n jabs -f environment_jabs.yml
-conda activate jabs 
-python app.py 
-```
-
 #### Enabling XGBoost Classifier
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does
@@ -87,7 +77,7 @@ can't use Homebrew, but this is beyond the scope of this Readme.
 
 ### Windows
 
-Make sure that a compatible version of Python is installed (3.7, 3.8, or 3.9).
+Make sure that a compatible version of Python is installed (3.10).
 
 #### Windows Scripts
 
@@ -123,3 +113,8 @@ directory and run the following commands:
 jabs.venv\Scripts\activate.bat
 python app.py
 ```
+
+### Singularity/Linux
+
+We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is indended for command-line use on compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable environment. Please inspect the definition files for related linux packages to run the software.
+
