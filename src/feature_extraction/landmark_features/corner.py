@@ -47,6 +47,10 @@ class CornerDistanceInfo:
             except KeyError:
                 return distances, bearings
 
+            # points and convex hulls are in y,x 
+            # corners are x,y so flip them to match points and convex hulls
+            corners = np.flip(corners, axis=-1)
+
             for frame in range(self._poses.num_frames):
 
                 # don't scale the point coordinates by the pixel_scale value,
