@@ -104,7 +104,7 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self.overlay_landmark)
 
         # Test add check mark for overlay segmentation
-        self.overlay_segmentation = QtWidgets.QAction('Overlay Segmentation', self)
+        self.overlay_segmentation = QtGui.QAction('Overlay Segmentation', self)
         self.overlay_segmentation.setCheckable(True)
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
         view_menu.addAction(self.overlay_segmentation)
