@@ -6,7 +6,7 @@ takes one optional positional argument: path to project directory
 import argparse
 import sys
 
-from PySide2 import QtWidgets
+from PySide6 import QtWidgets
 
 from src import APP_NAME, APP_NAME_LONG
 from src.ui import MainWindow
@@ -31,7 +31,7 @@ def main():
     main_window.show()
     if main_window.show_license_dialog() == QtWidgets.QDialog.Accepted:
         # user accepted license terms, run the main application loop
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
 
     # user rejected license terms
     sys.exit(1)

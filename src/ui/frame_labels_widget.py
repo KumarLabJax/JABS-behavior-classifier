@@ -1,6 +1,6 @@
-from PySide2.QtCore import QSize, Qt
-from PySide2.QtGui import QPainter, QFont, QFontMetrics
-from PySide2.QtWidgets import QWidget, QSizePolicy, QApplication
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPainter, QFont, QFontMetrics
+from PySide6.QtWidgets import QWidget, QSizePolicy, QApplication
 
 
 class FrameLabelsWidget(QWidget):
@@ -90,7 +90,7 @@ class FrameLabelsWidget(QWidget):
                 painter.drawRect(offset, 0, 2, 8)
 
                 label_text = f"{i}"
-                label_width = self._font_metrics.width(label_text)
+                label_width = self._font_metrics.horizontalAdvance(label_text)
                 painter.setPen(QApplication.palette().text().color())
                 painter.drawText(offset - label_width/2 + 1,
                                  self._font_height + 8, label_text)

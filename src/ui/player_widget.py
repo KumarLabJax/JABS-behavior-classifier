@@ -3,7 +3,7 @@ import typing
 from pathlib import Path
 
 import numpy as np
-from PySide2 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from src.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from src.pose_estimation import PoseEstimationV3
@@ -295,7 +295,7 @@ class _FrameWidget(QtWidgets.QLabel):
         """
 
         # only draw if we have an image to show
-        if self.pixmap() is not None:
+        if self.pixmap() is not None and not self.pixmap().isNull():
             # current size of the widget
             size = self.size()
 

@@ -1,5 +1,5 @@
-from PySide2 import QtWidgets, QtCore
-from PySide2.QtCore import Qt, Signal
+from PySide6 import QtWidgets, QtCore
+from PySide6.QtCore import Qt, Signal
 
 
 class KFoldSliderWidget(QtWidgets.QWidget):

@@ -1,6 +1,6 @@
 import numpy as np
-from PySide2.QtCore import Qt
-from PySide2.QtGui import QPainter, QPixmap, QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPainter, QPixmap, QColor
 
 from src.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
