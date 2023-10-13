@@ -3,10 +3,10 @@
 #SBATCH --job-name=behavior-classify
 #
 #SBATCH --qos=batch
-#SBATCH --time=1:00:00
+#SBATCH --time=2:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=6G
+#SBATCH --mem=5G
 
 # This is a self-submitting SLURM script which can be used to classify a batch
 # of video poses on JAX's sumner cluster. This script assumes that there will be
@@ -50,12 +50,9 @@
 #   DDR4 RAM
 #   Isilon NAS Storage (~5GB/s read/write speed)
 # Expected Resources: 
-#   22-28m time to compute
-#   1.3-2.2GB RAM usage
-# Max Resources:
-#   35m time to compute
-#   3GB RAM usage
-
+#   15m time to compute
+#   1.6GB RAM usage
+export PYTHONPATH=/behavior-classifier/
 CLASSIFICATION_IMG=/projects/kumar-lab/JABS/JABS-Classify-current.sif
 
 trim_sp() {
@@ -154,7 +151,8 @@ else
     env
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE}"
     module load singularity
-    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
+    singularity exec -B/flashscratch "${CLASSIFICATION_IMG}" python3 /projects/kumar-lab/choij/feature_extraction/classify.py classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
+
