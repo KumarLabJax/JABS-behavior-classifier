@@ -397,11 +397,7 @@ class IdentityFeatures:
                 for k, v in self._per_frame.items()
             }
 
-        return {
-            feature_name: features[feature_name]
-            for feature_name in self.get_feature_names(
-                use_social, self._extended_features)
-        }
+        return features
 
     def get_features(self, window_size: int, use_social: bool):
         """
@@ -420,25 +416,11 @@ class IdentityFeatures:
         """
         window_features = self.get_window_features(window_size, use_social)
 
-        per_frame = {}
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
-        all_features = self.get_feature_names(
-            use_social, self._extended_features)
-
-        for feature in all_features:
-            per_frame[feature] = self._per_frame[feature][
-                self._frame_valid == 1, ...]
-
-        window = {}
-        for key in window_features:
-            window[key] = {}
-            for op in window_features[key]:
-                window[key][op] = window_features[key][op][self._frame_valid == 1]
-
         return {
-            'per_frame': per_frame,
-            'window': window,
+            'per_frame': self._per_frame,
+            'window': window_features,
             'frame_indexes': indexes
         }
 

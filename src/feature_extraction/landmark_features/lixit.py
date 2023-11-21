@@ -6,7 +6,6 @@ from src.feature_extraction.feature_base_class import Feature
 
 class DistanceToLixit(Feature):
     _name = 'distance_to_lixit'
-    _feature_names = ['distance to lixit']
     _min_pose = 5
     _static_objects = ['lixit']
     _nose_index = PoseEstimation.KeypointIndex.NOSE
@@ -42,4 +41,4 @@ class DistanceToLixit(Feature):
         # return the min of each row, to give us a numpy array with a shape
         # (#nframes,) containing the distance from the nose to the closest lixit
         # for each frame
-        return distances.min(axis=1)
+        return {'distance to lixit': distances.min(axis=1)}
