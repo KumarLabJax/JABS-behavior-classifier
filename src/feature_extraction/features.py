@@ -3,6 +3,7 @@ import typing
 
 import h5py
 import numpy as np
+import pandas as pd
 
 import src.project.track_labels
 from src.pose_estimation import PoseEstimation, PoseHashException
@@ -100,7 +101,7 @@ class IdentityFeatures:
         self._frame_valid = None
 
         # per frame features
-        self._per_frame = {
+        self._keypoint_mask = {
             'point_mask': pose_est.get_identity_point_mask(identity)
         }
 
@@ -127,6 +128,7 @@ class IdentityFeatures:
         # indicate this identity exists in this frame
         self._frame_valid = pose_est.identity_mask(self._identity)
 
+        self._per_frame = self._keypoint_mask
         for key in self._feature_modules:
             self._per_frame.update(
                 self._feature_modules[key].per_frame(self._identity))
