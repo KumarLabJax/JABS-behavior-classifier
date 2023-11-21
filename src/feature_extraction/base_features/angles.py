@@ -10,12 +10,10 @@ class Angles(Feature):
 
     """
     this module computes joint angles
-    the result is a 2D numpy array with #frames rows, and #angles columns
-    (#angles different features for input to the classifier)
+    the result is a dict of features of length #frames rows
     """
 
     _name = 'angles'
-    _feature_names = [f'angle {AngleIndex.get_angle_name(i.value)}' for i in AngleIndex]
 
     # override for circular values
     _window_operations = {
@@ -28,88 +26,18 @@ class Angles(Feature):
         self._num_angles = len(AngleIndex)
 
     def per_frame(self, identity: int) -> np.ndarray:
-        nframes = self._poses.num_frames
-        values = np.zeros((nframes, self._num_angles), dtype=np.float32)
+        values = {}
 
         poses, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
-        values[:, AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.NOSE],
-                poses[:, PoseEstimation.KeypointIndex.BASE_NECK],
-                poses[:, PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW]
-            )
-
-        values[:, AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.NOSE],
-                poses[:, PoseEstimation.KeypointIndex.BASE_NECK],
-                poses[:, PoseEstimation.KeypointIndex.LEFT_FRONT_PAW]
-            )
-
-        values[:, AngleIndex.RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_NECK],
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE]
-            )
-
-        values[:, AngleIndex.LEFT_FRONT_PAW_BASE_NECK_CENTER_SPINE] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.LEFT_FRONT_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_NECK],
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE]
-            )
-
-        values[:, AngleIndex.BASE_NECK_CENTER_SPINE_BASE_TAIL] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.BASE_NECK],
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL]
-            )
-
-        values[:, AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.RIGHT_REAR_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE]
-            )
-
-        values[:, AngleIndex.LEFT_REAR_PAW_BASE_TAIL_CENTER_SPINE] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.LEFT_REAR_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE]
-            )
-
-        values[:, AngleIndex.RIGHT_REAR_PAW_BASE_TAIL_MID_TAIL] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.RIGHT_REAR_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.MID_TAIL]
-            )
-
-        values[:, AngleIndex.LEFT_REAR_PAW_BASE_TAIL_MID_TAIL] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.LEFT_REAR_PAW],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.MID_TAIL]
-            )
-
-        values[:, AngleIndex.CENTER_SPINE_BASE_TAIL_MID_TAIL] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.CENTER_SPINE],
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.MID_TAIL]
-            )
-
-        values[:, AngleIndex.BASE_TAIL_MID_TAIL_TIP_TAIL] = \
-            self._compute_angles(
-                poses[:, PoseEstimation.KeypointIndex.BASE_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.MID_TAIL],
-                poses[:, PoseEstimation.KeypointIndex.TIP_TAIL]
-            )
-
+        for named_angle in AngleIndex:
+            angle_keypoints = AngleIndex.get_angle_indices(named_angle)
+            values[f'angle {AngleIndex.get_angle_name(named_angle)}'] = \
+                self._compute_angles(
+                    poses[:, angle_keypoints[0]],
+                    poses[:, angle_keypoints[1]],
+                    poses[:, angle_keypoints[2]]
+                )
         return values
 
     def window(self, identity: int, window_size: int,

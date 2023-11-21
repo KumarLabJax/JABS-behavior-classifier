@@ -42,9 +42,6 @@ class Feature(abc.ABC):
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
-        if self._feature_names is None:
-            raise NotImplementedError(
-                "Base class must override _feature_names class member")
 
     @classmethod
     def name(cls) -> str:
