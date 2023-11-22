@@ -4,6 +4,7 @@ import typing
 import h5py
 import numpy as np
 import pandas as pd
+import re
 
 import src.project.track_labels
 from src.pose_estimation import PoseEstimation, PoseHashException
@@ -101,8 +102,11 @@ class IdentityFeatures:
         self._frame_valid = None
 
         # per frame features
-        self._keypoint_mask = {
-            'point_mask': pose_est.get_identity_point_mask(identity)
+        identity_mask = pose_est.get_identity_point_mask(identity)
+        self._keypoint_mask = {'point_mask': 
+            {
+                f"point_mask {keypoint.name}": identity_mask[:, keypoint.value] for keypoint in PoseEstimation.KeypointIndex
+            }
         }
 
         # load or compute remaining per frame features
@@ -347,10 +351,6 @@ class IdentityFeatures:
                 if self._identity_feature_dir is not None:
                     self.__save_window_features(features, window_size)
 
-        feature_intersection = self.get_feature_names(
-            use_social, self._extended_features)
-        feature_intersection &= set(features.keys())
-
         if labels is None:
             final_features = features
 
@@ -365,10 +365,7 @@ class IdentityFeatures:
 
             final_features = filtered_features
 
-        return {
-            feature_name: final_features[feature_name]
-            for feature_name in feature_intersection
-        }
+        return final_features
 
     def get_per_frame(self, use_social: bool, labels=None):
         """
@@ -458,58 +455,45 @@ class IdentityFeatures:
 
         return window_features
 
-    def get_feature_column_names(self, use_social: bool, ):
+    def get_feature_column_names(self, use_social: bool):
         """
-        build up a list of column names for the 2D feature array that will be
-        passed to the classifier
+        obtain names of features available in this feature object
         """
 
-        column_names = []
-        # start with point_mask as a special case, as it is not computed in
-        # a feature module -- it's just added directly from self._pose_est
-        per_frame_features = {'point_mask': [f'{point.name } point mask' for point in PoseEstimation.KeypointIndex]}
-        window_features = {}
-        base_groups = [m.name() for m in _FEATURE_MODULES]
-        for key in self._feature_modules:
-            # handle base (& social) features
-            if key in base_groups:
-                if not use_social and key == SocialFeatureGroup.name():
-                    continue
-                per_frame_features.update(
-                    self._feature_modules[key].feature_names())
-                window_features.update(
-                    self._feature_modules[key].window_feature_names())
-            else:
-                # handle extended features
-                if self._extended_features is None:
-                    per_frame_features.update(
-                        self._feature_modules[key].feature_names())
-                    window_features.update(
-                        self._feature_modules[key].window_feature_names())
-                elif key in self._extended_features:
-                    per_frame_features.update(
-                        self._feature_modules[key].feature_names(self._extended_features[key]))
-                    window_features.update(
-                        self._feature_modules[key].window_feature_names(self._extended_features[key]))
+        # Check if there's an available cache for window features
+        if self._identity_feature_dir:
+            available_cache = list(Path(self._identity_feature_dir).glob("window_features_[0-9]*.h5"))
+        else:
+            available_cache = []
 
-        # generate a list of column names in the same order the data is
-        # assembled in Classifier.combine_data()
+        # TODO: if no cache exists, this will calculate and discard window features
+        # just for calculating names. Rework to simply not calculate it.
+        window = 5
+        if len(available_cache):
+            try:
+                window = int(re.search('window_features_([0-9]+)\.h5', str(available_cache[0])).groups()[0])
+            except (AttributeError, ValueError):
+                pass
 
-        # first, iterate over the per frame feature names alphabetically
-        for f in sorted(per_frame_features):
-            column_names += per_frame_features[f]
+        # Since feature names are stored with features, retrieve them
+        features = self.get_features(window, use_social)
 
-        for f in sorted(window_features):
-            for col in sorted(window_features[f]):
-                for op in sorted(window_features[f][col]):
-                    column_names.append(f"{op} {col}")
-        return column_names
+        # Method to calculate it without merging
+        # per_frame_feature_names = np.concatenate([list(feat_module.keys()) for feat_module in features['per_frame'].values()])
+        # # adds the window op in front of the feature name
+        # window_feature_names = np.concatenate([np.concatenate([[f"{window_mod} {x}" for x in feat_vector.keys()] for window_mod, feat_vector in feat_module.items()]) for feat_module in features['window'].values()])
+
+        # Rely on merging for dict keys
+        per_frame_feature_names = list(self.merge_per_frame_features(features['per_frame'], use_social, self._extended_features).keys())
+        window_feature_names = list(self.merge_window_features(features['window'], use_social, self._extended_features).keys())
+
+        return per_frame_feature_names.tolist() + window_feature_names.tolist()
 
     @classmethod
-    def merge_per_frame_features(cls, features: list, include_social: bool,
+    def merge_per_frame_features(cls, features: dict, include_social: bool,
                                  extended_features=None) -> dict:
         """
-        merge a list of per-frame features where each element in the list is
+        merge a dict of per-frame features where each element in the dict is
         a set of per-frame features computed for an individual animal
         :param features: list of per-frame feature instances
         :param include_social:
@@ -519,107 +503,79 @@ class IdentityFeatures:
 
         :return: dict of the form
         {
-            'pairwise_distances':,
-            'angles':,
-            'point_speeds':,
-            'point_masks':
+            'feature_1_name': feature_1_vector,
+            'feature_2_name': feature_2_vector,
+            'feature_3_name': feature_3_vector,
         }
         """
+        merged_features = {}
+        all_extended_module_names = np.concatenate([x.module_names() for x in _EXTENDED_FEATURE_MODULES]).tolist()
+        if extended_features:
+            extended_module_names = np.concatenate(list(extended_features.values())).tolist()
+        else:
+            extended_module_names = []
 
-        # determine which features are in common between total feature set and
-        # available computed features
-        feature_intersection = cls.get_feature_names(
-            include_social, extended_features)
+        for feature_module_name, feature_module in features.items():
+            # skip social features if requested
+            if not include_social and feature_module_name in SocialFeatureGroup.module_names():
+                continue
+            for feature_name, feature_vector in feature_module.items():
+                if (
+                        feature_module_name in all_extended_module_names
+                        and extended_features is not None
+                        and feature_module_name not in extended_module_names
+                    ):
+                    continue
+                merged_features[feature_name] = feature_vector
 
-        for feature_dict in features:
-            feature_intersection &= set(feature_dict.keys())
-
-        return {
-            feature_name: np.concatenate([x[feature_name] for x in features])
-            for feature_name in feature_intersection
-        }
+        return merged_features
 
     @classmethod
     def merge_window_features(
             cls,
-            features: list,
+            features: dict,
             include_social: bool,
             extended_features: typing.Optional[typing.Dict] = None
     ) -> dict:
         """
-        merge a list of window features where each element in the list is the
+        merge a dict of window features where each element in the dict is the
         set of window features computed for an individual animal
-        :param features: list of window feature instances
+        :param features: dict of window feature dicts
         :param include_social:
         :param extended_features: optional extended feature configuration,
         dict with feature groups as keys, lists of feature module names as
         values. If None, all extended features are enabled.
         :return: dictionary of the form:
         {
-            'angles' {
-                'mean': numpy float32 array with shape (#frames, #angles),
-                'std_dev': numpy float32 array with shape (#frames, #angles)
-            },
-            'pairwise_distances' {
-                'mean': numpy float32 array with shape (#frames, #distances),
-                'median': numpy float32 array with shape (#frames, #distances),
-                'std_dev': numpy float32 array with shape (#frames, #distances),
-                'max': numpy float32 array with shape (#frames, #distances),
-                'min' numpy float32 array with shape (#frames, #distances),
-            },
-            'point_speeds' {
-                ...
-            }
+            'mod1 feature_1_name': mod1_feature_1_vector,
+            'mod2 feature_2_name': mod2_feature_2_vector,
+            'mod1 feature_2_name': mod1_feature_2_vector,
+            'mod2 feature_2_name': mod2_feature_2_vector,
+            ...
         }
         """
-        merged = {}
-
-        # determine which features are in common between total feature set and
-        # available computed features
-        feature_intersection = cls.get_feature_names(
-            include_social, extended_features)
-
-        for feature_dict in features:
-            feature_intersection &= set(feature_dict.keys())
-
-        for feature_name in feature_intersection:
-            merged[feature_name] = {}
-            # grab list of operations for this window feature from the first
-            # dictionary in features
-            window_ops = features[0][feature_name].keys()
-            for f in features:
-                assert (set(window_ops) == set(f[feature_name].keys()))
-            for op in window_ops:
-                merged[feature_name][op] = np.concatenate(
-                    [x[feature_name][op] for x in features])
-
-        return merged
-
-    @classmethod
-    def get_feature_names(
-            cls, include_social: bool,
-            extended_features: typing.Optional[
-                typing.Dict[str, typing.List[str]]] = None
-    ) -> typing.Set[str]:
-        """
-        get all the feature module names
-        :param include_social: if true, include all social features
-        :param extended_features: if None, include all extended features,
-        otherwise only include those specified
-        :return: set of feature module names
-        """
-        module_names = {'point_mask'}
-        for m in _FEATURE_MODULES:
-            if not include_social and m is SocialFeatureGroup:
-                continue
-            module_names.update(m.module_names())
-        if extended_features is None:
-            for m in _EXTENDED_FEATURE_MODULES:
-                module_names.update(m.module_names())
+        merged_features = {}
+        all_extended_module_names = np.concatenate([x.module_names() for x in _EXTENDED_FEATURE_MODULES]).tolist()
+        if extended_features:
+            extended_module_names = np.concatenate(list(extended_features.values())).tolist()
         else:
-            for _, features in extended_features.items():
-                module_names.update(features)
-        return module_names
+            extended_module_names = []
+
+        for feature_module_name, feature_module in features.items():
+            # skip social features if requested
+            if not include_social and feature_module_name in SocialFeatureGroup.module_names():
+                continue
+            for window_name, window_group in feature_module.items():
+                for feature_name, feature_vector in window_group.items():
+                    if (
+                            feature_module_name in all_extended_module_names
+                            and extended_features is not None
+                            and feature_module_name not in extended_module_names
+                        ):
+                        continue
+                    merged_features[f"{window_name} {feature_name}"] = feature_vector
+
+        return merged_features
 
     @classmethod
     def get_available_extended_features(
