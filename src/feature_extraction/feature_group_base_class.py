@@ -56,31 +56,6 @@ class FeatureGroup(abc.ABC):
             feature_modules.items()
         }
 
-    def feature_names(self, features: typing.Optional[str] = None):
-        """
-        return a dictionary mapping feature module names to the
-        feature (column) names for that module
-        """
-        modules = self._enabled_features if features is None else features
-        return {
-            feature: self._features[feature].feature_names()
-            for feature in modules
-        }
-
-    def window_feature_names(self,
-                             feature_modules: typing.Optional[str] = None):
-        """
-        return a dictionary mapping module names to the
-        feature (column) names for that module
-        """
-        features = {}
-        modules = self._enabled_features if feature_modules is None else feature_modules
-        for feature_mod in modules:
-            features[feature_mod] = {}
-            for feature_name in self._features[feature_mod].feature_names():
-                features[feature_mod][feature_name] = list(self._features[feature_mod]._window_operations.keys())
-        return features
-
     @property
     def enabled_features(self):
         return self._enabled_features
