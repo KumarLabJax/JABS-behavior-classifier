@@ -150,10 +150,12 @@ class IdentityFeatures:
         for directory
         :raises FeatureVersionException: if file version differs from current
         feature version
+        :raises AssertionError: if metadata shape doesn't match feature shape
         :return: None
         """
 
         path = self._identity_feature_dir / 'per_frame.h5'
+        self._per_frame = {}
 
         with h5py.File(path, 'r') as features_h5:
 
@@ -172,26 +174,20 @@ class IdentityFeatures:
             if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
                 raise DistanceScaleException
 
-            feature_grp = features_h5['features']
-
             self._frame_valid = features_h5['frame_valid'][:]
-
-            # load per frame features. Always load all the features from the
-            # file if some are disabled by the project (for example, not
-            # supported by all pose files in the project), then those
-            # features will be excluded from training & classification
-            for feature in feature_grp.keys():
-                if feature in ['point_mask']:
-                    continue
-                self._per_frame[feature] = feature_grp[feature][:]
-
             assert len(self._frame_valid) == self._num_frames
-            assert len(self._per_frame['pairwise_distances']) == self._num_frames
-            assert len(self._per_frame['angles']) == self._num_frames
 
             if self._compute_social_features:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
+
+            feature_group = features_h5['features']
+            for module_name in feature_group.keys():
+                module_grp = feature_group[module_name]
+                self._per_frame[module_name] = {}
+                for feature_name in module_grp.keys():
+                    self._per_frame[module_name][feature_name] = module_grp[feature_name][:]
+                    assert len(self._per_frame[module_name][feature_name]) == self._num_frames
 
     def __save_per_frame(self):
         """
@@ -213,25 +209,25 @@ class IdentityFeatures:
             features_h5.attrs['pose_hash'] = self._pose_hash
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
-            grp = features_h5.create_group('features')
-            for feature in self._per_frame.keys():
-                # point mask is obtained from the pose file, don't save it
-                if feature in ['point_mask']:
-                    continue
-                grp.create_dataset(feature, data=self._per_frame[feature])
-
             if self._compute_social_features:
                 closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
                 features_h5['closest_identities'] = closest_data.closest_identities
                 features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
+
+            feature_group = features_h5.create_group('features')
+            for feature_mod, module_values in self._per_frame.items():
+                module_group = feature_group.create_group(feature_mod)
+                for feature_name, feature_values in module_values.items():
+                    module_group.create_dataset(feature_name, data=feature_values)
 
     def __save_window_features(self, features, window_size):
         """
         save window features to an h5 file
         This method will throw an exception if this object
         was constructed with a value of None for directory
-        :param features: window features to save
-        :param window_size:
+        :param features: window features returned from
+        `get_window_features()` to save
+        :param window_size: window size used
         :return: None
         """
         path = self._identity_feature_dir / f"window_features_{window_size}.h5"
@@ -244,12 +240,13 @@ class IdentityFeatures:
             features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['pose_hash'] = self._pose_hash
 
-            grp = features_h5.create_group('features')
-
-            for feature in features:
-                for op in features[feature]:
-                    grp.create_dataset(f'{feature}/{op}',
-                                       data=features[feature][op])
+            feature_group = features_h5.create_group('features')
+            for feature_mod, module_values in features.items():
+                module_group = feature_group.create_group(feature_mod)
+                for window_name, window_values in module_values.items():
+                    window_group = module_group.create_group(window_name)
+                    for feature_name, feature_values in window_values.items():
+                        window_group.create_dataset(feature_name, data=feature_values)
 
     def __load_window_features(self, window_size):
         """
@@ -293,25 +290,18 @@ class IdentityFeatures:
             assert features_h5.attrs['identity'] == self._identity
             assert size_attr == window_size
 
-            feature_grp = features_h5['features']
+            feature_group = features_h5['features']
+            for module_name in feature_group.keys():
+                module_group = feature_group[module_name]
+                window_features[module_name] = {}
+                for window_name in module_group.keys():
+                    window_group = module_group[window_name]
+                    window_features[module_name][window_name] = {}
+                    for feature_name in window_group.keys():
+                        window_features[module_name][window_name][feature_name] = window_group[feature_name][:]
+                        assert len(window_features[module_name][window_name][feature_name]) == self._num_frames
 
-            # load window features. Always load all the features from the
-            # file even if some are disabled by the project (for example,
-            # not supported by all pose files in the project), then those
-            # features will be excluded from training & classification
-            for feature_name in feature_grp.keys():
-                # point_mask is loaded from the post estimation, not the
-                # feature file
-                if feature_name == 'point_mask':
-                    continue
-                window_features[feature_name] = {}
-                for op in feature_grp[feature_name].keys():
-                    window_features[feature_name][op] = \
-                        feature_grp[f'{feature_name}/{op}'][:]
-                    assert len(
-                        window_features[feature_name][op]) == self._num_frames
-
-            return window_features
+        return window_features
 
     def get_window_features(self, window_size: int, use_social: bool,
                             labels=None, force: bool = False):
@@ -378,9 +368,14 @@ class IdentityFeatures:
         :return: returns per frame features in dictionary with this form
 
         {
-            'pairwise_distances': 2D numpy array,
-            'angles': 2D numpy array,
-            'point_speeds': 2D numpy array
+            'pairwise_distances': {
+                'distance1': 1d numpy array,
+                'distance2': 1d numpy array,
+                ...
+            },
+            'angles': {...},
+            'point_speeds': {...},
+            ...
         }
         """
 
@@ -431,15 +426,23 @@ class IdentityFeatures:
         :return: dictionary of the form:
         {
             'angles' {
-                'mean': numpy float32 array with shape (#frames, #angles),
-                'std_dev': numpy float32 array with shape (#frames, #angles),
+                'mean': {
+                    'angle1': 1d numpy float32 array,
+                    'angle2': 1d numpy float32 array,
+                    'angle3': 1d numpy float32 array,
+                }
+                'std_dev': {
+                    'angle1': 1d numpy float32 array,
+                    'angle2': 1d numpy float32 array,
+                    'angle3': 1d numpy float32 array,
+                }
             },
             'pairwise_distances' {
-                'mean': numpy float32 array with shape (#frames, #distances),
-                'median': numpy float32 array with shape (#frames, #distances),
-                'std_dev': numpy float32 array with shape (#frames, #distances),
-                'max': numpy float32 array with shape (#frames, #distances),
-                'min' numpy float32 array with shape (#frames, #distances),
+                'mean': {...},
+                'median': {...},
+                'std_dev': {...},
+                'max': {...},
+                'min': {...}),
             },
             'point_speeds': {...},
             ...
@@ -526,7 +529,7 @@ class IdentityFeatures:
                         and feature_module_name not in extended_module_names
                     ):
                     continue
-                merged_features[feature_name] = feature_vector
+                merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
 
         return merged_features
 
@@ -573,7 +576,7 @@ class IdentityFeatures:
                             and feature_module_name not in extended_module_names
                         ):
                         continue
-                    merged_features[f"{window_name} {feature_name}"] = feature_vector
+                    merged_features[f"{feature_module_name} {window_name} {feature_name}"] = feature_vector
 
         return merged_features
 
