@@ -134,34 +134,20 @@ class Classifier:
             'test_data': list of numpy arrays,
             'training_labels': numpy array,
             'test_labels': numpy_array,
+            'feature_names': list of feature names
         }
         """
-        datasets = []
-
-        # add per frame features to our data set
-        for feature in sorted(per_frame_features):
-            datasets.append(per_frame_features[feature])
-
-        # add window features to our data set
-        for feature in sorted(window_features):
-            if feature == 'percent_frames_present':
-                datasets.append(window_features[feature])
-            else:
-                # [source_feature_name][operator_applied] : numpy array
-                # iterate over operator names
-                for op in sorted(window_features[feature]):
-                    # append the numpy array to the dataset
-                    datasets.append(window_features[feature][op])
 
         # split labeled data and labels
-        split_data = train_test_split(np.concatenate(datasets, axis=1),
-                                      label_data)
+        all_features = pd.concat([per_frame_features, window_features], axis=1)
+        split_data = train_test_split(all_features, label_data)
 
         return {
             'test_labels': split_data.pop(),
             'training_labels': split_data.pop(),
             'training_data': split_data[::2],
-            'test_data': split_data[1::2]
+            'test_data': split_data[1::2],
+            'feature_names': all_features.columns.to_list()
         }
 
     @staticmethod
@@ -179,6 +165,7 @@ class Classifier:
             'test_data': list of numpy arrays,
             'training_labels': numpy array,
             'test_labels': numpy_array,
+            'feature_names': list of feature names
         }
         """
         logo = LeaveOneGroupOut()
@@ -205,7 +192,7 @@ class Classifier:
                     'test_labels': labels[split[1]],
                     'test_data': x.iloc[split[1]],
                     'test_group': groups[split[1]][0],
-                    'feature_names': x.columns
+                    'feature_names': x.columns.to_list()
                 }
 
         # number of splits exhausted without finding at least one that meets
