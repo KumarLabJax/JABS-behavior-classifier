@@ -41,4 +41,4 @@ class DistanceToLixit(Feature):
         # return the min of each row, to give us a numpy array with a shape
         # (#nframes,) containing the distance from the nose to the closest lixit
         # for each frame
-        return {'distance to lixit': distances.min(axis=1)}
+        return {f'distance to lixit {self._nose_index.name}': distances.min(axis=1)}
