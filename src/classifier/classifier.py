@@ -265,14 +265,26 @@ class Classifier:
         else:
             raise ValueError("Unsupported classifier")
 
+    def sort_features_to_classify(self, features):
+        """
+        sorts features to match the current classifier
+        """
+        if self._classifier_type == ClassifierType.XGBOOST:
+            classifier_columns = self._classifier.get_booster().feature_names
+        # sklearn places feature names in the same spot
+        else:
+            classifier_columns = self._classifier.feature_names_in_
+        features_sorted = features[classifier_columns]
+        return features_sorted
+
     def predict(self, features):
         """
         predict classes for a given set of features
         """
-        return self._classifier.predict(features)
+        return self._classifier.predict(self.sort_features_to_classify(features))
 
     def predict_proba(self, features):
-        return self._classifier.predict_proba(features)
+        return self._classifier.predict_proba(self.sort_features_to_classify(features))
 
     def save(self, path: Path):
         joblib.dump(self, path)

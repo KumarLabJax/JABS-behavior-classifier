@@ -7,6 +7,7 @@ import typing
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from src import APP_NAME
 from src.classifier import Classifier, ClassifierType
@@ -109,11 +110,10 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
             distance_scale_factor=distance_scale_factor,
             extended_features=classifier.extended_features
         ).get_features(window_size, use_social)
+        per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame'], use_social))
+        window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window'], use_social))
 
-        data = Classifier.combine_data(
-            features['per_frame'],
-            features['window']
-        )
+        data = Classifier.combine_data(per_frame_features, window_features)
 
         if data.shape[0] > 0:
             pred = classifier.predict(data)
@@ -125,8 +125,9 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
             # for each row of the pred_prob array we just computed.
             pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-            prediction_labels[curr_id, features['frame_indexes']] = pred
-            prediction_prob[curr_id, features['frame_indexes']] = pred_prob
+            # Only copy out predictions where there was a valid pose
+            prediction_labels[curr_id, features['frame_indexes']] = pred[features['frame_indexes']]
+            prediction_prob[curr_id, features['frame_indexes']] = pred_prob[features['frame_indexes']]
     cli_progress_bar(len(pose_est.identities), len(pose_est.identities),
                      complete_as_percent=False, suffix='identities')
 

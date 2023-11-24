@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 import src.version
 import src.classifier
@@ -73,15 +74,8 @@ def export_training_data(project: 'Project',
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
             feature_group.create_dataset(f'per_frame/{feature}', data=data)
-        for feature in features['window']:
-            if isinstance(features['window'][feature], dict):
-                for op, data in features['window'][feature].items():
-                    feature_group.create_dataset(
-                        f'window/{feature}/{op}',
-                        data=data)
-            else:
-                feature_group.create_dataset(f'window/{feature}',
-                                             data=features['window'][feature])
+        for feature, data in features['window'].items():
+            feature_group.create_dataset(f'window/{feature}', data=data)
 
         out_h5.create_dataset('group', data=features['groups'])
         out_h5.create_dataset('label', data=features['labels'])
@@ -168,14 +162,11 @@ def load_training_data(training_file: Path):
         # per frame features
         for name, val in in_h5['features/per_frame'].items():
             features['per_frame'][name] = val[:]
+        features['per_frame'] = pd.DataFrame(features['per_frame'])
         # window features
         for name, val in in_h5['features/window'].items():
-            if isinstance(val, h5py.Dataset):
-                features['window'][name] = val[:]
-            else:
-                features['window'][name] = {}
-                for op, nested_val in val.items():
-                    features['window'][name][op] = nested_val[:]
+            features['window'][name] = val[:]
+        features['window'] = pd.DataFrame(features['window'])
 
         # extract the group mapping from h5 file
         for name, val in in_h5['group_mapping'].items():
