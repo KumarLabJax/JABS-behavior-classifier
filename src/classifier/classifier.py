@@ -140,13 +140,13 @@ class Classifier:
 
         # split labeled data and labels
         all_features = pd.concat([per_frame_features, window_features], axis=1)
-        split_data = train_test_split(all_features, label_data)
+        x_train, x_test, y_train, y_test = train_test_split(all_features, label_data)
 
         return {
-            'test_labels': split_data.pop(),
-            'training_labels': split_data.pop(),
-            'training_data': split_data[::2],
-            'test_data': split_data[1::2],
+            'training_data': x_train,
+            'training_labels': y_train,
+            'test_data': x_test,
+            'test_labels': y_test,
             'feature_names': all_features.columns.to_list()
         }
 
@@ -187,10 +187,10 @@ class Classifier:
                     not_behavior_count >= Classifier.LABEL_THRESHOLD):
                 count += 1
                 yield {
-                    'training_labels': labels[split[0]],
                     'training_data': x.iloc[split[0]],
-                    'test_labels': labels[split[1]],
+                    'training_labels': labels[split[0]],
                     'test_data': x.iloc[split[1]],
+                    'test_labels': labels[split[1]],
                     'test_group': groups[split[1]][0],
                     'feature_names': x.columns.to_list()
                 }
