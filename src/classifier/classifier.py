@@ -6,6 +6,7 @@ from pathlib import Path
 import joblib
 
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
@@ -200,10 +201,11 @@ class Classifier:
                 count += 1
                 yield {
                     'training_labels': labels[split[0]],
-                    'training_data': x[split[0]],
+                    'training_data': x.iloc[split[0]],
                     'test_labels': labels[split[1]],
-                    'test_data': x[split[1]],
-                    'test_group': groups[split[1]][0]
+                    'test_data': x.iloc[split[1]],
+                    'test_group': groups[split[1]][0],
+                    'feature_names': x.columns
                 }
 
         # number of splits exhausted without finding at least one that meets
@@ -335,30 +337,12 @@ class Classifier:
     @staticmethod
     def combine_data(per_frame, window):
         """
-        iterate over feature sets and combine them to create a dataset with the
-        shape #frames, #features
-        :param per_frame: per frame features dictionary
-        :param window: window feature dictionary
-        :return: numpy array with shape #frames,#features
+        combine feature sets together
+        :param per_frame: per frame features dataframe
+        :param window: window feature dataframe
+        :return: merged dataframe
         """
-        datasets = []
-        # add per frame features to our data set
-        # sort the feature names in the dict so the order is consistent
-        for feature in sorted(per_frame):
-            datasets.append(per_frame[feature])
-
-        # add window features to our data set
-        # sort the feature names in the dict so the order is consistent
-        for feature in sorted(window):
-            # [source_feature_name][operator_applied] : numpy array
-            # iterate over operator names
-            for op in sorted(window[feature]):
-                # append the numpy array to the dataset
-                datasets.append(window[feature][op])
-
-        # expand any 1D features to 2D so that we can concatenate in one call
-        datasets = [(d[:, np.newaxis] if d.ndim == 1 else d) for d in datasets]
-        return np.concatenate(datasets, axis=1)
+        return pd.concat([per_frame, window], axis=1)
 
     def _fit_random_forest(self, features, labels,
                            random_seed: typing.Optional[int] = None):

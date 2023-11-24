@@ -3,7 +3,6 @@ import typing
 
 import h5py
 import numpy as np
-import pandas as pd
 import re
 
 import src.project.track_labels
@@ -348,10 +347,12 @@ class IdentityFeatures:
             # return only features for labeled frames
             filtered_features = {}
 
-            for key in features:
-                filtered_features[key] = {}
-                for op in features[key]:
-                    filtered_features[key][op] = features[key][op][labels != src.project.track_labels.TrackLabels.Label.NONE]
+            for module_name in features.keys():
+                filtered_features[module_name] = {}
+                for window_name in features[module_name].keys():
+                    filtered_features[module_name][window_name] = {}
+                    for feature_name in features[module_name][window_name].keys():
+                        filtered_features[module_name][window_name][feature_name] = features[module_name][window_name][feature_name][labels != src.project.track_labels.TrackLabels.Label.NONE]
 
             final_features = filtered_features
 
@@ -385,8 +386,11 @@ class IdentityFeatures:
         else:
             # return only features for labeled frames
             features = {
-                k: v[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
-                for k, v in self._per_frame.items()
+                feature_module_name: {
+                    feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
+                    for feature_name, feature_vector in feature_module.items()
+                }
+                for feature_module_name, feature_module in self._per_frame.items()
             }
 
         return features
@@ -457,40 +461,6 @@ class IdentityFeatures:
                                                   self._per_frame))
 
         return window_features
-
-    def get_feature_column_names(self, use_social: bool):
-        """
-        obtain names of features available in this feature object
-        """
-
-        # Check if there's an available cache for window features
-        if self._identity_feature_dir:
-            available_cache = list(Path(self._identity_feature_dir).glob("window_features_[0-9]*.h5"))
-        else:
-            available_cache = []
-
-        # TODO: if no cache exists, this will calculate and discard window features
-        # just for calculating names. Rework to simply not calculate it.
-        window = 5
-        if len(available_cache):
-            try:
-                window = int(re.search('window_features_([0-9]+)\.h5', str(available_cache[0])).groups()[0])
-            except (AttributeError, ValueError):
-                pass
-
-        # Since feature names are stored with features, retrieve them
-        features = self.get_features(window, use_social)
-
-        # Method to calculate it without merging
-        # per_frame_feature_names = np.concatenate([list(feat_module.keys()) for feat_module in features['per_frame'].values()])
-        # # adds the window op in front of the feature name
-        # window_feature_names = np.concatenate([np.concatenate([[f"{window_mod} {x}" for x in feat_vector.keys()] for window_mod, feat_vector in feat_module.items()]) for feat_module in features['window'].values()])
-
-        # Rely on merging for dict keys
-        per_frame_feature_names = list(self.merge_per_frame_features(features['per_frame'], use_social, self._extended_features).keys())
-        window_feature_names = list(self.merge_window_features(features['window'], use_social, self._extended_features).keys())
-
-        return per_frame_feature_names.tolist() + window_feature_names.tolist()
 
     @classmethod
     def merge_per_frame_features(cls, features: dict, include_social: bool,
