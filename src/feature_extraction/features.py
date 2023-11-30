@@ -64,6 +64,7 @@ class IdentityFeatures:
         values. If None, all extended features are enabled.
         """
 
+        self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
         self._fps = fps
         self._pose_hash = pose_est.hash

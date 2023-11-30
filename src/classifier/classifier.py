@@ -4,6 +4,7 @@ from enum import IntEnum
 from importlib import import_module
 from pathlib import Path
 import joblib
+import re
 
 import numpy as np
 import pandas as pd
@@ -69,9 +70,12 @@ class Classifier:
         self._classifier = None
         self._window_size = None
         self._uses_social = None
+        self._uses_balance = None
+        self._uses_symmetric = None
         self._extended_features = None
         self._behavior = None
         self._distance_unit = None
+        self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
 
@@ -98,6 +102,14 @@ class Classifier:
         return self._uses_social
 
     @property
+    def uses_balance(self) -> bool:
+        return self._uses_balance
+
+    @property
+    def uses_symmetric(self) -> bool:
+        return self._uses_symmetric
+
+    @property
     def extended_features(self) -> typing.Dict[str, typing.List[str]]:
         return self._extended_features
 
@@ -116,6 +128,13 @@ class Classifier:
         this classifier
         """
         return self._distance_unit
+
+    @property
+    def feature_names(self) -> list:
+        """
+        returns the list of feature names used when training this classifier
+        """
+        return self._feature_names
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -149,6 +168,20 @@ class Classifier:
             'test_labels': y_test,
             'feature_names': all_features.columns.to_list()
         }
+
+    @staticmethod
+    def get_leave_one_group_out_max(labels, groups):
+        """
+        counts the number of possible leave one out groups for k-fold cross validation
+        :param labels: labels to check if they were above the threshold
+        :param groups: group id corrosponding to the labels
+        :return: int of the maximum number of cross validation to use
+        """
+        unique_groups = np.unique(groups)
+        count_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.BEHAVIOR) for x in unique_groups]
+        count_not_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.NOT_BEHAVIOR) for x in unique_groups]
+        can_kfold = np.logical_and(np.asarray(count_behavior)>Classifier.LABEL_THRESHOLD, np.asarray(count_not_behavior)>Classifier.LABEL_THRESHOLD)
+        return np.sum(can_kfold)
 
     @staticmethod
     def leave_one_group_out(per_frame_features, window_features, labels,
@@ -200,6 +233,60 @@ class Classifier:
         # the UI won't allow us to reach this case
         if count == 0:
             raise ValueError("unable to split data")
+        # If there are no more splits to yield, just let generator end
+
+    @staticmethod
+    def downsample_balance(features, labels, random_seed=None):
+        """
+        downsamples features and labels such that labels are equally distributed
+        :param features: features to downsample
+        :param labels: labels to downsample
+        :return: tuple of downsampled features, labels
+        """
+        label_states, label_counts = np.unique(labels, return_counts=True)
+        max_examples_per_class = np.min(label_counts)
+        selected_samples = []
+        for cur_label in label_states:
+            idxs = np.where(labels==cur_label)[0]
+            if random_seed is not None:
+                np.random.seed(random_seed)
+            sampled_idxs = np.random.choice(idxs, max_examples_per_class, replace=False)
+            selected_samples.append(sampled_idxs)
+        selected_samples = np.sort(np.concatenate(selected_samples))
+        features = features[selected_samples,:]
+        labels = labels[selected_samples]
+        return features, labels
+
+    @staticmethod
+    def augment_symmetric(features, labels, feature_names, random_str='ASygRQDZJD'):
+        """
+        augments the features to include L-R and R-L duplicates
+        This requires 'left' or 'right' to be in the feature name to be swapped
+        Features that don't include these terms will not be swapped
+        :param features: features to augment
+        :param labels: labels to augment
+        :param feature_names: feature names to detect LR exchanges
+        :param random_str: a random string to use as a temporary replacement when swapping left/right
+        :return: tuple of augmented features, labels
+        """
+        assert len(feature_names)==np.shape(features)[1]
+
+        # Figure out the L-R swapping of features
+        lowercase_features = np.array([x.lower() for x in feature_names])
+        reflected_feature_names = [re.sub(r'left', random_str, x) for x in lowercase_features]
+        reflected_feature_names = [re.sub(r'right', 'left', x) for x in reflected_feature_names]
+        reflected_feature_names = [re.sub(random_str, 'right', x) for x in reflected_feature_names]
+        reflected_idxs = [np.where(lowercase_features==x)[0][0] if x in lowercase_features else i for i,x in enumerate(reflected_feature_names)]
+        # expand the features with reflections
+        features = np.concatenate([features, features[:,reflected_idxs]])
+        labels = np.concatenate([labels, labels])
+        # TODO: Add this as a test-case that these features are the complete list that should be swapped.
+        # They were manually checked with the full feature set
+        # print('Swapping the following features:')
+        # swapped_features = np.where(reflected_idxs!=np.arange(len(reflected_idxs)))[0]
+        # for idx in swapped_features:
+        #     print(str(lowercase_features[idx]) + ' -> ' + str(reflected_feature_names[idx]))
+        return features, labels
 
     def set_classifier(self, classifier):
         """ change the type of the classifier being used """
@@ -224,6 +311,7 @@ class Classifier:
         }
 
     def train(self, data, behavior: str, window_size: int, uses_social: bool,
+              uses_balance: bool, uses_symmetric: bool,
               extended_features: typing.Dict,
               distance_unit: ProjectDistanceUnit,
               random_seed: typing.Optional[int] = None):
@@ -233,6 +321,8 @@ class Classifier:
         :param behavior: string name of behavior we are training for
         :param window_size: window size used for training
         :param uses_social: does training data include social features?
+        :param uses_balance: does the training balance labels through downsampling before training?
+        :param uses_symmetric: is the behavior symmetric to augment L-R reflection?
         :param extended_features: additional features used by classifier
         :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
@@ -244,14 +334,26 @@ class Classifier:
         (check the classifier doesn't use features that are not supported the
         project)
         """
-        features = data['training_data']
-        labels = data['training_labels']
-
+        # Update classifier parameters
         self._uses_social = uses_social
+        self._uses_balance = uses_balance
+        self._uses_symmetric = uses_symmetric
         self._window_size = window_size
         self._behavior = behavior
         self._distance_unit = distance_unit
         self._extended_features = extended_features
+        # import is down here to avoid circular imports
+        from src.feature_extraction.features import IdentityFeatures
+        self._feature_names = IdentityFeatures.get_feature_name_vector(5, self._uses_social, self._extended_features)
+
+        # Obtain the feature and label matrices
+        features = data['training_data']
+        labels = data['training_labels']
+        # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
+        if uses_symmetric:
+            features, labels = self.augment_symmetric(features, labels, self._feature_names)
+        if uses_balance:
+            features, labels = self.downsample_balance(features, labels, random_seed)
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
             self._classifier = self._fit_random_forest(features, labels,
@@ -308,6 +410,8 @@ class Classifier:
         self._behavior = c._behavior
         self._window_size = c._window_size
         self._uses_social = c._uses_social
+        self._uses_balance = c._uses_balance
+        self._uses_symmetric = c._uses_symmetric
         self._classifier_type = c._classifier_type
         self._distance_unit = c._distance_unit
 
@@ -393,9 +497,9 @@ class Classifier:
             print(f"{feature:55} {importance:0.2f}")
 
     @staticmethod
-    def label_threshold_met(all_counts: dict, min_groups: int):
+    def count_label_threshold(all_counts: dict):
         """
-        determine if the labeling threshold is met
+        counts the number of groups that meet label threshold criteria
         :param all_counts: labeled frame and bout counts for the entire project
         parameter is a dict with the following form
         {
@@ -407,11 +511,7 @@ class Classifier:
                 ),
             ]
         }
-
-        :param min_groups: minimum number of groups required (more than one
-        group is always required for the "leave one group out" train/test split,
-        but may be more than 2 for k-fold cross validation if k > 2)
-
+        :return: number of groups that meet label criteria
         """
         group_count = 0
         for video, counts in all_counts.items():
@@ -419,5 +519,17 @@ class Classifier:
                 if (count[1][0] >= Classifier.LABEL_THRESHOLD and
                         count[1][1] >= Classifier.LABEL_THRESHOLD):
                     group_count += 1
+        return group_count
 
+    @staticmethod
+    def label_threshold_met(all_counts: dict, min_groups: int):
+        """
+        determine if the labeling threshold is met
+        :param all_counts: labeled frame and bout counts for the entire project
+        :param min_groups: minimum number of groups required (more than one
+        group is always required for the "leave one group out" train/test split,
+        but may be more than 2 for k-fold cross validation if k > 2)
+        :return: bool if requested valid groups is > valid group
+        """
+        group_count = Classifier.count_label_threshold(all_counts)
         return True if 1 < group_count >= min_groups else False

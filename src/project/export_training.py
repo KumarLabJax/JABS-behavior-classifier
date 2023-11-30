@@ -27,8 +27,11 @@ if TYPE_CHECKING:
 
 def export_training_data(project: 'Project',
                          behavior: str,
+                         pose_version: int,
                          window_size: int,
                          use_social: bool,
+                         use_balanced: bool,
+                         use_symmetric: bool,
                          classifier_type: 'ClassifierType',
                          training_seed: int,
                          out_file: typing.Optional[Path] = None):
@@ -40,8 +43,11 @@ def export_training_data(project: 'Project',
     writes exported data to the project directory
     :param project: Project from which to export training data
     :param behavior: Behavior to export
+    :param pose_version: Minimum required pose version for this classifier
     :param window_size: Window size used for this behavior
     :param use_social: does classifer use social features or not?
+    :param use_balanced: should labels be balanced for export?
+    :param use_symmetric: should the classifier training use symmetric augmentation?
     :param classifier_type: Preferred classifier type
     :param training_seed: random seed to use for training to get reproducable
     results
@@ -65,7 +71,10 @@ def export_training_data(project: 'Project',
     with h5py.File(out_file, 'w') as out_h5:
         out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
+        out_h5.attrs['min_pose_version'] = pose_version
         out_h5.attrs['has_social_features'] = use_social
+        out_h5.attrs['balance_labels'] = use_balanced
+        out_h5.attrs['symmetric'] = use_symmetric
         out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
         out_h5.attrs['classifier_type'] = classifier_type.value
@@ -117,6 +126,8 @@ def load_training_data(training_file: Path):
             'groups': [int],
             'window_size': int,
             'has_social_features': bool,
+            'balance_labels': bool,
+            'symmetric': bool,
             'behavior': str,
             'distance_unit': ProjectDistanceUnit,
             'classifier':
@@ -140,7 +151,10 @@ def load_training_data(training_file: Path):
     group_mapping = {}
 
     with h5py.File(training_file, 'r') as in_h5:
+        features['min_pose_version'] = in_h5.attrs['min_pose_version']
         features['has_social_features'] = in_h5.attrs['has_social_features']
+        features['balance_labels'] = in_h5.attrs['balance_labels']
+        features['symmetric'] = in_h5.attrs['symmetric']
         features['window_size'] = in_h5.attrs['window_size']
         features['behavior'] = in_h5.attrs['behavior']
         features['training_seed'] = in_h5.attrs['training_seed']

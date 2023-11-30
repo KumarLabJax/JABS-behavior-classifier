@@ -25,7 +25,7 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
-    def __init__(self, project, classifier, behavior, window_size, uses_social,
+    def __init__(self, project, classifier, behavior, window_size, uses_social, uses_balance, uses_symmetric,
                  k=1):
         super().__init__()
         self._project = project
@@ -34,6 +34,8 @@ class TrainingThread(QtCore.QThread):
         self._tasks_complete = 0
         self._window_size = window_size
         self._uses_social = uses_social
+        self._uses_balance = uses_balance
+        self._uses_symmetric = uses_symmetric
         self._k = k
 
     def run(self):
@@ -71,16 +73,22 @@ class TrainingThread(QtCore.QThread):
         fbeta_behavior = []
         fbeta_notbehavior = []
 
+        # Figure out the cross validation count if all were requested
+        if self._k == np.inf:
+            self._k = self._classifier.get_leave_one_group_out_max(features['labels'], features['groups'])
+
         if self._k > 0:
 
-            for i, data in enumerate(itertools.islice(data_generator, self._k)):
-                self.current_status.emit(f"cross validation iteration {i}")
+            for i, data in enumerate(data_generator):
+                if i+1>self._k:
+                    break
+                self.current_status.emit(f"cross validation iteration {i+1} of {self._k}")
 
                 test_info = group_mapping[data['test_group']]
 
                 # train classifier, and then use it to classify our test data
                 self._classifier.train(data, self._behavior, self._window_size,
-                                       self._uses_social,
+                                       self._uses_social, self._uses_balance, self._uses_symmetric,
                                        self._project.extended_features,
                                        self._project.distance_unit)
                 predictions = self._classifier.predict(data['test_data'])
@@ -103,7 +111,7 @@ class TrainingThread(QtCore.QThread):
 
                 # print performance metrics and feature importance to console
                 print('-' * 70)
-                print(f"training iteration {i}")
+                print(f"training iteration {i+1}")
                 print("TEST DATA:")
                 print(f"\tVideo: {test_info['video']}")
                 print(f"\tIdentity: {test_info['identity']}")
@@ -136,9 +144,11 @@ class TrainingThread(QtCore.QThread):
                 "test - leave one out:\n(video [identity])"]))
 
             print(f"\nmean accuracy: {np.mean(accuracies):.5}")
+            print(f"std accuracy: {np.std(accuracies):.5}")
             print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
-            print("mean fbeta score (not behavior): "
-                  f"{np.mean(fbeta_notbehavior):.5}")
+            print(f"std fbeta score (behavior): {np.std(fbeta_behavior):.05}")
+            print(f"mean fbeta score (not behavior): {np.mean(fbeta_notbehavior):.5}")
+            print(f"std fbeta score (not behavior): {np.std(fbeta_notbehavior):.05}")
             print(f"\nClassifier: {self._classifier.classifier_name}")
             print(f"Behavior: {self._behavior}")
             unit = "cm" if self._project.distance_unit == ProjectDistanceUnit.CM else "pixel"
@@ -156,6 +166,8 @@ class TrainingThread(QtCore.QThread):
             self._behavior,
             self._window_size,
             self._uses_social,
+            self._uses_balance,
+            self._uses_symmetric,
             self._project.extended_features,
             self._project.distance_unit,
             random_seed=FINAL_TRAIN_SEED

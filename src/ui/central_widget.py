@@ -68,15 +68,13 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._change_behavior)
-        self._controls.kfold_changed.connect(
-            self._set_train_button_enabled_state)
-        self._controls.behavior_list_changed.connect(
-            lambda b: self._project.save_metadata({'behaviors': b}))
-        self._controls.window_size_changed.connect(
-            self._window_feature_size_changed)
+        self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
+        self._controls.behavior_list_changed.connect(lambda b: self._project.save_metadata({'behaviors': b}))
+        self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_social_feature_changed.connect(
-            self._use_social_feature_changed)
+        self._controls.use_social_feature_changed.connect(self._use_social_feature_changed)
+        self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
+        self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -134,6 +132,18 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def uses_social(self):
         return self._controls.use_social_features
+
+    @property
+    def uses_balance(self):
+        return self._controls.use_balance_labels
+
+    @property
+    def uses_symmetric(self):
+        return self._controls.use_symmetric
+
+    @property
+    def all_kfold(self):
+        return self._controls.all_kfold
 
     @property
     def classify_button_enabled(self):
@@ -420,11 +430,12 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
-        # does the classifier match the current window size and social feature
-        # settings?
+        # does the classifier match the current settings?
         if (
                 self._classifier.window_size == self.window_size and
-                self._controls.use_social_features == self._classifier.uses_social
+                self._controls.use_social_features == self._classifier.uses_social and
+                self._controls.use_balance_labels == self._classifier.uses_balance and
+                self._controls.use_symmetric == self._classifier.uses_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -444,7 +455,9 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.current_behavior,
             self._window_size,
             self._controls.use_social_features,
-            self._controls.kfold_value)
+            self._controls.use_balance_labels,
+            self._controls.use_symmetric,
+            np.inf if self._controls.all_kfold else self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
@@ -453,9 +466,15 @@ class CentralWidget(QtWidgets.QWidget):
             lambda m: self.parent().display_status_message(m, 0))
 
         # setup progress dialog
+        # adds 2 for final training
+        total_steps = self._project.total_project_identities + 2
+        if self._controls.all_kfold:
+            project_counts = self._project.counts(self._controls.current_behavior)
+            total_steps += self._classifier.count_label_threshold(project_counts)
+        else:
+            total_steps += self._controls.kfold_value
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Training', None, 0,
-            self._project.total_project_identities + self._controls.kfold_value + 1,
+            'Training', None, 0, total_steps,
             self)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
@@ -465,10 +484,27 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
-        # save the window size used for this behavior
+        # save the project metadata used for this behavior
+        # window setting metadata
         window_settings = self._project.metadata.get('window_size_pref', {})
         window_settings[self.behavior] = self._window_size
         self._project.save_metadata({'window_size_pref': window_settings})
+        # optional feature metadata
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        # social settings
+        social_feature_settings = optional_feature_settings.get('social', {})
+        social_feature_settings[self.behavior] = self.uses_social
+        optional_feature_settings['social'] = social_feature_settings
+        # balanced training settings
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings[self.behavior] = self.uses_balance
+        optional_feature_settings['balance'] = balance_labels_settings
+        # symmetric training settings
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings[self.behavior] = self.uses_balance
+        optional_feature_settings['symmetric'] = symmetric_settings
+        # write all optional features out
+        self._project.save_metadata({'optional_features': optional_feature_settings})
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
@@ -661,6 +697,31 @@ class CentralWidget(QtWidgets.QWidget):
             'optional_features', {})
         social_feature_settings = optional_feature_settings.get('social', {})
         social_feature_settings[self.behavior] = self._controls.use_social_features
+        optional_feature_settings['social'] = social_feature_settings
+        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._update_classifier_controls()
+
+    def _use_balance_labels_changed(self):
+        if self.behavior == '':
+            # Copy behavior of use_social_feature_changed
+            return
+
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings[self.behavior] = self._controls.use_balance_labels
+        optional_feature_settings['balance'] = balance_labels_settings
+        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._update_classifier_controls()
+
+    def _use_symmetric_changed(self):
+        if self.behavior == '':
+            # Copy behavior of use_social_feature_changed
+            return
+
+        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings[self.behavior] = self._controls.use_symmetric
+        optional_feature_settings['symmetric'] = symmetric_settings
         self._project.save_metadata({'optional_features': optional_feature_settings})
         self._update_classifier_controls()
 
@@ -679,6 +740,14 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             # default to enabled if the videos support them
             self._controls.use_social_features = self._project.can_use_social_features
+        # set initial state for balance labels button
+        balance_labels_settings = optional_feature_settings.get('balance', {})
+        if self.behavior in balance_labels_settings:
+            self._controls.use_balance_labels = balance_labels_settings[self.behavior]
+        # set initial state for symmetry button
+        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        if self.behavior in symmetric_settings:
+            self._controls.use_symmetric = symmetric_settings[self.behavior]
 
     def _load_cached_classifier(self):
         classifier_loaded = False
