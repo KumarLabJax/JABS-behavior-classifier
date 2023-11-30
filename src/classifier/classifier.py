@@ -253,7 +253,7 @@ class Classifier:
             sampled_idxs = np.random.choice(idxs, max_examples_per_class, replace=False)
             selected_samples.append(sampled_idxs)
         selected_samples = np.sort(np.concatenate(selected_samples))
-        features = features[selected_samples,:]
+        features = features.iloc[selected_samples]
         labels = labels[selected_samples]
         return features, labels
 
