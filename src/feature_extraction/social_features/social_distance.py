@@ -131,8 +131,7 @@ class ClosestIdentityInfo:
             self, social_points: [PoseEstimation.KeypointIndex],
             closest_identities: np.ndarray
     ):
-        values = np.zeros((self._poses.num_frames, len(social_points) ** 2),
-                          dtype=np.float32)
+        values = np.zeros((self._poses.num_frames, len(social_points) ** 2), dtype=np.float32)
 
         # get indexes of the subset of points used for pairwise social
         # distances
@@ -151,7 +150,14 @@ class ClosestIdentityInfo:
             values[frame] = self._compute_social_pairwise_distance(
                 points[social_pt_indexes, ...],
                 closest_points[social_pt_indexes, ...])
-        return values
+        
+        return_dict = {}
+        # Transform the full matrix into the expected dict of 1D arrays
+        for i in range(len(social_points)):
+            kp1_name = social_points[i // len(social_points)].name
+            kp2_name = social_points[i % len(social_points)].name
+            return_dict[f"social dist. {kp1_name}-{kp2_name}"] = values[:, i]
+        return return_dict
 
     @staticmethod
     def _compute_social_pairwise_distance(points1, points2):

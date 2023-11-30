@@ -1,10 +1,8 @@
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 
-from . import Angles, PairwisePointDistances, PointSpeeds, \
-    CentroidVelocityMag, CentroidVelocityDir, NoseVelocityDir, \
-    NoseVelocityMag, BaseTailVelocityDir, BaseTailVelocityMag, \
-    LeftFrontPawVelocityDir, LeftFrontPawVelocityMag, \
-    RightFrontPawVelocityDir, RightFrontPawVelocityMag, \
+from . import Angles, PairwisePointDistances, \
+    PointSpeeds, PointVelocityDirs, \
+    CentroidVelocityMag, CentroidVelocityDir, \
     AngularVelocity
 
 
@@ -19,16 +17,9 @@ class BaseFeatureGroup(FeatureGroup):
         Angles.name(): Angles,
         AngularVelocity.name(): AngularVelocity,
         PointSpeeds.name(): PointSpeeds,
+        PointVelocityDirs.name(): PointVelocityDirs,
         CentroidVelocityDir.name(): CentroidVelocityDir,
         CentroidVelocityMag.name(): CentroidVelocityMag,
-        NoseVelocityDir.name(): NoseVelocityDir,
-        NoseVelocityMag.name(): NoseVelocityMag,
-        BaseTailVelocityDir.name(): BaseTailVelocityDir,
-        BaseTailVelocityMag.name(): BaseTailVelocityMag,
-        LeftFrontPawVelocityDir.name(): LeftFrontPawVelocityDir,
-        LeftFrontPawVelocityMag.name(): LeftFrontPawVelocityMag,
-        RightFrontPawVelocityDir.name(): RightFrontPawVelocityDir,
-        RightFrontPawVelocityMag.name(): RightFrontPawVelocityMag,
     }
 
     def _init_feature_mods(self, identity: int):

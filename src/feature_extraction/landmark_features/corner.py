@@ -105,7 +105,6 @@ class CornerDistanceInfo:
 
 class DistanceToCorner(Feature):
     _name = 'distance_to_corner'
-    _feature_names = ['distance to corner']
     _min_pose = 5
     _static_objects = ['corners']
 
@@ -123,12 +122,11 @@ class DistanceToCorner(Feature):
         """
 
         distances, _ = self._cached_distances.get_distances(identity)
-        return distances
+        return {'distance to corner': distances}
 
 
 class BearingToCorner(Feature):
     _name = 'bearing_to_corner'
-    _feature_names = ['bearing to corner']
     _min_pose = 5
     _static_objects = ['corners']
 
@@ -144,18 +142,18 @@ class BearingToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict:
         """
         get the per frame bearing to the nearest corner values
         :param identity: identity to get feature values for
-        :return: numpy ndarray of values with shape (nframes,)
+        :return: dict of values with shape (nframes,)
         """
 
         _, bearings = self._cached_distances.get_distances(identity)
-        return bearings
+        return {'bearing to corner': bearings}
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> typing.Dict:
+               per_frame_values: dict) -> typing.Dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)
