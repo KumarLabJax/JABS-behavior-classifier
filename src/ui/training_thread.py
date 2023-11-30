@@ -157,11 +157,12 @@ class TrainingThread(QtCore.QThread):
 
         # retrain with all training data and fixed random seed before saving:
         self.current_status.emit("Training and saving final classifier")
+        full_dataset = self._classifier.combine_data(features['per_frame'], features['window'])
         self._classifier.train(
             {
-                'training_data': self._classifier.combine_data(
-                    features['per_frame'], features['window']),
-                'training_labels': features['labels']
+                'training_data': full_dataset,
+                'training_labels': features['labels'],
+                'feature_names': full_dataset.columns.to_list()
             },
             self._behavior,
             self._window_size,

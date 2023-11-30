@@ -258,7 +258,7 @@ class Classifier:
         return features, labels
 
     @staticmethod
-    def augment_symmetric(features, labels, feature_names, random_str='ASygRQDZJD'):
+    def augment_symmetric(features, labels, random_str='ASygRQDZJD'):
         """
         augments the features to include L-R and R-L duplicates
         This requires 'left' or 'right' to be in the feature name to be swapped
@@ -269,16 +269,17 @@ class Classifier:
         :param random_str: a random string to use as a temporary replacement when swapping left/right
         :return: tuple of augmented features, labels
         """
-        assert len(feature_names)==np.shape(features)[1]
 
         # Figure out the L-R swapping of features
-        lowercase_features = np.array([x.lower() for x in feature_names])
+        lowercase_features = np.array([x.lower() for x in features.columns.to_list()])
         reflected_feature_names = [re.sub(r'left', random_str, x) for x in lowercase_features]
         reflected_feature_names = [re.sub(r'right', 'left', x) for x in reflected_feature_names]
         reflected_feature_names = [re.sub(random_str, 'right', x) for x in reflected_feature_names]
-        reflected_idxs = [np.where(lowercase_features==x)[0][0] if x in lowercase_features else i for i,x in enumerate(reflected_feature_names)]
+        reflected_idxs = [np.where(lowercase_features == x)[0][0] if x in lowercase_features else i for i, x in enumerate(reflected_feature_names)]
         # expand the features with reflections
-        features = np.concatenate([features, features[:,reflected_idxs]])
+        features_duplicate = features.copy()
+        features_duplicate.columns = features.columns.to_numpy()[np.asarray(reflected_idxs)]
+        features = pd.concat([features, features_duplicate])
         labels = np.concatenate([labels, labels])
         # TODO: Add this as a test-case that these features are the complete list that should be swapped.
         # They were manually checked with the full feature set
@@ -342,16 +343,18 @@ class Classifier:
         self._behavior = behavior
         self._distance_unit = distance_unit
         self._extended_features = extended_features
-        # import is down here to avoid circular imports
-        from src.feature_extraction.features import IdentityFeatures
-        self._feature_names = IdentityFeatures.get_feature_name_vector(5, self._uses_social, self._extended_features)
+        # Assume that feature names is provided, otherwise extract it from the dataframe
+        if 'feature_names' in data.keys():
+            self._feature_names = data['feature_names']
+        else:
+            self._feature_names = data['training_data'].columns.to_list()
 
         # Obtain the feature and label matrices
         features = data['training_data']
         labels = data['training_labels']
         # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
         if uses_symmetric:
-            features, labels = self.augment_symmetric(features, labels, self._feature_names)
+            features, labels = self.augment_symmetric(features, labels)
         if uses_balance:
             features, labels = self.downsample_balance(features, labels, random_seed)
 
