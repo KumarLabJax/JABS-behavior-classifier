@@ -1,8 +1,8 @@
-#Per-Frame Features
+# Per-Frame Features
 
 ## Egocentric Animal Features
 
-112 features from 12 animal keypoints
+116 features from 12 animal keypoints
 
 * point mask (boolean, 12 values)
 * pairwise distances between all points (66 values)
@@ -18,14 +18,10 @@
     * left rear paw, base tail, mid tail
     * center spine, base tail, mid tail
     * base tail, mid tail, tip tail
-* keypoint speeds (12 values)
 * angular velocity (using base tail → base neck bearing)
 * velocities (each velocity listed below consists of two features – the direction and magnitude components)
     * centroid
-    * nose velocity
-    * base tail
-    * left front paw
-    * right front paw
+    * 12 keypoints
 
 ## Social features (v3 pose files)
 
