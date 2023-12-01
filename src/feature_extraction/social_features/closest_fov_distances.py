@@ -12,7 +12,6 @@ if typing.TYPE_CHECKING:
 class ClosestFovDistances(Feature):
 
     _name = 'closest_fov_distances'
-    _feature_names = ['closest social distance in FoV']
     _min_pose = 3
 
     def __init__(self, poses: 'PoseEstimation', pixel_scale: float,
@@ -24,7 +23,6 @@ class ClosestFovDistances(Feature):
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for
-        :return: np.ndarray with feature values
+        :return: dict with feature values
         """
-        return self._social_distance_info.compute_distances(
-            self._social_distance_info.closest_fov_identities)
+        return {'closest social distance in FoV': self._social_distance_info.compute_distances(self._social_distance_info.closest_fov_identities)}

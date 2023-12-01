@@ -6,9 +6,7 @@ for /f "tokens=*" %%i in ('python --version 2^>nul') do set VER=%%i
 SET OK=0
 
 :: Supported versions of Python
-if "%VER:~7,3%"=="3.7" SET OK=1
-if "%VER:~7,3%"=="3.8" SET OK=1
-if "%VER:~7,3%"=="3.9" SET OK=1
+if "%VER:~7,3%"=="3.10" SET OK=1
 
 if %OK% == 1 (
   echo Found %VER%
@@ -16,5 +14,5 @@ if %OK% == 1 (
   python -m venv jabs.venv
   jabs.venv\Scripts\activate.bat & pip install -r requirements.txt
 ) else (
-  echo JABS Requires Python 3.7, 3.8, or 3.9
+  echo JABS Requires Python 3.10
 )

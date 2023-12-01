@@ -10,6 +10,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pandas as pd
 
 import src.feature_extraction as fe
 from src.pose_estimation import get_pose_path, open_pose_file, \
@@ -635,7 +636,6 @@ class Project:
         all_window = []
         all_labels = []
         all_groups = []
-        column_names = None
         group_mapping = {}
 
         group_id = 0
@@ -659,27 +659,30 @@ class Project:
                     distance_scale_factor=distance_scale_factor,
                     extended_features=self._enabled_extended_features
                 )
-                if column_names is None:
-                    column_names = features.get_feature_column_names(
-                        use_social_features)
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(
                     use_social_features, labels)
+                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
+                    per_frame_features, use_social_features,
+                    extended_features=self._enabled_extended_features)
+                per_frame_features = pd.DataFrame(per_frame_features)
+                all_per_frame.append(per_frame_features)
+
                 window_features = features.get_window_features(
                     window_size, use_social_features, labels)
-
-                all_per_frame.append(per_frame_features)
+                window_features = fe.IdentityFeatures.merge_window_features(
+                    window_features, use_social_features,
+                    extended_features=self._enabled_extended_features)
+                window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
+
                 all_labels.append(labels[labels != TrackLabels.Label.NONE])
 
-                # should be a better way to do this, but I'm getting the number
-                # of frames in this group by looking at the shape of one of
-                # the arrays included in the per frame features
                 all_groups.append(
-                    np.full(per_frame_features['angles'].shape[0],
+                    np.full(per_frame_features.shape[0],
                             group_id))
                 group_id += 1
 
@@ -687,15 +690,10 @@ class Project:
                     progress_callable()
 
         return {
-            'window': fe.IdentityFeatures.merge_window_features(
-                all_window, use_social_features,
-                extended_features=self._enabled_extended_features),
-            'per_frame': fe.IdentityFeatures.merge_per_frame_features(
-                all_per_frame, use_social_features,
-                extended_features=self._enabled_extended_features),
+            'window': pd.concat(all_window),
+            'per_frame': pd.concat(all_per_frame),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
-            'column_names': column_names
         }, group_mapping
 
     def __update_version(self):
