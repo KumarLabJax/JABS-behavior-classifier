@@ -22,7 +22,7 @@ from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from src.project import TrackLabels
 from src.project import ProjectDistanceUnit
 
-_VERSION = 4
+_VERSION = 5
 
 
 class ClassifierType(IntEnum):
