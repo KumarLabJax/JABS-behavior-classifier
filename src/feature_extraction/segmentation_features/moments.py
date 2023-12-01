@@ -18,7 +18,7 @@ class Moments(Feature):
     # However, we only want to look at egocentric (translational invariant)
     # mu (central or relative to centroid) moments and nu (normalized central) moments meet this translational invariance criteria
     # nu moments are also scale-invariant
-    _feature_names = ['m00', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
+    _moments_to_use = ['m00', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float,
                  moment_cache: 'MomentInfo'):
@@ -27,10 +27,12 @@ class Moments(Feature):
 
     def per_frame(self, identity: int) -> np.ndarray:
 
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
+        values = {}
 
-        for frame in range(values.shape[0]):
-            for j in range(len(self._feature_names)):
-                values[frame, j] = self._moment_cache.get_moment(frame, self._feature_names[j])
+        for cur_moment in self._moments_to_use:
+            vector = np.zeros([self._poses.num_frames], dtype=np.float32)
+            for frame in range(self._poses.num_frames):
+                vector[frame] = self._moment_cache.get_moment(frame, cur_moment)
+            values[cur_moment] = vector
 
         return values

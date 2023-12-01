@@ -18,7 +18,6 @@ class ShapeDescriptors(Feature):
     _name = 'shape_descriptor'
     # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
     # These need to be handled similar to other angle terms (circular statistics)
-    _feature_names = ['centroid_speed', 'ellipse_w', 'ellipse_l', 'perimeter', 'elongation', 'rectangularity', 'convexity', 'solidity', 'euler_number', 'hole_area_ratio']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float,
                  moment_cache: 'MomentInfo'):
@@ -29,10 +28,18 @@ class ShapeDescriptors(Feature):
     def per_frame(self, identity: int) -> np.ndarray:
         x = np.zeros((self._poses.num_frames), dtype=np.float32)
         y = np.zeros((self._poses.num_frames), dtype=np.float32)
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
-        fps = self._poses.fps
+        ellipse_w = np.zeros((self._poses.num_frames), dtype=np.float32)
+        ellipse_l = np.zeros((self._poses.num_frames), dtype=np.float32)
+        perimeter_sum = np.zeros((self._poses.num_frames), dtype=np.float32)
+        elongation = np.zeros((self._poses.num_frames), dtype=np.float32)
+        rectangularity = np.zeros((self._poses.num_frames), dtype=np.float32)
+        convexity = np.zeros((self._poses.num_frames), dtype=np.float32)
+        solidity = np.zeros((self._poses.num_frames), dtype=np.float32)
+        euler_number = np.zeros((self._poses.num_frames), dtype=np.float32)
+        hole_area_ratio = np.zeros((self._poses.num_frames), dtype=np.float32)
 
-        for frame in range(values.shape[0]):
+        # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
+        for frame in range(self._poses.num_frames):
             # Safety for division by 0 (no segmentation to calculate on)
             if self._moment_cache.get_moment(frame, 'm00')==0:
                 continue
@@ -44,8 +51,8 @@ class ShapeDescriptors(Feature):
             a = self._moment_cache.get_moment(frame, 'm20') / self._moment_cache.get_moment(frame, 'm00') - np.square(x[frame])
             b = 2*(self._moment_cache.get_moment(frame, 'm11') / self._moment_cache.get_moment(frame, 'm00') - x[frame] * y[frame])
             c = self._moment_cache.get_moment(frame, 'm02') / self._moment_cache.get_moment(frame, 'm00') - np.square(y[frame])
-            values[frame, self._feature_names.index('ellipse_w')] = 0.5 * np.sqrt(8*(a + c - np.sqrt(np.square(b) + np.square(a - c))))
-            values[frame, self._feature_names.index('ellipse_l')] = 0.5 * np.sqrt(8*(a + c + np.sqrt(np.square(b) + np.square(a - c))))
+            ellipse_w[frame] = 0.5 * np.sqrt(8*(a + c - np.sqrt(np.square(b) + np.square(a - c))))
+            ellipse_l[frame] = 0.5 * np.sqrt(8*(a + c + np.sqrt(np.square(b) + np.square(a - c))))
             # Theta needs the be handled uniquely because it's only 0-pi and needs circular statistics
             # theta = 0.5 * np.arctan(2 * b / (a - c))
 
@@ -69,16 +76,27 @@ class ShapeDescriptors(Feature):
             hole_areas = np.sum([cv2.contourArea(contour_list[int(x)]) for x in np.where(contour_flags[:len(contour_list)]==0)[0]])
 
             # Place the shape features into the return value
-            values[frame, self._feature_names.index('perimeter')] = np.sum(perimeters) * self._pixel_scale
-            values[frame, self._feature_names.index('elongation')] = 1-(np.min(min_bound_rect[1])/np.max(min_bound_rect[1]))
-            values[frame, self._feature_names.index('rectangularity')] = self._moment_cache.get_moment(frame, 'm00')/(min_bound_rect[1][0]*min_bound_rect[1][1] * self._pixel_scale**2)
-            values[frame, self._feature_names.index('convexity')] = hull_perimeter/np.sum(perimeters)
-            values[frame, self._feature_names.index('solidity')] = self._moment_cache.get_moment(frame, 'm00')/(hull_area * self._pixel_scale**2)
-            values[frame, self._feature_names.index('euler_number')] = np.sum(contour_flags[:len(contour_list)]==1)-np.sum(contour_flags[:len(contour_list)]==0)
-            values[frame, self._feature_names.index('hole_area_ratio')] = (hole_areas * self._pixel_scale**2)/self._moment_cache.get_moment(frame, 'm00')
-            
+            perimeter_sum[frame] = np.sum(perimeters) * self._pixel_scale
+            elongation[frame] = 1 - (np.min(min_bound_rect[1])/np.max(min_bound_rect[1]))
+            rectangularity[frame] = self._moment_cache.get_moment(frame, 'm00')/(min_bound_rect[1][0]*min_bound_rect[1][1] * self._pixel_scale**2)
+            convexity[frame] = hull_perimeter/np.sum(perimeters)
+            solidity[frame] = self._moment_cache.get_moment(frame, 'm00')/(hull_area * self._pixel_scale**2)
+            euler_number[frame] = np.sum(contour_flags[:len(contour_list)]==1)-np.sum(contour_flags[:len(contour_list)]==0)
+            hole_area_ratio[frame] = (hole_areas * self._pixel_scale**2)/self._moment_cache.get_moment(frame, 'm00')
+
         # Calculate the centroid speeds
         centroid_speeds = np.hypot(np.gradient(x), np.gradient(y))
-        values[:,self._feature_names.index('centroid_speed')] = centroid_speeds
+        
+        values = {}
+        values['centroid_speed'] = centroid_speeds
+        values['ellipse_w'] = ellipse_w
+        values['ellipse_l'] = ellipse_l
+        values['perimeter'] = perimeter_sum
+        values['elongation'] = elongation
+        values['rectangularity'] = rectangularity
+        values['convexity'] = convexity
+        values['solidity'] = solidity
+        values['euler_number'] = euler_number
+        values['hole_area_ratio'] = hole_area_ratio
 
         return values

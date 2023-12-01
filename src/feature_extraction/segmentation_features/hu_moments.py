@@ -23,12 +23,14 @@ class HuMoments(Feature):
         self._moment_cache = moment_cache
 
     def per_frame(self, identity: int) -> np.ndarray:
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)), dtype=np.float32)
+        values = {name: np.zeros([self._poses.num_frames], dtype=np.float32) for name in self._feature_names}
         
-        for frame in range(values.shape[0]):
+        for frame in range(self._poses.num_frames):
             # Skip calculation if m00 is 0
-            if self._moment_cache.get_moment(frame, 'm00')==0:
+            if self._moment_cache.get_moment(frame, 'm00') == 0:
                 continue
-            values[frame, :] = cv2.HuMoments(self._moment_cache.get_all_moments(frame)).T
+            hu_moments = cv2.HuMoments(self._moment_cache.get_all_moments(frame))
+            for i, name in enumerate(self._feature_names):
+                values[name][frame] = hu_moments[i]
 
         return values
