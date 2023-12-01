@@ -13,7 +13,6 @@ if typing.TYPE_CHECKING:
 class ClosestFovAngles(Feature):
 
     _name = 'closest_fov_angles'
-    _feature_names = ['angle of closest social distance in FoV']
     _min_pose = 3
 
     # override for circular values
@@ -31,10 +30,10 @@ class ClosestFovAngles(Feature):
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for
-        :return: np.ndarray with feature values
+        :return: dict with feature values
         """
         # this is already computed
-        return self._social_distance_info.closest_fov_angles
+        return {'angle of closest social distance in FoV': self._social_distance_info.closest_fov_angles}
 
     def window(self, identity: int, window_size: int,
                per_frame_values: np.ndarray) -> typing.Dict:

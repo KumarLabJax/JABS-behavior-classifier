@@ -220,8 +220,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
+                                            self._project._min_pose_version,
                                             self._central_widget.window_size,
                                             self._central_widget.uses_social,
+                                            self._central_widget.uses_balance,
+                                            self._central_widget.uses_symmetric,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",

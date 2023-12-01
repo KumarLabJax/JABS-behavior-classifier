@@ -11,11 +11,6 @@ _EXCLUDED_POINTS = [PoseEstimation.KeypointIndex.MID_TAIL,
 
 class FoodHopper(Feature):
     _name = 'food_hopper'
-    _feature_names = [
-        f'food hopper {p.name}'
-        for p in PoseEstimation.KeypointIndex
-        if p not in _EXCLUDED_POINTS
-    ]
     _min_pose = 5
     _static_objects = ['food_hopper']
 
@@ -37,7 +32,7 @@ class FoodHopper(Feature):
 
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
-        values = np.zeros((self._poses.num_frames, len(self._feature_names)))
+        values = {}
 
         # for each keypoint we will find if that keypoint is within the
         # food hopper at each frame, then we will set values to 1.0 everywhere
@@ -50,7 +45,7 @@ class FoodHopper(Feature):
             # swap our x,y to match the opencv coordinate space
             pts = points[:, key_point.value, [1, 0]]
 
-            values[:, key_point.value] = np.asarray(
+            values[f'food hopper {key_point.name}'] = np.asarray(
                 [cv2.pointPolygonTest(hopper_pts, (p[0], p[1]), True) for p in pts]
             )
 

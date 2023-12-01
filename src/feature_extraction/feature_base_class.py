@@ -22,8 +22,6 @@ class Feature(abc.ABC):
     _min_pose = 2
     _static_objects = []
 
-    _SMOOTHING_WINDOW = 5
-
     # _compute_window_feature uses numpy masked arrays, so we
     # need to use the np.ma.* versions of these functions
     # NOTE: Circular values need to override this as well as the window()
@@ -42,9 +40,6 @@ class Feature(abc.ABC):
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
-        if self._feature_names is None:
-            raise NotImplementedError(
-                "Base class must override _feature_names class member")
 
     @classmethod
     def name(cls) -> str:
@@ -97,7 +92,7 @@ class Feature(abc.ABC):
         pass
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> typing.Dict:
+               per_frame_values: dict) -> typing.Dict:
         """
         standard method for computing window feature values
 
@@ -144,55 +139,43 @@ class Feature(abc.ABC):
             window_width
         )
 
-    def _compute_window_feature(self, feature_values: np.ndarray,
+    def _compute_window_feature(self, feature_values: dict,
                                 frame_mask: np.ndarray, window_size: int,
                                 op: typing.Callable) -> np.ndarray:
         """
         helper function to compute window feature values
 
-        :param feature_values: per frame feature values. Can be a 1D ndarray
-        for a single feature, or a 2D array for a set of related features
-        (e.g. pairwise point distances are stored as a 2D array)
+        :param feature_values: dict of per frame feature values
         :param frame_mask: array indicating which frames are valid for the
         current identity
         :param window_size: number of frames (in each direction) to include
         in the window. The actual number of frames is 2 * window_size + 1
         :param op: function to perform the actual computation
-        :return: numpy nd array containing feature values
+        :return: dict containing feature values
         """
         window_masks = self._window_masks(frame_mask, window_size)
 
         window_width = self.window_width(window_size)
-        values = np.zeros_like(feature_values)
-        if feature_values.ndim == 1:
+        values = {}
+        for key, val in feature_values.items():
             windows = rolling_window(
-                np.pad(feature_values, window_size),
+                np.pad(val, window_size),
                 window_width
             )
             mx = np.ma.masked_array(windows, window_masks)
-            values[:] = op(mx, axis=1)
-        else:
-            # if the feature is 2D, for example 'pairwise_distances',
-            # compute the window features for each column
-            for j in range(feature_values.shape[1]):
-                windows = rolling_window(
-                    np.pad(feature_values[:, j], window_size),
-                    window_width
-                )
-                mx = np.ma.masked_array(windows, window_masks)
-                values[:, j] = op(mx, axis=1)
-
+            values[f"{key}"] = op(mx, axis=1)
+        
         return values
 
     def _compute_window_features_circular(
-            self, feature_values: np.ndarray, frame_mask: np.ndarray,
+            self, feature_values: dict, frame_mask: np.ndarray,
             window_size: int, op: typing.Callable,
             scipy_workaround: bool = False
     ) -> typing.Dict:
         """
         special case compute_window_features for circular measurements
 
-        :param feature_values: numpy array containing per-frame feature values
+        :param feature_values: dict of per-frame feature values
         :param frame_mask: numpy array that indicates if the frame is valid or
         not for the specific identity we are computing features for
         :param window_size:
@@ -209,10 +192,10 @@ class Feature(abc.ABC):
         # this will be fixed as of scipy 1.6.0, so this work-around can be
         # removed once we can upgrade to scipy 1.6.0
 
-        :return: numpy nd array with circular feature values
+        :return: dict with circular feature values
         """
         nframes = self._poses.num_frames
-        values = np.zeros_like(feature_values)
+        values = {}
 
         def func_wrapper(_values):
             """
@@ -227,36 +210,33 @@ class Feature(abc.ABC):
                 return 0.0
             return v
 
-        # unfortunately the scipy.stats.circmean/circstd functions don't work
-        # with numpy masked arrays, so we need to iterate over each window and
-        # create a view with only the valid values
+        for key, val in feature_values.items():
 
-        for i in range(nframes):
+            op_result = np.zeros(val.shape)
 
-            # identity doesn't exist for this frame don't bother to compute
-            if not frame_mask[i]:
-                continue
+            # unfortunately the scipy.stats.circmean/circstd functions don't work
+            # with numpy masked arrays, so we need to iterate over each window and
+            # create a view with only the valid values
 
-            slice_start = max(0, i - window_size)
-            slice_end = min(i + window_size + 1, nframes)
+            for i in range(nframes):
 
-            slice_frames_valid = frame_mask[slice_start:slice_end]
+                # identity doesn't exist for this frame don't bother to compute
+                if not frame_mask[i]:
+                    continue
 
-            if feature_values.ndim == 1:
-                window_values = feature_values[slice_start:slice_end][
+                slice_start = max(0, i - window_size)
+                slice_end = min(i + window_size + 1, nframes)
+
+                slice_frames_valid = frame_mask[slice_start:slice_end]
+
+                window_values = val[slice_start:slice_end][
                     slice_frames_valid == 1]
 
                 if scipy_workaround:
-                    values[i] = func_wrapper(window_values)
+                    op_result[i] = func_wrapper(window_values)
                 else:
-                    values[i] = op(window_values)
-            else:
-                for j in range(feature_values.shape[1]):
-                    window_values = feature_values[slice_start:slice_end, j][slice_frames_valid == 1]
+                    op_result[i] = op(window_values)
 
-                    if scipy_workaround:
-                        values[i, j] = func_wrapper(window_values)
-                    else:
-                        values[i, j] = op(window_values)
+            values[f"{key}"] = op_result
 
         return values

@@ -18,22 +18,9 @@ _social_point_subset = [
 ]
 
 
-def _init_feature_names():
-    """
-    build a list of feature names that correspond to the columns returned
-    by the PairwiseSocialDistances and PairwiseSocialFovDistances modules
-    """
-    dist_names = []
-    for kpi1 in _social_point_subset:
-        for kpi2 in _social_point_subset:
-            dist_names.append(f"{kpi1.name}-{kpi2.name}")
-    return [f"social dist. {sdn}" for sdn in dist_names]
-
-
 class PairwiseSocialDistances(Feature):
 
     _name = 'social_pairwise_distances'
-    _feature_names = _init_feature_names()
     _min_pose = 3
 
 
@@ -47,12 +34,13 @@ class PairwiseSocialDistances(Feature):
         self._social_distance_info = social_distance_info
         self._poses = poses
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict:
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for
-        :return: np.ndarray with feature values
+        :return: dict with feature values
         """
+
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset,
             self._social_distance_info.closest_identities
@@ -68,10 +56,6 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
     """
 
     _name = 'social_pairwise_fov_distances'
-    _feature_names = [
-        n.replace('social dist.', 'social fov dist.')
-        for n in PairwiseSocialDistances._feature_names
-    ]
 
     def per_frame(self, identity: int) -> np.ndarray:
         """

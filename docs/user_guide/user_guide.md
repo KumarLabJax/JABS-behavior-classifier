@@ -129,7 +129,7 @@ tool (`classify.py`).
 
 ### Main Window
 
-![JABS Main Window](imgs/main_window.png "JABS Main Window")
+<img src="imgs/main_window.png" alt="JABS Main Window" width=1150 />
 
 - **Behavior Selection:** Select current behavior to label
 - **Add New Behavior Button:** Add new behavior label to project
@@ -157,7 +157,7 @@ tool (`classify.py`).
 
 ### Classifier Controls
 
-![JABS Classifier Controls](imgs/classifier_controls.png "JABS Classifier Controls")
+<img src="imgs/classifier_controls.png" alt="JABS Classifier Controls" width=900 />
 
 - **Train Button:** Train the classifier with the current parameters. This
   button is disabled until minimum number of frames have been labeled for a
@@ -173,15 +173,18 @@ tool (`classify.py`).
   means that 11 frames are included into the window feature calculations for
   each frame (5 previous frames, current frame, 5 following frames).
 - **New Window Size:** Add a new window size to the project.
-- **Cross Validation Slider:** Number of "Leave One Out" cross validation
-  iterations to run while training.
 - **Social Feature Toggle:** Turn on/off social features (disabled if project
   includes pose file version 2). Allows training a classifier backwards
   compatible with V2 pose files using V3 or higher poses.
+- **Label Balancing Toggle:** Balances the training data by downsampling the class with more labels such that the distribution is equal.
+- **Symmetric Behavior Toggle:** Tells the classifier that the behavior is symmetric. A symmetric behavior is when left and right features are interchangeable.
+- **All k-fold Toggle:** Uses the maximum number of cross validation folds. Useful when you wish to compare classifier performance and may have an outlier that can be held-out.
+- **Cross Validation Slider:** Number of "Leave One Out" cross validation
+  iterations to run while training.
 
 ### Label and Prediction Visualizations
 
-![JABS Label Visualizations](imgs/label_viz.png "JABS Label Visualizations")
+<img src="imgs/label_viz.png" alt="JABS Label Visualizations" width=900 />
 
 - **Manual Labels (sliding window):** Displays manually assigned labels for a
   sliding window of frames. The window range is the current frame +/-50 frames.
@@ -221,10 +224,10 @@ tool (`classify.py`).
   video.
 
 **Track Overlay Example:**  
-![Track Overlay](imgs/track_overlay.png "Track Overlay")
+<img src="imgs/track_overlay.png" alt="Track Overlay" width=400 />
 
 **Pose Overlay Example:**  
-![Pose Overlay](imgs/pose_overlay.png "Pose Overlay")
+<img src="imgs/pose_overlay.png" alt="Pose Overlay" width=400 />
 
 ## Labeling
 
@@ -244,7 +247,7 @@ current frame. Applying a label, or removing labels from the selection clears
 the current selection and leaves "Select Mode".
 
 The current selection range is shown on the "Manual Labels" display:  
-![Frame Selection](imgs/selecting_frames.png "Selecting Frames")  
+<img src="imgs/selecting_frames.png" alt="Selecting Frames" width=900 />  
 Clicking the "Select Frames" button again or pressing the Escape key will
 unselect the frames and leave select mode without making a change to the labels.
 
@@ -286,7 +289,7 @@ failed for those frames. In the manual label visualization, these gaps are
 indicated with a pattern fill instead of the solid gray/orange/blue colors. In
 the predicted class visualization, the gaps are colored white.
 
-![Identity Gaps](imgs/identity_gaps.png "Identity Gaps")
+<img src="imgs/identity_gaps.png" alt="Identity Gaps" width=900 />
 
 ## All Keyboard Shortcuts
 

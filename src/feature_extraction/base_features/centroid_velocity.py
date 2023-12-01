@@ -17,7 +17,6 @@ class CentroidVelocityDir(Feature):
     """ feature for the direction of the center of mass velocity """
 
     _name = 'centroid_velocity_dir'
-    _feature_names =  ['centroid_velocity_dir']
 
     # override for circular values
     _window_operations = {
@@ -58,7 +57,7 @@ class CentroidVelocityDir(Feature):
             # convert angle to range -180 to 180
             values[indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
 
-        return values
+        return {'centroid_velocity_dir': values}
 
     def window(self, identity: int, window_size: int,
                per_frame_values: np.ndarray) -> dict:
@@ -71,7 +70,6 @@ class CentroidVelocityMag(Feature):
     """ feature for the magnitude of the center of mass velocity """
 
     _name = 'centroid_velocity_mag'
-    _feature_names = ['centroid_velocity_mag']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -108,4 +106,4 @@ class CentroidVelocityMag(Feature):
             values[indexes] = np.sqrt(
                 np.square(v[:, 0]) + np.square(v[:, 1])) * fps
 
-        return values
+        return {'centroid_velocity_mag': values}
