@@ -1,0 +1,71 @@
+{
+    "meta": {
+        "purpose": "The parameters will be used as arguments to the machine learning classifiers.",
+        "version": "1.0",
+        "random forest reference": "For more information about setting the parameters, please visit: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html",
+        "xgboost reference": "https://xgboost.readthedocs.io/en/stable/parameter.html",
+        "gradient boost reference": "https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.GradientBoostingClassifier.html"
+    },
+    "parameters": {
+        "random_forest": {
+            "criterion": "gini",
+            "max_depth": "None",
+            "min_samples_split": "2",
+            "min_samples_leaf": "1",
+            "min_weight_fraction_leaf": "0.0",
+            "max_features": "sqrt",
+            "max_leaf_nodes": "None",
+            "min_impurity_decrease": "0.0",
+            "bootstrap": "True",
+            "oob_score": "False",
+            "warm_start": "False",
+            "class_weight": "None",
+            "ccp_alpha": "0.0",
+            "max_samples": "None"
+        },
+        "xg_boost": {
+            "booster": "gbtree",
+            "eta": "0.3",
+            "gamma": "0",
+            "max_depth": "6",
+            "min_child_weight": "1",
+            "max_delta_step": "0",
+            "subsample": "1",
+            "sampling_method": "uniform",
+            "colsample_bytree": "1",
+            "colsample_bylevel": "1",
+            "colsample_bynode": "1",
+            "lambda": "1",
+            "alpha": "1",
+            "tree_method": "auto",
+            "scale_pos_weight": "1",
+            "refresh_leaf": "1",
+            "process_type": "default",
+            "grow_policy": "depth_wise",
+            "max_leaves": "0",
+            "max_bin": "256",
+            "predictor": "auto",
+            "num_parallel_tree": "1"
+        },
+        "gradient_boost": {
+            "loss": "log_loss",
+            "learning_rate": "0.1",
+            "n_estimators": "100",
+            "subsample": "1.0",
+            "criterion": "friedman_mse",
+            "min_samples_split": "2",
+            "min_samples_leaf": "1",
+            "min_weight_fraction_leaf": "0.0",
+            "max_depth": "3",
+            "min_impurity_decrease": "0.0",
+            "init": "None",
+            "max_features": "None",
+            "max_leaf_nodes": "None",
+            "warm_start": "False",
+            "validation_fraction": "0.1",
+            "n_iter_no_change": "None",
+            "tol": "1e-4",
+            "ccp_alpha": "0.0"
+        }
+    }
+}

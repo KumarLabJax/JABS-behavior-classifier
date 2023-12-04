@@ -1,7 +1,8 @@
 import abc
 import typing
-
 import numpy as np
+from scipy import signal
+from scipy.stats import kurtosis, skew
 
 from src.utils.utilities import rolling_window
 from src.pose_estimation import PoseEstimation
@@ -32,11 +33,41 @@ class Feature(abc.ABC):
         "max": np.ma.amax,
         "min": np.ma.amin
     }
+    _nan_fill_value = 0
+
+    # signal processing constants.
+    _samplerate = 30.
+    _filterOrder = 5
+    _criticalFrequencies = [1. / _samplerate, 29. / _samplerate]
+    _b, _a = signal.butter(_filterOrder, _criticalFrequencies, 'bandpass')
+    _signal_keys = [
+        "__k",
+        "__k_psd",
+        "__s_psd",
+        "__MPL_1",
+        "__MPL_3",
+        "__MPL_5",
+        "__MPL_8",
+        "__MPL_15",
+        "__Tot_PSD",
+        "__Max_PSD",
+        "__Min_PSD",
+        "__Ave_PSD",
+        "__Std_PSD",
+        "__Ave_Signal",
+        "__Std_Signal",
+        "__Max_Signal",
+        "__Min_Signal",
+        "__Top_Signal",
+        "__Med_Signal",
+        "__Med_PSD"
+    ]
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
         self._pixel_scale = pixel_scale
+
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
@@ -117,11 +148,114 @@ class Feature(abc.ABC):
                 window_size, op, op_name == 'std_dev')
         return values
 
+    def signal_processing(
+        self,
+        identity: int,
+        window_size: int,
+        per_frame_values: np.ndarray
+    ) -> typing.Dict:
+        """
+        The standard method for computing signal processing features.
+
+        :param identity: The identity of the mouse.
+        :param window_size: The window size used for signal formation.
+        :param per_frame_values: The values for a particular feature.
+        :return: a dictionary of the signal processing features.
+        """
+
+        values = self._compute_frequency_features(
+            per_frame_values, self._poses.identity_mask(identity),
+            window_size
+            )
+
+        return {self._signal_keys[i]: values[:, :, i]
+                for i in range(len(self._signal_keys))}
+
+    def get_frequency_feature(
+            self,
+            wave: np.ndarray,
+            a: np.ndarray = _a,
+            b: np.ndarray = _b,
+            samplerate: float = _samplerate
+    ) -> dict:
+        """
+        Compute various features from the frequencies and power spectral density of 
+        the input wave array.
+
+        :param wave: an array representing the signals for each frame for a
+            given identity for a particular window size.
+        :param a: The denominator coefficient vector of the filter.
+        :param b: The numerator coefficient vector of the filter.
+        :param samplerate: average number of samples per unit time.
+        :return: np.ndarray with feature values with the ith value
+            corresponding to the ith key in self.signal_keys.
+        """
+        freqs, psd = signal.welch(wave, fs=samplerate, nperseg=16, nfft=64)
+
+        return np.array([
+            kurtosis(wave),
+            kurtosis(psd),
+            skew(psd),
+            np.mean(psd[np.logical_and(freqs > 0.1, freqs < 1)]),
+            np.mean(psd[np.logical_and(freqs > 1, freqs < 3)]),
+            np.mean(psd[np.logical_and(freqs > 3, freqs < 5)]),
+            np.mean(psd[np.logical_and(freqs > 5, freqs < 8)]),
+            np.mean(psd[np.logical_and(freqs > 8, freqs < 15)]),
+            np.sum(psd),
+            max(psd),
+            min(psd),
+            np.average(psd),
+            np.std(psd),
+            np.average(wave),
+            np.std(wave),
+            max(wave),
+            min(wave),
+            freqs[psd == max(psd)][0],
+            np.median(wave),
+            np.median(psd)])
+
+    def _compute_frequency_features(
+            self, feature_values: np.ndarray,
+            frame_mask: np.ndarray, window_size: int) -> np.ndarray:
+        """
+        Overriding the helper function to compute window feature values.
+
+        :param feature_values: per frame feature values. Can be a 1D ndarray
+        for a single feature, or a 2D array for a set of related features
+        (e.g. pairwise point distances are stored as a 2D array)
+        :param frame_mask: array indicating which frames are valid for the
+        current identity
+        :param window_size: number of frames (in each direction) to include
+        in the window. The actual number of frames is 2 * window_size + 1
+        :param op: function to perform the actual computation
+        :return: numpy nd array containing feature values
+        """
+
+        window_masks = self._window_masks(frame_mask, window_size)
+        window_width = self.window_width(window_size)
+        values = np.zeros((*feature_values.shape, 20))
+
+        # The feature is 2D, the window features are computed for each column.
+        for j in range(feature_values.shape[1]):
+            windows = rolling_window(
+                np.pad(feature_values[:, j], window_size),
+                window_width
+            )
+
+            mx = np.ma.masked_array(windows, window_masks)
+            fft_features = np.ma.apply_along_axis(
+                self.get_frequency_feature, 1, mx)
+
+            values[:, j, :] = fft_features
+
+        return values
+
     @staticmethod
     def window_width(window_size: int) -> int:
         return 2 * window_size + 1
 
-    def _window_masks(self, frame_mask: np.ndarray, window_size: int) -> np.ndarray:
+    def _window_masks(self, frame_mask: np.ndarray, window_size: int
+                      ) -> np.ndarray:
         """
         helper function for generating masks for all of the windows to be used
         to compute window feature values
@@ -207,7 +341,7 @@ class Feature(abc.ABC):
             with np.errstate(invalid='ignore'):
                 v = op(_values)
             if np.isnan(v):
-                return 0.0
+                return self._nan_fill_value
             return v
 
         for key, val in feature_values.items():
