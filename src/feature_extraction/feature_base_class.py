@@ -27,13 +27,13 @@ class Feature(abc.ABC):
     # need to use the np.ma.* versions of these functions
     # NOTE: Circular values need to override this as well as the window()
     _window_operations = {
-        "mean": window_stats.mean,
-        "median": window_stats.median,
-        "std_dev": window_stats.std_dev,
-        # "kurtosis": window_stats.kurtosis,
-        # "skew": window_stats.skew,
-        "max": window_stats.max,
-        "min": window_stats.min,
+        "mean": window_stats.window_mean,
+        "median": window_stats.window_median,
+        "std_dev": window_stats.window_std_dev,
+        "skew": window_stats.window_skew,
+        "kurtosis": window_stats.window_kurtosis,
+        "max": window_stats.window_max,
+        "min": window_stats.window_min,
     }
     _nan_fill_value = 0
 
@@ -45,8 +45,8 @@ class Feature(abc.ABC):
         "psd_min": signal_stats.psd_min,
         "psd_mean": signal_stats.psd_mean,
         "psd_std_dev": signal_stats.psd_std_dev,
-        "psd_kurtosis": signal_stats.psd_kurtosis,
         "psd_skew": signal_stats.psd_skew,
+        "psd_kurtosis": signal_stats.psd_kurtosis,
         "psd_median": signal_stats.psd_median,
     }
 
