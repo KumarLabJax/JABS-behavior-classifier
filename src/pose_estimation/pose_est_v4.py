@@ -77,7 +77,7 @@ class PoseEstimationV4(PoseEstimation):
                 # sometimes not all identities are used so need to shrink the array
                 tmp_shape = np.array(np.shape(all_points))
                 tmp_shape[1] = self._num_identities
-                points_tmp = np.zeros(tmp_shape, dtype=all_points.dtype)
+                points_tmp = np.full(tmp_shape, np.nan, dtype=np.float64)
 
                 # first use instance_embed_id to group points by identity
                 points_tmp[np.where(id_mask == 0)[0],
