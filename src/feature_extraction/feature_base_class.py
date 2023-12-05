@@ -30,8 +30,10 @@ class Feature(abc.ABC):
         "mean": window_stats.window_mean,
         "median": window_stats.window_median,
         "std_dev": window_stats.window_std_dev,
-        "skew": window_stats.window_skew,
-        "kurtosis": window_stats.window_kurtosis,
+        # TODO: Scipys implementation of skew and kurtosis are slow...
+        # They aren't in the signal ops, though
+        # "skew": window_stats.window_skew,
+        # "kurtosis": window_stats.window_kurtosis,
         "max": window_stats.window_max,
         "min": window_stats.window_min,
     }
@@ -45,9 +47,11 @@ class Feature(abc.ABC):
         "psd_min": signal_stats.psd_min,
         "psd_mean": signal_stats.psd_mean,
         "psd_std_dev": signal_stats.psd_std_dev,
+        # For some reason, this call for skew and kurtosis are not slow
         "psd_skew": signal_stats.psd_skew,
         "psd_kurtosis": signal_stats.psd_kurtosis,
         "psd_median": signal_stats.psd_median,
+        "psd_top_freq": signal_stats.psd_peak_freq,
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -135,6 +139,9 @@ class Feature(abc.ABC):
                 per_frame_values, self._poses.identity_mask(identity),
                 window_size, self._window_operations[op]
             )
+        # Also include signal features
+        signal_features = self.window_signal(identity, window_size, per_frame_values)
+        values.update(signal_features)
         return values
 
     def window_signal(
@@ -155,18 +162,18 @@ class Feature(abc.ABC):
 
         psd_data = {}
         # Obtain the PSD once
-        for key, values in per_frame_values.items():
-            freqs, ts, Zxx = signal.stft(values, fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
+        for per_frame_key, per_frame in per_frame_values.items():
+            freqs, ts, Zxx = signal.stft(np.nan_to_num(per_frame, nan=0), fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
             psd = np.abs(Zxx)
-            psd_data[key] = psd
+            psd_data[per_frame_key] = psd
 
         # Summarize the signal features
         for op_name, op in self._signal_operations.items():
             if op_name == 'fft_band':
-                for band in self._signal_bands:
-                    values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = self._compute_signal_features(freqs, psd, self._poses.identity_mask(identity), op, band)
+                for i, band in enumerate(self._signal_bands):
+                    values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op, **band)
             else:
-                values[op_name] = self._compute_signal_features(freqs, psd, self._poses.identity_mask(identity), op)
+                values[op_name] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op)
 
         return values
 
@@ -224,7 +231,7 @@ class Feature(abc.ABC):
         """
         values = {}
         for key, value in psd.items():
-            values[key] = op(freqs, psd, **kwargs)
+            values[f"{key}"] = op(freqs, value, **kwargs)
 
         return values
 

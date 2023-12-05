@@ -51,7 +51,7 @@ def psd_mean_band(freqs: np.ndarray, psd: np.ndarray, band_low: int = 0, band_hi
     :return: mean of power
     """
     idx = np.logical_and(freqs >= band_low, freqs < band_high)
-    return np.mean(psd[idx], axis=0)
+    return np.mean(np.asarray(psd)[idx], axis=0)
 
 def psd_median(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
@@ -71,7 +71,7 @@ def psd_std_dev(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     :param psd: power spectral density matrix
     :return: standard deviation of power
     """
-    return np.std_dev(psd, axis=0)
+    return np.std(psd, axis=0)
 
 def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
