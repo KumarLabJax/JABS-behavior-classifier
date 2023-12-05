@@ -411,9 +411,18 @@ class Classifier:
         """
         predict classes for a given set of features
         """
+        # Random forests can't handle NAs, so fill them with 0s
+        if self._classifier_type == ClassifierType.RANDOM_FOREST:
+            return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
         return self._classifier.predict(self.sort_features_to_classify(features))
 
     def predict_proba(self, features):
+        """
+        predict probabilities for a given set of features
+        """
+        # Random forests can't handle NAs, so fill them with 0s
+        if self._classifier_type == ClassifierType.RANDOM_FOREST:
+            return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
         return self._classifier.predict_proba(self.sort_features_to_classify(features))
 
     def save(self, path: Path):
@@ -482,7 +491,7 @@ class Classifier:
                                                 random_state=random_seed, **self._hyperparameters)
         else:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs, **self._hyperparameters)
-        return classifier.fit(features, labels)
+        return classifier.fit(features.fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels,
                             random_seed: typing.Optional[int] = None):
