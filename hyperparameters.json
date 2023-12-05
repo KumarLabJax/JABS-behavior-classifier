@@ -8,6 +8,7 @@
     },
     "parameters": {
         "random_forest": {
+            "n_estimators": "100",
             "criterion": "gini",
             "max_depth": "None",
             "min_samples_split": "2",
@@ -41,7 +42,7 @@
             "scale_pos_weight": "1",
             "refresh_leaf": "1",
             "process_type": "default",
-            "grow_policy": "depth_wise",
+            "grow_policy": "depthwise",
             "max_leaves": "0",
             "max_bin": "256",
             "predictor": "auto",

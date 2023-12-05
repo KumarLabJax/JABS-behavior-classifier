@@ -319,6 +319,7 @@ class Classifier:
         if classifier not in _classifier_choices:
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
+        self._hyperparameters = self._classifier_hyperparameters[classifier]
 
     def classifier_choices(self):
         """
@@ -412,7 +413,7 @@ class Classifier:
         predict classes for a given set of features
         """
         # Random forests can't handle NAs, so fill them with 0s
-        if self._classifier_type == ClassifierType.RANDOM_FOREST:
+        if self._classifier_type == ClassifierType.RANDOM_FOREST or self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
             return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
         return self._classifier.predict(self.sort_features_to_classify(features))
 
@@ -421,7 +422,7 @@ class Classifier:
         predict probabilities for a given set of features
         """
         # Random forests can't handle NAs, so fill them with 0s
-        if self._classifier_type == ClassifierType.RANDOM_FOREST:
+        if self._classifier_type == ClassifierType.RANDOM_FOREST or self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
             return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
         return self._classifier.predict_proba(self.sort_features_to_classify(features))
 
@@ -499,7 +500,7 @@ class Classifier:
             classifier = GradientBoostingClassifier(random_state=random_seed, **self._hyperparameters)
         else:
             classifier = GradientBoostingClassifier(**self._hyperparameters)
-        return classifier.fit(features, labels)
+        return classifier.fit(features.fillna(0), labels)
 
     def _fit_xgboost(self, features, labels,
                      random_seed: typing.Optional[int] = None):
