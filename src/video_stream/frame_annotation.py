@@ -163,7 +163,7 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
     # draw circles at each future point
     for p in future_track_points:
         # draw a marker at this location.
-        cv2.circle(img, (p[0], p[1]), 2, _FUTURE_TRACK_COLOR,
+        cv2.circle(img, (int(p[0]), int(p[1])), 2, _FUTURE_TRACK_COLOR,
                    -1, lineType=cv2.LINE_AA)
 
     # draw line connecting points
@@ -174,7 +174,7 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
     # draw circles at each past point
     for p in past_track_points:
         # draw a marker at this location.
-        cv2.circle(img, (p[0], p[1]), 2, _PAST_TRACK_COLOR,
+        cv2.circle(img, (int(p[0]), int(p[1])), 2, _PAST_TRACK_COLOR,
                    -1, lineType=cv2.LINE_AA)
 
     # draw line connecting points
@@ -209,7 +209,7 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
     # draw points at each keypoint of the pose (if it exists at this frame)
     for point, point_mask in zip(points, mask):
         if point_mask:
-            cv2.circle(img, (point[1], point[0]), 2, color,
+            cv2.circle(img, (int(point[1]), int(point[0])), 2, color,
                        -1, lineType=cv2.LINE_AA)
 
 
@@ -280,7 +280,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     corners = static_objects.get('corners')
     if corners is not None:
         for i in range(4):
-            cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
+            cv2.circle(img, (int(corners[i, 0]), int(corners[i, 1])), 2, _CORNER_COLOR,
                        -1, lineType=cv2.LINE_AA)
 
     lixit = pose_est.static_objects.get('lixit')
