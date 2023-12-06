@@ -7,6 +7,7 @@ import joblib
 import re
 import json
 from ast import literal_eval
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -391,8 +392,10 @@ class Classifier:
             self._classifier = self._fit_gradient_boost(features, labels,
                                                         random_seed=random_seed)
         elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
-            self._classifier = self._fit_xgboost(features, labels,
-                                                 random_seed=random_seed)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                self._classifier = self._fit_xgboost(features, labels,
+                                                     random_seed=random_seed)
         else:
             raise ValueError("Unsupported classifier")
 
@@ -412,19 +415,25 @@ class Classifier:
         """
         predict classes for a given set of features
         """
-        # Random forests can't handle NAs, so fill them with 0s
-        if self._classifier_type == ClassifierType.RANDOM_FOREST or self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
-            return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
-        return self._classifier.predict(self.sort_features_to_classify(features))
+        if self._classifier_type == ClassifierType.XGBOOST:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                result = self._classifier.predict(self.sort_features_to_classify(features))
+            return result
+        # Random forests and gradient boost can't handle NAs, so fill them with 0s
+        return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
 
     def predict_proba(self, features):
         """
         predict probabilities for a given set of features
         """
-        # Random forests can't handle NAs, so fill them with 0s
-        if self._classifier_type == ClassifierType.RANDOM_FOREST or self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
-            return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
-        return self._classifier.predict_proba(self.sort_features_to_classify(features))
+        if self._classifier_type == ClassifierType.XGBOOST:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                result = self._classifier.predict_proba(self.sort_features_to_classify(features))
+            return result
+        # Random forests and gradient boost can't handle NAs, so fill them with 0s
+        return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
 
     def save(self, path: Path):
         joblib.dump(self, path)
