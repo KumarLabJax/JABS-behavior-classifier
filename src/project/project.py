@@ -690,8 +690,8 @@ class Project:
                     progress_callable()
 
         return {
-            'window': pd.concat(all_window),
-            'per_frame': pd.concat(all_per_frame),
+            'window': pd.concat(all_window, join='inner'),
+            'per_frame': pd.concat(all_per_frame, join='inner'),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
         }, group_mapping
