@@ -354,16 +354,16 @@ class IdentityFeatures:
 
         else:
             # return only features for labeled frames
-            filtered_features = {}
-
-            for module_name in features.keys():
-                filtered_features[module_name] = {}
-                for window_name in features[module_name].keys():
-                    filtered_features[module_name][window_name] = {}
-                    for feature_name in features[module_name][window_name].keys():
-                        filtered_features[module_name][window_name][feature_name] = features[module_name][window_name][feature_name][labels != src.project.track_labels.TrackLabels.Label.NONE]
-
-            final_features = filtered_features
+            final_features = {
+                feature_module_name: {
+                    window_module_name: {
+                        feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE]
+                        for feature_name, feature_vector in window_module.items()
+                    }
+                    for window_module_name, window_module in feature_module.items()
+                }
+                for feature_module_name, feature_module in features.items()
+            }
 
         return final_features
 
@@ -396,7 +396,7 @@ class IdentityFeatures:
             # return only features for labeled frames
             features = {
                 feature_module_name: {
-                    feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
+                    feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE]
                     for feature_name, feature_vector in feature_module.items()
                 }
                 for feature_module_name, feature_module in self._per_frame.items()
