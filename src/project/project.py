@@ -449,8 +449,8 @@ class Project:
                 inferred_indexes = frame_indexes[video][identity]
                 track = video_tracks.get_track_labels(identity, behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
+                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity][inferred_indexes]
+                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
 
             # write to h5 file
             self.write_predictions(output_path, prediction_labels,
@@ -514,8 +514,8 @@ class Project:
 
                     # we're left with classes/probabilities for frames that
                     # were inferred and their frame indexes
-                    predictions[identity] = _classes[i, indexes]
-                    probabilities[identity] = _probabilities[i, indexes]
+                    predictions[identity] = _classes[i]
+                    probabilities[identity] = _probabilities[i]
                     frame_indexes[identity] = indexes
 
         except IOError:

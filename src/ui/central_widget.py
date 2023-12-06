@@ -587,8 +587,8 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_prob = np.zeros((self._player_widget.num_frames()),
                                    dtype=np.float64)
 
-        prediction_labels[indexes] = self._predictions[identity]
-        prediction_prob[indexes] = self._probabilities[identity]
+        prediction_labels[indexes] = self._predictions[identity][indexes]
+        prediction_prob[indexes] = self._probabilities[identity][indexes]
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
         self.inference_timeline_widget.set_labels(prediction_labels)
