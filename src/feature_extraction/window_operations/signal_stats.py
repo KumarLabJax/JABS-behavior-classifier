@@ -1,5 +1,6 @@
 from scipy.stats import kurtosis, skew
 import numpy as np
+import warnings
 
 
 def psd_sum(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -84,7 +85,10 @@ def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     :param psd: power spectral density matrix
     :return: kurtosis of power
     """
-    return kurtosis(psd, axis=0, nan_policy='omit')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = kurtosis(psd, axis=0, nan_policy='omit')
+    return return_values
 
 def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
@@ -94,7 +98,10 @@ def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     :param psd: power spectral density matrix
     :return: skew of power
     """
-    return skew(psd, axis=0, nan_policy='omit')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = skew(psd, axis=0, nan_policy='omit')
+    return return_values
 
 def psd_peak_freq(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """
