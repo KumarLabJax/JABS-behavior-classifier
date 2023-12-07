@@ -27,8 +27,7 @@ _EXTENDED_FEATURE_MODULES = [
     LandmarkFeatureGroup
 ]
 
-# +[NS] Wouldn't docstrings explaining when these errors occur improve readability?
-# maybe the class name is sufficient, idk.
+
 class FeatureVersionException(Exception):
     pass
 

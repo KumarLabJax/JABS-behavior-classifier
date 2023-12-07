@@ -9,7 +9,6 @@ from .pose_est_v5 import PoseEstimationV5
 class PoseEstimationV6(PoseEstimationV5):
     '''Version 6 of the Pose Estimation class.
     '''
-    # Does __cache_file_version need to be updated?
 
     def __init__(self, file_path: Path,
                  cache_dir: typing.Optional[Path] = None,
