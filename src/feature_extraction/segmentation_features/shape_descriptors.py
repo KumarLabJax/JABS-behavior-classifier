@@ -41,7 +41,7 @@ class ShapeDescriptors(Feature):
         # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
         for frame in range(self._poses.num_frames):
             # Safety for division by 0 (no segmentation to calculate on)
-            if self._moment_cache.get_moment(frame, 'm00')==0:
+            if np.isnan(self._moment_cache.get_moment(frame, 'm00')):
                 continue
 
             # Ellipse features

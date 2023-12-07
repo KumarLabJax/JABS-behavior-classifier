@@ -35,8 +35,9 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours)<1:
-                continue
-            moments = self.calculate_moments(contours)
+                moments = {key: np.nan for key in self._moment_keys}
+            else:
+                moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
                 self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])

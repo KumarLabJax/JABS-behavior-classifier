@@ -24,7 +24,6 @@ class Feature(abc.ABC):
     _min_pose = 2
     _static_objects = []
 
-    # need to use the np.ma.* versions of these functions
     # NOTE: Circular values need to override this as well as the window()
     _window_operations = {
         "mean": window_stats.window_mean,
