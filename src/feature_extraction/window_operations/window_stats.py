@@ -1,5 +1,5 @@
-from scipy.stats import kurtosis, skew
 import numpy as np
+import warnings
 
 
 def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float = None) -> np.ndarray:
@@ -46,8 +46,10 @@ def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     :return: sliding window mean values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
-    return np.mean(window_values, axis=1, where=window_masks)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = np.nanmean(window_values, axis=1)
+    return return_values
 
 def window_median(values: np.ndarray, window: int) -> np.ndarray:
     """
@@ -70,8 +72,23 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
     :return: sliding window standard deviation values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
-    return np.std(window_values, axis=1, where=window_masks)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = np.nanstd(window_values, axis=1)
+    return return_values
+
+def np_kurtosis(values: np.ndarray) -> np.ndarray:
+    """
+    Calculates kurtosis in a rolling window faster than scipy
+
+    :param values: 2d array of with time and a window
+    :return: kurtosis values that match scipy.stats.kurtosis(values, axis, nan_policy='omit')
+    raises RuntimeWarning when an entire window is nans
+    """
+    mean = np.nanmean(values, axis=1)
+    std = np.nanstd(values, axis=1)
+    counts = np.sum(~np.isnan(values), axis=1)
+    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T)**4, axis=1) / (counts * std**4)
 
 def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
     """
@@ -82,7 +99,23 @@ def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
     :return: sliding window kurtosis values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    return kurtosis(window_values, axis=1, nan_policy='omit')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = np_kurtosis(window_values)
+    return return_values
+
+def np_skew(values: np.ndarray) -> np.ndarray:
+    """
+    Calculates skew in a rolling window faster than scipy
+
+    :param values: 2d array of with time and a window
+    :return: skew values that match scipy.stats.skew(values, axis, nan_policy='omit')
+    raises RuntimeWarning when an entire window is nans
+    """
+    mean = np.nanmean(values, axis=1)
+    std = np.nanstd(values, axis=1)
+    counts = np.sum(~np.isnan(values), axis=1)
+    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T)**3, axis=1) / (counts * std**3)
 
 def window_skew(values: np.ndarray, window: int) -> np.ndarray:
     """
@@ -93,7 +126,10 @@ def window_skew(values: np.ndarray, window: int) -> np.ndarray:
     :return: sliding window skew values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    return skew(window_values, axis=1, nan_policy='omit')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return_values = np_skew(window_values)
+    return return_values
 
 def window_min(values: np.ndarray, window: int) -> np.ndarray:
     """

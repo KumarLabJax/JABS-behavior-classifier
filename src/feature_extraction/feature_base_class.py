@@ -30,10 +30,8 @@ class Feature(abc.ABC):
         "mean": window_stats.window_mean,
         "median": window_stats.window_median,
         "std_dev": window_stats.window_std_dev,
-        # TODO: Scipys implementation of skew and kurtosis are slow...
-        # They aren't in the signal ops, though
-        # "skew": window_stats.window_skew,
-        # "kurtosis": window_stats.window_kurtosis,
+        "skew": window_stats.window_skew,
+        "kurtosis": window_stats.window_kurtosis,
         "max": window_stats.window_max,
         "min": window_stats.window_min,
     }
@@ -47,7 +45,6 @@ class Feature(abc.ABC):
         "psd_min": signal_stats.psd_min,
         "psd_mean": signal_stats.psd_mean,
         "psd_std_dev": signal_stats.psd_std_dev,
-        # For some reason, this call for skew and kurtosis are not slow
         "psd_skew": signal_stats.psd_skew,
         "psd_kurtosis": signal_stats.psd_kurtosis,
         "psd_median": signal_stats.psd_median,

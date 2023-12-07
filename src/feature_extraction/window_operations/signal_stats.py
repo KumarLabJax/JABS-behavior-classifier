@@ -51,6 +51,9 @@ def psd_mean_band(freqs: np.ndarray, psd: np.ndarray, band_low: int = 0, band_hi
     :return: mean of power
     """
     idx = np.logical_and(freqs >= band_low, freqs < band_high)
+
+    if not np.any(idx):
+        return np.full([psd.shape[1]], np.nan)
     return np.mean(np.asarray(psd)[idx], axis=0)
 
 def psd_median(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
