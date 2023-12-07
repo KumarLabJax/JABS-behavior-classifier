@@ -20,7 +20,7 @@ def psd_max(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     :param psd: power spectral density matrix
     :return: max of power
     """
-    return np.max(psd, axis=0)
+    return np.nanmax(psd, axis=0)
 
 def psd_min(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """

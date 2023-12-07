@@ -46,11 +46,9 @@ def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     :return: sliding window mean values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
-    window_masks = get_window_masks(window_values, np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         return_values = np.nanmean(window_values, axis=1)
-    return_values[np.all(window_masks, axis=1)] = np.nan
     return return_values
 
 def window_median(values: np.ndarray, window: int) -> np.ndarray:
@@ -143,7 +141,7 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     window_masks = get_window_masks(window_values, np.nan)
-    return np.min(window_values, axis=1, initial=np.min(values), where=window_masks)
+    return np.min(window_values, axis=1, initial=np.nanmax(values), where=window_masks)
 
 def window_max(values: np.ndarray, window: int) -> np.ndarray:
     """
@@ -155,4 +153,4 @@ def window_max(values: np.ndarray, window: int) -> np.ndarray:
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     window_masks = get_window_masks(window_values, np.nan)
-    return np.max(window_values, axis=1, initial=np.max(values), where=window_masks)
+    return np.max(window_values, axis=1, initial=np.nanmin(values), where=window_masks)
