@@ -143,8 +143,11 @@ class TestOpenPose(unittest.TestCase):
                          pose_v4_from_cache.num_frames)
 
         # make sure the points and point masks are equal for all identities
+        # nans need to be handled differently
         for ident in pose_v4.identities:
             poses, mask = pose_v4.get_identity_poses(ident)
+            poses[np.isnan(poses)] = 0
             poses_cached, mask_cached = pose_v4_from_cache.get_identity_poses(ident)
-            self.assertTrue(np.alltrue(poses == poses_cached))
-            self.assertTrue(np.alltrue(mask == mask_cached))
+            poses_cached[np.isnan(poses_cached)] = 0
+            self.assertTrue(np.all(poses == poses_cached))
+            self.assertTrue(np.all(mask == mask_cached))

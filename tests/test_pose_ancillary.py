@@ -142,15 +142,15 @@ class TestH5Data(unittest.TestCase):
                 # compression_opts sets the compression depth.
                 h5obj_out_comp.create_dataset(name, data=data, compression="gzip", chunks=True, compression_opts=9)
 
-        with open(compressed_file, "rb") as h5file, \
-            gzip.open(gz_file , "wb") as gzfile:
-                gzfile.writelines(h5file)
+        with open(compressed_file, "rb") as h5file, gzip.open(gz_file, "wb") as gzfile:
+            gzfile.writelines(h5file)
 
-        # so you can't directly read the h5 file if it has an outer layer of gzipping.
-        with h5py.File(gz_file, "r") as h5obj: 
-            name, data = choice(self.dataset)
-            assert h5obj.get(name)[:][-1] == data[-1]
-    
+        # ensure that external gzipping doesn't corrupt the data
+        with gzip.open(gz_file, "rb") as gzfile:
+            with h5py.File(gzfile, "r") as h5obj: 
+                name, data = choice(self.dataset)
+                assert h5obj.get(name)[:][-1] == data[-1]
+        
             
 
 
