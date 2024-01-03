@@ -72,7 +72,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.behavior_list_changed.connect(lambda b: self._project.save_metadata({'behaviors': b}))
         self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_social_feature_changed.connect(self._use_social_feature_changed)
         self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
@@ -130,10 +129,6 @@ class CentralWidget(QtWidgets.QWidget):
         return self._window_size
 
     @property
-    def uses_social(self):
-        return self._controls.use_social_features
-
-    @property
     def uses_balance(self):
         return self._controls.use_balance_labels
 
@@ -167,13 +162,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        # should the 'use social features' checkbox be enabled?
-        self._controls.set_use_social_features_checkbox_enabled(
-            project.can_use_social_features)
-
-        # default to social features turned on if the all videos in the project
-        # support them. This may be overridden by project settings.
-        self._controls.use_social_features = self._project.can_use_social_features
         self._controls.update_project_settings(project.metadata)
         self._load_cached_classifier()
 
@@ -438,7 +426,6 @@ class CentralWidget(QtWidgets.QWidget):
         # does the classifier match the current settings?
         if (
                 self._classifier.window_size == self.window_size and
-                self._controls.use_social_features == self._classifier.uses_social and
                 self._controls.use_balance_labels == self._classifier.uses_balance and
                 self._controls.use_symmetric == self._classifier.uses_symmetric
         ):
@@ -496,10 +483,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._project.save_metadata({'window_size_pref': window_settings})
         # optional feature metadata
         optional_feature_settings = self._project.metadata.get('optional_features', {})
-        # social settings
-        social_feature_settings = optional_feature_settings.get('social', {})
-        social_feature_settings[self.behavior] = self.uses_social
-        optional_feature_settings['social'] = social_feature_settings
         # balanced training settings
         balance_labels_settings = optional_feature_settings.get('balance', {})
         balance_labels_settings[self.behavior] = self.uses_balance
@@ -691,24 +674,11 @@ class CentralWidget(QtWidgets.QWidget):
         """ save the window sizes to the project settings """
         self._project.save_metadata({'window_sizes': window_sizes})
 
-    def _use_social_feature_changed(self):
+    def _use_balance_labels_changed(self):
         if self.behavior == '':
             # don't do anything if behavior is not set, this means we're
             # the project isn't fully loaded and we just reset the
             # checkbox
-            return
-
-        optional_feature_settings = self._project.metadata.get(
-            'optional_features', {})
-        social_feature_settings = optional_feature_settings.get('social', {})
-        social_feature_settings[self.behavior] = self._controls.use_social_features
-        optional_feature_settings['social'] = social_feature_settings
-        self._project.save_metadata({'optional_features': optional_feature_settings})
-        self._update_classifier_controls()
-
-    def _use_balance_labels_changed(self):
-        if self.behavior == '':
-            # Copy behavior of use_social_feature_changed
             return
 
         optional_feature_settings = self._project.metadata.get('optional_features', {})
@@ -720,7 +690,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _use_symmetric_changed(self):
         if self.behavior == '':
-            # Copy behavior of use_social_feature_changed
+            # Copy behavior of use_balance_labels_changed
             return
 
         optional_feature_settings = self._project.metadata.get('optional_features', {})
@@ -737,14 +707,8 @@ class CentralWidget(QtWidgets.QWidget):
         if self.behavior in window_settings:
             self._controls.set_window_size(window_settings[self.behavior])
 
-        # set initial state for use social feature button
+        # set initial state for use training augmentation buttons
         optional_feature_settings = self._project.metadata.get('optional_features', {})
-        social_feature_settings = optional_feature_settings.get('social', {})
-        if self.behavior in social_feature_settings:
-            self._controls.use_social_features = social_feature_settings[self.behavior]
-        else:
-            # default to enabled if the videos support them
-            self._controls.use_social_features = self._project.can_use_social_features
         # set initial state for balance labels button
         balance_labels_settings = optional_feature_settings.get('balance', {})
         if self.behavior in balance_labels_settings:

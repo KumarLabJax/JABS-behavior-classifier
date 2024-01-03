@@ -4,6 +4,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 
 from src.project import Project, export_training_data
+from src.feature_extraction.landmark_features import LandmarkFeatureGroup
 from src.version import version_str
 from src.utils import FINAL_TRAIN_SEED
 from .about_dialog import AboutDialog
@@ -39,6 +40,7 @@ class MainWindow(QtWidgets.QMainWindow):
         app_menu = menu.addMenu(self._app_name)
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
+        feature_menu = menu.addMenu('Features')
 
         # open action
         open_action = QtGui.QAction('&Open Project', self)
@@ -108,6 +110,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_segmentation.setCheckable(True)
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
         view_menu.addAction(self.overlay_segmentation)
+
+        # Feature subset actions
+        self.enable_pixel_units = QtGui.QAction('Pixel Units', self)
+        self.enable_pixel_units.setCheckable(True)
+        self.enable_pixel_units.triggered.connect(self._toggle_pixel_units)
+        feature_menu.addAction(self.enable_pixel_units)
+
+        self.enable_window_features = QtGui.QAction('Enable Window Features', self)
+        self.enable_window_features.setCheckable(True)
+        self.enable_window_features.triggered.connect(self._toggle_window_features)
+        feature_menu.addAction(self.enable_window_features)
+
+        self.enable_fft_features = QtGui.QAction('Enable Signal Features', self)
+        self.enable_fft_features.setCheckable(True)
+        self.enable_fft_features.triggered.connect(self._toggle_fft_features)
+        feature_menu.addAction(self.enable_fft_features)
+
+        self.enable_social_features = QtGui.QAction('Enable Social Features', self)
+        self.enable_social_features.setCheckable(True)
+        self.enable_social_features.triggered.connect(self._toggle_social_features)
+        feature_menu.addAction(self.enable_social_features)
+
+        # Static objects
+        enable_landmark_features = []
+        for landmark_name in LandmarkFeatureGroup._feature_map.keys():
+            landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
+            landmark_action.setCheckable(True)
+            # TODO: how to handle toggle nicely - need to pass key
+            # landmark_action.triggered.connect(self._toggle_landmark)
+            feature_menu.addAction(landmark_action)
+            enable_landmark_features.append(landmark_action)
+        self.enable_landmark_features = enable_landmark_features
+
+        self.enable_segmentation_features = QtGui.QAction('Enable Segmentation Features', self)
+        self.enable_segmentation_features.setCheckable(True)
+        self.enable_segmentation_features.triggered.connect(self._toggle_segmentation_features)
+        feature_menu.addAction(self.enable_segmentation_features)
 
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
@@ -256,6 +295,34 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_segmentation_overlay(self, checked):
         """ show/hide segmentation overlay for subject. """
         self._central_widget.overlay_segmentation(checked)
+
+    def _toggle_pixel_units(self, checked):
+        """ toggle project to use pixel units. """
+        pass
+        # self._central_widget.toggle_pixels(checked)
+
+    def _toggle_social_features(self, checked):
+        """ toggle project to use social features. """
+        self._central_widget._controls.set_social_features(checked)
+
+    def _toggle_window_features(self, checked):
+        """ toggle project to use window features. """
+        pass
+        # self._central_widget.toggle_window_features(checked)
+
+    def _toggle_fft_features(self, checked):
+        """ toggle project to use fft features. """
+        pass
+        # self._central_widget.toggle_fft_features(checked)
+
+    def _toggle_segmentation_features(self, checked):
+        """ toggle project to use segmentation features. """
+        pass
+        # self._central_widget.toggle_segmentation_features(checked)
+
+    def _toggle_static_object_feature(self, checked, key):
+        """ toggle project to use a specific static object feature set. """
+        pass
 
     def _video_list_selection(self, filename):
         """

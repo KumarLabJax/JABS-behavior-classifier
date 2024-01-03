@@ -35,7 +35,7 @@ class Project:
 
     # subdirectory app creates inside project directory to store app-specific
     # project data
-    _PROJ_DIR = 'rotta'
+    _PROJ_DIR = 'jabs'
     __PROJECT_SETTING_FILE = 'project_settings.json'
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
@@ -162,11 +162,12 @@ class Project:
         self._supported_static_objects = set.intersection(*static_object_sets) if len(static_object_sets) else []
 
         # determine if this project can use social features or not
-        # if all pose files are V3 or greater, enable social features for this
-        # project
+        # social data is available for V3+
         self._can_use_social = True if self._min_pose_version >= 3 else False
+        # segmentation data is available for V6+
+        self._can_use_segmentation = True if self._min_pose_version >= 6 else False
 
-        # default enabled extended features to all that are supported
+        # determine which static objects are available
         self._enabled_extended_features.update(
             fe.IdentityFeatures.get_available_extended_features(
                 self._min_pose_version, self.static_objects)
@@ -185,6 +186,13 @@ class Project:
             if cm_per_pixel is None:
                 self._distance_unit = ProjectDistanceUnit.PIXEL
                 break
+
+        # write out the defaults to the project file
+        # this is currently not used, but useful for anyone that revisits a project
+        self.save_metadata({'defaults': self.get_project_defaults()})
+
+        # saved metadata has changed, reload it
+        self._metadata = self.load_metadata()
 
     @property
     def videos(self):
@@ -207,8 +215,16 @@ class Project:
         return self._annotations_dir
 
     @property
+    def distance_unit(self) -> ProjectDistanceUnit:
+        return self._distance_unit
+
+    @property
     def can_use_social_features(self) -> bool:
         return self._can_use_social
+
+    @property
+    def can_use_segmentation(self) -> bool:
+        return self._can_use_segmentation
 
     @property
     def static_objects(self) -> typing.List[str]:
@@ -253,10 +269,6 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
-
-    @property
-    def distance_unit(self):
-        return self._distance_unit
 
     def load_video_labels(self, video_name):
         """
@@ -370,6 +382,21 @@ class Project:
             settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
 
         return settings
+
+    def get_project_defaults(self):
+        """
+        obtain the default per-behavior settings
+        :return: dictionary of project settings
+        """
+        return {
+            'units': self.distance_unit,
+            'window_size': fe.DEFAULT_WINDOW_SIZE,
+            'social': self.can_use_social_features,
+            'static_objects': {obj: True for obj in self.static_objects},
+            'segmentation': self.can_use_segmentation,
+            'window': True,
+            'fft': True,
+        }
 
     def save_classifier(self, classifier, behavior: str):
         """

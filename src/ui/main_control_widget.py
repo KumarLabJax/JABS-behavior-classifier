@@ -1,3 +1,11 @@
+"""Project-level controls for classifiers."""
+
+# TODO:
+# While this file was initially designed for controlling project settings
+# This is now the primary location where project-level settings are managed
+# The project class simply exposes its settings here which are modified
+# The project class should be the management location of these features
+
 import sys
 
 from typing import List
@@ -23,7 +31,7 @@ class MainControlWidget(QtWidgets.QWidget):
     classifier_changed = QtCore.Signal()
     behavior_changed = QtCore.Signal(str)
     kfold_changed = QtCore.Signal()
-    behavior_list_changed = QtCore.Signal(list)
+    behavior_list_changed = QtCore.Signal(dict)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
     use_social_feature_changed = QtCore.Signal(int)
@@ -34,7 +42,7 @@ class MainControlWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # initial behavior labels to list in the drop down selection
-        self._behaviors = []
+        self._behaviors = {}
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -68,6 +76,10 @@ class MainControlWidget(QtWidgets.QWidget):
         identity_layout.setContentsMargins(5, 5, 5, 5)
         identity_group = QtWidgets.QGroupBox("Subject Identity")
         identity_group.setLayout(identity_layout)
+
+        # classifier menu items (containing getters/setters)
+        self._social_features_enabled = False
+        self._use_social_feature = {}
 
         # classifier controls
         #  buttons
@@ -114,9 +126,6 @@ class MainControlWidget(QtWidgets.QWidget):
         #   disabled until project loaded
         self._kslider.setEnabled(False)
 
-        self._use_social_feature_checkbox = QtWidgets.QCheckBox("Use Social Features")
-        self._use_social_feature_checkbox.stateChanged.connect(self.use_social_feature_changed)
-
         self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
         self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
 
@@ -132,7 +141,6 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
         classifier_layout.addWidget(QtWidgets.QLabel("Window Size"), 2, 0)
         classifier_layout.addLayout(window_size_layout, 2, 1)
-        classifier_layout.addWidget(self._use_social_feature_checkbox, 3, 0, 1, 2)
         classifier_layout.addWidget(self._use_balace_labels_checkbox, 4, 0, 1, 2)
         classifier_layout.addWidget(self._symmetric_behavior_checkbox, 5, 0, 1, 2)
         classifier_layout.addWidget(self._all_kfold_checkbox, 6, 0, 1, 2)
@@ -234,7 +242,7 @@ class MainControlWidget(QtWidgets.QWidget):
     @property
     def behaviors(self):
         """ return a copy of the current list of behaviors """
-        return list(self._behaviors)
+        return dict(self._behaviors)
 
     @property
     def current_identity(self):
@@ -270,12 +278,15 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def use_social_features(self):
-        return self._use_social_feature_checkbox.isChecked()
+        if self.current_behavior in self._use_social_feature.keys():
+            return self._use_social_feature[self.current_behavior]
+        else:
+            return self._social_features_enabled
 
     @use_social_features.setter
     def use_social_features(self, val: bool):
-        if self._use_social_feature_checkbox.isEnabled():
-            self._use_social_feature_checkbox.setChecked(val)
+        if self._social_features_enabled:
+            self._use_social_feature[self.current_behavior] = val
 
     @property
     def use_balance_labels(self):
@@ -311,10 +322,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
 
-    def set_use_social_features_checkbox_enabled(self, val: bool):
-        self._use_social_feature_checkbox.setEnabled(val)
-        if not val:
-            self._use_social_feature_checkbox.setChecked(False)
+    def set_social_features(self, val: bool):
+        if self._social_features_enabled:
+            self._use_social_feature[self.behavior]
 
     def set_use_balance_labels_checkbox_enabled(self, val: bool):
         self._use_balace_labels_checkbox.setEnabled(val)
@@ -377,12 +387,15 @@ class MainControlWidget(QtWidgets.QWidget):
         :return: None
         """
 
+        # TODO: This is one of the major locations where project settings
+        # are owned by this widget, instead of the project class
+
         # update window sizes
         self._set_window_sizes(project_settings['window_sizes'])
 
         # update behaviors
         # reset list of behaviors, then add any from the project metadata
-        self._behaviors = []
+        self._behaviors = {}
 
         # we don't need this even handler to be active while we set up the
         # project (otherwise it gets unnecessarily called multiple times)
@@ -390,18 +403,16 @@ class MainControlWidget(QtWidgets.QWidget):
 
         behavior_index = 0
         if 'behaviors' in project_settings:
-            self._behaviors = list(project_settings['behaviors'])
-            self._behaviors.sort()
+            self._behaviors = project_settings['behaviors']
         self.behavior_selection.clear()
-        self.behavior_selection.addItems(self._behaviors)
+        self.behavior_selection.addItems(self._behaviors.keys())
         if 'selected_behavior' in project_settings:
             # make sure this behavior is in the behavior selection drop down
             if project_settings['selected_behavior'] not in self._behaviors:
-                self._behaviors.append(project_settings['selected_behavior'])
-                self._behaviors.sort()
+                self._behaviors[project_settings['selected_behavior']] = project_settings['defaults']
                 self.behavior_selection.clear()
-                self.behavior_selection.addItems(self._behaviors)
-            behavior_index = self._behaviors.index(
+                self.behavior_selection.addItems(self._behaviors.keys())
+            behavior_index = list(self._behaviors.keys()).index(
                 project_settings['selected_behavior'])
 
         # set the index to either the first behavior, or if available, the one
@@ -480,8 +491,7 @@ class MainControlWidget(QtWidgets.QWidget):
                                                   QtWidgets.QLineEdit.Normal
                                                   )
         if ok and text not in self._behaviors:
-            self._behaviors.append(text)
-            self._behaviors.sort()
+            self._behaviors[text] = {}
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
             self.behavior_list_changed.emit(self._behaviors)
@@ -501,8 +511,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 self, 'New Behavior',
                 'New project - please enter a behavior name to continue:',
                 QtWidgets.QLineEdit.Normal)
-        self._behaviors.append(text)
-        self._behaviors.sort()
+        self._behaviors[text] = {}
         self.behavior_selection.addItem(text)
         self.behavior_selection.setCurrentText(text)
         self.behavior_list_changed.emit(self._behaviors)
