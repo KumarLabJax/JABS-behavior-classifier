@@ -78,8 +78,15 @@ class MainControlWidget(QtWidgets.QWidget):
         identity_group.setLayout(identity_layout)
 
         # classifier menu items (containing getters/setters)
+        self._pixel_features_enabled = False
+        self._use_pixel_features = {}
         self._social_features_enabled = False
-        self._use_social_feature = {}
+        self._use_social_features = {}
+        self._use_window_features = {}
+        self._use_fft_features = {}
+        self._segmentation_features_enabled = False
+        self._use_segmentation_features = {}
+        self._use_static_object_features = {}
 
         # classifier controls
         #  buttons
@@ -277,16 +284,64 @@ class MainControlWidget(QtWidgets.QWidget):
         return self._classifier_selection.currentData()
 
     @property
+    def use_pixel_features(self):
+        return self._use_pixel_features.get(self.current_behavior, self._pixel_features_enabled)
+
+    @use_pixel_features.setter
+    def use_pixel_features(self, val: bool):
+        if self._pixel_features_enabled:
+            self._use_pixel_features[self.current_behavior] = val
+
+    @property
     def use_social_features(self):
-        if self.current_behavior in self._use_social_feature.keys():
-            return self._use_social_feature[self.current_behavior]
-        else:
-            return self._social_features_enabled
+        return self._use_social_features.get(self.current_behavior, self._social_features_enabled)
 
     @use_social_features.setter
     def use_social_features(self, val: bool):
         if self._social_features_enabled:
-            self._use_social_feature[self.current_behavior] = val
+            self._use_social_features[self.current_behavior] = val
+
+    @property
+    def use_window_features(self):
+        return self._use_window_features.get(self.current_behavior, True)
+
+    @use_window_features.setter
+    def use_window_features(self, val: bool):
+        self._use_window_features[self.current_behavior] = val
+
+    @property
+    def use_fft_features(self):
+        return self._use_fft_features.get(self.current_behavior, True)
+
+    @use_fft_features.setter
+    def use_fft_features(self, val: bool):
+        self._use_fft_features[self.current_behavior] = val
+
+    @property
+    def use_segmentation_features(self):
+        return self._use_segmentation_features.get(self.current_behavior, self._segmentation_features_enabled)
+
+    @use_segmentation_features.setter
+    def use_segmentation_features(self, val: bool):
+        if self._segmentation_features_enabled:
+            self._use_segmentation_features[self.current_behavior] = val
+
+    def enable_static_objects(self, object_list):
+        """ adds objects to be toggle-able. """
+        for obj in object_list:
+            self._use_static_object_features[obj] = {}
+
+    def toggle_static_object_features(self, val: bool, obj: str):
+        """ toggles using a static object feature. """
+        if obj in self._use_static_object_features:
+            self._use_static_object_features[obj][self.current_behavior] = val
+
+    def get_static_object_features(self, obj: str):
+        """ gets the state of static object features. """
+        if obj in self._use_static_object_features:
+            self._use_static_object_features[obj].get(self.current_behavior, True)
+        else:
+            return False
 
     @property
     def use_balance_labels(self):
@@ -321,10 +376,6 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button.setEnabled(True)
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
-
-    def set_social_features(self, val: bool):
-        if self._social_features_enabled:
-            self._use_social_feature[self.behavior]
 
     def set_use_balance_labels_checkbox_enabled(self, val: bool):
         self._use_balace_labels_checkbox.setEnabled(val)

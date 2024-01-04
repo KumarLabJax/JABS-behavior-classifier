@@ -312,6 +312,12 @@ class CentralWidget(QtWidgets.QWidget):
         # display labels and predictions for new behavior
         self._set_label_track()
         self._set_train_button_enabled_state()
+
+        # update menu items that need to be by signalling the main_window
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if isinstance(widget, QtWidgets.QMainWindow):
+                widget.behavior_changed_event()
+
         self._project.save_metadata({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
@@ -482,17 +488,17 @@ class CentralWidget(QtWidgets.QWidget):
         window_settings[self.behavior] = self._window_size
         self._project.save_metadata({'window_size_pref': window_settings})
         # optional feature metadata
-        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
         # balanced training settings
-        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings = classifier_feature_settings.get('balance', {})
         balance_labels_settings[self.behavior] = self.uses_balance
-        optional_feature_settings['balance'] = balance_labels_settings
+        classifier_feature_settings['balance'] = balance_labels_settings
         # symmetric training settings
-        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings = classifier_feature_settings.get('symmetric', {})
         symmetric_settings[self.behavior] = self.uses_balance
-        optional_feature_settings['symmetric'] = symmetric_settings
+        classifier_feature_settings['symmetric'] = symmetric_settings
         # write all optional features out
-        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self._project.save_metadata({'classifier_features': classifier_feature_settings})
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
@@ -681,11 +687,11 @@ class CentralWidget(QtWidgets.QWidget):
             # checkbox
             return
 
-        optional_feature_settings = self._project.metadata.get('optional_features', {})
-        balance_labels_settings = optional_feature_settings.get('balance', {})
+        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
+        balance_labels_settings = classifier_feature_settings.get('balance', {})
         balance_labels_settings[self.behavior] = self._controls.use_balance_labels
-        optional_feature_settings['balance'] = balance_labels_settings
-        self._project.save_metadata({'optional_features': optional_feature_settings})
+        classifier_feature_settings['balance'] = balance_labels_settings
+        self._project.save_metadata({'classifier_features': classifier_feature_settings})
         self._update_classifier_controls()
 
     def _use_symmetric_changed(self):
@@ -693,11 +699,11 @@ class CentralWidget(QtWidgets.QWidget):
             # Copy behavior of use_balance_labels_changed
             return
 
-        optional_feature_settings = self._project.metadata.get('optional_features', {})
-        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
+        symmetric_settings = classifier_feature_settings.get('symmetric', {})
         symmetric_settings[self.behavior] = self._controls.use_symmetric
-        optional_feature_settings['symmetric'] = symmetric_settings
-        self._project.save_metadata({'optional_features': optional_feature_settings})
+        classifier_feature_settings['symmetric'] = symmetric_settings
+        self._project.save_metadata({'classifier_features': classifier_feature_settings})
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
@@ -708,13 +714,13 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.set_window_size(window_settings[self.behavior])
 
         # set initial state for use training augmentation buttons
-        optional_feature_settings = self._project.metadata.get('optional_features', {})
+        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
         # set initial state for balance labels button
-        balance_labels_settings = optional_feature_settings.get('balance', {})
+        balance_labels_settings = classifier_feature_settings.get('balance', {})
         if self.behavior in balance_labels_settings:
             self._controls.use_balance_labels = balance_labels_settings[self.behavior]
         # set initial state for symmetry button
-        symmetric_settings = optional_feature_settings.get('symmetric', {})
+        symmetric_settings = classifier_feature_settings.get('symmetric', {})
         if self.behavior in symmetric_settings:
             self._controls.use_symmetric = symmetric_settings[self.behavior]
 

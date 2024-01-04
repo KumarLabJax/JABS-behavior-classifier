@@ -133,14 +133,12 @@ class MainWindow(QtWidgets.QMainWindow):
         feature_menu.addAction(self.enable_social_features)
 
         # Static objects
-        enable_landmark_features = []
+        enable_landmark_features = {}
         for landmark_name in LandmarkFeatureGroup._feature_map.keys():
             landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
             landmark_action.setCheckable(True)
-            # TODO: how to handle toggle nicely - need to pass key
-            # landmark_action.triggered.connect(self._toggle_landmark)
             feature_menu.addAction(landmark_action)
-            enable_landmark_features.append(landmark_action)
+            enable_landmark_features[landmark_name] = landmark_action
         self.enable_landmark_features = enable_landmark_features
 
         self.enable_segmentation_features = QtGui.QAction('Enable Segmentation Features', self)
@@ -202,8 +200,31 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_project(self, project_path):
         """ open a new project directory """
         self._project = Project(project_path)
+        # The central_widget updates main_control_widget
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+        # Update which controls should be available
+        self.enable_pixel_units.setEnabled(self._project.is_cm_unit)
+        self.enable_social_features.setEnabled(self._project.can_use_social_features)
+        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
+        available_objects = self._project.static_objects
+        for static_object, menu_item in self.enable_landmark_features.items():
+            if static_object in available_objects:
+                menu_item.setEnabled(True)
+            else:
+                menu_item.setEnabled(False)
+        self.behavior_changed_event()
+
+    def behavior_changed_event(self):
+        """ menu items to change when a new behavior is selected. """
+        # Populate settings based on imported data handled by main_control_widget
+        self.enable_pixel_units.setChecked(self._central_widget._controls.use_pixel_features)
+        self.enable_window_features.setChecked(self._central_widget._controls.use_window_features)
+        self.enable_fft_features.setChecked(self._central_widget._controls.use_fft_features)
+        self.enable_social_features.setChecked(self._central_widget._controls.use_social_features)
+        self.enable_segmentation_features.setChecked(self._central_widget._controls.use_segmentation_features)
+        for static_object, menu_item in self.enable_landmark_features.items():
+            menu_item.setChecked(self._central_widget._controls.get_static_object_features(static_object))
 
     def display_status_message(self, message: str, duration: int=3000):
         """
@@ -298,31 +319,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_pixel_units(self, checked):
         """ toggle project to use pixel units. """
-        pass
-        # self._central_widget.toggle_pixels(checked)
+        self._central_widget._controls.use_pixel_features = checked
 
     def _toggle_social_features(self, checked):
         """ toggle project to use social features. """
-        self._central_widget._controls.set_social_features(checked)
+        self._central_widget._controls.use_social_features = checked
 
     def _toggle_window_features(self, checked):
         """ toggle project to use window features. """
-        pass
-        # self._central_widget.toggle_window_features(checked)
+        self._central_widget._controls.use_window_features = checked
 
     def _toggle_fft_features(self, checked):
         """ toggle project to use fft features. """
-        pass
-        # self._central_widget.toggle_fft_features(checked)
+        self._central_widget._controls.use_fft_features = checked
 
     def _toggle_segmentation_features(self, checked):
         """ toggle project to use segmentation features. """
-        pass
-        # self._central_widget.toggle_segmentation_features(checked)
+        self._central_widget._controls.use_segmentation_features = checked
 
     def _toggle_static_object_feature(self, checked, key):
         """ toggle project to use a specific static object feature set. """
-        pass
+        self._central_widget._controls.toggle_static_object_features(checked, key)
 
     def _video_list_selection(self, filename):
         """

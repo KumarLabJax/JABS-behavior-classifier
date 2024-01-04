@@ -219,6 +219,10 @@ class Project:
         return self._distance_unit
 
     @property
+    def is_cm_unit(self) -> bool:
+        return self._distance_unit == ProjectDistanceUnit.CM
+
+    @property
     def can_use_social_features(self) -> bool:
         return self._can_use_social
 
