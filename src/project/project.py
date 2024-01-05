@@ -382,10 +382,33 @@ class Project:
         except:
             settings = {}
 
+        if 'behavior' not in settings:
+            settings['behavior'] = {}
         if 'window_sizes' not in settings:
             settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
 
         return settings
+
+    def save_behavior_metadata(self, behavior: str, data: dict):
+        """
+        save metadata specific to a behavior
+        :behavior: behavior key to write metadata to
+        :data: dictionary of metadata to update
+        """
+        all_behavior_data = self._metadata.get('behavior', {})
+        merged_data = all_behavior_data.get(behavior, self.get_project_defaults())
+        merged_data.update(data)
+        all_behavior_data.update({behavior: merged_data})
+        self.save_metadata({'behavior': all_behavior_data})
+
+    def get_behavior_metadata(self, behavior: str):
+        """
+        get metadata specific to a requested behavior
+        :behavior: string of the behavior key to read
+        :return: dictionary of behavior metadata in the project. 
+        get_project_defaults if behavior not present
+        """
+        return dict(self._metadata['behavior'].get(behavior, self.get_project_defaults()))
 
     def get_project_defaults(self):
         """
@@ -396,10 +419,12 @@ class Project:
             'units': self.distance_unit,
             'window_size': fe.DEFAULT_WINDOW_SIZE,
             'social': self.can_use_social_features,
-            'static_objects': {obj: True for obj in self.static_objects},
+            'static_objects': {obj: True if obj in self.static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
             'segmentation': self.can_use_segmentation,
             'window': True,
             'fft': True,
+            'balance_labels': False,
+            'symmetric_behavior': False,
         }
 
     def save_classifier(self, classifier, behavior: str):

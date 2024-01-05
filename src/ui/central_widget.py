@@ -1,4 +1,5 @@
 import sys
+import warnings
 
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -69,7 +70,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._change_behavior)
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
-        self._controls.behavior_list_changed.connect(lambda b: self._project.save_metadata({'behaviors': b}))
         self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
         self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
@@ -163,14 +163,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.metadata)
-        self._load_cached_classifier()
-
-        # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior)
-
-        self._controls.kslider_set_enabled(True)
-
-        self._set_train_button_enabled_state()
 
     def load_video(self, path):
         """
@@ -290,13 +282,14 @@ class CentralWidget(QtWidgets.QWidget):
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
 
-    def _change_behavior(self):
+    def _change_behavior(self, new_behavior):
         """
         make UI changes to reflect the currently selected behavior
         """
         if self._project is None:
             return
 
+        # load up settings for new behavior
         self._update_controls_from_project_settings()
         self._load_cached_classifier()
 
@@ -312,11 +305,6 @@ class CentralWidget(QtWidgets.QWidget):
         # display labels and predictions for new behavior
         self._set_label_track()
         self._set_train_button_enabled_state()
-
-        # update menu items that need to be by signalling the main_window
-        for widget in QtWidgets.QApplication.topLevelWidgets():
-            if isinstance(widget, QtWidgets.QMainWindow):
-                widget.behavior_changed_event()
 
         self._project.save_metadata({'selected_behavior': self.behavior})
 
@@ -674,11 +662,20 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle window feature size change """
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
+            self.update_behavior_settings('window_size', new_size)
             self._update_classifier_controls()
 
     def _save_window_sizes(self, window_sizes):
         """ save the window sizes to the project settings """
         self._project.save_metadata({'window_sizes': window_sizes})
+
+    def update_behavior_settings(self, key, val):
+        """ propagates an updated setting to the project """
+        # early exit if no behavior selected
+        if self.behavior == '':
+            return
+
+        self._project.save_behavior_metadata(self.behavior, {key: val})
 
     def _use_balance_labels_changed(self):
         if self.behavior == '':
@@ -687,11 +684,7 @@ class CentralWidget(QtWidgets.QWidget):
             # checkbox
             return
 
-        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
-        balance_labels_settings = classifier_feature_settings.get('balance', {})
-        balance_labels_settings[self.behavior] = self._controls.use_balance_labels
-        classifier_feature_settings['balance'] = balance_labels_settings
-        self._project.save_metadata({'classifier_features': classifier_feature_settings})
+        self.update_behavior_settings('balance_labels', self._controls.use_balance_labels)
         self._update_classifier_controls()
 
     def _use_symmetric_changed(self):
@@ -699,30 +692,17 @@ class CentralWidget(QtWidgets.QWidget):
             # Copy behavior of use_balance_labels_changed
             return
 
-        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
-        symmetric_settings = classifier_feature_settings.get('symmetric', {})
-        symmetric_settings[self.behavior] = self._controls.use_symmetric
-        classifier_feature_settings['symmetric'] = symmetric_settings
-        self._project.save_metadata({'classifier_features': classifier_feature_settings})
+        self.update_behavior_settings('symmetric_behavior', self._controls.use_balance_labels)
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
-        # set initial state for window size
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        # do we have a window size for this behavior?
-        if self.behavior in window_settings:
-            self._controls.set_window_size(window_settings[self.behavior])
+        if self._project is None or self.behavior is None:
+            return
 
-        # set initial state for use training augmentation buttons
-        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
-        # set initial state for balance labels button
-        balance_labels_settings = classifier_feature_settings.get('balance', {})
-        if self.behavior in balance_labels_settings:
-            self._controls.use_balance_labels = balance_labels_settings[self.behavior]
-        # set initial state for symmetry button
-        symmetric_settings = classifier_feature_settings.get('symmetric', {})
-        if self.behavior in symmetric_settings:
-            self._controls.use_symmetric = symmetric_settings[self.behavior]
+        behavior_metadata = self._project.get_behavior_metadata(self.behavior)
+        self._controls.set_window_size(behavior_metadata['window_size'])
+        self._controls.use_balance_labels = behavior_metadata['balance_labels']
+        self._controls.use_symmetric = behavior_metadata['symmetric_behavior']
 
     def _load_cached_classifier(self):
         classifier_loaded = False

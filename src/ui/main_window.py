@@ -112,6 +112,9 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self.overlay_segmentation)
 
         # Feature subset actions
+        # All these settings should be updated whenever the behavior_changed event occurs
+        self._central_widget._controls.behavior_changed.connect(self.behavior_changed_event)
+
         self.enable_pixel_units = QtGui.QAction('Pixel Units', self)
         self.enable_pixel_units.setCheckable(True)
         self.enable_pixel_units.triggered.connect(self._toggle_pixel_units)
@@ -137,6 +140,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for landmark_name in LandmarkFeatureGroup._feature_map.keys():
             landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
             landmark_action.setCheckable(True)
+            landmark_action.triggered.connect(self._toggle_static_object_feature)
             feature_menu.addAction(landmark_action)
             enable_landmark_features[landmark_name] = landmark_action
         self.enable_landmark_features = enable_landmark_features
@@ -213,18 +217,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
-        self.behavior_changed_event()
 
-    def behavior_changed_event(self):
+    def behavior_changed_event(self, new_behavior):
         """ menu items to change when a new behavior is selected. """
-        # Populate settings based on imported data handled by main_control_widget
-        self.enable_pixel_units.setChecked(self._central_widget._controls.use_pixel_features)
-        self.enable_window_features.setChecked(self._central_widget._controls.use_window_features)
-        self.enable_fft_features.setChecked(self._central_widget._controls.use_fft_features)
-        self.enable_social_features.setChecked(self._central_widget._controls.use_social_features)
-        self.enable_segmentation_features.setChecked(self._central_widget._controls.use_segmentation_features)
+        # skip if no behavior assigned (only should occur during new project)
+        if new_behavior is None or new_behavior == '':
+            return
+
+        # Populate settings based project data
+        behavior_metadata = self._project.get_behavior_metadata(new_behavior)
+        self.enable_pixel_units.setChecked(behavior_metadata.get('units', False))
+        self.enable_window_features.setChecked(behavior_metadata.get('window', False))
+        self.enable_fft_features.setChecked(behavior_metadata.get('fft', False))
+        self.enable_social_features.setChecked(behavior_metadata.get('social', False))
+        self.enable_segmentation_features.setChecked(behavior_metadata.get('segmentation', False))
+        static_settings = behavior_metadata.get('static_objects', {})
         for static_object, menu_item in self.enable_landmark_features.items():
-            menu_item.setChecked(self._central_widget._controls.get_static_object_features(static_object))
+            menu_item.setChecked(static_settings.get(static_object, False))
 
     def display_status_message(self, message: str, duration: int=3000):
         """
@@ -319,27 +328,31 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_pixel_units(self, checked):
         """ toggle project to use pixel units. """
-        self._central_widget._controls.use_pixel_features = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'units': checked})
 
     def _toggle_social_features(self, checked):
         """ toggle project to use social features. """
-        self._central_widget._controls.use_social_features = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'social': checked})
 
     def _toggle_window_features(self, checked):
         """ toggle project to use window features. """
-        self._central_widget._controls.use_window_features = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'window': checked})
 
     def _toggle_fft_features(self, checked):
         """ toggle project to use fft features. """
-        self._central_widget._controls.use_fft_features = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'fft': checked})
 
     def _toggle_segmentation_features(self, checked):
         """ toggle project to use segmentation features. """
-        self._central_widget._controls.use_segmentation_features = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'segmentation': checked})
 
-    def _toggle_static_object_feature(self, checked, key):
+    def _toggle_static_object_feature(self, checked):
         """ toggle project to use a specific static object feature set. """
-        self._central_widget._controls.toggle_static_object_features(checked, key)
+        # get the key from the caller
+        key = self.sender().text().split(' ')[1].lower()
+        all_object_settings = self._project.get_behavior_metadata(self._central_widget.behavior).get('static_objects', {})
+        all_object_settings[key] = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'static_objects': all_object_settings})
 
     def _video_list_selection(self, filename):
         """
