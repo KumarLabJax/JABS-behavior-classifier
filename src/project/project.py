@@ -648,17 +648,14 @@ class Project:
         """ Get list of video filenames (without path) in a directory """
         return [f.name for f in dir_path.glob("*.avi")]
 
-    def get_labeled_features(self, behavior, window_size,
-                             use_social_features,
-                             progress_callable=None):
+    def get_labeled_features(self, behavior=None, progress_callable=None):
         """
         the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
-        :param behavior: the behavior to get labeled features for
-        :param window_size: window size to use for computing window features
-        :param use_social_features: if true, use social features (if supported)
+        :param behavior: the behavior settings to get labeled features for
+        if None, will use project defaults (all available features)
         :param progress_callable: if provided this will be called
         with no args every time an identity is processed to facilitate
         progress tracking
@@ -720,17 +717,17 @@ class Project:
                     str(identity), behavior).get_labels()
 
                 per_frame_features = features.get_per_frame(
-                    use_social_features, labels)
+                    self._metadata['behavior'][behavior]['social'], labels)
                 per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
-                    per_frame_features, use_social_features,
+                    per_frame_features, self._metadata['behavior'][behavior]['social'],
                     extended_features=self._enabled_extended_features)
                 per_frame_features = pd.DataFrame(per_frame_features)
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    window_size, use_social_features, labels)
+                    self._metadata['behavior'][behavior]['window_size'], self._metadata['behavior'][behavior]['social'], labels)
                 window_features = fe.IdentityFeatures.merge_window_features(
-                    window_features, use_social_features,
+                    window_features, self._metadata['behavior'][behavior]['social'],
                     extended_features=self._enabled_extended_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)

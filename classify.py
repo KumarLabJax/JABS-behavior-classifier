@@ -41,18 +41,11 @@ def train_and_classify(
         override_classifier: typing.Optional[ClassifierType] = None,
         fps=DEFAULT_FPS,
         feature_dir: typing.Optional[str] = None):
-    try:
-        training_file, _ = load_training_data(training_file_path)
-    except OSError as e:
-        sys.exit(f"Unable to open training data\n{e}")
-
-    behavior = training_file['behavior']
-    window_size = training_file['window_size']
-    use_social = training_file['has_social_features']
+    if not training_file_path.exists():
+        sys.exit(f"Unable to open training data\n")
 
     classifier = train(training_file_path, override_classifier)
-    classify_pose(classifier, input_pose_file, out_dir, behavior, window_size,
-                  use_social, fps, feature_dir)
+    classify_pose(classifier, input_pose_file, out_dir, behavior, fps, feature_dir)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
@@ -154,18 +147,18 @@ def train(
 ) -> Classifier:
 
     try:
-        training_file, _ = load_training_data(training_file)
+        loaded_training_data, _ = load_training_data(training_file)
     except OSError as e:
         sys.exit(f"Unable to open training data\n{e}")
 
-    behavior = training_file['behavior']
+    behavior = loaded_training_data['behavior']
 
     classifier = Classifier()
     if override_classifier is not None:
         classifier_type = override_classifier
     else:
         classifier_type = ClassifierType(
-            training_file['classifier_type'])
+            loaded_training_data['classifier_type'])
 
     if classifier_type in classifier.classifier_choices():
         classifier.set_classifier(classifier_type)
@@ -174,30 +167,26 @@ def train(
               "is unavailable, using default "
               f"({classifier.classifier_type.name})")
 
+    classifier.set_dict_settings(loaded_training_data['settings'])
+
     print("Training classifier for:", behavior)
     print("  Classifier Type: "
           f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
-    print(f"  Window Size: {training_file['window_size']}")
-    print(f"  Social: {training_file['has_social_features']}")
-    print(f"  Balanced Labels: {training_file['balance_labels']}")
-    print(f"  Symmetric Behavior: {training_file['symmetric']}")
-    print(f"  Distance Unit: {training_file['distance_unit'].name}")
+    print(f"  Window Size: {loaded_training_data['settings']['window_size']}")
+    print(f"  Social: {loaded_training_data['settings']['has_social_features']}")
+    print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
+    print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric']}")
+    print(f"  Distance Unit: {loaded_training_data['settings']['distance_unit'].name}")
 
-    training_features = classifier.combine_data(training_file['per_frame'],
-                                                training_file['window'])
+    training_features = classifier.combine_data(loaded_training_data['per_frame'],
+                                                loaded_training_data['window'])
     classifier.train(
         {
             'training_data': training_features,
-            'training_labels': training_file['labels']
+            'training_labels': loaded_training_data['labels']
         },
         behavior,
-        training_file['window_size'],
-        training_file['has_social_features'],
-        training_file['balance_labels'],
-        training_file['symmetric'],
-        training_file['extended_features'],
-        training_file['distance_unit'],
-        random_seed=training_file['training_seed']
+        random_seed=loaded_training_data['training_seed']
     )
 
     return classifier

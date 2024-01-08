@@ -439,10 +439,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self._controls.current_behavior,
-            self._window_size,
-            self._controls.use_social_features,
-            self._controls.use_balance_labels,
-            self._controls.use_symmetric,
             np.inf if self._controls.all_kfold else self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
@@ -471,22 +467,22 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.start()
 
         # save the project metadata used for this behavior
-        # window setting metadata
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        window_settings[self.behavior] = self._window_size
-        self._project.save_metadata({'window_size_pref': window_settings})
-        # optional feature metadata
-        classifier_feature_settings = self._project.metadata.get('classifier_features', {})
-        # balanced training settings
-        balance_labels_settings = classifier_feature_settings.get('balance', {})
-        balance_labels_settings[self.behavior] = self.uses_balance
-        classifier_feature_settings['balance'] = balance_labels_settings
-        # symmetric training settings
-        symmetric_settings = classifier_feature_settings.get('symmetric', {})
-        symmetric_settings[self.behavior] = self.uses_balance
-        classifier_feature_settings['symmetric'] = symmetric_settings
-        # write all optional features out
-        self._project.save_metadata({'classifier_features': classifier_feature_settings})
+        # # window setting metadata
+        # window_settings = self._project.metadata.get('window_size_pref', {})
+        # window_settings[self.behavior] = self._window_size
+        # self._project.save_metadata({'window_size_pref': window_settings})
+        # # optional feature metadata
+        # classifier_feature_settings = self._project.metadata.get('classifier_features', {})
+        # # balanced training settings
+        # balance_labels_settings = classifier_feature_settings.get('balance', {})
+        # balance_labels_settings[self.behavior] = self.uses_balance
+        # classifier_feature_settings['balance'] = balance_labels_settings
+        # # symmetric training settings
+        # symmetric_settings = classifier_feature_settings.get('symmetric', {})
+        # symmetric_settings[self.behavior] = self.uses_balance
+        # classifier_feature_settings['symmetric'] = symmetric_settings
+        # # write all optional features out
+        # self._project.save_metadata({'classifier_features': classifier_feature_settings})
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
