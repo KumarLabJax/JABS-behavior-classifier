@@ -411,7 +411,7 @@ class Project:
         :return: dictionary of project settings
         """
         return {
-            'units': self.distance_unit,
+            'cm_units': self.distance_unit,
             'window_size': fe.DEFAULT_WINDOW_SIZE,
             'social': self.can_use_social_features,
             'static_objects': {obj: True if obj in self.static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
@@ -698,7 +698,7 @@ class Project:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps
+                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self.get_behavior_metadata(behavior)
                 )
 
                 labels = self.load_video_labels(video).get_track_labels(

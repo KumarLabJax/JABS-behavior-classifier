@@ -70,7 +70,7 @@ class IdentityFeatures:
         self._pose_hash = pose_est.hash
         self._identity = identity
         self._op_settings = dict(op_settings)
-        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('unit', ProjectDistanceUnit.PIXEL) == ProjectDistanceUnit.CM else float(1.0)
+        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else float(1.0)
 
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /

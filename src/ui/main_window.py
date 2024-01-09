@@ -115,10 +115,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # All these settings should be updated whenever the behavior_changed event occurs
         self._central_widget._controls.behavior_changed.connect(self.behavior_changed_event)
 
-        self.enable_pixel_units = QtGui.QAction('Pixel Units', self)
-        self.enable_pixel_units.setCheckable(True)
-        self.enable_pixel_units.triggered.connect(self._toggle_pixel_units)
-        feature_menu.addAction(self.enable_pixel_units)
+        self.enable_cm_units = QtGui.QAction('CM Units', self)
+        self.enable_cm_units.setCheckable(True)
+        self.enable_cm_units.triggered.connect(self._toggle_cm_units)
+        feature_menu.addAction(self.enable_cm_units)
 
         self.enable_window_features = QtGui.QAction('Enable Window Features', self)
         self.enable_window_features.setCheckable(True)
@@ -208,7 +208,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
         # Update which controls should be available
-        self.enable_pixel_units.setEnabled(self._project.is_cm_unit)
+        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
         self.enable_social_features.setEnabled(self._project.can_use_social_features)
         self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
         available_objects = self._project.static_objects
@@ -226,7 +226,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Populate settings based project data
         behavior_metadata = self._project.get_behavior_metadata(new_behavior)
-        self.enable_pixel_units.setChecked(behavior_metadata.get('units', False))
+        self.enable_cm_units.setChecked(behavior_metadata.get('cm_units', False))
         self.enable_window_features.setChecked(behavior_metadata.get('window', False))
         self.enable_fft_features.setChecked(behavior_metadata.get('fft', False))
         self.enable_social_features.setChecked(behavior_metadata.get('social', False))
@@ -322,10 +322,10 @@ class MainWindow(QtWidgets.QMainWindow):
         """ show/hide segmentation overlay for subject. """
         self._central_widget.overlay_segmentation(checked)
 
-    def _toggle_pixel_units(self, checked):
+    def _toggle_cm_units(self, checked):
         """ toggle project to use pixel units. """
         # TODO: Warn the user that features may need to be re-calculated
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'units': checked})
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'cm_units': checked})
 
     def _toggle_social_features(self, checked):
         """ toggle project to use social features. """

@@ -420,6 +420,7 @@ class CentralWidget(QtWidgets.QWidget):
         # does the classifier match the current settings?
         classifier_settings = self._classifier.project_settings
         if (
+                classifier_settings is not None and
                 classifier_settings.get('window_size', None) == self.window_size and
                 classifier_settings.get('balance_labels', None) == self._controls.use_balance_labels and
                 classifier_settings.get('symmetric_behavior', None) == self._controls.use_symmetric
