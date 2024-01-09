@@ -80,6 +80,8 @@ class TrainingThread(QtCore.QThread):
                 test_info = group_mapping[data['test_group']]
 
                 # train classifier, and then use it to classify our test data
+                self._classifier.behavior_name = self._behavior
+                self._classifier.set_project_settings(self._project)
                 self._classifier.train(data)
                 predictions = self._classifier.predict(data['test_data'])
 
@@ -141,6 +143,8 @@ class TrainingThread(QtCore.QThread):
             print(f"std fbeta score (not behavior): {np.std(fbeta_notbehavior):.05}")
             print(f"\nClassifier: {self._classifier.classifier_name}")
             print(f"Behavior: {self._behavior}")
+            # TODO: move settings print to a common project function
+            # this will reduce repeated formatting across this and classify.py
             unit = "cm" if self._project.distance_unit == ProjectDistanceUnit.CM else "pixel"
             print(f"Feature Distance Unit: {unit}")
             print('-' * 70)

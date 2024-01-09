@@ -418,10 +418,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
         # does the classifier match the current settings?
+        classifier_settings = self._classifier.project_settings
         if (
-                self._classifier.window_size == self.window_size and
-                self._controls.use_balance_labels == self._classifier.uses_balance and
-                self._controls.use_symmetric == self._classifier.uses_symmetric
+                classifier_settings.get('window_size', None) == self.window_size and
+                classifier_settings.get('balance_labels', None) == self._controls.use_balance_labels and
+                classifier_settings.get('symmetric_behavior', None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -466,24 +467,6 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
-        # save the project metadata used for this behavior
-        # # window setting metadata
-        # window_settings = self._project.metadata.get('window_size_pref', {})
-        # window_settings[self.behavior] = self._window_size
-        # self._project.save_metadata({'window_size_pref': window_settings})
-        # # optional feature metadata
-        # classifier_feature_settings = self._project.metadata.get('classifier_features', {})
-        # # balanced training settings
-        # balance_labels_settings = classifier_feature_settings.get('balance', {})
-        # balance_labels_settings[self.behavior] = self.uses_balance
-        # classifier_feature_settings['balance'] = balance_labels_settings
-        # # symmetric training settings
-        # symmetric_settings = classifier_feature_settings.get('symmetric', {})
-        # symmetric_settings[self.behavior] = self.uses_balance
-        # classifier_feature_settings['symmetric'] = symmetric_settings
-        # # write all optional features out
-        # self._project.save_metadata({'classifier_features': classifier_feature_settings})
-
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
         self._progress_dialog.reset()
@@ -502,8 +485,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self._controls.current_behavior, self._loaded_video.name,
-            self._window_size)
+            self._controls.current_behavior, self._loaded_video.name)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)

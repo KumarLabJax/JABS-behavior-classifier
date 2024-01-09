@@ -290,10 +290,6 @@ class MainWindow(QtWidgets.QMainWindow):
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
                                             self._project._min_pose_version,
-                                            self._central_widget.window_size,
-                                            self._central_widget.uses_social,
-                                            self._central_widget.uses_balance,
-                                            self._central_widget.uses_symmetric,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",
@@ -328,6 +324,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_pixel_units(self, checked):
         """ toggle project to use pixel units. """
+        # TODO: Warn the user that features may need to be re-calculated
         self._project.save_behavior_metadata(self._central_widget.behavior, {'units': checked})
 
     def _toggle_social_features(self, checked):

@@ -1,4 +1,3 @@
-import enum
 import gzip
 import json
 import re
@@ -17,17 +16,13 @@ from src.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file, get_pose_file_major_version, \
     get_static_objects_in_file, PoseEstimation
 from src.project import TrackLabels
+from src.project.units import ProjectDistanceUnit
 from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 1
-
-
-class ProjectDistanceUnit(enum.IntEnum):
-    CM = 1
-    PIXEL = 2
 
 
 class Project:
@@ -702,33 +697,21 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                if self._distance_unit == ProjectDistanceUnit.CM:
-                    distance_scale_factor = pose_est.cm_per_pixel
-                else:
-                    distance_scale_factor = 1
-
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps,
-                    distance_scale_factor=distance_scale_factor,
-                    extended_features=self._enabled_extended_features
+                    video, identity, self.feature_dir, pose_est, fps=fps
                 )
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
 
-                per_frame_features = features.get_per_frame(
-                    self._metadata['behavior'][behavior]['social'], labels)
-                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
-                    per_frame_features, self._metadata['behavior'][behavior]['social'],
-                    extended_features=self._enabled_extended_features)
+                per_frame_features = features.get_per_frame(labels)
+                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(per_frame_features)
                 per_frame_features = pd.DataFrame(per_frame_features)
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self._metadata['behavior'][behavior]['window_size'], self._metadata['behavior'][behavior]['social'], labels)
-                window_features = fe.IdentityFeatures.merge_window_features(
-                    window_features, self._metadata['behavior'][behavior]['social'],
-                    extended_features=self._enabled_extended_features)
+                    self._metadata['behavior'][behavior]['window_size'], labels)
+                window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
 

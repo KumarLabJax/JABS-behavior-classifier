@@ -122,6 +122,10 @@ class Classifier:
     def behavior_name(self) -> str:
         return self._behavior
 
+    @behavior_name.setter
+    def behavior_name(self, value) -> str:
+        self._behavior = value
+
     @property
     def version(self) -> int:
         return self._version
@@ -430,7 +434,6 @@ class Classifier:
         self._behavior = c._behavior
         self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
-        self._distance_unit = c._distance_unit
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on
