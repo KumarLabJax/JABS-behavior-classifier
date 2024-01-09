@@ -10,6 +10,7 @@ from src.project.units import ProjectDistanceUnit
 from src.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
+from .feature_base_class import Feature
 from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
 from .landmark_features import LandmarkFeatureGroup
@@ -27,6 +28,18 @@ _FEATURE_MODULES = [
 _EXTENDED_FEATURE_MODULES = [
     LandmarkFeatureGroup
 ]
+
+_BASE_FILTERS = {
+    'social': SocialFeatureGroup.module_names(),
+    'segmentation': SegmentationFeatureGroup.module_names(),
+    'static_objects': LandmarkFeatureGroup._feature_map,
+}
+
+_WINDOW_FILTERS = {
+    'window': list(Feature._window_operations.keys()),
+    # TODO: Handle fft_bands with suffixes
+    'fft': list(Feature._signal_operations.keys()),
+}
 
 
 class FeatureVersionException(Exception):
@@ -61,7 +74,8 @@ class IdentityFeatures:
         :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
         :param op_settings: dict of optional settings to enable/disable
-        when returning features. 
+        when returning features. This will modify the contents returned by
+        get_window_features, get_per_frame, and get_features
         """
 
         self._pose_version = pose_est.format_major_version
@@ -320,6 +334,7 @@ class IdentityFeatures:
         h5 file already exists
         :return: window features for given window size. the format is documented
         in the docstring for _compute_window_features
+        features are filtered by self.op_settings
         """
 
         if force or self._identity_feature_dir is None:
@@ -357,6 +372,12 @@ class IdentityFeatures:
                 for feature_module_name, feature_module in features.items()
             }
 
+        # filter features based on op_settings
+        if self._op_settings is not None:
+            final_features = self._filter_base_features_by_op(final_features)
+            # window ops (e.g. 'window' or 'fft') are handled differently
+            final_features = self._filter_window_features_by_op(final_features)
+
         return final_features
 
     def get_per_frame(self, labels=None):
@@ -378,6 +399,7 @@ class IdentityFeatures:
             'point_speeds': {...},
             ...
         }
+        features are filtered by self.op_settings
         """
 
         if labels is None:
@@ -393,6 +415,9 @@ class IdentityFeatures:
                 for feature_module_name, feature_module in self._per_frame.items()
             }
 
+        if self._op_settings is not None:
+            features = self._filter_base_features_by_op(features)
+
         return features
 
     def get_features(self, window_size: int):
@@ -407,16 +432,59 @@ class IdentityFeatures:
           'window': dict, see _compute_window_features
           'frame_indexes': 1D np array, maps elements of per frame and window
              feature arrays back to global frame indexes
+        features are filtered by self.op_settings
         """
+        per_frame_features = self.get_per_frame()
         window_features = self.get_window_features(window_size)
 
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
         return {
-            'per_frame': self._per_frame,
+            'per_frame': per_frame_features,
             'window': window_features,
             'frame_indexes': indexes
         }
+
+    def _filter_base_features_by_op(self, features):
+        """
+        filter either per_frame or window features by the self._op_settings
+        :param features: dict of feature data
+        :return: filtered features
+        """
+        names_to_remove = []
+        for setting_name, setting_val in self._op_settings.items():
+            # skip if no filter assigned or we want to keep
+            if setting_name not in _BASE_FILTERS.keys() or setting_val is True:
+                continue
+            # special case for static objects, which are nested in a second dict
+            if isinstance(setting_val, dict):
+                for sub_setting, sub_val in setting_val.items():
+                    if not sub_val:
+                        names_to_remove = names_to_remove + _BASE_FILTERS[setting_name].get(sub_setting, [])
+            else:
+                names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
+        return {k: v for k, v in features.items() if k not in names_to_remove}
+
+    def _filter_window_features_by_op(self, features):
+        """
+        filter window features by the self._op_settings
+        :param features: dict of window feature data (must be dict of dict of dict)
+        :return: filtered features
+        """
+        names_to_remove = []
+        for setting_name, setting_val in self._op_settings.items():
+            if setting_name not in _WINDOW_FILTERS.keys() or setting_val is True:
+                continue
+            names_to_remove = names_to_remove + _WINDOW_FILTERS[setting_name]
+
+        # Since these names are in the second level, we need to filter them there
+        filtered_features = {}
+        for module_name, module_data in features.items():
+            filtered_module_data = {k: v for k, v in module_data.items() if k not in names_to_remove}
+            filtered_features[module_name] = filtered_module_data
+
+        return filtered_features
+
 
     def __compute_window_features(self, window_size: int):
         """
