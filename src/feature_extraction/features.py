@@ -3,10 +3,8 @@ import typing
 
 import h5py
 import numpy as np
-import re
 
 import src.project.track_labels
-from src.project.units import ProjectDistanceUnit
 from src.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
@@ -37,7 +35,7 @@ _BASE_FILTERS = {
 
 _WINDOW_FILTERS = {
     'window': list(Feature._window_operations.keys()),
-    # TODO: Handle fft_bands with suffixes
+    # note that fft_band features will contain a suffix for the band
     'fft': list(Feature._signal_operations.keys()),
 }
 
@@ -480,7 +478,13 @@ class IdentityFeatures:
         # Since these names are in the second level, we need to filter them there
         filtered_features = {}
         for module_name, module_data in features.items():
-            filtered_module_data = {k: v for k, v in module_data.items() if k not in names_to_remove}
+            filtered_module_data = {}
+            for k, v in module_data.items():
+                # Handle the special case where fft_band is a prefix
+                if k.startswith('fft_band') and 'fft_band' in names_to_remove:
+                    continue
+                if k not in names_to_remove:
+                    filtered_module_data[k] = v
             filtered_features[module_name] = filtered_module_data
 
         return filtered_features
