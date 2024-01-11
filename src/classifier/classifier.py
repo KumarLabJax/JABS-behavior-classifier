@@ -116,7 +116,9 @@ class Classifier:
     @property
     def project_settings(self) -> dict:
         """ return a copy of dictionary of project settings for this classifier """
-        return dict(self._project_settings)
+        if self._project_settings is not None:
+            return dict(self._project_settings)
+        return {}
 
     @property
     def behavior_name(self) -> str:
