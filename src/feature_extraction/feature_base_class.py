@@ -159,7 +159,10 @@ class Feature(abc.ABC):
         psd_data = {}
         # Obtain the PSD once
         for per_frame_key, per_frame in per_frame_values.items():
-            freqs, ts, Zxx = signal.stft(np.nan_to_num(per_frame, nan=0), fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
+            adjusted_feature = np.nan_to_num(per_frame, nan=0)
+            if len(adjusted_feature) < 2 * window_size + 1:
+                adjusted_feature = np.pad(adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature)))
+            freqs, ts, Zxx = signal.stft(adjusted_feature, fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
             psd = np.abs(Zxx)
             psd_data[per_frame_key] = psd
 
