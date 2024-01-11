@@ -115,8 +115,8 @@ class Classifier:
 
     @property
     def project_settings(self) -> dict:
-        """ return a dictionary of project settings for this classifier """
-        return self._project_settings
+        """ return a copy of dictionary of project settings for this classifier """
+        return dict(self._project_settings)
 
     @property
     def behavior_name(self) -> str:
