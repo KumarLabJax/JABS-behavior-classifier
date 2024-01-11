@@ -1,8 +1,10 @@
 import abc
 import typing
-
 import numpy as np
+from scipy import signal
 
+from src.feature_extraction.window_operations import window_stats
+from src.feature_extraction.window_operations import signal_stats
 from src.utils.utilities import rolling_window
 from src.pose_estimation import PoseEstimation
 
@@ -22,24 +24,52 @@ class Feature(abc.ABC):
     _min_pose = 2
     _static_objects = []
 
-    # _compute_window_feature uses numpy masked arrays, so we
-    # need to use the np.ma.* versions of these functions
     # NOTE: Circular values need to override this as well as the window()
     _window_operations = {
-        "mean": np.ma.mean,
-        "median": np.ma.median,
-        "std_dev": np.ma.std,
-        "max": np.ma.amax,
-        "min": np.ma.amin
+        "mean": window_stats.window_mean,
+        "median": window_stats.window_median,
+        "std_dev": window_stats.window_std_dev,
+        "skew": window_stats.window_skew,
+        "kurtosis": window_stats.window_kurtosis,
+        "max": window_stats.window_max,
+        "min": window_stats.window_min,
+    }
+    _nan_fill_value = 0
+
+    # signal processing operations
+    _signal_operations = {
+        "fft_band": signal_stats.psd_mean_band,
+        "psd_sum": signal_stats.psd_sum,
+        "psd_max": signal_stats.psd_max,
+        "psd_min": signal_stats.psd_min,
+        "psd_mean": signal_stats.psd_mean,
+        "psd_std_dev": signal_stats.psd_std_dev,
+        "psd_skew": signal_stats.psd_skew,
+        "psd_kurtosis": signal_stats.psd_kurtosis,
+        "psd_median": signal_stats.psd_median,
+        "psd_top_freq": signal_stats.psd_peak_freq,
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
         self._pixel_scale = pixel_scale
+        self._fps = poses.fps
+        self._signal_bands = [
+            {'band_low': 0.1, 'band_high': 1.0},
+            {'band_low': 1.0, 'band_high': 3.0},
+            {'band_low': 3.0, 'band_high': 5.0},
+            {'band_low': 5.0, 'band_high': 8.0},
+            {'band_low': 8.0, 'band_high': 15.0},
+        ]
+
         if self._name is None:
             raise NotImplementedError(
                 "Base class must override _name class member")
+
+    @staticmethod
+    def window_width(window_size: int) -> int:
+        return 2 * window_size + 1
 
     @classmethod
     def name(cls) -> str:
@@ -79,7 +109,7 @@ class Feature(abc.ABC):
     @abc.abstractmethod
     def per_frame(self, identity: int) -> np.ndarray:
         """
-        each FeatureSet ubclass will implement this to compute the
+        each FeatureSet subclass will implement this to compute the
         features in the set
 
         returns an ndarray containing the feature values.
@@ -105,39 +135,63 @@ class Feature(abc.ABC):
                 per_frame_values, self._poses.identity_mask(identity),
                 window_size, self._window_operations[op]
             )
+        # Also include signal features
+        signal_features = self.window_signal(identity, window_size, per_frame_values)
+        values.update(signal_features)
+        return values
+
+    def window_signal(
+        self,
+        identity: int,
+        window_size: int,
+        per_frame_values: dict
+    ) -> typing.Dict:
+        """
+        The standard method for computing signal processing window features.
+
+        :param identity: The identity of the mouse.
+        :param window_size: The window size used for signal formation.
+        :param per_frame_values: The values for a particular feature.
+        :return: a dictionary of the signal processing features.
+        """
+        values = {}
+
+        psd_data = {}
+        # Obtain the PSD once
+        for per_frame_key, per_frame in per_frame_values.items():
+            adjusted_feature = np.nan_to_num(per_frame, nan=0)
+            if len(adjusted_feature) < 2 * window_size + 1:
+                adjusted_feature = np.pad(adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature)))
+            freqs, ts, Zxx = signal.stft(adjusted_feature, fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
+            psd = np.abs(Zxx)
+            psd_data[per_frame_key] = psd
+
+        # Summarize the signal features
+        for op_name, op in self._signal_operations.items():
+            if op_name == 'fft_band':
+                for i, band in enumerate(self._signal_bands):
+                    values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op, **band)
+            else:
+                values[op_name] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op)
+
         return values
 
     def _window_circular(self, identity: int, window_size: int,
-                         per_frame_values: np.ndarray) -> typing.Dict:
+                         per_frame_values: dict) -> typing.Dict:
+        """
+        helper function for overriding window features to be circular
 
+        :param identity: The identity of the mouse.
+        :param window_size: The window size used for signal formation.
+        :param per_frame_values: The values for a particular feature.
+        :return: a dictionary of the circular window features.
+        """
         values = {}
         for op_name, op in self._window_operations.items():
             values[op_name] = self._compute_window_features_circular(
                 per_frame_values, self._poses.identity_mask(identity),
-                window_size, op, op_name == 'std_dev')
+                window_size, op)
         return values
-
-    @staticmethod
-    def window_width(window_size: int) -> int:
-        return 2 * window_size + 1
-
-    def _window_masks(self, frame_mask: np.ndarray, window_size: int) -> np.ndarray:
-        """
-        helper function for generating masks for all of the windows to be used
-        to compute window feature values
-        """
-
-        window_width = self.window_width(window_size)
-
-        # generate a numpy mask array to mask out invalid frames
-        mask = np.full(self._poses.num_frames, 1)
-        mask[frame_mask == 1] = 0
-
-        # generate masks for all of the rolling windows
-        return rolling_window(
-            np.pad(mask, window_size, 'constant', constant_values=1),
-            window_width
-        )
 
     def _compute_window_feature(self, feature_values: dict,
                                 frame_mask: np.ndarray, window_size: int,
@@ -153,24 +207,36 @@ class Feature(abc.ABC):
         :param op: function to perform the actual computation
         :return: dict containing feature values
         """
-        window_masks = self._window_masks(frame_mask, window_size)
-
-        window_width = self.window_width(window_size)
         values = {}
         for key, val in feature_values.items():
-            windows = rolling_window(
-                np.pad(val, window_size),
-                window_width
-            )
-            mx = np.ma.masked_array(windows, window_masks)
-            values[f"{key}"] = op(mx, axis=1)
-        
+            values[f"{key}"] = op(val, window=window_size)
+
+        return values
+
+    def _compute_signal_features(
+            self, freqs: np.ndarray, psd: dict,
+            frame_mask: np.ndarray, op: typing.Callable, **kwargs) -> np.ndarray:
+        """
+        helper function to compute signal window feature values.
+
+        :param freqs: frequency values for psd matrices
+        :param psd: dict of power spectral density
+        :param frame_mask: array indicating which frames are valid for the
+        current identity
+        :param op: function to perform the actual computation. Operation must
+        accept frequencies and psd as input
+        :param kwargs: additional keyword args used by op
+        :return: numpy nd array containing feature values
+        """
+        values = {}
+        for key, value in psd.items():
+            values[f"{key}"] = op(freqs, value, **kwargs)
+
         return values
 
     def _compute_window_features_circular(
             self, feature_values: dict, frame_mask: np.ndarray,
-            window_size: int, op: typing.Callable,
-            scipy_workaround: bool = False
+            window_size: int, op: typing.Callable
     ) -> typing.Dict:
         """
         special case compute_window_features for circular measurements
@@ -180,35 +246,10 @@ class Feature(abc.ABC):
         not for the specific identity we are computing features for
         :param window_size:
         :param op:
-        :param scipy_workaround:
-
-        # scipy.stats.circstd has a bug that can result in nan
-        # and a warning message to stderr if passed an array of
-        # nearly identical values
-        #
-        # our work around is to suppress the warning and replace
-        # the nan with 0
-        #
-        # this will be fixed as of scipy 1.6.0, so this work-around can be
-        # removed once we can upgrade to scipy 1.6.0
-
         :return: dict with circular feature values
         """
         nframes = self._poses.num_frames
         values = {}
-
-        def func_wrapper(_values):
-            """
-            implements work-around described in docstring
-            :param _values: values to use for computing window feature value
-            for a single frame
-            :return: window feature value
-            """
-            with np.errstate(invalid='ignore'):
-                v = op(_values)
-            if np.isnan(v):
-                return 0.0
-            return v
 
         for key, val in feature_values.items():
 
@@ -232,10 +273,7 @@ class Feature(abc.ABC):
                 window_values = val[slice_start:slice_end][
                     slice_frames_valid == 1]
 
-                if scipy_workaround:
-                    op_result[i] = func_wrapper(window_values)
-                else:
-                    op_result[i] = op(window_values)
+                op_result[i] = op(window_values)
 
             values[f"{key}"] = op_result
 

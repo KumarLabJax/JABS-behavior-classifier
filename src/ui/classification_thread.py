@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from PySide6 import QtCore
 
 from src.project import ProjectDistanceUnit
@@ -72,10 +73,9 @@ class ClassifyThread(QtCore.QThread):
 
                 # reformat the data in a single 2D numpy array to pass
                 # to the classifier
-                data = self._classifier.combine_data(
-                    feature_values['per_frame'],
-                    feature_values['window']
-                )
+                per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(feature_values['per_frame'], self._classifier.uses_social))
+                window_features = pd.DataFrame(IdentityFeatures.merge_window_features(feature_values['window'], self._classifier.uses_social))
+                data = self._classifier.combine_data(per_frame_features, window_features)
 
                 if data.shape[0] > 0:
                     # make predictions

@@ -5,6 +5,9 @@ from importlib import import_module
 from pathlib import Path
 import joblib
 import re
+import json
+from ast import literal_eval
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -22,8 +25,7 @@ from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 from src.project import TrackLabels
 from src.project import ProjectDistanceUnit
 
-_VERSION = 5
-
+_VERSION = 6
 
 class ClassifierType(IntEnum):
     RANDOM_FOREST = 1
@@ -48,6 +50,27 @@ except Exception:
     # we can otherwise ignore this exception
     _xgboost = None
 
+def load_hyperparameters()->dict:
+    """ 
+    This function loads the hyperparameters for each classifier from the hyperparameters.json file.
+
+    :return: a dictionary of hyperparameters for each classifier.
+    """
+    mapped_parameters = {"random_forest": ClassifierType.RANDOM_FOREST, "xg_boost": ClassifierType.XGBOOST, "gradient_boost": ClassifierType.GRADIENT_BOOSTING}
+
+    with open(Path(__file__).parent.parent.parent / 'hyperparameters.json', "rb") as j:
+        data = json.loads(j.read())
+
+    parameters = data["parameters"]
+
+    for classifier in parameters:
+        for key in parameters[classifier]:
+            try:
+                parameters[classifier][key] = literal_eval(parameters[classifier][key])
+            except Exception as e:
+                continue
+    
+    return {mapped_parameters[key]: parameters[key] for key in parameters}
 
 class Classifier:
     LABEL_THRESHOLD = 20
@@ -57,6 +80,8 @@ class Classifier:
         ClassifierType.GRADIENT_BOOSTING: "Gradient Boosting",
         ClassifierType.XGBOOST: "XGBoost"
     }
+
+    _classifier_hyperparameters = load_hyperparameters()
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         """
@@ -78,6 +103,7 @@ class Classifier:
         self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
+        self._hyperparameters = self._classifier_hyperparameters[classifier]
 
         # make sure the value passed for the classifier parameter is valid
         if classifier not in _classifier_choices:
@@ -294,6 +320,7 @@ class Classifier:
         if classifier not in _classifier_choices:
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
+        self._hyperparameters = self._classifier_hyperparameters[classifier]
 
     def classifier_choices(self):
         """
@@ -365,8 +392,10 @@ class Classifier:
             self._classifier = self._fit_gradient_boost(features, labels,
                                                         random_seed=random_seed)
         elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
-            self._classifier = self._fit_xgboost(features, labels,
-                                                 random_seed=random_seed)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                self._classifier = self._fit_xgboost(features, labels,
+                                                     random_seed=random_seed)
         else:
             raise ValueError("Unsupported classifier")
 
@@ -386,10 +415,25 @@ class Classifier:
         """
         predict classes for a given set of features
         """
-        return self._classifier.predict(self.sort_features_to_classify(features))
+        if self._classifier_type == ClassifierType.XGBOOST:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                result = self._classifier.predict(self.sort_features_to_classify(features))
+            return result
+        # Random forests and gradient boost can't handle NAs, so fill them with 0s
+        return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
 
     def predict_proba(self, features):
-        return self._classifier.predict_proba(self.sort_features_to_classify(features))
+        """
+        predict probabilities for a given set of features
+        """
+        if self._classifier_type == ClassifierType.XGBOOST:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                result = self._classifier.predict_proba(self.sort_features_to_classify(features))
+            return result
+        # Random forests and gradient boost can't handle NAs, so fill them with 0s
+        return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
 
     def save(self, path: Path):
         joblib.dump(self, path)
@@ -454,26 +498,26 @@ class Classifier:
                            random_seed: typing.Optional[int] = None):
         if random_seed is not None:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs,
-                                                random_state=random_seed)
+                                                random_state=random_seed, **self._hyperparameters)
         else:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs)
-        return classifier.fit(features, labels)
+            classifier = RandomForestClassifier(n_jobs=self._n_jobs, **self._hyperparameters)
+        return classifier.fit(features.fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels,
                             random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = GradientBoostingClassifier(random_state=random_seed)
+            classifier = GradientBoostingClassifier(random_state=random_seed, **self._hyperparameters)
         else:
-            classifier = GradientBoostingClassifier()
-        return classifier.fit(features, labels)
+            classifier = GradientBoostingClassifier(**self._hyperparameters)
+        return classifier.fit(features.fillna(0), labels)
 
     def _fit_xgboost(self, features, labels,
                      random_seed: typing.Optional[int] = None):
         if random_seed is not None:
             classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs,
-                                                random_state=random_seed)
+                                                random_state=random_seed, **self._hyperparameters)
         else:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
+            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, **self._hyperparameters)
         classifier.fit(features, labels)
         return classifier
 

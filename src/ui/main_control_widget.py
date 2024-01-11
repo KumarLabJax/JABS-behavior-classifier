@@ -1,5 +1,6 @@
 import sys
 
+from typing import List
 from PySide6 import QtWidgets, QtCore
 
 from src.classifier import Classifier
@@ -462,7 +463,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self._behaviors.remove(behavior)
         self.behavior_list_changed.emit(self._behaviors)
 
-    def _set_window_sizes(self, sizes: [int]):
+    def _set_window_sizes(self, sizes: List[int]):
         """ set the list of available window sizes """
         self._window_size.clear()
         for w in sizes:

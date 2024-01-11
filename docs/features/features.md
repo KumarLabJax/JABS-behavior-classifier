@@ -66,24 +66,86 @@
     * right rear paw
     * base tail
 
+## Segmentation (v6 pose files)
+
+32 features from segmentation data
+
+* 15 translation-invariant image moments
+* 7 hu image moments
+* 10 shape descriptors
+
 # Window Features
 
 Window features describe how a specific per-frame feature may be changing over time. We use a centered window around the frame of interest. These calculated features are added to the total feature vector. Window features calculated are different whether or not the per-frame feature is non-circular or circular.
 
 ## Non circular measurements
 
-* mean
-* median
-* standard deviation
-* max
-* min
+### Standard Statistical Summaries
+
+* Mean
+* Median
+* Standard Deviation
+* Skew
+* Kurtosis
+* Maximum
+* Minimum
+
+### Signal Processing Summaries
+
+Since signal processing features use the same window size as the standard statistics, some frequency bands may not contain any observable values. When this occurs, the feature is padded with zeros and is ignored by the classifier. We do not zero-pad the input feature vector to a specific size so that we can observe frequencies.
+
+* Power Spectral Density Sum
+* Power Spectral Density Maximum Power
+* Power Spectral Density Minimum Power
+* Power Spectral Density Mean Power
+* Power Spectral Density Mean Power in a Band
+    * 0.1Hz to 1Hz
+    * 1Hz to 3Hz
+    * 3Hz to 5Hz
+    * 5Hz to 8Hz
+    * 8Hz to 15Hz
+* Power Spectral Density Standard Deviation
+* Power Spectral Density Skew
+* Power Spectral Density Kurtosis
+* Power Spectral Density Median
+* Frequency with Maximum Power
 
 ## Circular measurements
 
-* circstd
-* cirmean
+These features contain ciruclar measurements and need to be treated differently. As such, different window features are calculated for them.
 
-### Circular Feature List
+### Statistical Summaries
+
+* Circular Standard Deviation
+* Circular Mean
+
+#### Circular Feature List
 
 * Angles
 * Bearings
+
+# Methods of handling Missing Data
+
+## Classifiers
+
+### XGBoost Classifier
+
+XGBoost classifiers support handling missing data.
+
+### Random Forest and Gradient Boosting Classifiers
+
+These classifiers do not support missing data. Feature vectors are padded with zeros where missing data is found.
+
+## Per-Frame Features
+
+When the input prediction required to calculate the feature is missing, the feature value for that frame stores a NaN value.
+
+## Window Features
+
+When a feature in a window is not present, the missing value is masked out for the window operation. For example, a mean operation of window size 5 (11 values) with 1 missing value will simply calculate the mean of 10 values.
+
+This may have adverse effects for skew and kurtosis estimates, as the window may shift based on where the data is missing, providing a wrong estimate for the central frame.
+
+## Signal Features
+
+Per-frame features fill missing values with zeros before passing into the FFT.

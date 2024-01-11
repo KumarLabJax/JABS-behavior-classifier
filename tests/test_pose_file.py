@@ -21,6 +21,11 @@ class TestOpenPose(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        '''11/14/2022 - This method throws an error: gzip.BadGzipFile: Not a gzipped file (x89H).  Noticed this when 
+        I tried to create my own base feature tests.  Is gzip.open() necessary, simply reading the file without gzip 
+        appears to work.  Please see my file test_pose_ancillary.py
+        '''
+
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
@@ -138,8 +143,11 @@ class TestOpenPose(unittest.TestCase):
                          pose_v4_from_cache.num_frames)
 
         # make sure the points and point masks are equal for all identities
+        # nans need to be handled differently
         for ident in pose_v4.identities:
             poses, mask = pose_v4.get_identity_poses(ident)
+            poses[np.isnan(poses)] = 0
             poses_cached, mask_cached = pose_v4_from_cache.get_identity_poses(ident)
-            self.assertTrue(np.alltrue(poses == poses_cached))
-            self.assertTrue(np.alltrue(mask == mask_cached))
+            poses_cached[np.isnan(poses_cached)] = 0
+            self.assertTrue(np.all(poses == poses_cached))
+            self.assertTrue(np.all(mask == mask_cached))

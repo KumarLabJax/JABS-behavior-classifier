@@ -12,13 +12,15 @@ from src.pose_estimation import PoseEstimation, PoseHashException
 from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
 from .landmark_features import LandmarkFeatureGroup
+from .segmentation_features import SegmentationFeatureGroup
 
 
-FEATURE_VERSION = 6
+FEATURE_VERSION = 7
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
-    SocialFeatureGroup
+    SocialFeatureGroup,
+    SegmentationFeatureGroup
 ]
 
 _EXTENDED_FEATURE_MODULES = [
@@ -82,12 +84,17 @@ class IdentityFeatures:
                 str(self._identity)
         )
         self._compute_social_features = pose_est.format_major_version >= 3
+        self._compute_segmentation_features = pose_est.format_major_version >= 6
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
             # don't include the social features if it is not supported by
             # the pose file
             if not self._compute_social_features and m is SocialFeatureGroup:
+                continue
+            # don't include segmentation features if it is not supported by
+            # the pose file
+            if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est,
                                                 self._distance_scale_factor)
@@ -346,16 +353,16 @@ class IdentityFeatures:
 
         else:
             # return only features for labeled frames
-            filtered_features = {}
-
-            for module_name in features.keys():
-                filtered_features[module_name] = {}
-                for window_name in features[module_name].keys():
-                    filtered_features[module_name][window_name] = {}
-                    for feature_name in features[module_name][window_name].keys():
-                        filtered_features[module_name][window_name][feature_name] = features[module_name][window_name][feature_name][labels != src.project.track_labels.TrackLabels.Label.NONE]
-
-            final_features = filtered_features
+            final_features = {
+                feature_module_name: {
+                    window_module_name: {
+                        feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE]
+                        for feature_name, feature_vector in window_module.items()
+                    }
+                    for window_module_name, window_module in feature_module.items()
+                }
+                for feature_module_name, feature_module in features.items()
+            }
 
         return final_features
 
@@ -388,7 +395,7 @@ class IdentityFeatures:
             # return only features for labeled frames
             features = {
                 feature_module_name: {
-                    feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE, ...]
+                    feature_name: feature_vector[labels != src.project.track_labels.TrackLabels.Label.NONE]
                     for feature_name, feature_vector in feature_module.items()
                 }
                 for feature_module_name, feature_module in self._per_frame.items()

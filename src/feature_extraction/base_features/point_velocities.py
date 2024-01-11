@@ -47,6 +47,7 @@ class PointVelocityDirs(Feature, abc.ABC):
 
         return directions
 
+
     def window(self, identity: int, window_size: int,
                per_frame_values: np.ndarray) -> dict:
         # need to override to use special method for computing window features

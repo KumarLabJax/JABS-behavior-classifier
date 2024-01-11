@@ -103,6 +103,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_landmark.triggered.connect(self._toggle_landmark_overlay)
         view_menu.addAction(self.overlay_landmark)
 
+        # Test add check mark for overlay segmentation
+        self.overlay_segmentation = QtGui.QAction('Overlay Segmentation', self)
+        self.overlay_segmentation.setCheckable(True)
+        self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
+        view_menu.addAction(self.overlay_segmentation)
+
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
@@ -236,15 +242,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_list.show()
 
     def _toggle_track(self, checked):
-        """ show/hide track overlay for subject """
+        """ show/hide track overlay for subject. """
         self._central_widget.show_track(checked)
 
     def _toggle_pose_overlay(self, checked):
-        """ show/hide pose overlay for subject """
+        """ show/hide pose overlay for subject. """
         self._central_widget.overlay_pose(checked)
 
     def _toggle_landmark_overlay(self, checked):
+        """ show/hide landmark features. """
         self._central_widget.overlay_landmarks(checked)
+
+    def _toggle_segmentation_overlay(self, checked):
+        """ show/hide segmentation overlay for subject. """
+        self._central_widget.overlay_segmentation(checked)
 
     def _video_list_selection(self, filename):
         """

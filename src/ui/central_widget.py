@@ -288,11 +288,16 @@ class CentralWidget(QtWidgets.QWidget):
     def show_track(self, show: bool):
         self._player_widget.show_track(show)
 
+    # main window -> central_widget -> player_widget
+    # "checked" seems like a more intuitive parameter name.
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
 
     def overlay_landmarks(self, new_val: bool):
         self._player_widget.overlay_landmarks(new_val)
+
+    def overlay_segmentation(self, new_val: bool):
+        self._player_widget.overlay_segmentation(new_val)
 
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
@@ -582,8 +587,8 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_prob = np.zeros((self._player_widget.num_frames()),
                                    dtype=np.float64)
 
-        prediction_labels[indexes] = self._predictions[identity]
-        prediction_prob[indexes] = self._probabilities[identity]
+        prediction_labels[indexes] = self._predictions[identity][indexes]
+        prediction_prob[indexes] = self._probabilities[identity][indexes]
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
         self.inference_timeline_widget.set_labels(prediction_labels)
