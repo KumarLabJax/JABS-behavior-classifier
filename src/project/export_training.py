@@ -28,10 +28,6 @@ if TYPE_CHECKING:
 def export_training_data(project: 'Project',
                          behavior: str,
                          pose_version: int,
-                         window_size: int,
-                         use_social: bool,
-                         use_balanced: bool,
-                         use_symmetric: bool,
                          classifier_type: 'ClassifierType',
                          training_seed: int,
                          out_file: typing.Optional[Path] = None):
@@ -44,10 +40,6 @@ def export_training_data(project: 'Project',
     :param project: Project from which to export training data
     :param behavior: Behavior to export
     :param pose_version: Minimum required pose version for this classifier
-    :param window_size: Window size used for this behavior
-    :param use_social: does classifer use social features or not?
-    :param use_balanced: should labels be balanced for export?
-    :param use_symmetric: should the classifier training use symmetric augmentation?
     :param classifier_type: Preferred classifier type
     :param training_seed: random seed to use for training to get reproducable
     results
@@ -60,7 +52,7 @@ def export_training_data(project: 'Project',
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     features, group_mapping = project.get_labeled_features(
-        behavior, window_size, use_social)
+        behavior)
 
     if out_file is None:
         out_file = (project.dir /
@@ -72,13 +64,9 @@ def export_training_data(project: 'Project',
         out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
         out_h5.attrs['app_version'] = src.version.version_str()
         out_h5.attrs['min_pose_version'] = pose_version
-        out_h5.attrs['has_social_features'] = use_social
-        out_h5.attrs['balance_labels'] = use_balanced
-        out_h5.attrs['symmetric'] = use_symmetric
-        out_h5.attrs['window_size'] = window_size
         out_h5.attrs['behavior'] = behavior
+        write_project_settings(out_h5, project.get_behavior_metadata(behavior), 'settings')
         out_h5.attrs['classifier_type'] = classifier_type.value
-        out_h5.attrs['distance_unit'] = project.distance_unit.name
         out_h5.attrs['training_seed'] = training_seed
         feature_group = out_h5.create_group('features')
         for feature, data in features['per_frame'].items():
@@ -98,15 +86,6 @@ def export_training_data(project: 'Project',
                                          (1,), dtype=string_type)
             dset[:] = group_mapping[group]['video']
 
-        # store extended features used for this training file
-        # structure is:
-        #   extended_features/<feature_group_name> = list of feature names
-        if project.extended_features is not None:
-            feature_group = out_h5.create_group('extended_features')
-            for ef in project.extended_features:
-                feature_group.create_dataset(
-                    ef, data=project.extended_features[ef], dtype=string_type)
-
     # return output path, so if it was generated automatically the caller
     # will know
     return out_file
@@ -124,14 +103,9 @@ def load_training_data(training_file: Path):
             'window_features': {},
             'labels': [int],
             'groups': [int],
-            'window_size': int,
-            'has_social_features': bool,
-            'balance_labels': bool,
-            'symmetric': bool,
             'behavior': str,
-            'distance_unit': ProjectDistanceUnit,
+            'settings': {},
             'classifier':
-            'extended_features': {}
         }
 
         group_mapping: dict containing group to identity/video mapping:
@@ -152,11 +126,8 @@ def load_training_data(training_file: Path):
 
     with h5py.File(training_file, 'r') as in_h5:
         features['min_pose_version'] = in_h5.attrs['min_pose_version']
-        features['has_social_features'] = in_h5.attrs['has_social_features']
-        features['balance_labels'] = in_h5.attrs['balance_labels']
-        features['symmetric'] = in_h5.attrs['symmetric']
-        features['window_size'] = in_h5.attrs['window_size']
         features['behavior'] = in_h5.attrs['behavior']
+        features['settings'] = read_project_settings(in_h5['settings'])
         features['training_seed'] = in_h5.attrs['training_seed']
         features['classifier_type'] = src.classifier.ClassifierType(
             in_h5.attrs['classifier_type'])
@@ -200,3 +171,54 @@ def load_training_data(training_file: Path):
             features['extended_features'] = None
 
     return features, group_mapping
+
+def read_project_settings(h5_file: h5py.Group) -> dict:
+    """
+    read dict of project settings
+
+    :param h5_file: open h5 file to read settings from
+    :return: dictionary of all project settings
+    """
+    all_settings = {}
+    root_len = len(h5_file.name) + 1
+
+    def _walk_project_settings(name, node) -> dict:
+        """
+        read dict of project settings walker
+
+        :param name: root where node is located
+        :param node: name of node currently visiting
+        :return: dictionary of walked setting (if valid node)
+        :raises: ValueError if settings have too much depth
+
+        meant to be used with h5py's visititems
+        this walk can't use return/yield, so we just mutate the dict each visit
+        settings can only be a max of 1 deep
+        """
+        fullname = node.name[root_len:]
+        if isinstance(node, h5py.Dataset):
+            if '/' in fullname:
+                level_name, key = fullname.split('/')
+                level_settings = all_settings.get(level_name, {})
+                level_settings.update({key: node[...].item()})
+                all_settings.update({level_name: level_settings})
+            else:
+                all_settings.update({fullname: node[...].item()})
+    
+    h5_file.visititems(_walk_project_settings)
+    return all_settings
+
+def write_project_settings(h5_file: typing.Union[h5py.File, h5py.Group], settings: dict, node: str = 'settings'):
+    """
+    write project settings to a training h5 file recursively
+
+    :param h5_file: open h5 file to write to
+    :param settings: dict of project settings
+    :param node: name of the node to write to
+    """
+    current_group = h5_file.require_group(node)
+    for key, val in settings.items():
+        if type(val) is dict:
+            write_project_settings(current_group, val, key)
+        else:
+            current_group.create_dataset(key, data=val)
