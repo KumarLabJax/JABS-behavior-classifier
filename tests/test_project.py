@@ -64,7 +64,7 @@ class TestProject(unittest.TestCase):
         walking_labels.label_not_behavior(1001, 2000)
 
         # and manually place the .json file in the project directory
-        with (cls._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
+        with (cls._EXISTING_PROJ_PATH / 'jabs' / 'annotations' /
               Path(cls._FILENAMES[0]).with_suffix('.json')
         ).open('w', newline='\n') as f:
             json.dump(labels.as_dict(), f)
@@ -84,14 +84,14 @@ class TestProject(unittest.TestCase):
         # make sure that the empty project directory was created
         self.assertTrue(project_dir.exists())
 
-        # make sure the rotta directory was created
+        # make sure the jabs directory was created
         self.assertTrue((project_dir / Project._PROJ_DIR).exists())
 
-        # make sure the rotta/annotations directory was created
+        # make sure the jabs/annotations directory was created
         self.assertTrue(
             (project_dir / Project._PROJ_DIR / 'annotations').exists())
 
-        # make sure the rotta/predictions directory was created
+        # make sure the jabs/predictions directory was created
         self.assertTrue(
             (project_dir / Project._PROJ_DIR / 'predictions').exists())
 
@@ -106,7 +106,7 @@ class TestProject(unittest.TestCase):
         """ test loading annotations from a saved project """
         labels = self.project.load_video_labels(self._FILENAMES[0])
 
-        with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
+        with (self._EXISTING_PROJ_PATH / 'jabs' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
@@ -129,7 +129,7 @@ class TestProject(unittest.TestCase):
 
         # make sure the .json file in the project directory matches the new
         # state
-        with (self._EXISTING_PROJ_PATH / 'rotta' / 'annotations' /
+        with (self._EXISTING_PROJ_PATH / 'jabs' / 'annotations' /
               Path(self._FILENAMES[0]).with_suffix('.json')).open('r') as f:
             dict_from_file = json.load(f)
 
