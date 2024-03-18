@@ -1,4 +1,5 @@
 .idea
+.coverage
 *.pyc
 test-reports
 .DS_Store
