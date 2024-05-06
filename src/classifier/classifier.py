@@ -22,10 +22,9 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.project import TrackLabels
-from src.project import ProjectDistanceUnit
+from src.project import TrackLabels, ProjectDistanceUnit, Project
 
-_VERSION = 6
+_VERSION = 7
 
 class ClassifierType(IntEnum):
     RANDOM_FOREST = 1
@@ -93,13 +92,8 @@ class Classifier:
 
         self._classifier_type = classifier
         self._classifier = None
-        self._window_size = None
-        self._uses_social = None
-        self._uses_balance = None
-        self._uses_symmetric = None
-        self._extended_features = None
+        self._project_settings = None
         self._behavior = None
-        self._distance_unit = None
         self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
@@ -120,40 +114,23 @@ class Classifier:
         return self._classifier_type
 
     @property
-    def window_size(self) -> int:
-        return self._window_size
-
-    @property
-    def uses_social(self) -> bool:
-        return self._uses_social
-
-    @property
-    def uses_balance(self) -> bool:
-        return self._uses_balance
-
-    @property
-    def uses_symmetric(self) -> bool:
-        return self._uses_symmetric
-
-    @property
-    def extended_features(self) -> typing.Dict[str, typing.List[str]]:
-        return self._extended_features
+    def project_settings(self) -> dict:
+        """ return a copy of dictionary of project settings for this classifier """
+        if self._project_settings is not None:
+            return dict(self._project_settings)
+        return {}
 
     @property
     def behavior_name(self) -> str:
         return self._behavior
 
+    @behavior_name.setter
+    def behavior_name(self, value) -> str:
+        self._behavior = value
+
     @property
     def version(self) -> int:
         return self._version
-
-    @property
-    def distance_unit(self) -> ProjectDistanceUnit:
-        """
-        return the distance unit for the features that were used to train
-        this classifier
-        """
-        return self._distance_unit
 
     @property
     def feature_names(self) -> list:
@@ -322,6 +299,27 @@ class Classifier:
         self._classifier_type = classifier
         self._hyperparameters = self._classifier_hyperparameters[classifier]
 
+    def set_project_settings(self, project: Project):
+        """
+        assign project settings to the classifier
+        :project: project to copy classifier-relevant settings from for the current behavior
+
+        if no behavior is currently set, will simply use project defaults
+        """
+        if self._behavior is None:
+            self._project_settings = project.get_project_defaults()
+        else:
+            self._project_settings = project.get_behavior_metadata(self._behavior)
+
+    def set_dict_settings(self, settings: dict):
+        """
+        assign project settings via a dict to the classifier
+        :settings: dict of project settings. Must be same structure as project.get_behavior_metadata
+
+        TODO: Add checks to enforce conformity to project settings
+        """
+        self._project_settings = dict(settings)
+
     def classifier_choices(self):
         """
         get the available classifier types
@@ -338,38 +336,19 @@ class Classifier:
             d: self._classifier_names[d] for d in _classifier_choices
         }
 
-    def train(self, data, behavior: str, window_size: int, uses_social: bool,
-              uses_balance: bool, uses_symmetric: bool,
-              extended_features: typing.Dict,
-              distance_unit: ProjectDistanceUnit,
-              random_seed: typing.Optional[int] = None):
+    def train(self, data, random_seed: typing.Optional[int] = None):
         """
         train the classifier
         :param data: dict returned from train_test_split()
-        :param behavior: string name of behavior we are training for
-        :param window_size: window size used for training
-        :param uses_social: does training data include social features?
-        :param uses_balance: does the training balance labels through downsampling before training?
-        :param uses_symmetric: is the behavior symmetric to augment L-R reflection?
-        :param extended_features: additional features used by classifier
-        :param distance_unit: the distance unit used for training
         :param random_seed: optional random seed (used when we want reproducible
         results between trainings)
         :return: None
 
-        NOTE: window_size, uses_social, extended_features, and distance_unit
-        is used only to verify that a trained classifer can be used
-        (check the classifier doesn't use features that are not supported the
-        project)
+        raises ValueError for having either unset project settings or an unset classifier
         """
-        # Update classifier parameters
-        self._uses_social = uses_social
-        self._uses_balance = uses_balance
-        self._uses_symmetric = uses_symmetric
-        self._window_size = window_size
-        self._behavior = behavior
-        self._distance_unit = distance_unit
-        self._extended_features = extended_features
+        if self._project_settings is None:
+            raise ValueError('Project settings for classifier unset, cannot train classifier.')
+
         # Assume that feature names is provided, otherwise extract it from the dataframe
         if 'feature_names' in data.keys():
             self._feature_names = data['feature_names']
@@ -380,9 +359,9 @@ class Classifier:
         features = data['training_data']
         labels = data['training_labels']
         # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
-        if uses_symmetric:
+        if self._project_settings.get('symmetric_behavior', False):
             features, labels = self.augment_symmetric(features, labels)
-        if uses_balance:
+        if self._project_settings.get('balance_labels', False):
             features, labels = self.downsample_balance(features, labels, random_seed)
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
@@ -455,12 +434,8 @@ class Classifier:
 
         self._classifier = c._classifier
         self._behavior = c._behavior
-        self._window_size = c._window_size
-        self._uses_social = c._uses_social
-        self._uses_balance = c._uses_balance
-        self._uses_symmetric = c._uses_symmetric
+        self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
-        self._distance_unit = c._distance_unit
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on

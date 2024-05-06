@@ -41,23 +41,16 @@ def train_and_classify(
         override_classifier: typing.Optional[ClassifierType] = None,
         fps=DEFAULT_FPS,
         feature_dir: typing.Optional[str] = None):
-    try:
-        training_file, _ = load_training_data(training_file_path)
-    except OSError as e:
-        sys.exit(f"Unable to open training data\n{e}")
-
-    behavior = training_file['behavior']
-    window_size = training_file['window_size']
-    use_social = training_file['has_social_features']
+    if not training_file_path.exists():
+        sys.exit(f"Unable to open training data\n")
 
     classifier = train(training_file_path, override_classifier)
-    classify_pose(classifier, input_pose_file, out_dir, behavior, window_size,
-                  use_social, fps, feature_dir)
+    classify_pose(classifier, input_pose_file, out_dir, behavior, fps, feature_dir)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
-                  behavior: str, window_size: int, use_social: bool,
-                  fps=DEFAULT_FPS, feature_dir: typing.Optional[str] = None):
+                  behavior: str, fps=DEFAULT_FPS,
+                  feature_dir: typing.Optional[str] = None):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -67,36 +60,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         dtype=np.int8)
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-    if use_social and pose_est.format_major_version < 3:
-        print(f"Skipping {input_pose_file}")
-        print("  classifier requires v3 or higher pose files")
-        return
-
-    # make sure the pose file supports all required extended features
-    supported_features = IdentityFeatures.get_available_extended_features(
-        pose_est.format_major_version, pose_est.static_objects)
-    required_features = classifier.extended_features
-    extended_feature_check_ok = True
-    for group, features in required_features.items():
-        if group not in supported_features:
-            extended_feature_check_ok = False
-        else:
-            for f in required_features[group]:
-                if f not in supported_features[group]:
-                    extended_feature_check_ok = False
-    if not extended_feature_check_ok:
-        print(f"Skipping {input_pose_file}")
-        print("  pose file does not support all required features")
-        return
-
-    distance_scale_factor = 1.0
-    if classifier.distance_unit == ProjectDistanceUnit.CM:
-        if pose_est.cm_per_pixel is None:
-            print(f"Skipping {input_pose_file}")
-            print("  classifier uses cm distance units but pose file does not have cm_per_pixel attribute")
-            return
-        else:
-            distance_scale_factor = pose_est.cm_per_pixel
+    classifier_settings = classifier.project_settings
 
     print(f"Classifying {input_pose_file}...")
 
@@ -106,12 +70,10 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                          complete_as_percent=False, suffix='identities')
 
         features = IdentityFeatures(
-            input_pose_file, curr_id, feature_dir, pose_est, fps=fps,
-            distance_scale_factor=distance_scale_factor,
-            extended_features=classifier.extended_features
-        ).get_features(window_size, use_social)
-        per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame'], use_social))
-        window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window'], use_social))
+            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings
+        ).get_features(classifier_settings['window_size'])
+        per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame']))
+        window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window']))
 
         data = Classifier.combine_data(per_frame_features, window_features)
 
@@ -154,18 +116,21 @@ def train(
 ) -> Classifier:
 
     try:
-        training_file, _ = load_training_data(training_file)
+        loaded_training_data, _ = load_training_data(training_file)
     except OSError as e:
         sys.exit(f"Unable to open training data\n{e}")
 
-    behavior = training_file['behavior']
+    behavior = loaded_training_data['behavior']
 
     classifier = Classifier()
+    classifier.set_dict_settings(loaded_training_data['settings'])
+
+    # Override the classifier type
     if override_classifier is not None:
         classifier_type = override_classifier
     else:
         classifier_type = ClassifierType(
-            training_file['classifier_type'])
+            loaded_training_data['classifier_type'])
 
     if classifier_type in classifier.classifier_choices():
         classifier.set_classifier(classifier_type)
@@ -177,27 +142,21 @@ def train(
     print("Training classifier for:", behavior)
     print("  Classifier Type: "
           f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
-    print(f"  Window Size: {training_file['window_size']}")
-    print(f"  Social: {training_file['has_social_features']}")
-    print(f"  Balanced Labels: {training_file['balance_labels']}")
-    print(f"  Symmetric Behavior: {training_file['symmetric']}")
-    print(f"  Distance Unit: {training_file['distance_unit'].name}")
+    print(f"  Window Size: {loaded_training_data['settings']['window_size']}")
+    print(f"  Social: {loaded_training_data['settings']['social']}")
+    print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
+    print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric_behavior']}")
+    print(f"  CM Units: {loaded_training_data['settings']['cm_units']}")
 
-    training_features = classifier.combine_data(training_file['per_frame'],
-                                                training_file['window'])
+    training_features = classifier.combine_data(loaded_training_data['per_frame'],
+                                                loaded_training_data['window'])
     classifier.train(
         {
             'training_data': training_features,
-            'training_labels': training_file['labels']
+            'training_labels': loaded_training_data['labels']
         },
         behavior,
-        training_file['window_size'],
-        training_file['has_social_features'],
-        training_file['balance_labels'],
-        training_file['symmetric'],
-        training_file['extended_features'],
-        training_file['distance_unit'],
-        random_seed=training_file['training_seed']
+        random_seed=loaded_training_data['training_seed']
     )
 
     return classifier
@@ -296,9 +255,7 @@ def classify_main():
             sys.exit(e)
 
         behavior = classifier.behavior_name
-        window_size = classifier.window_size
-        use_social = classifier.uses_social
-        distance_unit = classifier.distance_unit
+        classifier_settings = classifier.project_settings
 
         print(f"Classifying using trained classifier: {args.classifier}")
         try:
@@ -307,12 +264,11 @@ def classify_main():
         except KeyError:
             sys.exit("Error: Classifier type not supported on this platform")
         print(f"  Behavior: {behavior}")
-        print(f"  Window Size: {window_size}")
-        print(f"  Social: {use_social}")
-        print(f"  Distance Unit: {distance_unit.name}")
+        print(f"  Window Size: {classifier_settings['window_size']}")
+        print(f"  Social: {classifier_settings['social']}")
+        print(f"  CM Units: {classifier_settings['cm_units']}")
 
-        classify_pose(classifier, in_pose_path, out_dir, behavior, window_size,
-                      use_social, fps=args.fps, feature_dir=args.feature_dir)
+        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir)
 
 
 def train_main():

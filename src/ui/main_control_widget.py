@@ -1,3 +1,11 @@
+"""Project-level controls for classifiers."""
+
+# TODO:
+# While this file was initially designed for controlling project settings
+# This is now the primary location where project-level settings are managed
+# The project class simply exposes its settings here which are modified
+# The project class should be the management location of these features
+
 import sys
 
 from typing import List
@@ -23,10 +31,9 @@ class MainControlWidget(QtWidgets.QWidget):
     classifier_changed = QtCore.Signal()
     behavior_changed = QtCore.Signal(str)
     kfold_changed = QtCore.Signal()
-    behavior_list_changed = QtCore.Signal(list)
+    behavior_list_changed = QtCore.Signal(dict)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
-    use_social_feature_changed = QtCore.Signal(int)
     use_balace_labels_changed = QtCore.Signal(int)
     use_symmetric_changed = QtCore.Signal(int)
 
@@ -114,9 +121,6 @@ class MainControlWidget(QtWidgets.QWidget):
         #   disabled until project loaded
         self._kslider.setEnabled(False)
 
-        self._use_social_feature_checkbox = QtWidgets.QCheckBox("Use Social Features")
-        self._use_social_feature_checkbox.stateChanged.connect(self.use_social_feature_changed)
-
         self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
         self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
 
@@ -132,7 +136,6 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_layout.addWidget(self._classifier_selection, 1, 0, 1, 2)
         classifier_layout.addWidget(QtWidgets.QLabel("Window Size"), 2, 0)
         classifier_layout.addLayout(window_size_layout, 2, 1)
-        classifier_layout.addWidget(self._use_social_feature_checkbox, 3, 0, 1, 2)
         classifier_layout.addWidget(self._use_balace_labels_checkbox, 4, 0, 1, 2)
         classifier_layout.addWidget(self._symmetric_behavior_checkbox, 5, 0, 1, 2)
         classifier_layout.addWidget(self._all_kfold_checkbox, 6, 0, 1, 2)
@@ -269,15 +272,6 @@ class MainControlWidget(QtWidgets.QWidget):
         return self._classifier_selection.currentData()
 
     @property
-    def use_social_features(self):
-        return self._use_social_feature_checkbox.isChecked()
-
-    @use_social_features.setter
-    def use_social_features(self, val: bool):
-        if self._use_social_feature_checkbox.isEnabled():
-            self._use_social_feature_checkbox.setChecked(val)
-
-    @property
     def use_balance_labels(self):
         return self._use_balace_labels_checkbox.isChecked()
 
@@ -310,11 +304,6 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button.setEnabled(True)
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
-
-    def set_use_social_features_checkbox_enabled(self, val: bool):
-        self._use_social_feature_checkbox.setEnabled(val)
-        if not val:
-            self._use_social_feature_checkbox.setChecked(False)
 
     def set_use_balance_labels_checkbox_enabled(self, val: bool):
         self._use_balace_labels_checkbox.setEnabled(val)
@@ -377,10 +366,10 @@ class MainControlWidget(QtWidgets.QWidget):
         :return: None
         """
 
-        # update window sizes
-        self._set_window_sizes(project_settings['window_sizes'])
+        # TODO: This is one of the major locations where project settings
+        # are owned by this widget, instead of the project class
 
-        # update behaviors
+        # update behavior list
         # reset list of behaviors, then add any from the project metadata
         self._behaviors = []
 
@@ -388,59 +377,35 @@ class MainControlWidget(QtWidgets.QWidget):
         # project (otherwise it gets unnecessarily called multiple times)
         self.behavior_selection.currentIndexChanged.disconnect()
 
+        self._set_window_sizes(project_settings['window_sizes'])
+
+        # select the behavior
         behavior_index = 0
-        if 'behaviors' in project_settings:
-            self._behaviors = list(project_settings['behaviors'])
-            self._behaviors.sort()
+        if 'behavior' in project_settings:
+            self._behaviors = sorted(list(project_settings['behavior'].keys()))
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
         if 'selected_behavior' in project_settings:
             # make sure this behavior is in the behavior selection drop down
             if project_settings['selected_behavior'] not in self._behaviors:
-                self._behaviors.append(project_settings['selected_behavior'])
-                self._behaviors.sort()
                 self.behavior_selection.clear()
+                self._behaviors = sorted(self._behaviors + [project_settings['selected_behavior']])
                 self.behavior_selection.addItems(self._behaviors)
             behavior_index = self._behaviors.index(
                 project_settings['selected_behavior'])
 
+        if len(self._behaviors) == 0:
+            self._get_first_label() 
+
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
-        if len(self._behaviors) == 0:
-            self._get_first_label()
-        else:
-            self._label_behavior_button.setText(self.current_behavior)
-            self._label_behavior_button.setToolTip(
-                f"Label frames {self.current_behavior}")
-            self._label_not_behavior_button.setText(
-                f"Not {self.current_behavior}")
-            self._label_not_behavior_button.setToolTip(
-                f"Label frames Not {self.current_behavior}")
-
-        # use window size last used for the behavior
-        window_settings = project_settings.get('window_size_pref', {})
-        if self.current_behavior in window_settings:
-            self.set_window_size(window_settings[self.current_behavior])
-
-        # set initial state for use social feature button
-        optional_feature_settings = project_settings.get(
-            'optional_features', {})
-        social_feature_settings = optional_feature_settings.get('social', {})
-        if self.current_behavior in social_feature_settings:
-            self.use_social_features = social_feature_settings[self.current_behavior]
-
-        balance_labels_settings = optional_feature_settings.get('balance', {})
-        if self.current_behavior in balance_labels_settings:
-            self.use_balance_labels = balance_labels_settings[self.current_behavior]
-
-        symmetric_settings = optional_feature_settings.get('symmetric', {})
-        if self.current_behavior in symmetric_settings:
-            self.use_symmetric = symmetric_settings[self.current_behavior]
-
         # re-enable the behavior_selection change signal handler
         self.behavior_selection.currentIndexChanged.connect(
             self._behavior_changed)
+        # run all the updates for when a behavior changes
+        self._behavior_changed()
+
 
     def set_identities(self, identities):
         """ populate the identity_selection combobox """
@@ -480,8 +445,6 @@ class MainControlWidget(QtWidgets.QWidget):
                                                   QtWidgets.QLineEdit.Normal
                                                   )
         if ok and text not in self._behaviors:
-            self._behaviors.append(text)
-            self._behaviors.sort()
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
             self.behavior_list_changed.emit(self._behaviors)
@@ -501,8 +464,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 self, 'New Behavior',
                 'New project - please enter a behavior name to continue:',
                 QtWidgets.QLineEdit.Normal)
-        self._behaviors.append(text)
-        self._behaviors.sort()
+        self._behaviors = [text]
         self.behavior_selection.addItem(text)
         self.behavior_selection.setCurrentText(text)
         self.behavior_list_changed.emit(self._behaviors)
@@ -533,6 +495,10 @@ class MainControlWidget(QtWidgets.QWidget):
                 "This may be slow.")
 
     def _add_window_size(self, new_size: int):
+
+        if new_size is None:
+            return
+
         # we clear and reset the contents of the combo box so that we
         # can re sort it with the new size
 

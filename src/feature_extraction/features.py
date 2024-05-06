@@ -3,12 +3,12 @@ import typing
 
 import h5py
 import numpy as np
-import re
 
 import src.project.track_labels
 from src.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
+from .feature_base_class import Feature
 from .base_features import BaseFeatureGroup
 from .social_features import SocialFeatureGroup
 from .landmark_features import LandmarkFeatureGroup
@@ -27,6 +27,18 @@ _EXTENDED_FEATURE_MODULES = [
     LandmarkFeatureGroup
 ]
 
+_BASE_FILTERS = {
+    'social': SocialFeatureGroup.module_names(),
+    'segmentation': SegmentationFeatureGroup.module_names(),
+    'static_objects': LandmarkFeatureGroup._feature_map,
+}
+
+_WINDOW_FILTERS = {
+    'window': list(Feature._window_operations.keys()),
+    # note that fft_band features will contain a suffix for the band
+    'fft': list(Feature._signal_operations.keys()),
+}
+
 
 class FeatureVersionException(Exception):
     pass
@@ -43,9 +55,9 @@ class IdentityFeatures:
 
     _version = FEATURE_VERSION
 
-    def __init__(self, source_file, identity, directory, pose_est, force=False,
-                 fps=30, distance_scale_factor: float = 1.0,
-                 extended_features: typing.Optional[typing.Dict[str, typing.List[str]]] = None):
+    def __init__(self, source_file, identity, directory, pose_est,
+                 force: bool = False, fps: int = 30,
+                 op_settings: dict = {}):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -59,11 +71,9 @@ class IdentityFeatures:
         per frame feature .h5 file exists for this video/identity
         :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
-        :param distance_scale_factor: set to cm_per_pixel to convert pixel
-        distances into cm, defaults to 1.0 (do not scale pixel coordinates)
-        :param extended_features: optional extended feature configuration,
-        dict with feature groups as keys, lists of feature module names as
-        values. If None, all extended features are enabled.
+        :param op_settings: dict of optional settings to enable/disable
+        when returning features. This will modify the contents returned by
+        get_window_features, get_per_frame, and get_features
         """
 
         self._pose_version = pose_est.format_major_version
@@ -71,12 +81,8 @@ class IdentityFeatures:
         self._fps = fps
         self._pose_hash = pose_est.hash
         self._identity = identity
-        self._extended_features = extended_features
-
-        # make sure distance_scale_factor is a float, passing 1 instead of 1.0
-        # for using pixel units would cause some computations to use integer
-        # rather than floating point
-        self._distance_scale_factor = float(distance_scale_factor)
+        self._op_settings = dict(op_settings)
+        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else float(1.0)
 
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
@@ -310,14 +316,13 @@ class IdentityFeatures:
 
         return window_features
 
-    def get_window_features(self, window_size: int, use_social: bool,
+    def get_window_features(self, window_size: int,
                             labels=None, force: bool = False):
         """
         get window features for a given window size, computing if not previously
         computed and saved as h5 file
         :param window_size: number of frames on each side of the current frame to
         include in the window
-        :param use_social:
         :param labels: optional frame labels, if present then only features for
         labeled frames will be returned
         NOTE: if labels is None, this will also include values for frames where
@@ -327,6 +332,7 @@ class IdentityFeatures:
         h5 file already exists
         :return: window features for given window size. the format is documented
         in the docstring for _compute_window_features
+        features are filtered by self.op_settings
         """
 
         if force or self._identity_feature_dir is None:
@@ -364,12 +370,17 @@ class IdentityFeatures:
                 for feature_module_name, feature_module in features.items()
             }
 
+        # filter features based on op_settings
+        if self._op_settings is not None:
+            final_features = self._filter_base_features_by_op(final_features)
+            # window ops (e.g. 'window' or 'fft') are handled differently
+            final_features = self._filter_window_features_by_op(final_features)
+
         return final_features
 
-    def get_per_frame(self, use_social: bool, labels=None):
+    def get_per_frame(self, labels=None):
         """
         get per frame features
-        :param use_social:
         :param labels: if present, only return features for labeled frames
         NOTE: if labels is None, this will include also values for frames where
         the identity does not exist. These get filtered out when filtering out
@@ -386,6 +397,7 @@ class IdentityFeatures:
             'point_speeds': {...},
             ...
         }
+        features are filtered by self.op_settings
         """
 
         if labels is None:
@@ -401,32 +413,82 @@ class IdentityFeatures:
                 for feature_module_name, feature_module in self._per_frame.items()
             }
 
+        if self._op_settings is not None:
+            features = self._filter_base_features_by_op(features)
+
         return features
 
-    def get_features(self, window_size: int, use_social: bool):
+    def get_features(self, window_size: int):
         """
         get features and corresponding frame indexes for classification
         omits frames where the identity is not valid, so 'frame_indexes' array
         may not be consecutive
         :param window_size: window size to use
-        :param use_social: if true, include social features in returned data
-        No effect for v2 pose files.
         :return: dictionary with the following keys:
 
           'per_frame': dict with feature name as keys, numpy array as values
           'window': dict, see _compute_window_features
           'frame_indexes': 1D np array, maps elements of per frame and window
              feature arrays back to global frame indexes
+        features are filtered by self.op_settings
         """
-        window_features = self.get_window_features(window_size, use_social)
+        per_frame_features = self.get_per_frame()
+        window_features = self.get_window_features(window_size)
 
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
         return {
-            'per_frame': self._per_frame,
+            'per_frame': per_frame_features,
             'window': window_features,
             'frame_indexes': indexes
         }
+
+    def _filter_base_features_by_op(self, features):
+        """
+        filter either per_frame or window features by the self._op_settings
+        :param features: dict of feature data
+        :return: filtered features
+        """
+        names_to_remove = []
+        for setting_name, setting_val in self._op_settings.items():
+            # skip if no filter assigned or we want to keep
+            if setting_name not in _BASE_FILTERS.keys() or setting_val is True:
+                continue
+            # special case for static objects, which are nested in a second dict
+            if isinstance(setting_val, dict):
+                for sub_setting, sub_val in setting_val.items():
+                    if not sub_val:
+                        names_to_remove = names_to_remove + _BASE_FILTERS[setting_name].get(sub_setting, [])
+            else:
+                names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
+        return {k: v for k, v in features.items() if k not in names_to_remove}
+
+    def _filter_window_features_by_op(self, features):
+        """
+        filter window features by the self._op_settings
+        :param features: dict of window feature data (must be dict of dict of dict)
+        :return: filtered features
+        """
+        names_to_remove = []
+        for setting_name, setting_val in self._op_settings.items():
+            if setting_name not in _WINDOW_FILTERS.keys() or setting_val is True:
+                continue
+            names_to_remove = names_to_remove + _WINDOW_FILTERS[setting_name]
+
+        # Since these names are in the second level, we need to filter them there
+        filtered_features = {}
+        for module_name, module_data in features.items():
+            filtered_module_data = {}
+            for k, v in module_data.items():
+                # Handle the special case where fft_band is a prefix
+                if k.startswith('fft_band') and 'fft_band' in names_to_remove:
+                    continue
+                if k not in names_to_remove:
+                    filtered_module_data[k] = v
+            filtered_features[module_name] = filtered_module_data
+
+        return filtered_features
+
 
     def __compute_window_features(self, window_size: int):
         """
@@ -471,16 +533,11 @@ class IdentityFeatures:
         return window_features
 
     @classmethod
-    def merge_per_frame_features(cls, features: dict, include_social: bool,
-                                 extended_features=None) -> dict:
+    def merge_per_frame_features(cls, features: dict) -> dict:
         """
         merge a dict of per-frame features where each element in the dict is
         a set of per-frame features computed for an individual animal
         :param features: list of per-frame feature instances
-        :param include_social:
-        :param extended_features: optional extended feature configuration,
-        dict with feature groups as keys, lists of feature names as
-        values. If None, all extended features are enabled.
 
         :return: dict of the form
         {
@@ -490,42 +547,19 @@ class IdentityFeatures:
         }
         """
         merged_features = {}
-        all_extended_module_names = np.concatenate([x.module_names() for x in _EXTENDED_FEATURE_MODULES]).tolist()
-        if extended_features:
-            extended_module_names = np.concatenate(list(extended_features.values())).tolist()
-        else:
-            extended_module_names = []
 
         for feature_module_name, feature_module in features.items():
-            # skip social features if requested
-            if not include_social and feature_module_name in SocialFeatureGroup.module_names():
-                continue
             for feature_name, feature_vector in feature_module.items():
-                if (
-                        feature_module_name in all_extended_module_names
-                        and extended_features is not None
-                        and feature_module_name not in extended_module_names
-                    ):
-                    continue
                 merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
 
         return merged_features
 
     @classmethod
-    def merge_window_features(
-            cls,
-            features: dict,
-            include_social: bool,
-            extended_features: typing.Optional[typing.Dict] = None
-    ) -> dict:
+    def merge_window_features(cls, features: dict) -> dict:
         """
         merge a dict of window features where each element in the dict is the
         set of window features computed for an individual animal
         :param features: dict of window feature dicts
-        :param include_social:
-        :param extended_features: optional extended feature configuration,
-        dict with feature groups as keys, lists of feature module names as
-        values. If None, all extended features are enabled.
         :return: dictionary of the form:
         {
             'mod1 feature_1_name': mod1_feature_1_vector,
@@ -536,24 +570,10 @@ class IdentityFeatures:
         }
         """
         merged_features = {}
-        all_extended_module_names = np.concatenate([x.module_names() for x in _EXTENDED_FEATURE_MODULES]).tolist()
-        if extended_features:
-            extended_module_names = np.concatenate(list(extended_features.values())).tolist()
-        else:
-            extended_module_names = []
-
+        
         for feature_module_name, feature_module in features.items():
-            # skip social features if requested
-            if not include_social and feature_module_name in SocialFeatureGroup.module_names():
-                continue
             for window_name, window_group in feature_module.items():
                 for feature_name, feature_vector in window_group.items():
-                    if (
-                            feature_module_name in all_extended_module_names
-                            and extended_features is not None
-                            and feature_module_name not in extended_module_names
-                        ):
-                        continue
                     merged_features[f"{feature_module_name} {window_name} {feature_name}"] = feature_vector
 
         return merged_features
