@@ -641,7 +641,7 @@ class Project:
     @staticmethod
     def get_videos(dir_path: Path):
         """ Get list of video filenames (without path) in a directory """
-        return [f.name for f in dir_path.glob("*.avi")]
+        return [f.name for f in dir_path.glob("*") if f.suffix in ['.avi', '.mp4']]
 
     def get_labeled_features(self, behavior=None, progress_callable=None):
         """
