@@ -105,9 +105,9 @@ class PoseEstimationV3(PoseEstimation):
             self._identity_map = self._build_identity_map(
                 all_instance_count, all_track_id)
 
-            self._points = np.zeros(
-                (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
-                dtype=np.uint16)
+            self._points = np.full(
+                (self._max_instances, self.num_frames, len(self.KeypointIndex), 2), np.nan,
+                dtype=np.float64)
             self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
 
             # build numpy arrays of points and point masks organized by identity

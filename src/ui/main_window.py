@@ -4,6 +4,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 
 from src.project import Project, export_training_data
+from src.feature_extraction.landmark_features import LandmarkFeatureGroup
 from src.version import version_str
 from src.utils import FINAL_TRAIN_SEED
 from .about_dialog import AboutDialog
@@ -39,6 +40,7 @@ class MainWindow(QtWidgets.QMainWindow):
         app_menu = menu.addMenu(self._app_name)
         file_menu = menu.addMenu('File')
         view_menu = menu.addMenu('View')
+        feature_menu = menu.addMenu('Features')
 
         # open action
         open_action = QtGui.QAction('&Open Project', self)
@@ -103,6 +105,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_landmark.triggered.connect(self._toggle_landmark_overlay)
         view_menu.addAction(self.overlay_landmark)
 
+        # Test add check mark for overlay segmentation
+        self.overlay_segmentation = QtGui.QAction('Overlay Segmentation', self)
+        self.overlay_segmentation.setCheckable(True)
+        self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
+        view_menu.addAction(self.overlay_segmentation)
+
+        # Feature subset actions
+        # All these settings should be updated whenever the behavior_changed event occurs
+        self._central_widget._controls.behavior_changed.connect(self.behavior_changed_event)
+
+        self.enable_cm_units = QtGui.QAction('CM Units', self)
+        self.enable_cm_units.setCheckable(True)
+        self.enable_cm_units.triggered.connect(self._toggle_cm_units)
+        feature_menu.addAction(self.enable_cm_units)
+
+        self.enable_window_features = QtGui.QAction('Enable Window Features', self)
+        self.enable_window_features.setCheckable(True)
+        self.enable_window_features.triggered.connect(self._toggle_window_features)
+        feature_menu.addAction(self.enable_window_features)
+
+        self.enable_fft_features = QtGui.QAction('Enable Signal Features', self)
+        self.enable_fft_features.setCheckable(True)
+        self.enable_fft_features.triggered.connect(self._toggle_fft_features)
+        feature_menu.addAction(self.enable_fft_features)
+
+        self.enable_social_features = QtGui.QAction('Enable Social Features', self)
+        self.enable_social_features.setCheckable(True)
+        self.enable_social_features.triggered.connect(self._toggle_social_features)
+        feature_menu.addAction(self.enable_social_features)
+
+        # Static objects
+        enable_landmark_features = {}
+        for landmark_name in LandmarkFeatureGroup._feature_map.keys():
+            landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
+            landmark_action.setCheckable(True)
+            landmark_action.triggered.connect(self._toggle_static_object_feature)
+            feature_menu.addAction(landmark_action)
+            enable_landmark_features[landmark_name] = landmark_action
+        self.enable_landmark_features = enable_landmark_features
+
+        self.enable_segmentation_features = QtGui.QAction('Enable Segmentation Features', self)
+        self.enable_segmentation_features.setCheckable(True)
+        self.enable_segmentation_features.triggered.connect(self._toggle_segmentation_features)
+        feature_menu.addAction(self.enable_segmentation_features)
+
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
@@ -157,8 +204,36 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_project(self, project_path):
         """ open a new project directory """
         self._project = Project(project_path)
+        # The central_widget updates main_control_widget
         self.centralWidget().set_project(self._project)
         self.video_list.set_project(self._project)
+        # Update which controls should be available
+        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
+        self.enable_social_features.setEnabled(self._project.can_use_social_features)
+        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
+        available_objects = self._project.static_objects
+        for static_object, menu_item in self.enable_landmark_features.items():
+            if static_object in available_objects:
+                menu_item.setEnabled(True)
+            else:
+                menu_item.setEnabled(False)
+
+    def behavior_changed_event(self, new_behavior):
+        """ menu items to change when a new behavior is selected. """
+        # skip if no behavior assigned (only should occur during new project)
+        if new_behavior is None or new_behavior == '':
+            return
+
+        # Populate settings based project data
+        behavior_metadata = self._project.get_behavior_metadata(new_behavior)
+        self.enable_cm_units.setChecked(behavior_metadata.get('cm_units', False))
+        self.enable_window_features.setChecked(behavior_metadata.get('window', False))
+        self.enable_fft_features.setChecked(behavior_metadata.get('fft', False))
+        self.enable_social_features.setChecked(behavior_metadata.get('social', False))
+        self.enable_segmentation_features.setChecked(behavior_metadata.get('segmentation', False))
+        static_settings = behavior_metadata.get('static_objects', {})
+        for static_object, menu_item in self.enable_landmark_features.items():
+            menu_item.setChecked(static_settings.get(static_object, False))
 
     def display_status_message(self, message: str, duration: int=3000):
         """
@@ -214,8 +289,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
-                                            self._central_widget.window_size,
-                                            self._central_widget.uses_social,
+                                            self._project._min_pose_version,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",
@@ -233,15 +307,49 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_list.show()
 
     def _toggle_track(self, checked):
-        """ show/hide track overlay for subject """
+        """ show/hide track overlay for subject. """
         self._central_widget.show_track(checked)
 
     def _toggle_pose_overlay(self, checked):
-        """ show/hide pose overlay for subject """
+        """ show/hide pose overlay for subject. """
         self._central_widget.overlay_pose(checked)
 
     def _toggle_landmark_overlay(self, checked):
+        """ show/hide landmark features. """
         self._central_widget.overlay_landmarks(checked)
+
+    def _toggle_segmentation_overlay(self, checked):
+        """ show/hide segmentation overlay for subject. """
+        self._central_widget.overlay_segmentation(checked)
+
+    def _toggle_cm_units(self, checked):
+        """ toggle project to use pixel units. """
+        # TODO: Warn the user that features may need to be re-calculated
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'cm_units': checked})
+
+    def _toggle_social_features(self, checked):
+        """ toggle project to use social features. """
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'social': checked})
+
+    def _toggle_window_features(self, checked):
+        """ toggle project to use window features. """
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'window': checked})
+
+    def _toggle_fft_features(self, checked):
+        """ toggle project to use fft features. """
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'fft': checked})
+
+    def _toggle_segmentation_features(self, checked):
+        """ toggle project to use segmentation features. """
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'segmentation': checked})
+
+    def _toggle_static_object_feature(self, checked):
+        """ toggle project to use a specific static object feature set. """
+        # get the key from the caller
+        key = self.sender().text().split(' ')[1].lower()
+        all_object_settings = self._project.get_behavior_metadata(self._central_widget.behavior).get('static_objects', {})
+        all_object_settings[key] = checked
+        self._project.save_behavior_metadata(self._central_widget.behavior, {'static_objects': all_object_settings})
 
     def _video_list_selection(self, filename):
         """

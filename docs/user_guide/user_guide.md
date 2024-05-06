@@ -4,32 +4,32 @@
 
 A JABS project is a directory of video files and their corresponding pose
 estimation files. The first time a project directory is opened in JABS, it will
-create a subdirectory called "rotta", which contains various files created by
+create a subdirectory called "jabs", which contains various files created by
 JABS to save project state, including labels and current predictions.
 
 ### Example JABS project directory listing:
 
 ```text
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_08-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_08-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_09-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_09-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_10-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_10-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_11-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_11-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_12-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_12-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_13-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_13-00-00_500_pose_est_v3.h5
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_14-00-00_500.avi
-NV11-CBAX2+2019-07-26+MDX0009_2019-07-26_14-00-00_500_pose_est_v3.h5 rotta
+VIDEO_1.avi
+VIDEO_1_pose_est_v3.h5
+VIDEO_2.avi
+VIDEO_2_pose_est_v3.h5
+VIDEO_3.avi
+VIDEO_3_pose_est_v3.h5
+VIDEO_4.avi
+VIDEO_4_pose_est_v3.h5
+VIDEO_5.avi
+VIDEO_5_pose_est_v3.h5
+VIDEO_6.avi
+VIDEO_6_pose_est_v3.h5
+VIDEO_7.avi
+VIDEO_7_pose_est_v3.h5 jabs
 ```
 
-## Initializing  A JABS Project Directory
+## Initializing A JABS Project Directory
 
 The first time you open a project directory in with JABS it will create the "
-rotta" subdirectory. Features will be computed the first time the "Train" button
+jabs" subdirectory. Features will be computed the first time the "Train" button
 is clicked. This can be very time consuming depending on the number and length
 of videos in the project directory.
 
@@ -76,48 +76,48 @@ will use up to 4 processes.
 
 `./initialize_project.py -p8 -w2 -w5 -w10 <path/to/project/dir>`
 
-## The Rotta Directory
+## The JABS Directory
 
-JABS creates a subdirectory called "rotta" inside the project directory (this
-directory is called "rotta" for historical reasons and may change prior to the
-1.0.0 release of JABS). This directory contains app-specific data such as
-project settings, generated features, user labels, cache files, and the latest
-predictions.
+JABS creates a subdirectory called "jabs" inside the project directory. This
+directory contains app-specific data such as project settings, generated
+features, user labels, cache files, and the latest predictions.
 
 project.json This file contains project settings and metadata.
 
-### rotta/annotations
+### jabs/annotations
 
 This directory stores the user's labels, stored in one JSON file per labeled
 video.
 
-### rotta/archive
+### jabs/archive
 
 This directory contains archived labels. These are compressed files (gzip)
 containing labels for behaviors that the user has removed from the project.
 Rotta only archives labels. Trained classifiers and predictions are deleted if a
 user removes a behavior from a project.
 
-### rotta/cache
+### jabs/cache
 
 Files cached by JABS to speed up performance. Some of these files may not be
 portable, so this directory should be deleted if a JABS project is copied to a
 different platform.
 
-### rotta/classifiers
+### jabs/classifiers
 
 This directory contains trained classifiers. Currently, these are stored in
-Python Pickle files and should be considered non-portable.
+Python Pickle files and should be considered non-portable. While non-portable,
+these files can be used alongside `classify.py classify --classifier` for
+predicting on the same machine the gui running the training.
 
-### rotta/features
+### jabs/features
 
 This directory contains the computed features. There is one directory per
 project video, and within each video directory there will be one feature
-directory per identity. Feature files are usually portable, but JABS may need
+directory per identity. Feature files are portable, but JABS may need
 to recompute the features if they were created with a different version of
 JABS.
 
-### rotta/predictions
+### jabs/predictions
 
 This directory contains prediction files. There will be one subdirectory per
 behavior containing one prediction file per video. Prediction files are
@@ -129,7 +129,7 @@ tool (`classify.py`).
 
 ### Main Window
 
-![JABS Main Window](imgs/main_window.png "JABS Main Window")
+<img src="imgs/main_window.png" alt="JABS Main Window" width=1150 />
 
 - **Behavior Selection:** Select current behavior to label
 - **Add New Behavior Button:** Add new behavior label to project
@@ -157,7 +157,7 @@ tool (`classify.py`).
 
 ### Classifier Controls
 
-![JABS Classifier Controls](imgs/classifier_controls.png "JABS Classifier Controls")
+<img src="imgs/classifier_controls.png" alt="JABS Classifier Controls" width=900 />
 
 - **Train Button:** Train the classifier with the current parameters. This
   button is disabled until minimum number of frames have been labeled for a
@@ -173,15 +173,15 @@ tool (`classify.py`).
   means that 11 frames are included into the window feature calculations for
   each frame (5 previous frames, current frame, 5 following frames).
 - **New Window Size:** Add a new window size to the project.
+- **Label Balancing Toggle:** Balances the training data by downsampling the class with more labels such that the distribution is equal.
+- **Symmetric Behavior Toggle:** Tells the classifier that the behavior is symmetric. A symmetric behavior is when left and right features are interchangeable.
+- **All k-fold Toggle:** Uses the maximum number of cross validation folds. Useful when you wish to compare classifier performance and may have an outlier that can be held-out.
 - **Cross Validation Slider:** Number of "Leave One Out" cross validation
   iterations to run while training.
-- **Social Feature Toggle:** Turn on/off social features (disabled if project
-  includes pose file version 2). Allows training a classifier backwards
-  compatible with V2 pose files using V3 or higher poses.
 
 ### Label and Prediction Visualizations
 
-![JABS Label Visualizations](imgs/label_viz.png "JABS Label Visualizations")
+<img src="imgs/label_viz.png" alt="JABS Label Visualizations" width=900 />
 
 - **Manual Labels (sliding window):** Displays manually assigned labels for a
   sliding window of frames. The window range is the current frame +/-50 frames.
@@ -219,12 +219,28 @@ tool (`classify.py`).
   mouse
 - **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the
   video.
+- **Features:** Menu item for controlling per-behavior classifier settings.
+  Menu items are disabled when at least 1 pose file in the project does not
+  contain the data to calculate features.
+- **Features→CM Units:** toggle using CM or pixel units
+  (Warning! Changing this will require features to be re-calculated)
+- **Features→Enable Window Features:** toggle using statistical window features
+- **Features→Enable Signal Features:** toggle using fft-based window features
+- **Features→Enable Social Features:** toggle using social features (v3+ projects)
+- **Features→Enable Corners Features:** toggle using arena corner features
+  (v5+ projects with arena corner static object)
+- **Features→Enable Lixit Features:** toggle using lixit features
+  (v5+ projects with lixit static object)
+- **Features→Enable Food_hopper Features:** toggle using food hopper features
+  (v5+ projects with food hopper static object)
+- **Features→Enable Segmentation Features:** toggle using segmentation features
+  (v6+ projects)
 
 **Track Overlay Example:**  
-![Track Overlay](imgs/track_overlay.png "Track Overlay")
+<img src="imgs/track_overlay.png" alt="Track Overlay" width=400 />
 
 **Pose Overlay Example:**  
-![Pose Overlay](imgs/pose_overlay.png "Pose Overlay")
+<img src="imgs/pose_overlay.png" alt="Pose Overlay" width=400 />
 
 ## Labeling
 
@@ -244,7 +260,7 @@ current frame. Applying a label, or removing labels from the selection clears
 the current selection and leaves "Select Mode".
 
 The current selection range is shown on the "Manual Labels" display:  
-![Frame Selection](imgs/selecting_frames.png "Selecting Frames")  
+<img src="imgs/selecting_frames.png" alt="Selecting Frames" width=900 />  
 Clicking the "Select Frames" button again or pressing the Escape key will
 unselect the frames and leave select mode without making a change to the labels.
 
@@ -286,7 +302,7 @@ failed for those frames. In the manual label visualization, these gaps are
 indicated with a pattern fill instead of the solid gray/orange/blue colors. In
 the predicted class visualization, the gaps are colored white.
 
-![Identity Gaps](imgs/identity_gaps.png "Identity Gaps")
+<img src="imgs/identity_gaps.png" alt="Identity Gaps" width=900 />
 
 ## All Keyboard Shortcuts
 
@@ -409,7 +425,7 @@ one video file.
 #### Location
 
 The prediction files are saved
-in `<JABS project dir>/rotta/predictions/<behavior_name>/<video_name>.h5` if
+in `<JABS project dir>/jabs/predictions/<behavior_name>/<video_name>.h5` if
 they were generated by the JABS GUI. The `classify.py` script saves inference
 files in `<out-dir>/<behavior_name>/<video_name>.h5`
 

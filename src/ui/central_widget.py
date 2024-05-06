@@ -1,4 +1,5 @@
 import sys
+import warnings
 
 import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -68,15 +69,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._change_behavior)
-        self._controls.kfold_changed.connect(
-            self._set_train_button_enabled_state)
-        self._controls.behavior_list_changed.connect(
-            lambda b: self._project.save_metadata({'behaviors': b}))
-        self._controls.window_size_changed.connect(
-            self._window_feature_size_changed)
+        self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
+        self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_social_feature_changed.connect(
-            self._use_social_feature_changed)
+        self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
+        self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
         # label & prediction vis widgets
         self.manual_labels = ManualLabelWidget()
@@ -132,8 +129,16 @@ class CentralWidget(QtWidgets.QWidget):
         return self._window_size
 
     @property
-    def uses_social(self):
-        return self._controls.use_social_features
+    def uses_balance(self):
+        return self._controls.use_balance_labels
+
+    @property
+    def uses_symmetric(self):
+        return self._controls.use_symmetric
+
+    @property
+    def all_kfold(self):
+        return self._controls.all_kfold
 
     @property
     def classify_button_enabled(self):
@@ -157,22 +162,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        # should the 'use social features' checkbox be enabled?
-        self._controls.set_use_social_features_checkbox_enabled(
-            project.can_use_social_features)
-
-        # default to social features turned on if the all videos in the project
-        # support them. This may be overridden by project settings.
-        self._controls.use_social_features = self._project.can_use_social_features
         self._controls.update_project_settings(project.metadata)
-        self._load_cached_classifier()
-
-        # get label/bout counts for the current project
-        self._counts = self._project.counts(self.behavior)
-
-        self._controls.kslider_set_enabled(True)
-
-        self._set_train_button_enabled_state()
 
     def load_video(self, path):
         """
@@ -278,22 +268,28 @@ class CentralWidget(QtWidgets.QWidget):
     def show_track(self, show: bool):
         self._player_widget.show_track(show)
 
+    # main window -> central_widget -> player_widget
+    # "checked" seems like a more intuitive parameter name.
     def overlay_pose(self, new_val: bool):
         self._player_widget.overlay_pose(new_val)
 
     def overlay_landmarks(self, new_val: bool):
         self._player_widget.overlay_landmarks(new_val)
 
+    def overlay_segmentation(self, new_val: bool):
+        self._player_widget.overlay_segmentation(new_val)
+
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
 
-    def _change_behavior(self):
+    def _change_behavior(self, new_behavior):
         """
         make UI changes to reflect the currently selected behavior
         """
         if self._project is None:
             return
 
+        # load up settings for new behavior
         self._update_controls_from_project_settings()
         self._load_cached_classifier()
 
@@ -309,6 +305,7 @@ class CentralWidget(QtWidgets.QWidget):
         # display labels and predictions for new behavior
         self._set_label_track()
         self._set_train_button_enabled_state()
+
         self._project.save_metadata({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
@@ -420,11 +417,13 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
-        # does the classifier match the current window size and social feature
-        # settings?
+        # does the classifier match the current settings?
+        classifier_settings = self._classifier.project_settings
         if (
-                self._classifier.window_size == self.window_size and
-                self._controls.use_social_features == self._classifier.uses_social
+                classifier_settings is not None and
+                classifier_settings.get('window_size', None) == self.window_size and
+                classifier_settings.get('balance_labels', None) == self._controls.use_balance_labels and
+                classifier_settings.get('symmetric_behavior', None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -442,9 +441,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread = TrainingThread(
             self._project, self._classifier,
             self._controls.current_behavior,
-            self._window_size,
-            self._controls.use_social_features,
-            self._controls.kfold_value)
+            np.inf if self._controls.all_kfold else self._controls.kfold_value)
         self._training_thread.training_complete.connect(
             self._training_thread_complete)
         self._training_thread.update_progress.connect(
@@ -453,9 +450,15 @@ class CentralWidget(QtWidgets.QWidget):
             lambda m: self.parent().display_status_message(m, 0))
 
         # setup progress dialog
+        # adds 2 for final training
+        total_steps = self._project.total_project_identities + 2
+        if self._controls.all_kfold:
+            project_counts = self._project.counts(self._controls.current_behavior)
+            total_steps += self._classifier.count_label_threshold(project_counts)
+        else:
+            total_steps += self._controls.kfold_value
         self._progress_dialog = QtWidgets.QProgressDialog(
-            'Training', None, 0,
-            self._project.total_project_identities + self._controls.kfold_value + 1,
+            'Training', None, 0, total_steps,
             self)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
@@ -464,11 +467,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
-
-        # save the window size used for this behavior
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        window_settings[self.behavior] = self._window_size
-        self._project.save_metadata({'window_size_pref': window_settings})
 
     def _training_thread_complete(self):
         """ enable classify button once the training is complete """
@@ -488,8 +486,7 @@ class CentralWidget(QtWidgets.QWidget):
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier, self._project,
-            self._controls.current_behavior, self._loaded_video.name,
-            self._window_size)
+            self._controls.current_behavior, self._loaded_video.name)
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(
             self._update_classify_progress)
@@ -546,8 +543,8 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_prob = np.zeros((self._player_widget.num_frames()),
                                    dtype=np.float64)
 
-        prediction_labels[indexes] = self._predictions[identity]
-        prediction_prob[indexes] = self._probabilities[identity]
+        prediction_labels[indexes] = self._predictions[identity][indexes]
+        prediction_prob[indexes] = self._probabilities[identity][indexes]
 
         self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
         self.inference_timeline_widget.set_labels(prediction_labels)
@@ -644,41 +641,47 @@ class CentralWidget(QtWidgets.QWidget):
         """ handle window feature size change """
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
+            self.update_behavior_settings('window_size', new_size)
             self._update_classifier_controls()
 
     def _save_window_sizes(self, window_sizes):
         """ save the window sizes to the project settings """
         self._project.save_metadata({'window_sizes': window_sizes})
 
-    def _use_social_feature_changed(self):
+    def update_behavior_settings(self, key, val):
+        """ propagates an updated setting to the project """
+        # early exit if no behavior selected
+        if self.behavior == '':
+            return
+
+        self._project.save_behavior_metadata(self.behavior, {key: val})
+
+    def _use_balance_labels_changed(self):
         if self.behavior == '':
             # don't do anything if behavior is not set, this means we're
             # the project isn't fully loaded and we just reset the
             # checkbox
             return
 
-        optional_feature_settings = self._project.metadata.get(
-            'optional_features', {})
-        social_feature_settings = optional_feature_settings.get('social', {})
-        social_feature_settings[self.behavior] = self._controls.use_social_features
-        self._project.save_metadata({'optional_features': optional_feature_settings})
+        self.update_behavior_settings('balance_labels', self._controls.use_balance_labels)
+        self._update_classifier_controls()
+
+    def _use_symmetric_changed(self):
+        if self.behavior == '':
+            # Copy behavior of use_balance_labels_changed
+            return
+
+        self.update_behavior_settings('symmetric_behavior', self._controls.use_balance_labels)
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
-        # set initial state for window size
-        window_settings = self._project.metadata.get('window_size_pref', {})
-        # do we have a window size for this behavior?
-        if self.behavior in window_settings:
-            self._controls.set_window_size(window_settings[self.behavior])
+        if self._project is None or self.behavior is None:
+            return
 
-        # set initial state for use social feature button
-        optional_feature_settings = self._project.metadata.get('optional_features', {})
-        social_feature_settings = optional_feature_settings.get('social', {})
-        if self.behavior in social_feature_settings:
-            self._controls.use_social_features = social_feature_settings[self.behavior]
-        else:
-            # default to enabled if the videos support them
-            self._controls.use_social_features = self._project.can_use_social_features
+        behavior_metadata = self._project.get_behavior_metadata(self.behavior)
+        self._controls.set_window_size(behavior_metadata['window_size'])
+        self._controls.use_balance_labels = behavior_metadata['balance_labels']
+        self._controls.use_symmetric = behavior_metadata['symmetric_behavior']
 
     def _load_cached_classifier(self):
         classifier_loaded = False

@@ -1,8 +1,9 @@
 import numpy as np
+import pandas as pd
 from PySide6 import QtCore
 
 from src.project import ProjectDistanceUnit
-from src.feature_extraction import IdentityFeatures
+from src.feature_extraction import IdentityFeatures, DEFAULT_WINDOW_SIZE
 from src.video_stream.utilities import get_fps
 
 
@@ -15,15 +16,13 @@ class ClassifyThread(QtCore.QThread):
     update_progress = QtCore.Signal(int)
     current_status = QtCore.Signal(str)
 
-    def __init__(self, classifier, project, behavior, current_video,
-                 window_size):
+    def __init__(self, classifier, project, behavior, current_video):
         super().__init__()
         self._classifier = classifier
         self._project = project
         self._behavior = behavior
         self._tasks_complete = 0
         self._current_video = current_video
-        self._window_size = window_size
 
     def run(self):
         """
@@ -35,6 +34,8 @@ class ClassifyThread(QtCore.QThread):
         predictions = {}
         probabilities = {}
         frame_indexes = {}
+
+        project_settings = self._project.get_behavior_metadata(self._behavior)
 
         # iterate over each video in the project
         for video in self._project.videos:
@@ -51,36 +52,27 @@ class ClassifyThread(QtCore.QThread):
             probabilities[video] = {}
             frame_indexes[video] = {}
 
-            if self._project.distance_unit == ProjectDistanceUnit.CM:
-                distance_scale_factor = pose_est.cm_per_pixel
-            else:
-                distance_scale_factor = 1
-
             for ident in pose_est.identities:
                 self.current_status.emit(
                     f"Classifying {video},  Identity {ident}")
 
                 # get the features for this identity
                 features = IdentityFeatures(
-                    video, ident, self._project.feature_dir, pose_est, fps=fps,
-                    distance_scale_factor=distance_scale_factor,
-                    extended_features=self._project.extended_features
+                    video, ident, self._project.feature_dir,
+                    pose_est, fps=fps, op_settings=project_settings,
                 )
                 identity = str(ident)
-                feature_values = features.get_features(
-                    self._window_size, self._classifier.uses_social)
+                feature_values = features.get_features(project_settings.get('window_size', DEFAULT_WINDOW_SIZE))
 
                 # reformat the data in a single 2D numpy array to pass
                 # to the classifier
-                data = self._classifier.combine_data(
-                    feature_values['per_frame'],
-                    feature_values['window']
-                )
+                per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(feature_values['per_frame']))
+                window_features = pd.DataFrame(IdentityFeatures.merge_window_features(feature_values['window']))
+                data = self._classifier.combine_data(per_frame_features, window_features)
 
                 if data.shape[0] > 0:
                     # make predictions
-                    predictions[video][identity] = self._classifier.predict(
-                        data)
+                    predictions[video][identity] = self._classifier.predict(data)
 
                     # also get the probabilities
                     prob = self._classifier.predict_proba(data)

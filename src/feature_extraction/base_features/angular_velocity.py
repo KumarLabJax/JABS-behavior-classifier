@@ -4,7 +4,6 @@ import numpy as np
 
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_base_class import Feature
-from src.utils.utilities import smooth
 
 
 class AngularVelocity(Feature):
@@ -12,7 +11,6 @@ class AngularVelocity(Feature):
     """ compute angular velocity of animal bearing """
 
     _name = 'angular_velocity'
-    _feature_names = ['angular_velocity']
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -21,7 +19,7 @@ class AngularVelocity(Feature):
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for
-        :return: np.ndarray with feature values
+        :return: dict with feature values
         """
         fps = self._poses.fps
 
@@ -55,4 +53,4 @@ class AngularVelocity(Feature):
                 velocities[i] = diff3
         velocities = velocities * fps
 
-        return smooth(velocities, smoothing_window=self._SMOOTHING_WINDOW)
+        return {'angular_velocity': velocities}

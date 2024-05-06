@@ -1,4 +1,3 @@
-import enum
 import gzip
 import json
 import re
@@ -10,12 +9,14 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pandas as pd
 
 import src.feature_extraction as fe
 from src.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file, get_pose_file_major_version, \
     get_static_objects_in_file, PoseEstimation
 from src.project import TrackLabels
+from src.project.units import ProjectDistanceUnit
 from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
@@ -24,17 +25,12 @@ from .video_labels import VideoLabels
 _PREDICTION_FILE_VERSION = 1
 
 
-class ProjectDistanceUnit(enum.IntEnum):
-    CM = 1
-    PIXEL = 2
-
-
 class Project:
     """ represents a labeling project """
 
     # subdirectory app creates inside project directory to store app-specific
     # project data
-    _PROJ_DIR = 'rotta'
+    _PROJ_DIR = 'jabs'
     __PROJECT_SETTING_FILE = 'project_settings.json'
     __PROJECT_FILE = 'project.json'
     __DEFAULT_UMASK = 0o775
@@ -161,11 +157,12 @@ class Project:
         self._supported_static_objects = set.intersection(*static_object_sets) if len(static_object_sets) else []
 
         # determine if this project can use social features or not
-        # if all pose files are V3 or greater, enable social features for this
-        # project
+        # social data is available for V3+
         self._can_use_social = True if self._min_pose_version >= 3 else False
+        # segmentation data is available for V6+
+        self._can_use_segmentation = True if self._min_pose_version >= 6 else False
 
-        # default enabled extended features to all that are supported
+        # determine which static objects are available
         self._enabled_extended_features.update(
             fe.IdentityFeatures.get_available_extended_features(
                 self._min_pose_version, self.static_objects)
@@ -184,6 +181,13 @@ class Project:
             if cm_per_pixel is None:
                 self._distance_unit = ProjectDistanceUnit.PIXEL
                 break
+
+        # write out the defaults to the project file
+        # this is currently not used, but useful for anyone that revisits a project
+        self.save_metadata({'defaults': self.get_project_defaults()})
+
+        # saved metadata has changed, reload it
+        self._metadata = self.load_metadata()
 
     @property
     def videos(self):
@@ -206,8 +210,20 @@ class Project:
         return self._annotations_dir
 
     @property
+    def distance_unit(self) -> ProjectDistanceUnit:
+        return self._distance_unit
+
+    @property
+    def is_cm_unit(self) -> bool:
+        return self._distance_unit == ProjectDistanceUnit.CM
+
+    @property
     def can_use_social_features(self) -> bool:
         return self._can_use_social
+
+    @property
+    def can_use_segmentation(self) -> bool:
+        return self._can_use_segmentation
 
     @property
     def static_objects(self) -> typing.List[str]:
@@ -252,10 +268,6 @@ class Project:
         :return: integer sum
         """
         return self._total_project_identities
-
-    @property
-    def distance_unit(self):
-        return self._distance_unit
 
     def load_video_labels(self, video_name):
         """
@@ -365,10 +377,50 @@ class Project:
         except:
             settings = {}
 
+        if 'behavior' not in settings:
+            settings['behavior'] = {}
         if 'window_sizes' not in settings:
             settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
 
         return settings
+
+    def save_behavior_metadata(self, behavior: str, data: dict):
+        """
+        save metadata specific to a behavior
+        :behavior: behavior key to write metadata to
+        :data: dictionary of metadata to update
+        """
+        all_behavior_data = self._metadata.get('behavior', {})
+        merged_data = all_behavior_data.get(behavior, self.get_project_defaults())
+        merged_data.update(data)
+        all_behavior_data.update({behavior: merged_data})
+        self.save_metadata({'behavior': all_behavior_data})
+
+    def get_behavior_metadata(self, behavior: str):
+        """
+        get metadata specific to a requested behavior
+        :behavior: string of the behavior key to read
+        :return: dictionary of behavior metadata in the project. 
+        get_project_defaults if behavior not present
+        """
+        return dict(self._metadata['behavior'].get(behavior, self.get_project_defaults()))
+
+    def get_project_defaults(self):
+        """
+        obtain the default per-behavior settings
+        :return: dictionary of project settings
+        """
+        return {
+            'cm_units': self.distance_unit,
+            'window_size': fe.DEFAULT_WINDOW_SIZE,
+            'social': self.can_use_social_features,
+            'static_objects': {obj: True if obj in self.static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
+            'segmentation': self.can_use_segmentation,
+            'window': True,
+            'fft': True,
+            'balance_labels': False,
+            'symmetric_behavior': False,
+        }
 
     def save_classifier(self, classifier, behavior: str):
         """
@@ -448,8 +500,8 @@ class Project:
                 inferred_indexes = frame_indexes[video][identity]
                 track = video_tracks.get_track_labels(identity, behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity]
+                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity][inferred_indexes]
+                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
 
             # write to h5 file
             self.write_predictions(output_path, prediction_labels,
@@ -513,8 +565,8 @@ class Project:
 
                     # we're left with classes/probabilities for frames that
                     # were inferred and their frame indexes
-                    predictions[identity] = _classes[i, indexes]
-                    probabilities[identity] = _probabilities[i, indexes]
+                    predictions[identity] = _classes[i]
+                    probabilities[identity] = _probabilities[i]
                     frame_indexes[identity] = indexes
 
         except IOError:
@@ -591,17 +643,14 @@ class Project:
         """ Get list of video filenames (without path) in a directory """
         return [f.name for f in dir_path.glob("*.avi")]
 
-    def get_labeled_features(self, behavior, window_size,
-                             use_social_features,
-                             progress_callable=None):
+    def get_labeled_features(self, behavior=None, progress_callable=None):
         """
         the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
-        :param behavior: the behavior to get labeled features for
-        :param window_size: window size to use for computing window features
-        :param use_social_features: if true, use social features (if supported)
+        :param behavior: the behavior settings to get labeled features for
+        if None, will use project defaults (all available features)
         :param progress_callable: if provided this will be called
         with no args every time an identity is processed to facilitate
         progress tracking
@@ -635,7 +684,6 @@ class Project:
         all_window = []
         all_labels = []
         all_groups = []
-        column_names = None
         group_mapping = {}
 
         group_id = 0
@@ -649,37 +697,28 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
-                if self._distance_unit == ProjectDistanceUnit.CM:
-                    distance_scale_factor = pose_est.cm_per_pixel
-                else:
-                    distance_scale_factor = 1
-
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps,
-                    distance_scale_factor=distance_scale_factor,
-                    extended_features=self._enabled_extended_features
+                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self.get_behavior_metadata(behavior)
                 )
-                if column_names is None:
-                    column_names = features.get_feature_column_names(
-                        use_social_features)
 
                 labels = self.load_video_labels(video).get_track_labels(
                     str(identity), behavior).get_labels()
 
-                per_frame_features = features.get_per_frame(
-                    use_social_features, labels)
-                window_features = features.get_window_features(
-                    window_size, use_social_features, labels)
-
+                per_frame_features = features.get_per_frame(labels)
+                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(per_frame_features)
+                per_frame_features = pd.DataFrame(per_frame_features)
                 all_per_frame.append(per_frame_features)
+
+                window_features = features.get_window_features(
+                    self._metadata['behavior'][behavior]['window_size'], labels)
+                window_features = fe.IdentityFeatures.merge_window_features(window_features)
+                window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
+
                 all_labels.append(labels[labels != TrackLabels.Label.NONE])
 
-                # should be a better way to do this, but I'm getting the number
-                # of frames in this group by looking at the shape of one of
-                # the arrays included in the per frame features
                 all_groups.append(
-                    np.full(per_frame_features['angles'].shape[0],
+                    np.full(per_frame_features.shape[0],
                             group_id))
                 group_id += 1
 
@@ -687,15 +726,10 @@ class Project:
                     progress_callable()
 
         return {
-            'window': fe.IdentityFeatures.merge_window_features(
-                all_window, use_social_features,
-                extended_features=self._enabled_extended_features),
-            'per_frame': fe.IdentityFeatures.merge_per_frame_features(
-                all_per_frame, use_social_features,
-                extended_features=self._enabled_extended_features),
+            'window': pd.concat(all_window, join='inner'),
+            'per_frame': pd.concat(all_per_frame, join='inner'),
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
-            'column_names': column_names
         }, group_mapping
 
     def __update_version(self):

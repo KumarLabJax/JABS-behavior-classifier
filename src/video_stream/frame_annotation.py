@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-
+from typing import Tuple, List
 from src.pose_estimation import PoseEstimation
 
 _ID_COLOR = (215, 222, 0)
@@ -163,7 +163,7 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
     # draw circles at each future point
     for p in future_track_points:
         # draw a marker at this location.
-        cv2.circle(img, (p[0], p[1]), 2, _FUTURE_TRACK_COLOR,
+        cv2.circle(img, (int(p[0]), int(p[1])), 2, _FUTURE_TRACK_COLOR,
                    -1, lineType=cv2.LINE_AA)
 
     # draw line connecting points
@@ -174,7 +174,7 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
     # draw circles at each past point
     for p in past_track_points:
         # draw a marker at this location.
-        cv2.circle(img, (p[0], p[1]), 2, _PAST_TRACK_COLOR,
+        cv2.circle(img, (int(p[0]), int(p[1])), 2, _PAST_TRACK_COLOR,
                    -1, lineType=cv2.LINE_AA)
 
     # draw line connecting points
@@ -209,8 +209,68 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
     # draw points at each keypoint of the pose (if it exists at this frame)
     for point, point_mask in zip(points, mask):
         if point_mask:
-            cv2.circle(img, (point[1], point[0]), 2, color,
+            cv2.circle(img, (int(point[1]), int(point[0])), 2, color,
                        -1, lineType=cv2.LINE_AA)
+
+
+def trim_seg(arr: np.ndarray) -> np.ndarray:
+    """
+    Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
+
+    :param arr: A numpy array with contour data.
+    :return: np.ndarray
+    """
+    assert arr.ndim == 2
+    return_arr = arr[np.all(arr!=-1, axis=1),:]
+    if len(return_arr)>0:
+        return return_arr.astype(int)
+
+
+def trim_seg_list(arr: np.ndarray) -> List:
+    """
+    Trims all contours for an individual.
+
+    :param arr: A numpy array with contour data.
+    :return: List
+    """
+    assert arr.ndim == 3
+    return [trim_seg(x) for x in arr if np.any(x!=-1)]
+
+
+def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, int, int]):
+    """
+    Draw all contours given data for a particular mouse in a particular video frame.
+
+    :param img: The current video frame.
+    :param seg_data: This will be the segmentation for a particular frame and indentity.
+    :param color: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+    trimmed_contours = trim_seg_list(seg_data)
+    cv2.drawContours(img, trimmed_contours, -1, color, 2)
+        
+
+def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
+    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+    """
+    :param img: The current video frame.
+    :param pose_est: This will be a pose estimation object >= v6.
+    :param identity: This integer identifies which mouse the segmentation will be applied to.
+    :param frameIndex: This integer identifies the current video frame index.
+    :param color [optional]: color of segmentation contours rendered on the GUI.
+    :return: None
+    """
+    # No segmentation data to display
+    if pose_est.format_major_version < 6:
+        return
+
+    contours = pose_est.get_segmentation_data_per_frame(frameIndex, identity)
+    
+    if contours is None:
+        # No segmentation data available to render.
+        return
+    
+    draw_all_contours(img, contours, _ACTIVE_COLOR)
 
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
@@ -220,7 +280,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     corners = static_objects.get('corners')
     if corners is not None:
         for i in range(4):
-            cv2.circle(img, (corners[i, 0], corners[i, 1]), 2, _CORNER_COLOR,
+            cv2.circle(img, (int(corners[i, 0]), int(corners[i, 1])), 2, _CORNER_COLOR,
                        -1, lineType=cv2.LINE_AA)
 
     lixit = pose_est.static_objects.get('lixit')

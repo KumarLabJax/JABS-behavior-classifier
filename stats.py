@@ -99,17 +99,8 @@ def main():
         print(f"{confusion}")
         print('-' * 70)
 
-        # get_feature_column_names is no longer a class instance so it
-        # won't work here
-        # TODO: can we reimplement get_feature_column_names so it no longer has
-        #  to be an instance method? Do we care about printing the top features
-        #  here? It's mostly a sanity check while developing the classifier
-        #  interactively.
-        #print("Top 10 features by importance:")
-        #classifier.print_feature_importance(
-        #    IdentityFeatures.get_feature_column_names(
-        #        features['has_social_features']),
-        #    10)
+        print("Top 10 features by importance:")
+        classifier.print_feature_importance(data['feature_names'], 10)
 
     if iter_count >= 1:
         print('\n' + '=' * 70)

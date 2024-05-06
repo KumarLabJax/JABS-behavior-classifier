@@ -1,4 +1,5 @@
 .idea
+.coverage
 *.pyc
 test-reports
 .DS_Store
@@ -7,3 +8,7 @@ rotta.venv
 venv
 *.sif
 temp
+data
+tests/testing_notebook.ipynb
+docs/notes.txt
+docs/work_history.md
