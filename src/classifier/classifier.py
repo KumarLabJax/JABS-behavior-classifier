@@ -24,7 +24,7 @@ from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
 from src.project import TrackLabels, ProjectDistanceUnit, Project
 
-_VERSION = 6
+_VERSION = 7
 
 class ClassifierType(IntEnum):
     RANDOM_FOREST = 1
