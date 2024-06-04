@@ -174,7 +174,7 @@ class Project:
         for vid in self._videos:
             attrs = PoseEstimation.get_pose_file_attributes(
                 get_pose_path(self.video_path(vid)))
-            cm_per_pixel = attrs['poseest'].get('cm_per_pixel')
+            cm_per_pixel = attrs['poseest'].get('cm_per_pixel', None)
 
             # this pose file does not have cm_per_pixel attribute,
             # force the entire project to use pixel distances
@@ -368,7 +368,7 @@ class Project:
         """
         load project metadata
         :return: dictionary of project metadata, empty dict if unable to open
-        file (such as when the prject is first created and the file does not
+        file (such as when the project is first created and the file does not
         exist)
         """
         try:
@@ -403,7 +403,11 @@ class Project:
         :return: dictionary of behavior metadata in the project. 
         get_project_defaults if behavior not present
         """
-        return dict(self._metadata['behavior'].get(behavior, self.get_project_defaults()))
+        # If settings are never changed, this is an empty dict.
+        current_meta = dict(self._metadata['behavior'].get(behavior, {}))
+        if current_meta:
+            return current_meta
+        return self.get_project_defaults()
 
     def get_project_defaults(self):
         """
@@ -710,7 +714,7 @@ class Project:
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self._metadata['behavior'][behavior]['window_size'], labels)
+                    self.get_behavior_metadata(behavior)['window_size'], labels)
                 window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)

@@ -53,7 +53,7 @@ class PoseEstimationV4(PoseEstimation):
                 major_version = pose_grp.attrs['version'][0]
 
                 # get pixel size
-                self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+                self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
 
                 # ensure the major version matches what we expect
                 # TODO temporarily removed while v4 files under development
@@ -207,7 +207,7 @@ class PoseEstimationV4(PoseEstimation):
             self._identities = [*range(self._num_identities)]
 
             # get pixel size
-            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
 
             if self._num_identities > 0:
                 self._points = pose_grp['points'][:]
