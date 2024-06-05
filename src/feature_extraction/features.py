@@ -58,7 +58,7 @@ class IdentityFeatures:
 
     def __init__(self, source_file, identity, directory, pose_est,
                  force: bool = False, fps: int = 30,
-                 op_settings: dict = {}):
+                 op_settings: dict = {}, cache_window: bool = True):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -75,6 +75,7 @@ class IdentityFeatures:
         :param op_settings: dict of optional settings to enable/disable
         when returning features. This will modify the contents returned by
         get_window_features, get_per_frame, and get_features
+        :param cache_window: bool to indicate saving the window features in the cache directory
         """
 
         self._pose_version = pose_est.format_major_version
@@ -90,6 +91,7 @@ class IdentityFeatures:
                 Path(source_file).stem /
                 str(self._identity)
         )
+        self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
         self._compute_segmentation_features = pose_est.format_major_version >= 6
         distance_scale = self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
@@ -216,7 +218,7 @@ class IdentityFeatures:
 
         file_path = self._identity_feature_dir / 'features.h5'
 
-        with h5py.File(file_path, 'w') as features_h5:
+        with h5py.File(file_path, 'a') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
@@ -342,7 +344,7 @@ class IdentityFeatures:
 
         if force or self._identity_feature_dir is None:
             features = self.__compute_window_features(window_size)
-            if self._identity_feature_dir is not None:
+            if self._identity_feature_dir is not None and self._cache_window:
                 self.__save_window_features(features, window_size)
 
         else:
@@ -356,7 +358,7 @@ class IdentityFeatures:
                 # compute the features and return after saving
                 features = self.__compute_window_features(window_size)
 
-                if self._identity_feature_dir is not None:
+                if self._identity_feature_dir is not None and self._cache_window:
                     self.__save_window_features(features, window_size)
 
         if labels is None:
