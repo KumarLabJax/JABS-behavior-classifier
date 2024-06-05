@@ -149,7 +149,7 @@ def train(
     print(f"  Social: {loaded_training_data['settings']['social']}")
     print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
     print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric_behavior']}")
-    print(f"  CM Units: {loaded_training_data['settings']['cm_units']}")
+    print(f"  CM Units: {bool(loaded_training_data['settings']['cm_units'])}")
 
     training_features = classifier.combine_data(loaded_training_data['per_frame'],
                                                 loaded_training_data['window'])
