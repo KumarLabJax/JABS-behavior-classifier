@@ -40,17 +40,19 @@ def train_and_classify(
         out_dir: Path,
         override_classifier: typing.Optional[ClassifierType] = None,
         fps=DEFAULT_FPS,
-        feature_dir: typing.Optional[str] = None):
+        feature_dir: typing.Optional[str] = None,
+        cache_window: bool = False):
     if not training_file_path.exists():
         sys.exit(f"Unable to open training data\n")
 
     classifier = train(training_file_path, override_classifier)
-    classify_pose(classifier, input_pose_file, out_dir, behavior, fps, feature_dir)
+    classify_pose(classifier, input_pose_file, out_dir, classifier.behavior_name, fps, feature_dir, cache_window)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                   behavior: str, fps=DEFAULT_FPS,
-                  feature_dir: typing.Optional[str] = None):
+                  feature_dir: typing.Optional[str] = None,
+                  cache_window: bool = False):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -70,7 +72,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                          complete_as_percent=False, suffix='identities')
 
         features = IdentityFeatures(
-            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings
+            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings, cache_window=cache_window
         ).get_features(classifier_settings['window_size'])
         per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame']))
         window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window']))
@@ -124,6 +126,7 @@ def train(
     behavior = loaded_training_data['behavior']
 
     classifier = Classifier()
+    classifier.behavior_name = behavior
     classifier.set_dict_settings(loaded_training_data['settings'])
 
     # Override the classifier type
@@ -147,7 +150,7 @@ def train(
     print(f"  Social: {loaded_training_data['settings']['social']}")
     print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
     print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric_behavior']}")
-    print(f"  CM Units: {loaded_training_data['settings']['cm_units']}")
+    print(f"  CM Units: {bool(loaded_training_data['settings']['cm_units'])}")
 
     training_features = classifier.combine_data(loaded_training_data['per_frame'],
                                                 loaded_training_data['window'])
@@ -156,7 +159,6 @@ def train(
             'training_data': training_features,
             'training_labels': loaded_training_data['labels']
         },
-        behavior,
         random_seed=loaded_training_data['training_seed']
     )
 
@@ -236,6 +238,12 @@ def classify_main():
         help="Feature cache dir. If present, look here for features before "
         "computing. If features need to be computed, they will be saved here."
     )
+    parser.add_argument(
+        '--skip-window-cache',
+        help="Default will cache all features when --feature-dir is provided. Providing this flag will only cache per-frame features, reducing cache size at the cost of needing to re-calculate window features.",
+        default=False,
+        action='store_true'
+    )
 
     args = parser.parse_args(classify_args)
 
@@ -245,7 +253,7 @@ def classify_main():
     if args.training is not None:
         train_and_classify(Path(args.training), in_pose_path, out_dir,
                            override_classifier=args.classifier,
-                           fps=args.fps, feature_dir=args.feature_dir)
+                           fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
     elif args.classifier is not None:
 
         try:
@@ -269,7 +277,7 @@ def classify_main():
         print(f"  Social: {classifier_settings['social']}")
         print(f"  CM Units: {classifier_settings['cm_units']}")
 
-        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir)
+        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
 
 
 def train_main():

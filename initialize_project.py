@@ -27,15 +27,9 @@ def generate_files_worker(params: dict):
     pose_est = project.load_pose_est(
         project.video_path(params['video']))
 
-    if params['force_pixel_distance'] or project.distance_unit == src.project.ProjectDistanceUnit.PIXEL:
-        distance_scale_factor = 1
-    else:
-        distance_scale_factor = pose_est.cm_per_pixel
-
     features = src.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
-        force=params['force'], distance_scale_factor=distance_scale_factor,
-        extended_features=project.extended_features
+        force=params['force'], op_settings=project.get_project_defaults()
     )
 
     # unlike per frame features, window features are not automatically
@@ -219,7 +213,6 @@ def main():
                     'project': project,
                     'force': args.force,
                     'window_sizes': window_sizes,
-                    'force_pixel_distance': args.force_pixel_distances
                 })
 
     # print the initial progress bar with 0% complete

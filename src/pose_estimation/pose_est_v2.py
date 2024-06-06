@@ -44,7 +44,7 @@ class PoseEstimationV2(PoseEstimation):
             self._point_mask[:] = pose_grp['confidence'][:] > 0.3
 
             # get pixel size
-            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
 
         self._num_frames = self._points.shape[0]
 

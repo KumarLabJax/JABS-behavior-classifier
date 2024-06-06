@@ -3,6 +3,7 @@ import typing
 
 import h5py
 import numpy as np
+import pandas as pd
 
 import src.project.track_labels
 from src.pose_estimation import PoseEstimation, PoseHashException
@@ -15,7 +16,7 @@ from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
 
 
-FEATURE_VERSION = 8
+FEATURE_VERSION = 9
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
@@ -57,7 +58,7 @@ class IdentityFeatures:
 
     def __init__(self, source_file, identity, directory, pose_est,
                  force: bool = False, fps: int = 30,
-                 op_settings: dict = {}):
+                 op_settings: dict = {}, cache_window: bool = True):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -74,6 +75,7 @@ class IdentityFeatures:
         :param op_settings: dict of optional settings to enable/disable
         when returning features. This will modify the contents returned by
         get_window_features, get_per_frame, and get_features
+        :param cache_window: bool to indicate saving the window features in the cache directory
         """
 
         self._pose_version = pose_est.format_major_version
@@ -82,15 +84,17 @@ class IdentityFeatures:
         self._pose_hash = pose_est.hash
         self._identity = identity
         self._op_settings = dict(op_settings)
-        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else float(1.0)
+        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else None
 
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
                 Path(source_file).stem /
                 str(self._identity)
         )
+        self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
         self._compute_segmentation_features = pose_est.format_major_version >= 6
+        distance_scale = self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
@@ -103,12 +107,12 @@ class IdentityFeatures:
             if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est,
-                                                self._distance_scale_factor)
+                                                distance_scale)
 
         # load extended feature modules
         for m in _EXTENDED_FEATURE_MODULES:
             self._feature_modules[m.name()] = m(pose_est,
-                                                self._distance_scale_factor)
+                                                distance_scale)
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -167,7 +171,7 @@ class IdentityFeatures:
         :return: None
         """
 
-        path = self._identity_feature_dir / 'per_frame.h5'
+        path = self._identity_feature_dir / 'features.h5'
         self._per_frame = {}
 
         with h5py.File(path, 'r') as features_h5:
@@ -184,7 +188,7 @@ class IdentityFeatures:
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
+            if self._distance_scale_factor != features_h5.attrs.get('distance_scale_factor', None):
                 raise DistanceScaleException
 
             self._frame_valid = features_h5['frame_valid'][:]
@@ -194,13 +198,13 @@ class IdentityFeatures:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
 
-            feature_group = features_h5['features']
-            for module_name in feature_group.keys():
-                module_grp = feature_group[module_name]
-                self._per_frame[module_name] = {}
-                for feature_name in module_grp.keys():
-                    self._per_frame[module_name][feature_name] = module_grp[feature_name][:]
-                    assert len(self._per_frame[module_name][feature_name]) == self._num_frames
+            # Cache uses a space to distinguish module_name from feature_name
+            for feature_key in features_h5['features/per_frame'].keys():
+                module_name, feature_name = feature_key.split(' ', 1)
+                cur_module = self._per_frame.get(module_name, {})
+                cur_module[feature_name] = features_h5[f'features/per_frame/{feature_key}'][:]
+                assert len(cur_module[feature_name]) == self._num_frames
+                self._per_frame[module_name] = cur_module
 
     def __save_per_frame(self):
         """
@@ -212,13 +216,14 @@ class IdentityFeatures:
         self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True,
                                          parents=True)
 
-        file_path = self._identity_feature_dir / 'per_frame.h5'
+        file_path = self._identity_feature_dir / 'features.h5'
 
-        with h5py.File(file_path, 'w') as features_h5:
+        with h5py.File(file_path, 'a') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
-            features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
+            if self._distance_scale_factor is not None:
+                features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['pose_hash'] = self._pose_hash
             features_h5.create_dataset('frame_valid', data=self._frame_valid)
 
@@ -227,11 +232,13 @@ class IdentityFeatures:
                 features_h5['closest_identities'] = closest_data.closest_identities
                 features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
 
-            feature_group = features_h5.create_group('features')
-            for feature_mod, module_values in self._per_frame.items():
-                module_group = feature_group.create_group(feature_mod)
-                for feature_name, feature_values in module_values.items():
-                    module_group.create_dataset(feature_name, data=feature_values)
+            feature_group = features_h5.require_group('features')
+            per_frame_group = feature_group.require_group('per_frame')
+
+            per_frame_as_pd = self.merge_per_frame_features(self._per_frame)
+            per_frame_as_pd = pd.DataFrame(per_frame_as_pd)
+            for feature, data in per_frame_as_pd.items():
+                per_frame_group.create_dataset(feature, data=data)
 
     def __save_window_features(self, features, window_size):
         """
@@ -243,23 +250,22 @@ class IdentityFeatures:
         :param window_size: window size used
         :return: None
         """
-        path = self._identity_feature_dir / f"window_features_{window_size}.h5"
+        path = self._identity_feature_dir / 'features.h5'
 
-        with h5py.File(path, 'w') as features_h5:
-            features_h5.attrs['window_size'] = window_size
+        with h5py.File(path, 'a') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
-            features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
+            if self._distance_scale_factor is not None:
+                features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['pose_hash'] = self._pose_hash
 
-            feature_group = features_h5.create_group('features')
-            for feature_mod, module_values in features.items():
-                module_group = feature_group.create_group(feature_mod)
-                for window_name, window_values in module_values.items():
-                    window_group = module_group.create_group(window_name)
-                    for feature_name, feature_values in window_values.items():
-                        window_group.create_dataset(feature_name, data=feature_values)
+            feature_group = features_h5.require_group('features')
+            window_group = feature_group.require_group(f'window_features_{window_size}')
+            window_as_pd = self.merge_window_features(features)
+            window_as_pd = pd.DataFrame(window_as_pd)
+            for feature, data in window_as_pd.items():
+                window_group.create_dataset(feature, data=data)
 
     def __load_window_features(self, window_size):
         """
@@ -269,6 +275,7 @@ class IdentityFeatures:
         include in the window
         (so if size=5, the total number of frames in the window is actually 11)
         :raises OSError: if unable to open h5 file
+        :raises AttributeError: if h5 file exists but doesn't contain cached window features
         :raises TypeError: if this object was constructed with a value of None
         for directory
         :raises FeatureVersionException: if file version differs from current
@@ -276,7 +283,7 @@ class IdentityFeatures:
 
         :return: window feature dict
         """
-        path = self._identity_feature_dir / f"window_features_{window_size}.h5"
+        path = self._identity_feature_dir / 'features.h5'
 
         window_features = {}
         with h5py.File(path, 'r') as features_h5:
@@ -294,25 +301,25 @@ class IdentityFeatures:
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs['distance_scale_factor']:
+            if self._distance_scale_factor != features_h5.attrs.get('distance_scale_factor', None):
                 raise DistanceScaleException
-
-            size_attr = features_h5.attrs['window_size']
 
             assert features_h5.attrs['num_frames'] == self._num_frames
             assert features_h5.attrs['identity'] == self._identity
-            assert size_attr == window_size
+            available_window_sizes = [int(x[len('window_features_'):]) for x in features_h5['features'].keys() if x.startswith('window_features_')]
+            if window_size not in available_window_sizes:
+                raise AttributeError
 
-            feature_group = features_h5['features']
-            for module_name in feature_group.keys():
-                module_group = feature_group[module_name]
-                window_features[module_name] = {}
-                for window_name in module_group.keys():
-                    window_group = module_group[window_name]
-                    window_features[module_name][window_name] = {}
-                    for feature_name in window_group.keys():
-                        window_features[module_name][window_name][feature_name] = window_group[feature_name][:]
-                        assert len(window_features[module_name][window_name][feature_name]) == self._num_frames
+            window_features = {}
+            # Cache uses a space to distinguish module_name, window_name, and feature_name
+            for feature_key in features_h5[f'features/window_features_{window_size}'].keys():
+                module_name, window_name, feature_name = feature_key.split(' ', 2)
+                cur_module = window_features.get(module_name, {})
+                cur_window = cur_module.get(window_name, {})
+                cur_window[feature_name] = features_h5[f'features/window_features_{window_size}/{feature_key}'][:]
+                assert len(cur_window[feature_name]) == self._num_frames
+                cur_module[window_name] = cur_window
+                window_features[module_name] = cur_module
 
         return window_features
 
@@ -337,21 +344,21 @@ class IdentityFeatures:
 
         if force or self._identity_feature_dir is None:
             features = self.__compute_window_features(window_size)
-            if self._identity_feature_dir is not None:
+            if self._identity_feature_dir is not None and self._cache_window:
                 self.__save_window_features(features, window_size)
 
         else:
             try:
                 # h5 file exists for this window size, load it
                 features = self.__load_window_features(window_size)
-            except (OSError, FeatureVersionException, DistanceScaleException,
+            except (OSError, AttributeError, FeatureVersionException, DistanceScaleException,
                     PoseHashException):
                 # h5 file does not exist for this window size, the version
                 # is not compatible, or the pose file changes.
                 # compute the features and return after saving
                 features = self.__compute_window_features(window_size)
 
-                if self._identity_feature_dir is not None:
+                if self._identity_feature_dir is not None and self._cache_window:
                     self.__save_window_features(features, window_size)
 
         if labels is None:
