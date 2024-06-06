@@ -69,7 +69,7 @@ trim_sp() {
 
 # If the provided file ends with the extension, return itself
 # Otherwise, search in descending order
-MAX_POSE_VERSION=5
+MAX_POSE_VERSION=6
 MIN_POSE_VERSION=2
 find_pose_file() {
     local in_file="$*"
@@ -134,8 +134,8 @@ else
     # Try and trim the line to look like a video file (if it is a pose file)
     VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|h5):.avi:' <(echo ${BATCH_LINE}))
 
-    # the "v1" is for output format versioning. If format changes this should be updated
-    OUT_DIR="${VIDEO_FILE%.*}_behavior/v1"
+    # the "v2" is for output format versioning. If format changes this should be updated
+    OUT_DIR="${VIDEO_FILE%.*}_behavior/"
 
     # The batch file can either contain fully qualified paths for files to process OR local paths relative to where the batch file exists
     # Change the working directory to support local paths
@@ -150,11 +150,9 @@ else
         exit 1
     fi
 
-    echo "DUMP OF CURRENT ENVIRONMENT:"
-    env
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE}"
     module load singularity
-    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
+    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}" --skip-window-cache
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
