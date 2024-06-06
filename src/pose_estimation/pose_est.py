@@ -80,6 +80,10 @@ class PoseEstimation(ABC):
         return self._fps
 
     @property
+    def pose_file(self):
+        return self._path
+
+    @property
     def hash(self):
         return self._hash
 

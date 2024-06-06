@@ -100,7 +100,8 @@ class ClassifyThread(QtCore.QThread):
         self._project.save_predictions(predictions,
                                        probabilities,
                                        frame_indexes,
-                                       self._behavior)
+                                       self._behavior,
+                                       self._classifier)
 
         self.done.emit({
             'predictions': predictions[self._current_video],

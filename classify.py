@@ -106,7 +106,8 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         behavior_out_path,
         prediction_labels,
         prediction_prob,
-        pose_est
+        pose_est,
+        classifier
     )
 
 
