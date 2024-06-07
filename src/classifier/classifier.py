@@ -471,6 +471,15 @@ class Classifier:
     def save(self, path: Path):
         joblib.dump(self, path)
 
+        # If the classifier was not generated from exported training data
+        # we can hash the serialized classifier.
+        # Note that this hash changes every time the "train" button is
+        # pressed, whether or not the training data changes.
+        if self._classifier_file is None:
+            self._classifier_file = Path(path).name
+            self._classifier_hash = hash_file(path)
+            self._classifier_source = 'serialized'
+
     def load(self, path: Path):
         c = joblib.load(path)
 
@@ -490,9 +499,14 @@ class Classifier:
         self._behavior = c._behavior
         self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
-        self._classifier_file = c._classifier_file
-        self._classifier_hash = c._classifier_hash
-        self._classifier_source = 'saved'
+        if c._classifier_file is not None:
+            self._classifier_file = c._classifier_file
+            self._classifier_hash = c._classifier_hash
+            self._classifier_source = c._classifier_source
+        else:
+            self._classifier_file = Path(path).name
+            self._classifier_hash = hash_file(path)
+            self._classifier_source = 'pickle'
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on
