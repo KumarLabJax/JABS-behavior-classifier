@@ -508,7 +508,7 @@ class Project:
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
 
             # write to h5 file
-            self.write_predictions(output_path, prediction_labels,
+            self.write_predictions(behavior, output_path, prediction_labels,
                                    prediction_prob, poses, classifier)
 
         # update app version saved in project metadata if necessary
@@ -527,7 +527,7 @@ class Project:
         """
         # TODO catch exceptions
         with h5py.File(output_path, 'a') as h5:
-            h5.attrs['pose_file'] = poses.pose_file
+            h5.attrs['pose_file'] = Path(poses.pose_file).name
             h5.attrs['pose_hash'] = poses.hash
             h5.attrs['version'] = _PREDICTION_FILE_VERSION
             prediction_group = h5.require_group('predictions')
@@ -536,10 +536,15 @@ class Project:
             behavior_group.attrs['classifier_hash'] = 'TODO'
             behavior_group.attrs['app_version'] = version_str()
             behavior_group.attrs['prediction_date'] = str(datetime.now())
-            behavior_group.create_dataset('predicted_class', data=predictions)
-            behavior_group.create_dataset('probabilities', data=probabilities)
+            h5_predictions = behavior_group.require_dataset('predicted_class', shape=predictions.shape, dtype=predictions.dtype)
+            h5_predictions[...] = predictions
+            h5_probabilities = behavior_group.require_dataset('probabilities', shape=probabilities.shape, dtype=probabilities.dtype)
+            h5_probabilities[...] = probabilities
             if poses.identity_to_track is not None:
-                behavior_group.create_dataset('identity_to_track', data=poses.identity_to_track)
+                h5_ids = behavior_group.require_dataset('identity_to_track', shape=poses.identity_to_track.shape, dtype=poses.identity_to_track.dtype)
+                h5_ids[...] = poses.identity_to_track
+            elif 'identity_to_track' in behavior_group:
+                del behavior_group['identity_to_track']
 
     def load_predictions(self, video: str, behavior: str):
         """
