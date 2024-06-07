@@ -38,14 +38,13 @@ def train_and_classify(
         training_file_path: Path,
         input_pose_file: Path,
         out_dir: Path,
-        override_classifier: typing.Optional[ClassifierType] = None,
         fps=DEFAULT_FPS,
         feature_dir: typing.Optional[str] = None,
         cache_window: bool = False):
     if not training_file_path.exists():
         sys.exit(f"Unable to open training data\n")
 
-    classifier = train(training_file_path, override_classifier)
+    classifier = train(training_file_path)
     classify_pose(classifier, input_pose_file, out_dir, classifier.behavior_name, fps, feature_dir, cache_window)
 
 
@@ -115,52 +114,19 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
 def train(
         training_file: Path,
-        override_classifier: typing.Optional[ClassifierType] = None
 ) -> Classifier:
 
-    try:
-        loaded_training_data, _ = load_training_data(training_file)
-    except OSError as e:
-        sys.exit(f"Unable to open training data\n{e}")
+    classifier = Classifier.from_training_file(training_file)
+    classifier_settings = classifier.project_settings
 
-    behavior = loaded_training_data['behavior']
-
-    classifier = Classifier()
-    classifier.behavior_name = behavior
-    classifier.set_dict_settings(loaded_training_data['settings'])
-
-    # Override the classifier type
-    if override_classifier is not None:
-        classifier_type = override_classifier
-    else:
-        classifier_type = ClassifierType(
-            loaded_training_data['classifier_type'])
-
-    if classifier_type in classifier.classifier_choices():
-        classifier.set_classifier(classifier_type)
-    else:
-        print(f"Specified classifier type ({classifier_type.name}) "
-              "is unavailable, using default "
-              f"({classifier.classifier_type.name})")
-
-    print("Training classifier for:", behavior)
+    print("Training classifier for:", classifier.behavior_name)
     print("  Classifier Type: "
           f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
-    print(f"  Window Size: {loaded_training_data['settings']['window_size']}")
-    print(f"  Social: {loaded_training_data['settings']['social']}")
-    print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
-    print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric_behavior']}")
-    print(f"  CM Units: {bool(loaded_training_data['settings']['cm_units'])}")
-
-    training_features = classifier.combine_data(loaded_training_data['per_frame'],
-                                                loaded_training_data['window'])
-    classifier.train(
-        {
-            'training_data': training_features,
-            'training_labels': loaded_training_data['labels']
-        },
-        random_seed=loaded_training_data['training_seed']
-    )
+    print(f"  Window Size: {classifier_settings['window_size']}")
+    print(f"  Social: {classifier_settings['social']}")
+    print(f"  Balanced Labels: {classifier_settings['balance_labels']}")
+    print(f"  Symmetric Behavior: {classifier_settings['symmetric_behavior']}")
+    print(f"  CM Units: {bool(classifier_settings['cm_units'])}")
 
     return classifier
 
@@ -285,24 +251,13 @@ def train_main():
     train_args = sys.argv[2:]
 
     parser = argparse.ArgumentParser(prog=f"{script_name()} train")
-    classifier_group = parser.add_argument_group(
-        "optionally override the classifier specified in the training file:\n"
-        " (the following options are mutually exclusive)")
-    exclusive_group = classifier_group.add_mutually_exclusive_group(
-        required=False)
-    for classifer_type, classifier_str in __CLASSIFIER_CHOICES.items():
-        exclusive_group.add_argument(
-            f"--{classifer_type.name.lower().replace('_', '-')}",
-            action='store_const', const=classifer_type,
-            dest='classifier', help=f"Use {classifier_str}"
-        )
     parser.add_argument('training_file',
                         help=f"Training h5 file exported by {APP_NAME}")
     parser.add_argument('out_file',
                         help="output filename")
 
     args = parser.parse_args(train_args)
-    classifier = train(args.training_file, args.classifier)
+    classifier = train(args.training_file)
 
     print(f"Saving trained classifier to '{args.out_file}'")
     classifier.save(Path(args.out_file))

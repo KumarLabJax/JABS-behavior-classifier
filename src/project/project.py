@@ -532,8 +532,8 @@ class Project:
             h5.attrs['version'] = _PREDICTION_FILE_VERSION
             prediction_group = h5.require_group('predictions')
             behavior_group = prediction_group.require_group(Project.to_safe_name(behavior))
-            behavior_group.attrs['classifier_file'] = 'TODO'
-            behavior_group.attrs['classifier_hash'] = 'TODO'
+            behavior_group.attrs['classifier_file'] = classifier.classifier_file
+            behavior_group.attrs['classifier_hash'] = classifier.classifier_hash
             behavior_group.attrs['app_version'] = version_str()
             behavior_group.attrs['prediction_date'] = str(datetime.now())
             h5_predictions = behavior_group.require_dataset('predicted_class', shape=predictions.shape, dtype=predictions.dtype)

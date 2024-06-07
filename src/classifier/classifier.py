@@ -22,7 +22,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.project import TrackLabels, ProjectDistanceUnit, Project
+from src.project import TrackLabels, ProjectDistanceUnit, Project, load_training_data
+from src.utils import hash_file
 
 _VERSION = 7
 
@@ -99,9 +100,45 @@ class Classifier:
         self._version = _VERSION
         self._hyperparameters = self._classifier_hyperparameters[classifier]
 
+        self._classifier_file = None
+        self._classifier_hash = None
+        self._classifier_source = None
+
         # make sure the value passed for the classifier parameter is valid
         if classifier not in _classifier_choices:
             raise ValueError("Invalid classifier type")
+
+    @classmethod
+    def from_training_file(cls, path: Path):
+        """
+        :param path: exported training data file
+        :return: trained classifier object
+        """
+        loaded_training_data, _ = load_training_data(path)
+        behavior = loaded_training_data['behavior']
+
+        classifier = cls()
+        classifier.behavior_name = behavior
+        classifier.set_dict_settings(loaded_training_data['settings'])
+        classifier_type = ClassifierType(loaded_training_data['classifier_type'])
+        if classifier_type in classifier.classifier_choices():
+            classifier.set_classifier(classifier_type)
+        else:
+            print(f'Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}')
+        training_features = classifier.combine_data(loaded_training_data['per_frame'], loaded_training_data['window'])
+        classifier.train(
+            {
+                'training_data': training_features,
+                'training_labels': loaded_training_data['labels']
+            },
+            random_seed=loaded_training_data['training_seed']
+        )
+
+        classifier._classifier_file = Path(path).name
+        classifier._classifier_hash = hash_file(path)
+        classifier._classifier_source = 'training_file'
+
+        return classifier
 
     @property
     def classifier_name(self) -> str:
@@ -112,6 +149,18 @@ class Classifier:
     def classifier_type(self) -> ClassifierType:
         """ return classifier type """
         return self._classifier_type
+
+    @property
+    def classifier_file(self) -> str:
+        if self._classifier_file is not None:
+            return self._classifier_file
+        return 'NO SAVED CLASSIFIER'
+
+    @property
+    def classifier_hash(self) -> str:
+        if self._classifier_hash is not None:
+            return self._classifier_hash
+        return 'NO HASH'
 
     @property
     def project_settings(self) -> dict:
@@ -378,6 +427,11 @@ class Classifier:
         else:
             raise ValueError("Unsupported classifier")
 
+        # Classifier may have been re-used from a prior training, blank the logging attributes
+        self._classifier_file = None
+        self._classifier_hash = None
+        self._classifier_source = None
+
     def sort_features_to_classify(self, features):
         """
         sorts features to match the current classifier
@@ -417,6 +471,10 @@ class Classifier:
     def save(self, path: Path):
         joblib.dump(self, path)
 
+        self._classifier_file = Path(path).name
+        self._classifier_hash = hash_file(path)
+        self._classifier_source = 'saved'
+
     def load(self, path: Path):
         c = joblib.load(path)
 
@@ -436,6 +494,9 @@ class Classifier:
         self._behavior = c._behavior
         self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
+        self._classifier_file = Path(path).name
+        self._classifier_hash = hash_file(path)
+        self._classifier_source = 'saved'
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based on
