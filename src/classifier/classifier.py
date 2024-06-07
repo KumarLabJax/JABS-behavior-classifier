@@ -135,7 +135,7 @@ class Classifier:
         )
 
         classifier._classifier_file = Path(path).name
-        classifier._classifier_hash = hash_file(path)
+        classifier._classifier_hash = hash_file(Path(path))
         classifier._classifier_source = 'training_file'
 
         return classifier
@@ -477,7 +477,7 @@ class Classifier:
         # pressed, whether or not the training data changes.
         if self._classifier_file is None:
             self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(path)
+            self._classifier_hash = hash_file(Path(path))
             self._classifier_source = 'serialized'
 
     def load(self, path: Path):
@@ -505,7 +505,7 @@ class Classifier:
             self._classifier_source = c._classifier_source
         else:
             self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(path)
+            self._classifier_hash = hash_file(Path(path))
             self._classifier_source = 'pickle'
 
     def _update_classifier_type(self):
