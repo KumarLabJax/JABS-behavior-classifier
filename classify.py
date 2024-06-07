@@ -101,7 +101,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         behavior_out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         sys.exit(f"Unable to create output directory: {e}")
-    behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
+    behavior_out_path = behavior_out_dir / (pose_stem + '_behavior.h5')
 
     Project.write_predictions(
         behavior,

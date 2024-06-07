@@ -439,8 +439,6 @@ predictions
     - predicted_class
     - probabilities
     - identity_to_track
-        - settings
-            - (classifier settings)
 - behavior_2
     - ...
 

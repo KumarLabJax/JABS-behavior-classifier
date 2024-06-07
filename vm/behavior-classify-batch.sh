@@ -132,10 +132,10 @@ else
     BATCH_LINE=$(trim_sp $(sed -n "${SLURM_ARRAY_TASK_ID}{p;q;}" < "${BATCH_FILE}"))
     echo "BATCH LINE FILE: ${BATCH_LINE}"
     # Try and trim the line to look like a video file (if it is a pose file)
-    VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|h5):.avi:' <(echo ${BATCH_LINE}))
+    VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|mp4|h5):.avi:' <(echo ${BATCH_LINE}))
 
-    # the "v2" is for output format versioning. If format changes this should be updated
-    OUT_DIR="${VIDEO_FILE%.*}_behavior/"
+    # classify.py adds '_behavior.h5' to the video file
+    OUT_DIR="$(dirname ${VIDEO_FILE})/"
 
     # The batch file can either contain fully qualified paths for files to process OR local paths relative to where the batch file exists
     # Change the working directory to support local paths
