@@ -104,6 +104,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
     behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
 
     Project.write_predictions(
+        behavior,
         behavior_out_path,
         prediction_labels,
         prediction_prob,
@@ -218,7 +219,6 @@ def classify_main():
 
     if args.training is not None:
         train_and_classify(Path(args.training), in_pose_path, out_dir,
-                           override_classifier=args.classifier,
                            fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
     elif args.classifier is not None:
 

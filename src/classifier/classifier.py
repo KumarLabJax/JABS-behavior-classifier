@@ -471,10 +471,6 @@ class Classifier:
     def save(self, path: Path):
         joblib.dump(self, path)
 
-        self._classifier_file = Path(path).name
-        self._classifier_hash = hash_file(path)
-        self._classifier_source = 'saved'
-
     def load(self, path: Path):
         c = joblib.load(path)
 
@@ -494,8 +490,8 @@ class Classifier:
         self._behavior = c._behavior
         self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
-        self._classifier_file = Path(path).name
-        self._classifier_hash = hash_file(path)
+        self._classifier_file = c._classifier_file
+        self._classifier_hash = c._classifier_hash
         self._classifier_source = 'saved'
 
     def _update_classifier_type(self):
