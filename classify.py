@@ -96,7 +96,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
     print(f"Writing predictions to {out_dir}")
 
-    behavior_out_dir = out_dir / Project.to_safe_name(behavior)
+    behavior_out_dir = out_dir
     try:
         behavior_out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:

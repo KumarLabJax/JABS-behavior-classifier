@@ -134,7 +134,7 @@ else
     # Try and trim the line to look like a video file (if it is a pose file)
     VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|mp4|h5):.avi:' <(echo ${BATCH_LINE}))
 
-    # classify.py adds '_behavior.h5' to the video file
+    # classify.py adds '_behavior.h5' to the video file and we want it in the same folder
     OUT_DIR="$(dirname ${VIDEO_FILE})/"
 
     # The batch file can either contain fully qualified paths for files to process OR local paths relative to where the batch file exists
@@ -152,7 +152,7 @@ else
 
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE}"
     module load singularity
-    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}" --skip-window-cache
+    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}/features/" --skip-window-cache
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
