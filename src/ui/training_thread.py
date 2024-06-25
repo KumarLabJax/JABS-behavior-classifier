@@ -4,7 +4,7 @@ import numpy as np
 from PySide6 import QtCore
 from tabulate import tabulate
 
-from src.project import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.utils import FINAL_TRAIN_SEED
 
 

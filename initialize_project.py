@@ -15,6 +15,7 @@ from pathlib import Path
 import src.pose_estimation
 import src.feature_extraction
 import src.project
+from src.types import ProjectDistanceUnit
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream
 
@@ -238,7 +239,7 @@ def main():
     print('\n' + '-' * 70)
     if args.force_pixel_distances:
         print("computed features using pixel distances")
-    elif distance_unit == src.project.ProjectDistanceUnit.PIXEL:
+    elif distance_unit == ProjectDistanceUnit.PIXEL:
         print("One or more pose files did not have the cm_per_pixel attribute")
         print(" Falling back to using pixel distances")
     else:
