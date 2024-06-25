@@ -1,6 +1,5 @@
 import random
 import typing
-from enum import IntEnum
 from importlib import import_module
 from pathlib import Path
 import joblib
@@ -22,16 +21,11 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.project import TrackLabels, ProjectDistanceUnit, Project, load_training_data
+from src.project import TrackLabels, Project, load_training_data
+from src.types import ClassifierType
 from src.utils import hash_file
 
 _VERSION = 7
-
-class ClassifierType(IntEnum):
-    RANDOM_FOREST = 1
-    GRADIENT_BOOSTING = 2
-    XGBOOST = 3
-
 
 _classifier_choices = [
     ClassifierType.RANDOM_FOREST,

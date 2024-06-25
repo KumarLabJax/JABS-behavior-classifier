@@ -10,11 +10,12 @@ import numpy as np
 import pandas as pd
 
 from src import APP_NAME
-from src.classifier import Classifier, ClassifierType
+from src.classifier import Classifier
+from src.types import ClassifierType, ProjectDistanceUnit
 from src.cli import cli_progress_bar
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
-from src.project import Project, load_training_data, ProjectDistanceUnit
+from src.project import Project, load_training_data
 
 DEFAULT_FPS = 30
 

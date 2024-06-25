@@ -16,7 +16,7 @@ from src.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file, get_pose_file_major_version, \
     get_static_objects_in_file, PoseEstimation
 from src.project import TrackLabels
-from src.project.units import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps

@@ -6,7 +6,7 @@ from tabulate import tabulate
 
 from classify import train
 from src.classifier import Classifier
-from src.project import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.project.export_training import load_training_data
 
 
