@@ -124,7 +124,9 @@ These features contain ciruclar measurements and need to be treated differently.
 * Angles
 * Bearings
 
-# Methods of handling Missing Data
+# Methods of handling Missing or Infinite Data
+
+Features only propagate NaN (not a number) values forward to indicated missing or invalid data. Infinity and negative infinity values are converted to NaNs. Different parts of the software will handle NaN values differently, described below.
 
 ## Classifiers
 
