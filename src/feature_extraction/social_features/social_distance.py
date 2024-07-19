@@ -28,7 +28,7 @@ class ClosestIdentityInfo:
                                            dtype=np.int16)
         self._closest_fov_identities = np.full(poses.num_frames, -1,
                                                dtype=np.int16)
-        self._fov_angles = np.zeros(poses.num_frames, dtype=np.float32)
+        self._fov_angles = np.full(poses.num_frames, np.nan, dtype=np.float32)
 
         for frame in range(poses.num_frames):
             points, mask = poses.get_points(frame, identity, pixel_scale)
@@ -108,7 +108,7 @@ class ClosestIdentityInfo:
         return angle + 360 if angle < 0 else angle
 
     def compute_distances(self, closest_identities: np.ndarray) -> np.ndarray:
-        values = np.zeros(self._poses.num_frames, dtype=np.float32)
+        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         self_convex_hulls = self._poses.get_identity_convex_hulls(self._identity)
 
         for frame in range(self._poses.num_frames):
@@ -131,7 +131,7 @@ class ClosestIdentityInfo:
             self, social_points: [PoseEstimation.KeypointIndex],
             closest_identities: np.ndarray
     ):
-        values = np.zeros((self._poses.num_frames, len(social_points) ** 2), dtype=np.float32)
+        values = np.full((self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32)
 
         # get indexes of the subset of points used for pairwise social
         # distances

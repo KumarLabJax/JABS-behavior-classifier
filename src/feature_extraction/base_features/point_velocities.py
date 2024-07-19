@@ -42,7 +42,7 @@ class PointVelocityDirs(Feature, abc.ABC):
 
             # compute the orientation, and adjust based on the animal's bearing
             adjusted_angle = (((np.degrees(np.arctan2(point_velocities[:, 1], point_velocities[:, 0])) - bearings) + 360) % 360) - 180
-            adjusted_angle.fill_value = 0
+            adjusted_angle.fill_value = np.nan
             directions[f"{keypoint.name} velocity direction"] = adjusted_angle.filled()
 
         return directions

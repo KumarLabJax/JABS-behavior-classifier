@@ -45,9 +45,9 @@ class FoodHopper(Feature):
             # swap our x,y to match the opencv coordinate space
             pts = points[:, key_point.value, [1, 0]]
 
-            values[f'food hopper {key_point.name}'] = np.asarray(
-                [cv2.pointPolygonTest(hopper_pts, (p[0], p[1]), True) for p in pts]
-            )
+            distance = np.asarray([cv2.pointPolygonTest(hopper_pts, (p[0], p[1]), True) for p in pts])
+            distance[np.isnan(pts[:, 0])] = np.nan
+            values[f'food hopper {key_point.name}'] = distance
 
         return values
 

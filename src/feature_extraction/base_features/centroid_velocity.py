@@ -28,7 +28,7 @@ class CentroidVelocityDir(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> np.ndarray:
-        values = np.zeros(self._poses.num_frames, dtype=np.float32)
+        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         bearings = self._poses.compute_all_bearings(identity)
         frame_valid = self._poses.identity_mask(identity)
 
@@ -80,7 +80,7 @@ class CentroidVelocityMag(Feature):
         :param identity: identity to compute features for
         :return: np.ndarray with feature values
         """
-        values = np.zeros(self._poses.num_frames, dtype=np.float32)
+        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         fps = self._poses.fps
         frame_valid = self._poses.identity_mask(identity)
 

@@ -37,8 +37,8 @@ class CornerDistanceInfo:
         if identity in self._cached_distances:
             return self._cached_distances[identity]
         else:
-            distances = np.zeros(self._poses.num_frames, dtype=np.float32)
-            bearings = np.zeros(self._poses.num_frames, dtype=np.float32)
+            distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+            bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
             self_convex_hulls = self._poses.get_identity_convex_hulls(identity)
             idx = PoseEstimation.KeypointIndex
 

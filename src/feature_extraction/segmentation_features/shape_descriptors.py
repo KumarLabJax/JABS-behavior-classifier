@@ -26,17 +26,17 @@ class ShapeDescriptors(Feature):
         self._pixel_scale = pixel_scale
 
     def per_frame(self, identity: int) -> np.ndarray:
-        x = np.zeros((self._poses.num_frames), dtype=np.float32)
-        y = np.zeros((self._poses.num_frames), dtype=np.float32)
-        ellipse_w = np.zeros((self._poses.num_frames), dtype=np.float32)
-        ellipse_l = np.zeros((self._poses.num_frames), dtype=np.float32)
-        perimeter_sum = np.zeros((self._poses.num_frames), dtype=np.float32)
-        elongation = np.zeros((self._poses.num_frames), dtype=np.float32)
-        rectangularity = np.zeros((self._poses.num_frames), dtype=np.float32)
-        convexity = np.zeros((self._poses.num_frames), dtype=np.float32)
-        solidity = np.zeros((self._poses.num_frames), dtype=np.float32)
-        euler_number = np.zeros((self._poses.num_frames), dtype=np.float32)
-        hole_area_ratio = np.zeros((self._poses.num_frames), dtype=np.float32)
+        x = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        y = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        ellipse_w = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        ellipse_l = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        perimeter_sum = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        elongation = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        rectangularity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        convexity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        solidity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        euler_number = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+        hole_area_ratio = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
 
         # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
         for frame in range(self._poses.num_frames):
