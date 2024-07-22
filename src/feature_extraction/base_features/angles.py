@@ -17,8 +17,8 @@ class Angles(Feature):
 
     # override for circular values
     _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, high=360),
-        "std_dev": lambda x: scipy.stats.circstd(x, high=360),
+        "mean": lambda x: scipy.stats.circmean(x, high=360, nan_policy='omit'),
+        "std_dev": lambda x: scipy.stats.circstd(x, high=360, nan_policy='omit'),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

@@ -253,7 +253,7 @@ class Feature(abc.ABC):
 
         for key, val in feature_values.items():
 
-            op_result = np.zeros(val.shape)
+            op_result = np.full(val.shape, np.nan)
 
             # unfortunately the scipy.stats.circmean/circstd functions don't work
             # with numpy masked arrays, so we need to iterate over each window and
