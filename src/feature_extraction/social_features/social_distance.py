@@ -66,10 +66,6 @@ class ClosestIdentityInfo:
                                 self_base_neck_point,
                                 other_centroid)
 
-                            # for FoV we want the range of view angle to be [180, -180)
-                            if view_angle > 180:
-                                view_angle -= 360
-
                             if abs(view_angle) <= self._half_fov_deg:
                                 # other animal is in FoV
                                 if closest_fov_dist is None or curr_dist < closest_fov_dist:
@@ -96,7 +92,7 @@ class ClosestIdentityInfo:
         :param a: point
         :param b: vertex point
         :param c: point
-        :return: angle between AB and BC
+        :return: angle between AB and BC with range [-180, 180)
         """
 
         # point types in the pose files are typically unsigned 16 bit integers,
@@ -105,7 +101,7 @@ class ClosestIdentityInfo:
             math.atan2(int(c[1]) - int(b[1]), int(c[0]) - int(b[0])) -
             math.atan2(int(a[1]) - int(b[1]), int(a[0]) - int(b[0]))
         )
-        return angle + 360 if angle < 0 else angle
+        return ((angle + 180) % 360) - 180
 
     def compute_distances(self, closest_identities: np.ndarray) -> np.ndarray:
         values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
