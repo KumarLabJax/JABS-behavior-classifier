@@ -130,7 +130,7 @@ class CornerDistanceInfo:
             self.cache_features(identity)
         return self._cached_bearings[identity]
 
-    def get_closest_corner(self, identity: int) -> typing.Dict:
+    def get_closest_corner(self, identity: int) -> np.ndarray:
         """
         get the closest corner index
         :param identity: integer identity to get the closest corner
@@ -170,11 +170,11 @@ class DistanceToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> typing.Dict:
         """
         get the per frame distance to the nearest corner values
         :param identity: identity to get feature values for
-        :return: numpy ndarray of values with shape (nframes,)
+        :return: dict of numpy ndarray of values with shape (nframes,)
         """
 
         distances = self._cached_distances.get_distances(identity)
@@ -198,11 +198,11 @@ class BearingToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> dict:
+    def per_frame(self, identity: int) -> typing.Dict:
         """
         get the per frame bearing to the nearest corner values
         :param identity: identity to get feature values for
-        :return: dict of values with shape (nframes,)
+        :return: dict of numpy ndarray values with shape (nframes,)
         """
 
         bearings = self._cached_distances.get_bearings(identity)

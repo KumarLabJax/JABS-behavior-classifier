@@ -234,12 +234,16 @@ class IdentityFeatures:
                 features_h5['closest_identities'] = closest_data.closest_identities
                 features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
 
-            # TODO: Add in new index saving
             if LandmarkFeatureGroup.name() in self._feature_modules:
                 corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(self._identity)
                 corner_data = corner_info.get_closest_corner(self._identity)
                 if corner_data is not None:
                     features_h5['closest_corners'] = corner_data
+
+                lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(self._identity)
+                lixit_data = lixit_info.get_closest_lixit(self._identity)
+                if lixit_data is not None:
+                    features_h5['closest_lixit'] = lixit_data
 
             feature_group = features_h5.require_group('features')
             per_frame_group = feature_group.require_group('per_frame')
@@ -565,6 +569,9 @@ class IdentityFeatures:
         merged_features = {}
 
         for feature_module_name, feature_module in features.items():
+            if feature_module is None:
+                print(f'Feature module: {feature_module_name} contains no features...')
+                continue
             for feature_name, feature_vector in feature_module.items():
                 merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
 
