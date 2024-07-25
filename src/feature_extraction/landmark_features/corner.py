@@ -25,6 +25,7 @@ class CornerDistanceInfo:
 
         self._poses = poses
         self._pixel_scale = pixel_scale
+        self._closest_corner_idx = {}
         self._cached_distances = {}
         self._cached_bearings = {}
 
@@ -42,10 +43,12 @@ class CornerDistanceInfo:
         wall_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         center_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         corner_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        closest_corners = None
         self_convex_hulls = self._poses.get_identity_convex_hulls(identity)
         idx = PoseEstimation.KeypointIndex
 
         if 'corners' in self._poses.static_objects:
+            closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
             corners = self._poses.static_objects['corners']
 
             # points and convex hulls are in y,x 
@@ -68,11 +71,13 @@ class CornerDistanceInfo:
                 self_shape = self_convex_hulls[frame]
                 distance = float('inf')
                 corner_coordinates = (0, 0)
+                closest_idx = -1
                 for i in range(4):
                     d = self_shape.distance(Point(corners[i, 0], corners[i, 1]))
                     if d < distance:
                         distance = d
                         corner_coordinates = (corners[i, 0], corners[i, 1])
+                        closest_idx = i
 
                 self_base_neck_point = points[idx.BASE_NECK, :]
                 self_nose_point = points[idx.NOSE, :]
@@ -90,6 +95,7 @@ class CornerDistanceInfo:
                 wall_distances[frame] = wall_dist * self._pixel_scale
                 corner_bearings[frame] = corner_bearing
                 center_bearings[frame] = center_bearing
+                closest_corners[frame] = closest_idx
 
         self._cached_distances[identity] = {
             'distance to corner': corner_distances,
@@ -101,6 +107,8 @@ class CornerDistanceInfo:
             'bearing to corner': corner_bearings,
             'bearing to center': center_bearings,
         }
+
+        self._closest_corner_idx[identity] = closest_corners
 
     def get_distances(self, identity: int) -> typing.Dict:
         """
@@ -121,6 +129,16 @@ class CornerDistanceInfo:
         if identity not in self._cached_bearings:
             self.cache_features(identity)
         return self._cached_bearings[identity]
+
+    def get_closest_corner(self, identity: int) -> typing.Dict:
+        """
+        get the closest corner index
+        :param identity: integer identity to get the closest corner
+        :return: np.ndarray of the corner index
+        """
+        if identity not in self._closest_corner_idx:
+            self.cache_features(identity)
+        return self._closest_corner_idx[identity]
 
     @staticmethod
     def compute_angle(a, b, c):

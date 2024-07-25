@@ -198,6 +198,8 @@ class IdentityFeatures:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
 
+            # TODO: Add in reading new index saving
+
             # Cache uses a space to distinguish module_name from feature_name
             for feature_key in features_h5['features/per_frame'].keys():
                 module_name, feature_name = feature_key.split(' ', 1)
@@ -231,6 +233,13 @@ class IdentityFeatures:
                 closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
                 features_h5['closest_identities'] = closest_data.closest_identities
                 features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
+
+            # TODO: Add in new index saving
+            if LandmarkFeatureGroup.name() in self._feature_modules:
+                corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(self._identity)
+                corner_data = corner_info.get_closest_corner(self._identity)
+                if corner_data is not None:
+                    features_h5['closest_corners'] = corner_data
 
             feature_group = features_h5.require_group('features')
             per_frame_group = feature_group.require_group('per_frame')
