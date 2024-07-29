@@ -39,16 +39,19 @@
 
 ### Arena Corners
 
-2 features from arena corners
+5 features from arena corners
 
 * distance to corner using the convex hull center
+* distance to nearest wall using the convex hull center
+* distance to arena center using the convex hull center
 * bearing to corner using angle of the base neck - nose vector
+* bearing to arena center using angle of the base neck - nose vector
 
 ### Water Spout (Lixit)
 
-1 feature from lixit
+12 feature from lixit
 
-* distance from nose to nearest lixit
+* distance from each keypoint to nearest lixit
 
 ### Food Hopper
 
@@ -151,3 +154,14 @@ This may have adverse effects for skew and kurtosis estimates, as the window may
 ## Signal Features
 
 Per-frame features fill missing values with zeros before passing into the FFT.
+
+# Extra Features calculated, but not used in a classifier
+
+## Closest Objects
+
+For calculating distances and bearings to nearby items, sometimes there are multiple items to choose from. For the following objects, we identify which object is closest by using the current mouses convex hull centroid and the other object. These features are not available in trained classifiers.
+
+* Closest mouse
+* Closest mouse in field of view
+* Closest arena corner
+* Closest water spout (lixit)
