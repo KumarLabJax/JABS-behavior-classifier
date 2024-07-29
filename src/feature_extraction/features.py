@@ -194,11 +194,17 @@ class IdentityFeatures:
             self._frame_valid = features_h5['frame_valid'][:]
             assert len(self._frame_valid) == self._num_frames
 
+            # TODO
+            # These class variables only exist here and are not provided elsewhere
             if self._compute_social_features:
                 self._closest_identities = features_h5['closest_identities'][:]
                 self._closest_fov_identities = features_h5['closest_fov_identities'][:]
 
-            # TODO: Add in reading new index saving
+            if 'closest_corners' in features_h5:
+                self._closest_corner = features_h5['closest_corners'][:]
+
+            if 'closest_lixit' in features_h5:
+                self._closest_lixit = features_h5['closest_lixit'][:]
 
             # Cache uses a space to distinguish module_name from feature_name
             for feature_key in features_h5['features/per_frame'].keys():
