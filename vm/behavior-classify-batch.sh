@@ -78,7 +78,7 @@ find_pose_file() {
     else
         cur_pose_version=${MAX_POSE_VERSION}
         prefix="${in_file%.*}"
-        while [[ cur_pose_version -gt ${MIN_POSE_VERSION} ]]
+        while [[ cur_pose_version -ge ${MIN_POSE_VERSION} ]]
         do
             if [[ -f "${prefix}_pose_est_v${cur_pose_version}.h5" ]]; then
                 echo -n "${prefix}_pose_est_v${cur_pose_version}.h5"
