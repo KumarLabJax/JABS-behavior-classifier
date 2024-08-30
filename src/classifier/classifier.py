@@ -25,7 +25,7 @@ from src.project import TrackLabels, Project, load_training_data
 from src.types import ClassifierType
 from src.utils import hash_file
 
-_VERSION = 7
+_VERSION = 8
 
 _classifier_choices = [
     ClassifierType.RANDOM_FOREST,
