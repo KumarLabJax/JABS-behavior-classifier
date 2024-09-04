@@ -22,7 +22,7 @@ from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
-_PREDICTION_FILE_VERSION = 1
+_PREDICTION_FILE_VERSION = 2
 
 
 class Project:
