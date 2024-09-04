@@ -4,7 +4,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation, PoseHashException
+from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
 
 
 class _CacheFileVersion(Exception):
@@ -84,19 +84,25 @@ class PoseEstimationV4(PoseEstimation):
                 instance_embed_id[id_mask == 0] - 1, :, :] = all_points[
                                                              id_mask == 0, :, :]
 
-                # then transpose to make the first index the "identity" rather
-                # than frame
+                # transpose to make the first index the "identity" rather than frame
                 # indexes before transpose: [frame][ident][point idx][pt axis]
                 # indexes after transpose: [ident][frame][point idx][pt axis]
-                self._points = np.transpose(points_tmp, [1, 0, 2, 3])
+                points_tmp = np.transpose(points_tmp, [1, 0, 2, 3])
 
+                # transform confidence values for mask as well
                 confidence_by_id_tmp = np.zeros(tmp_shape[:3], dtype=all_confidence.dtype)
                 confidence_by_id_tmp[np.where(id_mask == 0)[0],
                 instance_embed_id[id_mask == 0] - 1, :] = all_confidence[
                                                           id_mask == 0, :]
                 confidence_by_id = np.transpose(confidence_by_id_tmp, [1, 0, 2])
 
-                self._point_mask = confidence_by_id > 0
+                # enforce partial poses get nan values
+                points_tmp[confidence_by_id <= MINIMUM_CONFIDENCE] = np.nan
+
+                # copy data into object
+                self._points = points_tmp
+
+                self._point_mask = confidence_by_id > MINIMUM_CONFIDENCE
 
                 # build a mask for each identity that indicates if it exists or not
                 # in the frame

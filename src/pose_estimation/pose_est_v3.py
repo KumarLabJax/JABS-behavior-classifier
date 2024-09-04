@@ -5,7 +5,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation, PoseHashException
+from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
 
 
 class _CacheFileVersion(Exception):
@@ -218,7 +218,7 @@ class PoseEstimationV3(PoseEstimation):
     def _build_track_dict(self, all_points, all_confidence, all_instance_count,
                           all_track_id):
         """ iterate through frames and build track dict """
-        all_points_mask = all_confidence > 0
+        all_points_mask = all_confidence > MINIMUM_CONFIDENCE
         track_dict = {}
 
         for frame_index in range(self.num_frames):

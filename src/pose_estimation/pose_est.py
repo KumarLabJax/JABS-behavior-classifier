@@ -10,6 +10,7 @@ from shapely.geometry import MultiPoint
 
 from src.utils import hash_file
 
+MINIMUM_CONFIDENCE = 0.3
 
 class PoseHashException(Exception):
     pass

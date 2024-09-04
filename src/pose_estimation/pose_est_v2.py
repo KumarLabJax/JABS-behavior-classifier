@@ -4,7 +4,7 @@ import typing
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation
+from .pose_est import PoseEstimation, MINIMUM_CONFIDENCE
 
 
 class PoseEstimationV2(PoseEstimation):
@@ -41,7 +41,7 @@ class PoseEstimationV2(PoseEstimation):
             # load contents
             self._points = pose_grp['points'][:].astype(np.float64)
             self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
-            self._point_mask[:] = pose_grp['confidence'][:] > 0.3
+            self._point_mask[:] = pose_grp['confidence'][:] > MINIMUM_CONFIDENCE
 
             # get pixel size
             self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
