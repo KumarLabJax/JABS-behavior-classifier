@@ -6,7 +6,7 @@ from tabulate import tabulate
 
 from classify import train
 from src.classifier import Classifier
-from src.project import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.project.export_training import load_training_data
 
 
@@ -53,13 +53,7 @@ def main():
         test_info = group_mapping[data['test_group']]
 
         # train classifier, and then use it to classify our test data
-        classifier.train(
-            data,
-            features['behavior'],
-            features['window_size'],
-            features['has_social_features'],
-            features['extended_features'],
-            features['distance_unit'])
+        classifier.train(data)
         predictions = classifier.predict(data['test_data'])
 
         # calculate some performance metrics using the classifications of
@@ -118,7 +112,7 @@ def main():
                 f"{np.mean(fbeta_notbehavior):.5}")
         print(f"\nClassifier: {classifier.classifier_name}")
         print(f"Behavior: {features['behavior']}")
-        unit = "cm" if classifier.distance_unit == ProjectDistanceUnit.CM else "pixel"
+        unit = "cm" if classifier.project_settings['cm_units'] == ProjectDistanceUnit.CM else "pixel"
         print(f"Feature Distance Unit: {unit}")
         print('-' * 70)
     else:

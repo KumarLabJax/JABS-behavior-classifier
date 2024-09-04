@@ -69,7 +69,7 @@ trim_sp() {
 
 # If the provided file ends with the extension, return itself
 # Otherwise, search in descending order
-MAX_POSE_VERSION=5
+MAX_POSE_VERSION=6
 MIN_POSE_VERSION=2
 find_pose_file() {
     local in_file="$*"
@@ -78,7 +78,7 @@ find_pose_file() {
     else
         cur_pose_version=${MAX_POSE_VERSION}
         prefix="${in_file%.*}"
-        while [[ cur_pose_version -gt ${MIN_POSE_VERSION} ]]
+        while [[ cur_pose_version -ge ${MIN_POSE_VERSION} ]]
         do
             if [[ -f "${prefix}_pose_est_v${cur_pose_version}.h5" ]]; then
                 echo -n "${prefix}_pose_est_v${cur_pose_version}.h5"
@@ -132,10 +132,10 @@ else
     BATCH_LINE=$(trim_sp $(sed -n "${SLURM_ARRAY_TASK_ID}{p;q;}" < "${BATCH_FILE}"))
     echo "BATCH LINE FILE: ${BATCH_LINE}"
     # Try and trim the line to look like a video file (if it is a pose file)
-    VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|h5):.avi:' <(echo ${BATCH_LINE}))
+    VIDEO_FILE=$(sed -E 's:(_pose_est_v[0-9]+)?\.(avi|mp4|h5):.avi:' <(echo ${BATCH_LINE}))
 
-    # the "v1" is for output format versioning. If format changes this should be updated
-    OUT_DIR="${VIDEO_FILE%.*}_behavior/v1"
+    # classify.py adds '_behavior.h5' to the video file and we want it in the same folder
+    OUT_DIR="$(dirname ${VIDEO_FILE})/"
 
     # The batch file can either contain fully qualified paths for files to process OR local paths relative to where the batch file exists
     # Change the working directory to support local paths
@@ -150,11 +150,9 @@ else
         exit 1
     fi
 
-    echo "DUMP OF CURRENT ENVIRONMENT:"
-    env
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE}"
     module load singularity
-    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}"
+    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}/features/" --skip-window-cache
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi

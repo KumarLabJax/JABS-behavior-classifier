@@ -15,6 +15,7 @@ from pathlib import Path
 import src.pose_estimation
 import src.feature_extraction
 import src.project
+from src.types import ProjectDistanceUnit
 from src.cli import cli_progress_bar
 from src.video_stream import VideoStream
 
@@ -27,15 +28,9 @@ def generate_files_worker(params: dict):
     pose_est = project.load_pose_est(
         project.video_path(params['video']))
 
-    if params['force_pixel_distance'] or project.distance_unit == src.project.ProjectDistanceUnit.PIXEL:
-        distance_scale_factor = 1
-    else:
-        distance_scale_factor = pose_est.cm_per_pixel
-
     features = src.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
-        force=params['force'], distance_scale_factor=distance_scale_factor,
-        extended_features=project.extended_features
+        force=params['force'], op_settings=project.get_project_defaults()
     )
 
     # unlike per frame features, window features are not automatically
@@ -219,7 +214,6 @@ def main():
                     'project': project,
                     'force': args.force,
                     'window_sizes': window_sizes,
-                    'force_pixel_distance': args.force_pixel_distances
                 })
 
     # print the initial progress bar with 0% complete
@@ -245,7 +239,7 @@ def main():
     print('\n' + '-' * 70)
     if args.force_pixel_distances:
         print("computed features using pixel distances")
-    elif distance_unit == src.project.ProjectDistanceUnit.PIXEL:
+    elif distance_unit == ProjectDistanceUnit.PIXEL:
         print("One or more pose files did not have the cm_per_pixel attribute")
         print(" Falling back to using pixel distances")
     else:

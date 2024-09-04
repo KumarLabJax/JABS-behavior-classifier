@@ -28,7 +28,7 @@ class ClosestIdentityInfo:
                                            dtype=np.int16)
         self._closest_fov_identities = np.full(poses.num_frames, -1,
                                                dtype=np.int16)
-        self._fov_angles = np.zeros(poses.num_frames, dtype=np.float32)
+        self._fov_angles = np.full(poses.num_frames, np.nan, dtype=np.float32)
 
         for frame in range(poses.num_frames):
             points, mask = poses.get_points(frame, identity, pixel_scale)
@@ -66,10 +66,6 @@ class ClosestIdentityInfo:
                                 self_base_neck_point,
                                 other_centroid)
 
-                            # for FoV we want the range of view angle to be [180, -180)
-                            if view_angle > 180:
-                                view_angle -= 360
-
                             if abs(view_angle) <= self._half_fov_deg:
                                 # other animal is in FoV
                                 if closest_fov_dist is None or curr_dist < closest_fov_dist:
@@ -96,7 +92,7 @@ class ClosestIdentityInfo:
         :param a: point
         :param b: vertex point
         :param c: point
-        :return: angle between AB and BC
+        :return: angle between AB and BC with range [-180, 180)
         """
 
         # point types in the pose files are typically unsigned 16 bit integers,
@@ -105,10 +101,10 @@ class ClosestIdentityInfo:
             math.atan2(int(c[1]) - int(b[1]), int(c[0]) - int(b[0])) -
             math.atan2(int(a[1]) - int(b[1]), int(a[0]) - int(b[0]))
         )
-        return angle + 360 if angle < 0 else angle
+        return ((angle + 180) % 360) - 180
 
     def compute_distances(self, closest_identities: np.ndarray) -> np.ndarray:
-        values = np.zeros(self._poses.num_frames, dtype=np.float32)
+        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         self_convex_hulls = self._poses.get_identity_convex_hulls(self._identity)
 
         for frame in range(self._poses.num_frames):
@@ -131,7 +127,7 @@ class ClosestIdentityInfo:
             self, social_points: [PoseEstimation.KeypointIndex],
             closest_identities: np.ndarray
     ):
-        values = np.zeros((self._poses.num_frames, len(social_points) ** 2), dtype=np.float32)
+        values = np.full((self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32)
 
         # get indexes of the subset of points used for pairwise social
         # distances

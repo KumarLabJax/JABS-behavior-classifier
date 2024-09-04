@@ -64,7 +64,7 @@ class PoseEstimationV3(PoseEstimation):
                     self._identities = [*range(self._max_instances)]
 
                     # get pixel size
-                    self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+                    self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
 
             except (IOError, KeyError, _CacheFileVersion, PoseHashException):
                 # unable to open or read pose cache file, revert to source pose
@@ -91,7 +91,7 @@ class PoseEstimationV3(PoseEstimation):
                 all_track_id = pose_grp['instance_track_id'][:]
 
                 # get pixel size
-                self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel')
+                self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
 
             self._num_frames = len(all_points)
             self._max_instances = len(all_points[0])

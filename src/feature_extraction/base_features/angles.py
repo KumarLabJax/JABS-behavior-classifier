@@ -17,8 +17,8 @@ class Angles(Feature):
 
     # override for circular values
     _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, high=360),
-        "std_dev": lambda x: scipy.stats.circstd(x, high=360),
+        "mean": lambda x: scipy.stats.circmean(x, high=360, nan_policy='omit'),
+        "std_dev": lambda x: scipy.stats.circstd(x, high=360, nan_policy='omit'),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -56,10 +56,10 @@ class Angles(Feature):
         :param b: array of vertex point coordinates
         :param c: array of point coordinates
         :return: array containing angles, in degrees, formed from the lines
-        ab and ba for each row in a, b, and c
+        ab and ba for each row in a, b, and c with range [0, 360)
         """
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0]) -
             np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])
         )
-        return np.where(angles < 0, angles + 360, angles)
+        return angles % 360

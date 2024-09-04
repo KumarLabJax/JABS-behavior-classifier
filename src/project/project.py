@@ -16,13 +16,13 @@ from src.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file, get_pose_file_major_version, \
     get_static_objects_in_file, PoseEstimation
 from src.project import TrackLabels
-from src.project.units import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.version import version_str
 from src.video_stream import VideoStream
 from src.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
-_PREDICTION_FILE_VERSION = 1
+_PREDICTION_FILE_VERSION = 2
 
 
 class Project:
@@ -174,7 +174,7 @@ class Project:
         for vid in self._videos:
             attrs = PoseEstimation.get_pose_file_attributes(
                 get_pose_path(self.video_path(vid)))
-            cm_per_pixel = attrs['poseest'].get('cm_per_pixel')
+            cm_per_pixel = attrs['poseest'].get('cm_per_pixel', None)
 
             # this pose file does not have cm_per_pixel attribute,
             # force the entire project to use pixel distances
@@ -368,7 +368,7 @@ class Project:
         """
         load project metadata
         :return: dictionary of project metadata, empty dict if unable to open
-        file (such as when the prject is first created and the file does not
+        file (such as when the project is first created and the file does not
         exist)
         """
         try:
@@ -403,7 +403,11 @@ class Project:
         :return: dictionary of behavior metadata in the project. 
         get_project_defaults if behavior not present
         """
-        return dict(self._metadata['behavior'].get(behavior, self.get_project_defaults()))
+        # If settings are never changed, this is an empty dict.
+        current_meta = dict(self._metadata['behavior'].get(behavior, {}))
+        if current_meta:
+            return current_meta
+        return self.get_project_defaults()
 
     def get_project_defaults(self):
         """
@@ -453,7 +457,7 @@ class Project:
             return False
 
     def save_predictions(self, predictions, probabilities,
-                         frame_indexes, behavior: str):
+                         frame_indexes, behavior: str, classifier):
         """
         save predictions for the current project
         :param predictions: predictions for all videos in project (dictionary
@@ -462,6 +466,7 @@ class Project:
         structure to predictions parameter but with floating point values
         :param frame_indexes: mapping of the predictions to video frames
         :param behavior: string behavior name
+        :param classifier: Classifier object used to generate the predictions
 
         Because the classifier does not run on every frame for every identity
         (since an identity may not exist for every frame), we extract just
@@ -475,8 +480,7 @@ class Project:
         for video in self._videos:
             # setup an ouptut filename based on the behavior and video names
             file_base = Path(video).with_suffix('').name + ".h5"
-            output_path = self._prediction_dir / self.to_safe_name(
-                behavior) / file_base
+            output_path = self._prediction_dir / file_base
 
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
@@ -504,24 +508,43 @@ class Project:
                 prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
 
             # write to h5 file
-            self.write_predictions(output_path, prediction_labels,
-                                   prediction_prob, poses)
+            self.write_predictions(behavior, output_path, prediction_labels,
+                                   prediction_prob, poses, classifier)
 
         # update app version saved in project metadata if necessary
         self.__update_version()
 
     @staticmethod
-    def write_predictions(output_path: Path, predictions, probabilities, poses):
+    def write_predictions(behavior: str, output_path: Path, predictions, probabilities, poses, classifier):
+        """
+        write predictions out to a file
+        :param behavior: string describing the behavior
+        :param output_path: name of file to write predictions to
+        :param predictions: matrix of prediction class data of shape [n_animals, n_frames]
+        :param probabilities: matrix of probability for the predicted class of shape [n_animals, n_frames]
+        :param poses: PoseEstimation object for which predictions were made
+        :param classifier: Classifier object for which was used to make predictions
+        """
         # TODO catch exceptions
-        with h5py.File(output_path, 'w') as h5:
+        with h5py.File(output_path, 'a') as h5:
+            h5.attrs['pose_file'] = Path(poses.pose_file).name
+            h5.attrs['pose_hash'] = poses.hash
             h5.attrs['version'] = _PREDICTION_FILE_VERSION
-            h5.attrs['source_pose_major_version'] = poses.format_major_version
-            group = h5.create_group('predictions')
-            group.create_dataset('predicted_class', data=predictions)
-            group.create_dataset('probabilities', data=probabilities)
+            prediction_group = h5.require_group('predictions')
+            behavior_group = prediction_group.require_group(Project.to_safe_name(behavior))
+            behavior_group.attrs['classifier_file'] = classifier.classifier_file
+            behavior_group.attrs['classifier_hash'] = classifier.classifier_hash
+            behavior_group.attrs['app_version'] = version_str()
+            behavior_group.attrs['prediction_date'] = str(datetime.now())
+            h5_predictions = behavior_group.require_dataset('predicted_class', shape=predictions.shape, dtype=predictions.dtype)
+            h5_predictions[...] = predictions
+            h5_probabilities = behavior_group.require_dataset('probabilities', shape=probabilities.shape, dtype=probabilities.dtype)
+            h5_probabilities[...] = probabilities
             if poses.identity_to_track is not None:
-                group.create_dataset('identity_to_track',
-                                     data=poses.identity_to_track)
+                h5_ids = behavior_group.require_dataset('identity_to_track', shape=poses.identity_to_track.shape, dtype=poses.identity_to_track.dtype)
+                h5_ids[...] = poses.identity_to_track
+            elif 'identity_to_track' in behavior_group:
+                del behavior_group['identity_to_track']
 
     def load_predictions(self, video: str, behavior: str):
         """
@@ -537,23 +560,28 @@ class Project:
         frame_indexes = {}
 
         file_base = Path(video).with_suffix('').name + ".h5"
-        path = self._prediction_dir / self.to_safe_name(behavior) / file_base
+        path = self._prediction_dir / file_base
 
         nident = self._metadata['video_files'][video]['identities']
 
         try:
             with h5py.File(path, 'r') as h5:
                 assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
-                group = h5['predictions']
-                assert group['predicted_class'].shape[0] == nident
-                assert group['probabilities'].shape[0] == nident
+                prediction_group = h5['predictions']
+                if self.to_safe_name(behavior) not in prediction_group:
+                    # TODO: this isn't an IOError, it's a KeyError, but KeyError can be thrown from other stuff and is handled differently.
+                    # This needs to appear as if no saved predictions exist for this video.
+                    raise IOError(f'Behavior {self.to_safe_name(behavior)} not in prediction file.')
+                behavior_group = prediction_group[self.to_safe_name(behavior)]
+                assert behavior_group['predicted_class'].shape[0] == nident
+                assert behavior_group['probabilities'].shape[0] == nident
 
-                _probabilities = group['probabilities'][:]
-                _classes = group['predicted_class'][:]
+                _probabilities = behavior_group['probabilities'][:]
+                _classes = behavior_group['predicted_class'][:]
 
                 for i in range(nident):
                     identity = str(i)
-                    indexes = np.asarray(range(group['predicted_class'].shape[1]))
+                    indexes = np.asarray(range(behavior_group['predicted_class'].shape[1]))
 
                     # first, exclude any probability of -1 as that indicates
                     # a user label, not a inferred class
@@ -710,7 +738,7 @@ class Project:
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self._metadata['behavior'][behavior]['window_size'], labels)
+                    self.get_behavior_metadata(behavior)['window_size'], labels)
                 window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)

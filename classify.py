@@ -10,11 +10,12 @@ import numpy as np
 import pandas as pd
 
 from src import APP_NAME
-from src.classifier import Classifier, ClassifierType
+from src.classifier import Classifier
+from src.types import ClassifierType, ProjectDistanceUnit
 from src.cli import cli_progress_bar
 from src.feature_extraction.features import IdentityFeatures
 from src.pose_estimation import open_pose_file
-from src.project import Project, load_training_data, ProjectDistanceUnit
+from src.project import Project, load_training_data
 
 DEFAULT_FPS = 30
 
@@ -38,19 +39,20 @@ def train_and_classify(
         training_file_path: Path,
         input_pose_file: Path,
         out_dir: Path,
-        override_classifier: typing.Optional[ClassifierType] = None,
         fps=DEFAULT_FPS,
-        feature_dir: typing.Optional[str] = None):
+        feature_dir: typing.Optional[str] = None,
+        cache_window: bool = False):
     if not training_file_path.exists():
         sys.exit(f"Unable to open training data\n")
 
-    classifier = train(training_file_path, override_classifier)
-    classify_pose(classifier, input_pose_file, out_dir, behavior, fps, feature_dir)
+    classifier = train(training_file_path)
+    classify_pose(classifier, input_pose_file, out_dir, classifier.behavior_name, fps, feature_dir, cache_window)
 
 
 def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                   behavior: str, fps=DEFAULT_FPS,
-                  feature_dir: typing.Optional[str] = None):
+                  feature_dir: typing.Optional[str] = None,
+                  cache_window: bool = False):
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -70,7 +72,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                          complete_as_percent=False, suffix='identities')
 
         features = IdentityFeatures(
-            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings
+            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings, cache_window=cache_window
         ).get_features(classifier_settings['window_size'])
         per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame']))
         window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window']))
@@ -95,69 +97,38 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
 
     print(f"Writing predictions to {out_dir}")
 
-    behavior_out_dir = out_dir / Project.to_safe_name(behavior)
+    behavior_out_dir = out_dir
     try:
         behavior_out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         sys.exit(f"Unable to create output directory: {e}")
-    behavior_out_path = behavior_out_dir / (pose_stem + '.h5')
+    behavior_out_path = behavior_out_dir / (pose_stem + '_behavior.h5')
 
     Project.write_predictions(
+        behavior,
         behavior_out_path,
         prediction_labels,
         prediction_prob,
-        pose_est
+        pose_est,
+        classifier
     )
 
 
 def train(
         training_file: Path,
-        override_classifier: typing.Optional[ClassifierType] = None
 ) -> Classifier:
 
-    try:
-        loaded_training_data, _ = load_training_data(training_file)
-    except OSError as e:
-        sys.exit(f"Unable to open training data\n{e}")
+    classifier = Classifier.from_training_file(training_file)
+    classifier_settings = classifier.project_settings
 
-    behavior = loaded_training_data['behavior']
-
-    classifier = Classifier()
-    classifier.set_dict_settings(loaded_training_data['settings'])
-
-    # Override the classifier type
-    if override_classifier is not None:
-        classifier_type = override_classifier
-    else:
-        classifier_type = ClassifierType(
-            loaded_training_data['classifier_type'])
-
-    if classifier_type in classifier.classifier_choices():
-        classifier.set_classifier(classifier_type)
-    else:
-        print(f"Specified classifier type ({classifier_type.name}) "
-              "is unavailable, using default "
-              f"({classifier.classifier_type.name})")
-
-    print("Training classifier for:", behavior)
+    print("Training classifier for:", classifier.behavior_name)
     print("  Classifier Type: "
           f"{__CLASSIFIER_CHOICES[classifier.classifier_type]}")
-    print(f"  Window Size: {loaded_training_data['settings']['window_size']}")
-    print(f"  Social: {loaded_training_data['settings']['social']}")
-    print(f"  Balanced Labels: {loaded_training_data['settings']['balance_labels']}")
-    print(f"  Symmetric Behavior: {loaded_training_data['settings']['symmetric_behavior']}")
-    print(f"  CM Units: {loaded_training_data['settings']['cm_units']}")
-
-    training_features = classifier.combine_data(loaded_training_data['per_frame'],
-                                                loaded_training_data['window'])
-    classifier.train(
-        {
-            'training_data': training_features,
-            'training_labels': loaded_training_data['labels']
-        },
-        behavior,
-        random_seed=loaded_training_data['training_seed']
-    )
+    print(f"  Window Size: {classifier_settings['window_size']}")
+    print(f"  Social: {classifier_settings['social']}")
+    print(f"  Balanced Labels: {classifier_settings['balance_labels']}")
+    print(f"  Symmetric Behavior: {classifier_settings['symmetric_behavior']}")
+    print(f"  CM Units: {bool(classifier_settings['cm_units'])}")
 
     return classifier
 
@@ -235,6 +206,12 @@ def classify_main():
         help="Feature cache dir. If present, look here for features before "
         "computing. If features need to be computed, they will be saved here."
     )
+    parser.add_argument(
+        '--skip-window-cache',
+        help="Default will cache all features when --feature-dir is provided. Providing this flag will only cache per-frame features, reducing cache size at the cost of needing to re-calculate window features.",
+        default=False,
+        action='store_true'
+    )
 
     args = parser.parse_args(classify_args)
 
@@ -243,8 +220,7 @@ def classify_main():
 
     if args.training is not None:
         train_and_classify(Path(args.training), in_pose_path, out_dir,
-                           override_classifier=args.classifier,
-                           fps=args.fps, feature_dir=args.feature_dir)
+                           fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
     elif args.classifier is not None:
 
         try:
@@ -268,7 +244,7 @@ def classify_main():
         print(f"  Social: {classifier_settings['social']}")
         print(f"  CM Units: {classifier_settings['cm_units']}")
 
-        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir)
+        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
 
 
 def train_main():
@@ -276,24 +252,13 @@ def train_main():
     train_args = sys.argv[2:]
 
     parser = argparse.ArgumentParser(prog=f"{script_name()} train")
-    classifier_group = parser.add_argument_group(
-        "optionally override the classifier specified in the training file:\n"
-        " (the following options are mutually exclusive)")
-    exclusive_group = classifier_group.add_mutually_exclusive_group(
-        required=False)
-    for classifer_type, classifier_str in __CLASSIFIER_CHOICES.items():
-        exclusive_group.add_argument(
-            f"--{classifer_type.name.lower().replace('_', '-')}",
-            action='store_const', const=classifer_type,
-            dest='classifier', help=f"Use {classifier_str}"
-        )
     parser.add_argument('training_file',
                         help=f"Training h5 file exported by {APP_NAME}")
     parser.add_argument('out_file',
                         help="output filename")
 
     args = parser.parse_args(train_args)
-    classifier = train(args.training_file, args.classifier)
+    classifier = train(args.training_file)
 
     print(f"Saving trained classifier to '{args.out_file}'")
     classifier.save(Path(args.out_file))

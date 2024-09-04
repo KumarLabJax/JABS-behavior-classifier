@@ -24,16 +24,20 @@ class AngularVelocity(Feature):
         fps = self._poses.fps
 
         bearings = self._poses.compute_all_bearings(identity)
-        velocities = np.zeros_like(bearings)
+        velocities = np.full(bearings.shape, np.nan, bearings.dtype)
 
         for i in range(len(bearings) - 1):
 
             angle1 = bearings[i]
+            angle2 = bearings[i + 1]
+
+            if np.isnan(angle1) or np.isnan(angle2):
+                continue
+
             angle1 = angle1 % 360
             if angle1 < 0:
                 angle1 += 360
 
-            angle2 = bearings[i + 1]
             angle2 = angle2 % 360
             if angle2 < 0:
                 angle2 += 360

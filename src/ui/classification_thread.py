@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from PySide6 import QtCore
 
-from src.project import ProjectDistanceUnit
+from src.types import ProjectDistanceUnit
 from src.feature_extraction import IdentityFeatures, DEFAULT_WINDOW_SIZE
 from src.video_stream.utilities import get_fps
 
@@ -100,7 +100,8 @@ class ClassifyThread(QtCore.QThread):
         self._project.save_predictions(predictions,
                                        probabilities,
                                        frame_indexes,
-                                       self._behavior)
+                                       self._behavior,
+                                       self._classifier)
 
         self.done.emit({
             'predictions': predictions[self._current_video],

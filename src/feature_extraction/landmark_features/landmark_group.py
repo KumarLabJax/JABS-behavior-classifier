@@ -1,7 +1,7 @@
 from src.pose_estimation import PoseEstimation
 from src.feature_extraction.feature_group_base_class import FeatureGroup
 from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
-from .lixit import DistanceToLixit
+from .lixit import DistanceToLixit, BearingToLixit, LixitDistanceInfo
 from .food_hopper import FoodHopper
 
 
@@ -14,13 +14,14 @@ class LandmarkFeatureGroup(FeatureGroup):
         DistanceToCorner.name(): DistanceToCorner,
         BearingToCorner.name(): BearingToCorner,
         DistanceToLixit.name(): DistanceToLixit,
+        BearingToLixit.name(): BearingToLixit,
         FoodHopper.name(): FoodHopper
     }
 
     # maps static objects to the names of features derived from that object
     _feature_map = {
         'corners': [DistanceToCorner.name(), BearingToCorner.name()],
-        'lixit': [DistanceToLixit.name()],
+        'lixit': [DistanceToLixit.name(), BearingToLixit.name()],
         'food_hopper': [FoodHopper.name()]
     }
 
@@ -32,31 +33,59 @@ class LandmarkFeatureGroup(FeatureGroup):
         for o in poses.static_objects:
             self._enabled_features.extend(self.static_object_features(o))
 
+        self._corner_info = {}
+        self._lixit_info = {}
+
     def _init_feature_mods(self, identity: int):
         """
         initialize all the feature modules specified in the current config
-        :param identity: unused, specified by abstract base class
+        :param identity: identity to initialize the features for
         :return: dictionary of initialized feature modules for this group
         """
         modules = {}
 
-        corner_distances = CornerDistanceInfo(self._poses, self._pixel_scale)
+        if identity not in self._corner_info:
+            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
+
+        if identity not in self._lixit_info:
+            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
 
         # initialize all the feature modules specified in the current config
         for feature in self._enabled_features:
 
-            # the distance to corner and bearing to corner features use
-            # some pre-computed data (so it doesn't have to be recomputed for
-            # each). We need to special case the initialization of these
-            # to pass in the "corner_distances" object
+            # corner and lixit features require a special initializer with
+            # the shared-info object
             if feature in [DistanceToCorner.name(), BearingToCorner.name()]:
                 modules[feature] = self._features[feature](
-                    self._poses, self._pixel_scale, corner_distances)
+                    self._poses, self._pixel_scale, self._corner_info[identity])
+            elif feature in [DistanceToLixit.name(), BearingToLixit.name()]:
+                modules[feature] = self._features[feature](
+                    self._poses, self._pixel_scale, self._lixit_info[identity])
             else:
                 modules[feature] = self._features[feature](
                     self._poses, self._pixel_scale)
 
         return modules
+
+    def get_corner_info(self, identity: int):
+        """
+        gets the corner info for a specific identity
+        :param identity: identity to get info object for
+        :return: CornerDistanceInfo object for the requested identity
+        """
+        if identity not in self._corner_info:
+            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
+        return self._corner_info[identity]
+
+    def get_lixit_info(self, identity: int):
+        """
+        gets the lixit info for a specific identity
+        :param identity: identity to get the info object for
+        :return: LixitDistanceInfo object for the requested identity
+        """
+        if identity not in self._lixit_info:
+            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
+        return self._lixit_info[identity]
 
     @classmethod
     def static_object_features(cls, static_object: str):

@@ -20,8 +20,8 @@ class PointVelocityDirs(Feature, abc.ABC):
 
     # override for circular values
     _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180),
+        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180, nan_policy='omit'),
+        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180, nan_policy='omit'),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -42,7 +42,7 @@ class PointVelocityDirs(Feature, abc.ABC):
 
             # compute the orientation, and adjust based on the animal's bearing
             adjusted_angle = (((np.degrees(np.arctan2(point_velocities[:, 1], point_velocities[:, 0])) - bearings) + 360) % 360) - 180
-            adjusted_angle.fill_value = 0
+            adjusted_angle.fill_value = np.nan
             directions[f"{keypoint.name} velocity direction"] = adjusted_angle.filled()
 
         return directions
