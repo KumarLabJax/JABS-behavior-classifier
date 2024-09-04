@@ -42,20 +42,19 @@ class CentroidVelocityDir(Feature):
         # get centroids for all frames where this identity is present
         centroids = [convex_hulls[i].centroid for i in indexes]
 
-        # convert to numpy array of x,y points of the centroids
-        points = np.asarray([[p.x, p.y] for p in centroids])
+        # get centroids for all frames where this identity is present
+        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
+        for i in indexes:
+            centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
-        if points.shape[0] > 1:
-            # compute x,y velocities
-            # pass indexes so numpy can figure out spacing
-            v = np.gradient(points, indexes, axis=0)
+        v = np.gradient(centroid_centers, axis=0)
 
-            # compute direction of velocities
-            d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
+        # compute direction of velocities
+        d = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
 
-            # subtract animal bearing from orientation
-            # convert angle to range -180 to 180
-            values[indexes] = (((d - bearings[indexes]) + 360) % 360) - 180
+        # subtract animal bearing from orientation
+        # convert angle to range -180 to 180
+        values = (((d - bearings) + 360) % 360) - 180
 
         return {'centroid_velocity_dir': values}
 
@@ -92,18 +91,12 @@ class CentroidVelocityMag(Feature):
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
 
         # get centroids for all frames where this identity is present
-        centroids = [convex_hulls[i].centroid for i in indexes]
+        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
+        for i in indexes:
+            centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
-        # convert to numpy array of x,y points of the centroids
-        points = np.asarray([[p.x, p.y] for p in centroids])
-
-        if points.shape[0] > 1:
-            # compute x,y velocities
-            # pass indexes so numpy can figure out spacing
-            v = np.gradient(points, indexes, axis=0)
-
-            # compute magnitude of velocities
-            values[indexes] = np.sqrt(
-                np.square(v[:, 0]) + np.square(v[:, 1])) * fps
+        # get change over frames
+        v = np.gradient(centroid_centers, axis=0)
+        values = np.linalg.norm(v, axis=-1) * fps
 
         return {'centroid_velocity_mag': values}
