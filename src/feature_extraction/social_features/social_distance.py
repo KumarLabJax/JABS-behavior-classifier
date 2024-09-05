@@ -38,7 +38,7 @@ class ClosestIdentityInfo:
                 continue
 
             # Find the distance and identity of the closest animal at each
-            # frame, as well as the distance, identity and angle of the closes
+            # frame, as well as the distance, identity and angle of the closest
             # animal in field of view. In order to calculate this we require
             # that both animals have a valid convex hull and the the self
             # identity has a valid nose point and base neck point (which is
@@ -59,7 +59,7 @@ class ClosestIdentityInfo:
 
                             self_base_neck_point = points[idx.BASE_NECK, :]
                             self_nose_point = points[idx.NOSE, :]
-                            other_centroid = np.array(other_shape.centroid.coords[0])
+                            other_centroid = np.array(other_shape.centroid.xy).squeeze() * self._pixel_scale
 
                             view_angle = self.compute_angle(
                                 self_nose_point,
@@ -95,11 +95,9 @@ class ClosestIdentityInfo:
         :return: angle between AB and BC with range [-180, 180)
         """
 
-        # point types in the pose files are typically unsigned 16 bit integers,
-        # cast to signed types to avoid underflow during subtraction
-        angle = math.degrees(
-            math.atan2(int(c[1]) - int(b[1]), int(c[0]) - int(b[0])) -
-            math.atan2(int(a[1]) - int(b[1]), int(a[0]) - int(b[0]))
+        angle = np.degrees(
+            np.arctan2(c[1] - b[1], c[0] - b[0]) -
+            np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 

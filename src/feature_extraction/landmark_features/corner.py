@@ -84,7 +84,7 @@ class CornerDistanceInfo:
 
                 center_dist = self_shape.distance(arena_center)
                 # Note that self_shape.xy stores a [2,1] point data, but cv2 needs shape [2]
-                wall_dist = cv2.pointPolygonTest(corners.astype(np.float32), np.asarray(self_shape.centroid.xy).squeeze(), True)
+                wall_dist = cv2.pointPolygonTest(corners.astype(np.float32), np.asarray(self_shape.centroid.xy).squeeze() * self._pixel_scale, True)
 
                 corner_distances[frame] = distance * self._pixel_scale
                 center_distances[frame] = center_dist * self._pixel_scale

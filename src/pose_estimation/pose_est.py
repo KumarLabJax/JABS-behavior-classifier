@@ -156,8 +156,8 @@ class PoseEstimation(ABC):
         The convex hulls are calculated using all valid points except for the
         middle of tail and tip of tail points.
         :param identity: identity to return points for
-        :return: the convex hulls (array elements will be None if there is no
-        valid convex hull for that frame)
+        :return: the convex hulls in pixel units (array elements will be None
+        if there is no valid convex hull for that frame)
         """
 
         if identity in self._convex_hull_cache:
@@ -209,7 +209,7 @@ class PoseEstimation(ABC):
         angle_rad = np.arctan2(base_neck_offset_xy[1],
                                base_neck_offset_xy[0])
 
-        return angle_rad * (180 / np.pi)
+        return np.degrees(angle_rad)
 
     def compute_all_bearings(self, identity):
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)

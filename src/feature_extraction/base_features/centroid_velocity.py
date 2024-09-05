@@ -54,7 +54,7 @@ class CentroidVelocityDir(Feature):
 
         # subtract animal bearing from orientation
         # convert angle to range -180 to 180
-        values = (((d - bearings) + 360) % 360) - 180
+        values = (((d - bearings) + 180) % 360) - 180
 
         return {'centroid_velocity_dir': values}
 
@@ -97,6 +97,6 @@ class CentroidVelocityMag(Feature):
 
         # get change over frames
         v = np.gradient(centroid_centers, axis=0)
-        values = np.linalg.norm(v, axis=-1) * fps
+        values = np.linalg.norm(v, axis=-1) * fps * self._pixel_scale
 
         return {'centroid_velocity_mag': values}
