@@ -85,8 +85,8 @@ class ShapeDescriptors(Feature):
             hole_area_ratio[frame] = (hole_areas * self._pixel_scale**2)/self._moment_cache.get_moment(frame, 'm00')
 
         # Calculate the centroid speeds
-        centroid_speeds = np.hypot(np.gradient(x), np.gradient(y))
-        
+        centroid_speeds = np.hypot(np.gradient(x), np.gradient(y)) * self._poses.fps
+
         values = {}
         values['centroid_speed'] = centroid_speeds
         values['ellipse_w'] = ellipse_w
