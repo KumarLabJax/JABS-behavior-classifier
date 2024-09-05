@@ -627,9 +627,7 @@ class CentralWidget(QtWidgets.QWidget):
         on one of the mice, make that one active
         """
         if self._pose_est is not None:
-            # since convex hulls are represented as y, x we need to maintain
-            # this ordering
-            pt = Point(event['y'], event['x'])
+            pt = Point(event['x'], event['y'])
             for i, ident in enumerate(self._pose_est.identities):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
                 curr_c_hull = c_hulls[self._curr_frame_index]

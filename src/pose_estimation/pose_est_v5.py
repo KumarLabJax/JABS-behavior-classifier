@@ -1,10 +1,14 @@
 import typing
 from pathlib import Path
-
+import numpy as np
 import h5py
 
 from .pose_est_v4 import PoseEstimationV4
 
+OBJECTS_STORED_YX = [
+    'lixit',
+    'food_hopper',
+]
 
 class PoseEstimationV5(PoseEstimationV4):
     def __init__(self, file_path: Path,
@@ -38,15 +42,14 @@ class PoseEstimationV5(PoseEstimationV4):
                 # 'static_objects'. Currently anything else is ignored
                 if g == 'static_objects':
                     for d in pose_h5['static_objects']:
-                        self._static_objects[d] = pose_h5['static_objects'][d][:]
+                        static_object_data = pose_h5['static_objects'][d][:]
+                        if d in OBJECTS_STORED_YX:
+                            static_object_data = np.flip(static_object_data, axis=-1)
+                        self._static_objects[d] = static_object_data
 
         # drop "lixit" from the static objects if it is an empty array
-        try:
-            if self._static_objects['lixit'].shape[0] == 0:
-                del self._static_objects['lixit']
-        except KeyError:
-            # lixit was not in static objects, ignore
-            pass
+        if 'lixit' in self._static_objects and self._static_objects['lixit'].shape[0] == 0:
+            del self._static_objects['lixit']
 
     @property
     def format_major_version(self) -> int:

@@ -27,8 +27,8 @@ class FoodHopper(Feature):
         if self._pixel_scale is not None:
             hopper = hopper * self._pixel_scale
 
-        # swap the point x,y values and change dtype to float32 for open cv
-        hopper_pts = hopper[:, [1, 0]].astype(np.float32)
+        # change dtype to float32 for open cv
+        hopper_pts = hopper.astype(np.float32)
 
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
@@ -42,8 +42,7 @@ class FoodHopper(Feature):
             if key_point in _EXCLUDED_POINTS:
                 continue
 
-            # swap our x,y to match the opencv coordinate space
-            pts = points[:, key_point.value, [1, 0]]
+            pts = points[:, key_point.value, :]
 
             distance = np.asarray([cv2.pointPolygonTest(hopper_pts, (p[0], p[1]), True) for p in pts])
             distance[np.isnan(pts[:, 0])] = np.nan

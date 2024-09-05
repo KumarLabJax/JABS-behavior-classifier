@@ -85,7 +85,8 @@ class PoseEstimationV3(PoseEstimation):
                 assert major_version == 3
 
                 # load contents
-                all_points = pose_grp['points'][:]
+                # keypoints are stored as (y,x)
+                all_points = np.flip(pose_grp['points'][:], axis=-1)
                 all_confidence = pose_grp['confidence'][:]
                 all_instance_count = pose_grp['instance_count'][:]
                 all_track_id = pose_grp['instance_track_id'][:]

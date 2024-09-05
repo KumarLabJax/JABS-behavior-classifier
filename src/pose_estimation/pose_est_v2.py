@@ -39,7 +39,8 @@ class PoseEstimationV2(PoseEstimation):
             pose_grp = pose_h5['poseest']
 
             # load contents
-            self._points = pose_grp['points'][:].astype(np.float64)
+            # keypoints are stored as (y,x)
+            self._points = np.flip(pose_grp['points'][:].astype(np.float64), axis=-1)
             self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
             self._point_mask[:] = pose_grp['confidence'][:] > MINIMUM_CONFIDENCE
 

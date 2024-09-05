@@ -60,7 +60,8 @@ class PoseEstimationV4(PoseEstimation):
                 #assert major_version == 4
 
                 # load contents
-                all_points = pose_grp['points'][:]
+                # keypoints are stored as (y,x)
+                all_points = np.flip(pose_grp['points'][:], axis=-1)
                 all_confidence = pose_grp['confidence'][:]
                 id_mask = pose_grp['id_mask'][:]
                 instance_embed_id = pose_grp['instance_embed_id'][:]
