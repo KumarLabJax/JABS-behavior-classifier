@@ -33,17 +33,11 @@ class PointVelocityDirs(Feature, abc.ABC):
         bearings = self._poses.compute_all_bearings(identity)
 
         directions = {}
+        xy_deltas = np.gradient(poses, axis=0)
+        angles = np.degrees(np.arctan2(xy_deltas[:, :, 1], xy_deltas[:, :, 0]))
 
         for keypoint in PoseEstimation.KeypointIndex:
-            # compute x,y velocities
-            # pass indexes so numpy can figure out spacing
-            points = np.ma.array(poses[:, keypoint, :], mask=np.stack([~point_masks[:, keypoint], ~point_masks[:, keypoint]]), dtype=np.float32)
-            point_velocities = np.gradient(points, axis=0)
-
-            # compute the orientation, and adjust based on the animal's bearing
-            adjusted_angle = (((np.degrees(np.arctan2(point_velocities[:, 1], point_velocities[:, 0])) - bearings) + 360) % 360) - 180
-            adjusted_angle.fill_value = np.nan
-            directions[f"{keypoint.name} velocity direction"] = adjusted_angle.filled()
+            directions[f"{keypoint.name} velocity direction"] = ((angles[:, keypoint.value] - bearings + 360) % 360) - 180
 
         return directions
 

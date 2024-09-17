@@ -25,15 +25,10 @@ class PointSpeeds(Feature):
         speeds = {}
 
         # calculate velocities for each point
-        for keypoint in PoseEstimation.KeypointIndex:
-            # grab all of the values for this point
-            points = np.ma.array(poses[:, keypoint, :], mask=np.stack([~point_masks[:, keypoint], ~point_masks[:, keypoint]]), dtype=np.float32)
-            point_velocities = np.gradient(points, axis=0)
-            point_velocities.fill_value = 0
-            speeds[f"{keypoint.name} speed"] = point_velocities
+        xy_deltas = np.gradient(poses, axis=0)
+        point_velocities = np.linalg.norm(xy_deltas, axis=-1) * fps
 
-        # convert the velocities to speed and convert units
-        for key, val in speeds.items():
-            speeds[key] = np.linalg.norm(val, axis=-1) * fps
+        for keypoint in PoseEstimation.KeypointIndex:
+            speeds[f"{keypoint.name} speed"] = point_velocities[:, keypoint.value]
 
         return speeds

@@ -16,7 +16,7 @@ from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
 
 
-FEATURE_VERSION = 9
+FEATURE_VERSION = 10
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,

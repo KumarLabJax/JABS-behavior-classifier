@@ -1,4 +1,3 @@
-import math
 import typing
 
 import numpy as np
@@ -51,9 +50,6 @@ class CornerDistanceInfo:
             closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
             corners = self._poses.static_objects['corners']
 
-            # points and convex hulls are in y,x 
-            # corners are x,y so flip them to match points and convex hulls
-            corners = np.flip(corners, axis=-1)
             arena_center_np = np.mean(corners, axis=0)
             arena_center = Point(arena_center_np[0], arena_center_np[1])
 
@@ -88,7 +84,7 @@ class CornerDistanceInfo:
 
                 center_dist = self_shape.distance(arena_center)
                 # Note that self_shape.xy stores a [2,1] point data, but cv2 needs shape [2]
-                wall_dist = cv2.pointPolygonTest(corners.astype(np.float32), np.asarray(self_shape.centroid.xy).squeeze(), True)
+                wall_dist = cv2.pointPolygonTest(corners.astype(np.float32), np.asarray(self_shape.centroid.xy).squeeze() * self._pixel_scale, True)
 
                 corner_distances[frame] = distance * self._pixel_scale
                 center_distances[frame] = center_dist * self._pixel_scale
@@ -152,9 +148,9 @@ class CornerDistanceInfo:
 
         # most of the point types are unsigned short integers
         # cast to signed types to avoid underflow issues during subtraction
-        angle = math.degrees(
-            math.atan2(int(c[1]) - int(b[1]), int(c[0]) - int(b[0])) -
-            math.atan2(int(a[1]) - int(b[1]), int(a[0]) - int(b[0]))
+        angle = np.degrees(
+            np.arctan2(c[1] - b[1], c[0] - b[0]) -
+            np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 
