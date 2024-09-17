@@ -33,8 +33,8 @@ class PointVelocityDirs(Feature, abc.ABC):
         bearings = self._poses.compute_all_bearings(identity)
 
         directions = {}
-        yx_deltas = np.gradient(poses, axis=0)
-        angles = np.degrees(np.arctan2(yx_deltas[:, :, 1], yx_deltas[:, :, 0]))
+        xy_deltas = np.gradient(poses, axis=0)
+        angles = np.degrees(np.arctan2(xy_deltas[:, :, 1], xy_deltas[:, :, 0]))
 
         for keypoint in PoseEstimation.KeypointIndex:
             directions[f"{keypoint.name} velocity direction"] = ((angles[:, keypoint.value] - bearings + 360) % 360) - 180

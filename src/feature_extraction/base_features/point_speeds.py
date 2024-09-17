@@ -25,8 +25,8 @@ class PointSpeeds(Feature):
         speeds = {}
 
         # calculate velocities for each point
-        yx_deltas = np.gradient(poses, axis=0)
-        point_velocities = np.linalg.norm(yx_deltas, axis=-1) * fps
+        xy_deltas = np.gradient(poses, axis=0)
+        point_velocities = np.linalg.norm(xy_deltas, axis=-1) * fps
 
         for keypoint in PoseEstimation.KeypointIndex:
             speeds[f"{keypoint.name} speed"] = point_velocities[:, keypoint.value]
