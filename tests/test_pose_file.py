@@ -94,7 +94,8 @@ class TestOpenPose(unittest.TestCase):
         # compare to getting all points
         points_all_frame, point_mask_all_frames = \
             self._pose_est_v4.get_identity_poses(0)
-        self.assertTrue((points == points_all_frame[10, :]).all())
+        # May contain NaNs which assert_equal handles
+        np.testing.assert_equal(points, points_all_frame[10, :])
         self.assertTrue((point_mask == point_mask_all_frames[10, :]).all())
 
     def test_get_points_out_of_range(self) -> None:
@@ -105,7 +106,7 @@ class TestOpenPose(unittest.TestCase):
         """ test scaling points """
         points, _ = self._pose_est_v4.get_points(10, 0)
         scaled_points, _ = self._pose_est_v4.get_points(10, 0, 0.03)
-        self.assertTrue((points * 0.03 == scaled_points).all())
+        np.testing.assert_equal(points * 0.03, scaled_points)
 
     def test_v4_read_from_cache(self) -> None:
         """
