@@ -157,11 +157,20 @@ Per-frame features fill missing values with zeros before passing into the FFT.
 
 # Extra Features calculated, but not used in a classifier
 
+These features are calculated and stored in cached feature files outside the `features` folder. These features are excluded from being available features during classifier training. Features present here are either allocentric or otherwise represent information that may be useful when postprocessing behavior calls. For example, if you train a chase classifier, one may be interested in inspecting which other mouse the individual is chasing. Inspecting the closest mouse in field of view during each chase bout would provide that information.
+
 ## Closest Objects
 
-For calculating distances and bearings to nearby items, sometimes there are multiple items to choose from. For the following objects, we identify which object is closest by using the current mouses convex hull centroid and the other object. These features are not available in trained classifiers.
+For calculating distances and bearings to nearby items, sometimes there are multiple items to choose from. For the following objects, we identify which object is closest by using the current mouses convex hull centroid and the other object.
 
-* Closest mouse
-* Closest mouse in field of view
-* Closest arena corner
-* Closest water spout (lixit)
+* Closest mouse index
+* Closest mouse index in field of view
+* Closest arena corner index
+* Closest water spout (lixit) index
+
+## Wall Distances
+
+When calculating the nearest arena wall distance, we also calculate the perpendicular distance from the animal centroid to every wall.
+
+* Perpendicular distance to all 4 walls
+* Average wall length
