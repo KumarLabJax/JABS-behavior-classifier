@@ -118,7 +118,7 @@ class CornerDistanceInfo:
         }
 
         self._closest_corner_idx[identity] = closest_corners
-        self._all_wall_distances[identity] = all_wall_distances
+        self._all_wall_distances[identity] = {f'wall_{i}': all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])}
         self._avg_wall_length = avg_wall_length
 
     def get_distances(self, identity: int) -> typing.Dict:

@@ -204,10 +204,13 @@ class IdentityFeatures:
                 self._closest_corner = features_h5['closest_corners'][:]
 
             if 'wall_distances' in features_h5:
-                self._wall_distances = features_h5['wall_distances'][:]
+                wall_distances = {}
+                for key in features_h5['wall_distances'].keys():
+                    wall_distances[key] = features_h5['wall_distances'][key][:]
+                self._wall_distances = wall_distances
 
             if 'avg_wall_length' in features_h5:
-                self._avg_wall_length = features_h5['avg_wall_length'][:]
+                self._avg_wall_length = features_h5['avg_wall_length'][...]
 
             if 'closest_lixit' in features_h5:
                 self._closest_lixit = features_h5['closest_lixit'][:]
@@ -253,8 +256,10 @@ class IdentityFeatures:
                 avg_wall_length = corner_info.get_avg_wall_length(self._identity)
                 if corner_data is not None:
                     features_h5['closest_corners'] = corner_data
-                    features_h5['wall_distances'] = wall_distances
                     features_h5['avg_wall_length'] = avg_wall_length
+                    wall_dist_grp = features_h5.require_group('wall_distances')
+                    for key, value in wall_distances.items():
+                        wall_dist_grp[key] = value
 
                 lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(self._identity)
                 lixit_data = lixit_info.get_closest_lixit(self._identity)
