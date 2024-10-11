@@ -27,6 +27,7 @@ class CornerDistanceInfo:
         self._closest_corner_idx = {}
         self._cached_distances = {}
         self._cached_bearings = {}
+        self._all_wall_distances = {}
 
     def cache_features(self, identity: int):
         """
@@ -40,6 +41,7 @@ class CornerDistanceInfo:
         corner_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         center_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         wall_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        all_wall_distances = np.full([self._poses.num_frames, 4], np.nan, dtype=np.float32)
         center_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         corner_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         closest_corners = None
@@ -48,7 +50,9 @@ class CornerDistanceInfo:
 
         if 'corners' in self._poses.static_objects:
             closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
-            corners = self._poses.static_objects['corners']
+            corners = self.sort_points_clockwise(self._poses.static_objects['corners'])
+            wall_vectors = corners.astype(np.float32) - np.roll(corners.astype(np.float32), 1, axis=0)
+            avg_wall_length = np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
 
             arena_center_np = np.mean(corners, axis=0)
             arena_center = Point(arena_center_np[0], arena_center_np[1])
@@ -83,12 +87,21 @@ class CornerDistanceInfo:
                 center_bearing = self.compute_angle(self_nose_point, self_base_neck_point, arena_center_np)
 
                 center_dist = self_shape.distance(arena_center)
-                # Note that self_shape.xy stores a [2,1] point data, but cv2 needs shape [2]
-                wall_dist = cv2.pointPolygonTest(corners.astype(np.float32), np.asarray(self_shape.centroid.xy).squeeze() * self._pixel_scale, True)
+                # Calculate distance to all walls using cross product
+                p1 = corners.astype(np.float32)
+                p2 = np.roll(p1, 1, axis=0)
+                centroid_point = np.asarray(self_shape.centroid.xy).squeeze()
+                # Note that we can skip dividing by the norm of p2-p1 because we re-scale it anyway
+                wall_dist = np.abs(np.cross(centroid_point - p1, p2 - p1))  # / np.linalg.norm(p2 - p1)
+                shortest_wall_dist = np.min(wall_dist)
+                wall_dist_cv2 = cv2.pointPolygonTest(corners.astype(np.float32), centroid_point, True)
+                correction_scale = wall_dist_cv2 / shortest_wall_dist
+                wall_dist *= correction_scale
 
                 corner_distances[frame] = distance * self._pixel_scale
                 center_distances[frame] = center_dist * self._pixel_scale
-                wall_distances[frame] = wall_dist * self._pixel_scale
+                wall_distances[frame] = wall_dist_cv2 * self._pixel_scale
+                all_wall_distances[frame] = wall_dist * self._pixel_scale
                 corner_bearings[frame] = corner_bearing
                 center_bearings[frame] = center_bearing
                 closest_corners[frame] = closest_idx
@@ -105,6 +118,8 @@ class CornerDistanceInfo:
         }
 
         self._closest_corner_idx[identity] = closest_corners
+        self._all_wall_distances[identity] = {f'wall_{i}': all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])}
+        self._avg_wall_length = avg_wall_length
 
     def get_distances(self, identity: int) -> typing.Dict:
         """
@@ -135,6 +150,41 @@ class CornerDistanceInfo:
         if identity not in self._closest_corner_idx:
             self.cache_features(identity)
         return self._closest_corner_idx[identity]
+
+    def get_wall_distances(self, identity: int) -> np.ndarray:
+        """
+        get the wall distances
+        :param identity: integer identity to get the wall distances
+        :return: np.ndarray of all wall distances
+        """
+        if identity not in self._all_wall_distances:
+            self.cache_features(identity)
+        return self._all_wall_distances[identity]
+
+    def get_avg_wall_length(self, identity: int = 0) -> np.ndarray:
+        """
+        gets the average wall length
+        :param identity: identity to cache if not yet calculated
+        :returns: average wall length
+        """
+        if self._avg_wall_length is None:
+            self.cache_features(identity)
+        return self._avg_wall_length
+
+    @staticmethod
+    def sort_points_clockwise(points):
+        """
+        sorts a list of points to be clockwise relative to the first point
+        :param points: points to sort of shape [n_points, 2]
+        :return: points sorted clockwise
+        """
+        origin_point = np.mean(points, axis=0)
+        vectors = points - origin_point
+        vec_angles = np.arctan2(vectors[:, 0], vectors[:, 1])
+        sorted_points = points[np.argsort(vec_angles), :]
+        # Roll the points to have the first point still be first
+        first_point_idx = np.where(np.all(sorted_points == points[0], axis=1))[0][0]
+        return np.roll(sorted_points, -first_point_idx, axis=0)
 
     @staticmethod
     def compute_angle(a, b, c):
