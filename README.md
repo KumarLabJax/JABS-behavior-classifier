@@ -30,7 +30,9 @@ estimation neural networks. Single mouse pose files are generated from [this rep
 ## Requirements
 Developed and tested on Python 3.10. See the `requirements.txt` 
 for a list of required Python packages. These packages are available from the 
-Python Package Index (PyPI)
+Python Package Index (PyPI).
+
+See below for conda installation instructions.
 
 ### Python Virtual Environment
 
@@ -118,3 +120,30 @@ python app.py
 
 We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is indended for command-line use on compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable environment. Please inspect the definition files for related linux packages to run the software.
 
+### Conda
+
+To install via `conda`, first clone the repository and then run:
+
+```bash
+conda env create -f environment.yml
+```
+
+See [`environment.yml`](environment.yml) for information on the installed environment.
+
+After installation, you can activate the environment with:
+
+```bash
+conda activate jabs
+```
+
+Then run the GUI with:
+
+```bash
+python app.py
+```
+
+To uninstall, simply delete the environment:
+
+```bash
+conda env remove -n jabs
+```

@@ -1,0 +1,33 @@
+name: jabs
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10
+  - h5py
+  - joblib
+  - markdown2
+  - numpy <2.0.0
+  - opencv
+  - pandas
+  # - pip-licenses
+  - ptable
+  # - pyside6  # see below
+  - pyyaml
+  - scikit-learn
+  - scipy
+  - shapely
+  # - shiboken6
+  - six
+  - tabulate
+  - threadpoolctl
+  - unittest-xml-reporting
+  - xgboost
+  - pip
+  - pip:
+    # QtWebEngine is not available on conda-forge for 6.x.
+    # https://github.com/conda-forge/qt-webengine-feedstock/pull/46
+    - PySide6
+  # Enable the following when package definition exists.
+  #   - "--editable=."
