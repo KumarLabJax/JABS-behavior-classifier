@@ -47,6 +47,7 @@ class CornerDistanceInfo:
         closest_corners = None
         self_convex_hulls = self._poses.get_identity_convex_hulls(identity)
         idx = PoseEstimation.KeypointIndex
+        avg_wall_length = np.nan
 
         if 'corners' in self._poses.static_objects:
             closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
