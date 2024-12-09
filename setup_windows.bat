@@ -1,6 +1,6 @@
 @echo off
 
-REM discontinue support for this script once we
+REM discontinue support for this script once we are delivering wheels for installing JABS with pip
 
 :: Check for Python Installation
 echo Checking for python

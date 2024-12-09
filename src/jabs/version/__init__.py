@@ -8,7 +8,7 @@ def version_str():
     try:
         # if the jabs package is installed, return version from package metadata
         return importlib.metadata.version("jabs-behavior-classifier")
-    except: # NoQA E722
+    except:  # noqa: E722
         # not installed as a package, assume we're running out of a cloned git repo without running `poetry install`
         # try to get the version from the pyproject.toml file
 
@@ -19,7 +19,7 @@ def version_str():
         try:
             data = toml.load(pyproject_file)
             version = data["tool"]["poetry"]["version"]
-        except: # NoQA E722
+        except:  # noqa: E722
             pass
 
         return version
