@@ -2,8 +2,8 @@ import numpy as np
 from PySide6 import QtCore
 from tabulate import tabulate
 
-from src.jabs.types import ProjectDistanceUnit
-from src.jabs.utils import FINAL_TRAIN_SEED
+from jabs.types import ProjectDistanceUnit
+from jabs.utils import FINAL_TRAIN_SEED
 
 
 class TrainingThread(QtCore.QThread):

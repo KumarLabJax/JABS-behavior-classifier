@@ -1,8 +1,8 @@
 import numpy as np
 import scipy.stats
 
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_base_class import Feature
 
 
 # TODO: merge CentroidVelocityMag and CentroidVelocityDir into a single feature

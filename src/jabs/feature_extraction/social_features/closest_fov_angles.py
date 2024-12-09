@@ -3,11 +3,11 @@ import typing
 import numpy as np
 import scipy.stats
 
-from src.jabs.feature_extraction.feature_base_class import Feature
+from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
     from .social_distance import ClosestIdentityInfo
-    from src.jabs.pose_estimation import PoseEstimation
+    from jabs.pose_estimation import PoseEstimation
 
 
 class ClosestFovAngles(Feature):

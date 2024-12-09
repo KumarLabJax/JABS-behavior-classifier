@@ -2,8 +2,8 @@ import numpy as np
 
 import cv2
 
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_base_class import Feature
 
 _EXCLUDED_POINTS = [PoseEstimation.KeypointIndex.MID_TAIL,
                     PoseEstimation.KeypointIndex.TIP_TAIL]

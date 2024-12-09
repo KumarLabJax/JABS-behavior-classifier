@@ -2,8 +2,8 @@ from pathlib import Path
 import h5py
 import pandas as pd
 
-from src.jabs.types import ClassifierType
-from src.jabs.types import ProjectDistanceUnit
+from jabs.types import ClassifierType
+from jabs.types import ProjectDistanceUnit
 
 
 def read_project_settings(h5_file: h5py.Group) -> dict:

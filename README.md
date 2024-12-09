@@ -28,7 +28,7 @@ JABS requires pose files generated from the Kumar Lab's mouse pose
 estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
 
 ## Requirements
-Developed and tested on Python 3.10. See the `requirements.txt` 
+Developed and tested on Python 3.10. See the `pyproject.toml` 
 for a list of required Python packages. These packages are available from the 
 Python Package Index (PyPI).
 
@@ -41,15 +41,20 @@ follow the instructions in the "Windows" section below.
 
 #### Creating the Virtual Environment
 
-You will need to create the virtual environment before you can run the labeler 
-for the first time. The following commands will create a new Python3 virtual 
-environment, activate it, and install the required packages. Note, your python 
-executable may be named `python` or `python3` depending on your installation.
+This project uses Poetry for packaging and dependency management. If you're not
+installing from a pre-build JABS package (i.e. you are installing from a git clone) 
+you will need to install Poetry by following the instructions on 
+[Poetry's official website](https://python-poetry.org/docs/#installation).
+
+You can use Poetry to manage your virtualenv, or manage your virtualenv externally to 
+Poetry and use Poetry only for installing dependencies. The following instructions 
+will use the Python `venv` module to manually create a virtual environment and 
+activate it. 
 
 ```commandline
 python -m venv jabs.venv
 source jabs.venv/bin/activate
-pip install -r requirements.txt
+poetry install
 ```
 
 #### Activating 
@@ -113,7 +118,7 @@ To launch JABS from the command prompt, open a command prompt in the JABS
 directory and run the following commands:
 ```commandline
 jabs.venv\Scripts\activate.bat
-python app.py
+python -m src.jabs
 ```
 
 ### Singularity/Linux

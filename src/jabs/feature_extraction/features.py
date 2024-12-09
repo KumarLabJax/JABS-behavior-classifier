@@ -5,8 +5,8 @@ import h5py
 import numpy as np
 import pandas as pd
 
-import src.jabs.project.track_labels
-from src.jabs.pose_estimation import PoseEstimation, PoseHashException
+import jabs.project.track_labels
+from jabs.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
 from .feature_base_class import Feature
@@ -403,7 +403,7 @@ class IdentityFeatures:
             final_features = {
                 feature_module_name: {
                     window_module_name: {
-                        feature_name: feature_vector[labels != src.jabs.project.track_labels.TrackLabels.Label.NONE]
+                        feature_name: feature_vector[labels != jabs.project.track_labels.TrackLabels.Label.NONE]
                         for feature_name, feature_vector in window_module.items()
                     }
                     for window_module_name, window_module in feature_module.items()
@@ -448,7 +448,7 @@ class IdentityFeatures:
             # return only features for labeled frames
             features = {
                 feature_module_name: {
-                    feature_name: feature_vector[labels != src.jabs.project.track_labels.TrackLabels.Label.NONE]
+                    feature_name: feature_vector[labels != jabs.project.track_labels.TrackLabels.Label.NONE]
                     for feature_name, feature_vector in feature_module.items()
                 }
                 for feature_module_name, feature_module in self._per_frame.items()

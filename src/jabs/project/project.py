@@ -11,15 +11,15 @@ import h5py
 import numpy as np
 import pandas as pd
 
-import src.jabs.feature_extraction as fe
-from src.jabs.pose_estimation import get_pose_path, open_pose_file, \
+import jabs.feature_extraction as fe
+from jabs.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file, get_pose_file_major_version, \
     get_static_objects_in_file, PoseEstimation
-from src.jabs.project import TrackLabels
-from src.jabs.types import ProjectDistanceUnit
-from src.jabs.version import version_str
-from src.jabs.video_stream import VideoStream
-from src.jabs.video_stream.utilities import get_frame_count, get_fps
+from jabs.project import TrackLabels
+from jabs.types import ProjectDistanceUnit
+from jabs.version import version_str
+from jabs.video_stream import VideoStream
+from jabs.video_stream.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 2

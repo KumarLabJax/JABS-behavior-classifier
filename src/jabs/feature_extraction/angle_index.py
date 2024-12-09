@@ -1,5 +1,6 @@
 import enum
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation
+
 
 class AngleIndex(enum.IntEnum):
     """ enum defining the indexes of the angle features """

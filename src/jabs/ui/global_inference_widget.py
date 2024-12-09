@@ -2,7 +2,7 @@ import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPixmap, QColor
 
-from src.jabs.project import TrackLabels
+from jabs.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
 
 

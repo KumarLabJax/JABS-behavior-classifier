@@ -6,8 +6,8 @@ import cv2
 from shapely.geometry import Point
 
 
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_base_class import Feature
 
 
 class CornerDistanceInfo:

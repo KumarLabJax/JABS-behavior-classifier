@@ -1,5 +1,5 @@
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.feature_group_base_class import FeatureGroup
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
 from .lixit import DistanceToLixit, BearingToLixit, LixitDistanceInfo
 from .food_hopper import FoodHopper

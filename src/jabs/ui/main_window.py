@@ -3,10 +3,10 @@ import sys
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 
-from src.jabs.project import Project, export_training_data
-from src.jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
-from src.jabs.version import version_str
-from src.jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
+from jabs.project import Project, export_training_data
+from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
+from jabs.version import version_str
+from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
 from .video_list_widget import VideoListDockWidget
@@ -16,6 +16,7 @@ from .user_guide_viewer_widget import UserGuideDialog
 
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
+
 
 class MainWindow(QtWidgets.QMainWindow):
 

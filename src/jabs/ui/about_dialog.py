@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton
 from PySide6.QtCore import Qt
 
-from src.jabs.version import version_str
+from jabs.version import version_str
 
 
 class AboutDialog(QDialog):
@@ -13,8 +13,7 @@ class AboutDialog(QDialog):
 
         layout = QVBoxLayout()
 
-        layout.addWidget(QLabel(f"Version: {version_str()}"),
-            alignment=Qt.AlignCenter)
+        layout.addWidget(QLabel(f"Version: {version_str()}"), alignment=Qt.AlignCenter)
 
         label = QLabel(
             f"{app_name} developed by the "

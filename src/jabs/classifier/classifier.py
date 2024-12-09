@@ -21,9 +21,9 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
-from src.jabs.project import TrackLabels, Project, load_training_data
-from src.jabs.types import ClassifierType
-from src.jabs.utils import hash_file
+from jabs.project import TrackLabels, Project, load_training_data
+from jabs.types import ClassifierType
+from jabs.utils import hash_file
 
 _VERSION = 8
 
@@ -38,7 +38,7 @@ try:
     _classifier_choices.append(ClassifierType.XGBOOST)
 except Exception:
     # we were unable to import the xgboost module. It's either not
-    # installed (it should be if the user used our requirements.txt)
+    # installed (it should be if the user used our requirements-old.txt)
     # or it may have been unable to be imported due to a missing
     # libomp. Either way, we won't add it to the available choices and
     # we can otherwise ignore this exception

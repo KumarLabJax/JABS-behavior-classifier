@@ -1,7 +1,7 @@
 import abc
 import typing
 
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation
 from .feature_base_class import Feature
 
 

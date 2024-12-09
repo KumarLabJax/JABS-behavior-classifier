@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from typing import Tuple, List
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation
 
 _ID_COLOR = (215, 222, 0)
 _ACTIVE_COLOR = (0, 0, 255)

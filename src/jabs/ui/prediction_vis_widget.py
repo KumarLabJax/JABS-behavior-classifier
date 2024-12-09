@@ -2,7 +2,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPainter, QColor, QBrush, QPen
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from src.jabs.project.track_labels import TrackLabels
+from jabs.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR, SELECTION_COLOR)
 

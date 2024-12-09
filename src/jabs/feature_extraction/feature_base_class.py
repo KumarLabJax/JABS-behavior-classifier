@@ -3,8 +3,8 @@ import typing
 import numpy as np
 from scipy import signal
 
-from src.jabs.feature_extraction.window_operations import signal_stats, window_stats
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.window_operations import signal_stats, window_stats
+from jabs.pose_estimation import PoseEstimation
 
 
 class Feature(abc.ABC):

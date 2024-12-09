@@ -1,4 +1,4 @@
-from .utilities import  get_bool_env_var, hash_file, hide_stderr
+from .utilities import get_bool_env_var, hash_file, hide_stderr
 
 # a hard coded random seed used for the final training done with all
 # training data before saving the classifier

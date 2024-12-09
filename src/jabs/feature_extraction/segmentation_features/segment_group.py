@@ -1,5 +1,5 @@
-from src.jabs.feature_extraction.feature_group_base_class import FeatureGroup
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_group_base_class import FeatureGroup
+from jabs.pose_estimation import PoseEstimation
 # import all feature modules for this group
 from . import Moments, HuMoments, ShapeDescriptors, MomentInfo
 

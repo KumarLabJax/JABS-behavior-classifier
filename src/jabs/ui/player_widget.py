@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from src.jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from src.jabs.pose_estimation import PoseEstimationV3
-from src.jabs.video_stream import (VideoStream, label_identity, label_all_identities,
-                                   draw_track, overlay_pose, overlay_landmarks, overlay_segmentation)
+from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
+from jabs.pose_estimation import PoseEstimationV3
+from jabs.video_stream import (VideoStream, label_identity, label_all_identities,
+                               draw_track, overlay_pose, overlay_landmarks, overlay_segmentation)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
 _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)

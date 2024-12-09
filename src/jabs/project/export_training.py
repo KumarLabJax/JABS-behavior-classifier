@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import src.jabs.version
-import src.jabs.feature_extraction
+import jabs.version
+import jabs.feature_extraction
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that

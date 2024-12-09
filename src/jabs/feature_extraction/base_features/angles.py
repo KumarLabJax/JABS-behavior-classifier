@@ -1,9 +1,9 @@
 import numpy as np
 import scipy.stats
 
-from src.jabs.feature_extraction.angle_index import AngleIndex
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.feature_base_class import Feature
+from jabs.feature_extraction.angle_index import AngleIndex
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.feature_base_class import Feature
 
 
 class Angles(Feature):

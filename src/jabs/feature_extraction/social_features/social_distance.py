@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from src.jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation
 
 
 class ClosestIdentityInfo:

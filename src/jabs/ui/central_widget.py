@@ -4,11 +4,11 @@ import numpy as np
 from PySide6 import QtWidgets, QtCore, QtGui
 from shapely.geometry import Point
 
-from src.jabs.classifier.classifier import Classifier
-from src.jabs.project.track_labels import TrackLabels
-import src.jabs.feature_extraction
-from .classification_thread import ClassifyThread
+import jabs.feature_extraction
+from ..classifier.classifier import Classifier
+from ..project.track_labels import TrackLabels
 
+from .classification_thread import ClassifyThread
 from .frame_labels_widget import FrameLabelsWidget
 from .global_inference_widget import GlobalInferenceWidget
 from .manual_label_widget import ManualLabelWidget
@@ -55,7 +55,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # options
         self._frame_jump = 10
-        self._window_size = src.jabs.feature_extraction.DEFAULT_WINDOW_SIZE
+        self._window_size = jabs.feature_extraction.DEFAULT_WINDOW_SIZE
 
         # main controls
         self._controls = MainControlWidget()
