@@ -5,9 +5,9 @@ import numpy as np
 from tabulate import tabulate
 
 from classify import train
-from src.classifier import Classifier
-from src.types import ProjectDistanceUnit
-from src.project.export_training import load_training_data
+from src.jabs.classifier import Classifier
+from src.jabs.types import ProjectDistanceUnit
+from src.jabs.project import load_training_data
 
 
 def main():

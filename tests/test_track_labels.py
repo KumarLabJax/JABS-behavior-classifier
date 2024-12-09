@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from src.project.track_labels import TrackLabels
+from src.jabs.project.track_labels import TrackLabels
 
 
 class TestTrackLabels(unittest.TestCase):
@@ -79,7 +79,7 @@ class TestTrackLabels(unittest.TestCase):
 
     def test_downsample_mixed_1(self):
         """
-        test that a bin containin gmix of Label.NONE and Label.BEHAVIOR results
+        test that a bin containing mix of Label.NONE and Label.BEHAVIOR results
         in a value of Label.BEHAVIOR in downsampled array
         """
 

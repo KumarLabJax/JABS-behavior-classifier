@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-import src.pose_estimation
+import src.jabs.pose_estimation
 
 _TEST_FILES = [
     'sample_pose_est_v3.h5.gz',
@@ -21,10 +21,31 @@ class TestOpenPose(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        '''11/14/2022 - This method throws an error: gzip.BadGzipFile: Not a gzipped file (x89H).  Noticed this when 
+        """
+        11/14/2022 - This method throws an error: gzip.BadGzipFile: Not a gzipped file (x89H).  Noticed this when
         I tried to create my own base feature tests.  Is gzip.open() necessary, simply reading the file without gzip 
         appears to work.  Please see my file test_pose_ancillary.py
-        '''
+
+        12/08/2023 -- works as expected for me on MacOS:
+        python -m pytest --verbose tests/test_pose_file.py
+        ================================== test session starts ==================================
+        platform darwin -- Python 3.10.5, pytest-8.3.4, pluggy-1.5.0 -- /Users/gbeane/kumar/JABS-behavior-classifier/.venv/bin/python
+        cachedir: .pytest_cache
+        rootdir: /Users/gbeane/kumar/JABS-behavior-classifier
+        configfile: pyproject.toml
+        collected 8 items
+
+        tests/test_pose_file.py::TestOpenPose::test_get_points PASSED                     [ 12%]
+        tests/test_pose_file.py::TestOpenPose::test_get_points_out_of_range PASSED        [ 25%]
+        tests/test_pose_file.py::TestOpenPose::test_get_points_single_frame PASSED        [ 37%]
+        tests/test_pose_file.py::TestOpenPose::test_open_pose_est_v3 PASSED               [ 50%]
+        tests/test_pose_file.py::TestOpenPose::test_open_pose_est_v4 PASSED               [ 62%]
+        tests/test_pose_file.py::TestOpenPose::test_open_pose_est_v5 PASSED               [ 75%]
+        tests/test_pose_file.py::TestOpenPose::test_scaling_points PASSED                 [ 87%]
+        tests/test_pose_file.py::TestOpenPose::test_v4_read_from_cache PASSED             [100%]
+
+        =================================== 8 passed in 0.86s ===================================
+        """
 
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
@@ -37,13 +58,13 @@ class TestOpenPose(unittest.TestCase):
                           'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-        cls._pose_est_v3 = src.pose_estimation.open_pose_file(
+        cls._pose_est_v3 = src.jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v3.h5')
 
-        cls._pose_est_v4 = src.pose_estimation.open_pose_file(
+        cls._pose_est_v4 = src.jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v4.h5')
 
-        cls._pose_est_v5 = src.pose_estimation.open_pose_file(
+        cls._pose_est_v5 = src.jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v5.h5')
 
     @classmethod
@@ -53,19 +74,19 @@ class TestOpenPose(unittest.TestCase):
     def test_open_pose_est_v3(self) -> None:
         """ test that open_pose_file can open a V3 pose file """
         self.assertIsInstance(self._pose_est_v3,
-                              src.pose_estimation.PoseEstimationV3)
+                              src.jabs.pose_estimation.PoseEstimationV3)
         self.assertEqual(self._pose_est_v3.format_major_version, 3)
 
     def test_open_pose_est_v4(self) -> None:
         """ test that open_pose_file can open a V4 pose file """
         self.assertIsInstance(self._pose_est_v4,
-                              src.pose_estimation.PoseEstimationV4)
+                              src.jabs.pose_estimation.PoseEstimationV4)
         self.assertEqual(self._pose_est_v4.format_major_version, 4)
 
     def test_open_pose_est_v5(self) -> None:
         """ test that open_pose_file can open a V5 pose file """
         self.assertIsInstance(self._pose_est_v5,
-                              src.pose_estimation.PoseEstimationV5)
+                              src.jabs.pose_estimation.PoseEstimationV5)
         self.assertEqual(self._pose_est_v5.format_major_version, 5)
 
         # the test v5 pose file has 'corners' in static objects dataset
@@ -124,16 +145,15 @@ class TestOpenPose(unittest.TestCase):
             # this will be uncached, so it will read raw data from the pose file
             # and manipulate it to generate data in the form we need, and then
             # will write it back out to the cache directory
-            pose_v4 = src.pose_estimation.open_pose_file(
+            pose_v4 = src.jabs.pose_estimation.open_pose_file(
                 self._tmpdir_path / 'sample_pose_est_v4.h5',
                 cache_dir=cache_dir_path)
 
             # open it again, this time it should be read from the cached
             # file
-            pose_v4_from_cache = src.pose_estimation.open_pose_file(
+            pose_v4_from_cache = src.jabs.pose_estimation.open_pose_file(
                 self._tmpdir_path / 'sample_pose_est_v4.h5',
                 cache_dir=cache_dir_path)
-
 
         # make sure the list of identities is the same
         self.assertListEqual(pose_v4.identities,

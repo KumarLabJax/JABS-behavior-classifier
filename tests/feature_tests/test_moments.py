@@ -1,17 +1,15 @@
 import unittest
-import os
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import tempfile
 import shutil
-import gzip
 
 # project imports
-from .seg_test_utils import SegDataBaseClass as SBC
-from src.feature_extraction.base_features.moments import Moments
-import src.pose_estimation as pose_est
+from src.jabs.feature_extraction.segmentation_features import Moments
+import src.jabs.pose_estimation as pose_est
+
 
 class TestImportSrc(unittest.TestCase):
     @unittest.skip("")
@@ -23,18 +21,17 @@ class TestImportSrc(unittest.TestCase):
         # fix: pip unistall shapely; pip install shapely
         """
 
-        import src.pose_estimation
         assert True
         print("...test 1 complete")
 
 
 class TestFeatureNameLength(unittest.TestCase):
-    '''Simple validation of the length of the feature_names list.'''
+    """Simple validation of the length of the feature_names list."""
     @unittest.skip("")
     def test(self):   
-        from src.utils.utilities import n_choose_r
-        import src.pose_estimation as P
-        import src.feature_extraction.base_features.pairwise_distances as pd         
+        from src.jabs.utils.utilities import n_choose_r
+        import src.jabs.pose_estimation as P
+        import src.jabs.feature_extraction.base_features.pairwise_distances as pd
         
         assert len(pd._init_feature_names()) == n_choose_r(len(P.PoseEstimation.KeypointIndex), 2)
 
@@ -42,7 +39,7 @@ class TestFeatureNameLength(unittest.TestCase):
     
 
 class TestClassInstantiation(unittest.TestCase):
-    '''This test simply attempts instantiation of the Moments feature class.'''
+    """This test simply attempts instantiation of the Moments feature class."""
 
     pixel_scale = 1.0
     dataPath = Path("data")
@@ -71,14 +68,14 @@ class TestClassInstantiation(unittest.TestCase):
             cls._tmpdir.cleanup()
     
     def test_data(self):
-        ''' Simple test of data integrity.
-        '''
+        """Simple test of data integrity."""
+
         assert len(self.seg_data.shape) == 5
         assert sum(self.seg_data.shape) > 0
 
     def test_posev6_instantiation(self):
-        '''Test that the posev6 class can be instantiated.
-        '''
+        """Test that the posev6 class can be instantiated."""
+
         # test that pose estimation object was created, and that a segmentation_dict attribute is present.
         assert hasattr(self, "_pose_est_v6")
         assert hasattr(self._pose_est_v6, "_segmentation_dict")
@@ -96,8 +93,8 @@ class TestClassInstantiation(unittest.TestCase):
             assert np.array_equal(self.seg_data[:, i, ...], self._pose_est_v6.get_segmentation_data(i))
     
     def test_create_moment(self):
-        '''The moments can be initialized properly.
-        '''
+        """The moments can be initialized properly."""
+
         momentsFeature = Moments(self._pose_est_v6, self.pixel_scale)
 
         assert momentsFeature._name == "moments"
@@ -165,12 +162,3 @@ class TestClassInstantiation(unittest.TestCase):
                     plt.plot(x[x > 0], y[y > 0])
 
             plt.show()
-        
-
-
-
-
-        
-
-
-

@@ -4,6 +4,7 @@ import numpy as np
 
 from pathlib import Path
 
+
 def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
     """
     This method attempts to sort the segmentation data according to the longterm segmentation id.  

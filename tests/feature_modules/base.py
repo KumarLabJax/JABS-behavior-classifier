@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-import src.pose_estimation
+import src.jabs.pose_estimation
 
 
 class TestFeatureBase(unittest.TestCase):
@@ -25,7 +25,7 @@ class TestFeatureBase(unittest.TestCase):
             with open(pose_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-        cls._pose_est_v5 = src.pose_estimation.open_pose_file(
+        cls._pose_est_v5 = src.jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / 'sample_pose_est_v5.h5')
 
         # V5 pose file in the data directory does not currently have "lixit"

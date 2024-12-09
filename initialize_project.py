@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-initialize a rotta project directory
+initialize a JABS project directory
 
 computes features if they do not exist
 optional regenerate and overwrite existing feature h5 files
@@ -12,12 +12,12 @@ import sys
 from multiprocessing import Pool
 from pathlib import Path
 
-import src.pose_estimation
-import src.feature_extraction
-import src.project
-from src.types import ProjectDistanceUnit
-from src.cli import cli_progress_bar
-from src.video_stream import VideoStream
+import src.jabs.pose_estimation
+import src.jabs.feature_extraction
+import src.jabs.project
+from src.jabs.types import ProjectDistanceUnit
+from src.jabs.cli import cli_progress_bar
+from src.jabs.video_stream import VideoStream
 
 DEFAULT_WINDOW_SIZE = 5
 
@@ -28,7 +28,7 @@ def generate_files_worker(params: dict):
     pose_est = project.load_pose_est(
         project.video_path(params['video']))
 
-    features = src.feature_extraction.IdentityFeatures(
+    features = src.jabs.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
         force=params['force'], op_settings=project.get_project_defaults()
     )
@@ -64,14 +64,14 @@ def validate_video_worker(params: dict):
                 'message': "Unable to open video"}
 
     # make sure the video and pose file have the same number of frames
-    pose_path = src.pose_estimation.get_pose_path(vid_path)
-    if src.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
+    pose_path = src.jabs.pose_estimation.get_pose_path(vid_path)
+    if src.jabs.pose_estimation.get_frames_from_file(pose_path) != vid_frames:
         return {'video': params['video'], 'okay': False,
                 'message': "Video and Pose File frame counts differ"}
 
     # make sure we can initialize a PoseEstimation object from this pose file
     try:
-        _ = src.pose_estimation.open_pose_file(pose_path)
+        _ = src.jabs.pose_estimation.open_pose_file(pose_path)
     except:
         return {'video': params['video'], 'okay': False,
                 'message': "Unable to open pose file"}
@@ -84,7 +84,7 @@ def match_to_pose(video: str, project_dir: Path):
     path = project_dir / video
 
     try:
-        _ = src.pose_estimation.get_pose_path(path)
+        _ = src.jabs.pose_estimation.get_pose_path(path)
     except ValueError:
         return {'video': video, 'okay': False,
                 'message': "Pose file not found"}
@@ -136,7 +136,7 @@ def main():
     print(f"Initializing project directory: {args.project_dir}")
 
     # first to a quick check to make sure the h5 files exist for each video
-    videos = src.project.Project.get_videos(args.project_dir)
+    videos = src.jabs.project.Project.get_videos(args.project_dir)
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
@@ -198,7 +198,7 @@ def main():
         sys.exit(1)
 
     # generate features -- this might be very slow
-    project = src.project.Project(args.project_dir)
+    project = src.jabs.project.Project(args.project_dir)
     total_identities = project.total_project_identities
 
     distance_unit = project.distance_unit

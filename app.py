@@ -8,8 +8,8 @@ import sys
 
 from PySide6 import QtWidgets
 
-from src import APP_NAME, APP_NAME_LONG
-from src.ui import MainWindow
+from src.jabs import APP_NAME, APP_NAME_LONG
+from src.jabs.ui import MainWindow
 
 
 def main():

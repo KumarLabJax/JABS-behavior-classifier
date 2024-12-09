@@ -9,13 +9,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src import APP_NAME
-from src.classifier import Classifier
-from src.types import ClassifierType, ProjectDistanceUnit
-from src.cli import cli_progress_bar
-from src.feature_extraction.features import IdentityFeatures
-from src.pose_estimation import open_pose_file
-from src.project import Project, load_training_data
+from src.jabs import APP_NAME
+from src.jabs.classifier import Classifier
+from src.jabs.cli import cli_progress_bar
+from src.jabs.feature_extraction import IdentityFeatures
+from src.jabs.pose_estimation import open_pose_file
+from src.jabs.project import Project
 
 DEFAULT_FPS = 30
 
@@ -228,7 +227,7 @@ def classify_main():
             classifier.load(Path(args.classifier))
         except ValueError as e:
             print(f"Unable to load classifier from {args.classifier}:")
-            sys.exit(e)
+            sys.exit(str(e))
 
         behavior = classifier.behavior_name
         classifier_settings = classifier.project_settings

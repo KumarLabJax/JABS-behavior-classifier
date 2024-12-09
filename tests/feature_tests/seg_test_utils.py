@@ -10,14 +10,7 @@ import tempfile
 import shutil
 import gzip
 
-import src.pose_estimation as pose_est
-
-
-def get_parent_directory_path(n: int, file = __file__):
-    '''[deprecated], I wrote this method, but pathlib offers a better option.  Capture path of the nth parent directory of the current file.
-    '''
-    return get_parent_directory_path(n - 1, os.path.dirname(file)) \
-        if n > 0 else file
+import src.jabs.pose_estimation as pose_est
 
 
 class SegDataBaseClass(object):
@@ -28,8 +21,10 @@ class SegDataBaseClass(object):
 
     @classmethod
     def setUpClass(cls):
-        ''' This method overloads unittest.TestCase's setUp class level method.  In this case the segmentation data reader can be reused.
-        '''
+        """
+        This method overloads unittest.TestCase's setUp class level method.
+        In this case the segmentation data reader can be reused.
+        """
 
         # direct loading of segmentation data
         with h5py.File(os.path.join(cls.dataPath, cls.dataFileName), "r") as h5obj:
@@ -46,13 +41,11 @@ class SegDataBaseClass(object):
                 fh.read(1)
             open_func = gzip.open
         except OSError:
-            ''' Not a valid gun zip file.
-            '''
+            """ Not a valid gun zip file. """
 
         with open_func(cls.dataPath / cls.dataFileName, 'rb') as f_in:
-            with open(cls._tmpdir_path / cls.dataFileName.replace(".gz", ""),
-                        'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            with open(cls._tmpdir_path / cls.dataFileName.replace(".gz", ""), 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
         
         cls._pose_est_v6 = pose_est.open_pose_file(
             cls._tmpdir_path / cls.dataFileName.replace(".gz", ""))
@@ -64,5 +57,5 @@ class SegDataBaseClass(object):
 
 
 def setUpModule():
-    '''Use if code should be executed once for all tests.'''
+    """ Use if code should be executed once for all tests. """
     pass

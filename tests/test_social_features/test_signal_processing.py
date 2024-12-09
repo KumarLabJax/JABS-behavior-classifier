@@ -7,13 +7,13 @@ import shutil
 import tempfile
 from pathlib import Path
 from time import time
-import warnings 
 
-import src.pose_estimation
+import src.jabs.pose_estimation
 
 # Bring in base features of interest.
-from src.feature_extraction.base_features import (
-    moments, ellipse_fitting, point_speeds)
+from src.jabs.feature_extraction.segmentation_features import moments
+from src.jabs.feature_extraction.base_features import point_speeds
+
 
 # test command: python -m unittest tests.test_social_features.test_fft
 
@@ -56,7 +56,7 @@ class TestSignalProcessing(unittest.TestCase):
                 shutil.copyfileobj(f_in, f_out)
 
         if os.path.isfile(pose_path):
-            cls._pose_est_v6 = src.pose_estimation.open_pose_file(pose_path)
+            cls._pose_est_v6 = src.jabs.pose_estimation.open_pose_file(pose_path)
             cls._poses = cls._pose_est_v6
 
             with h5py.File(pose_path, "r") as f:
@@ -89,32 +89,14 @@ class TestSignalProcessing(unittest.TestCase):
         features.
         """
         moment = moments.Moments(self._poses, self._poses.cm_per_pixel)
-        ellipse_fit = ellipse_fitting.EllipseFit(
-            self._poses, self._poses.cm_per_pixel)
 
         self.assertEqual(moment._name, 'moments')
-        self.assertEqual(ellipse_fit._name, 'ellipse fit')
 
         test_identity = 1
 
         moment_features = moment.per_frame(test_identity)
-        ellipse_fit_features = ellipse_fit.per_frame(test_identity)
 
         self.assertEqual(moment_features.shape[0], self._poses.num_frames)
-        self.assertEqual(ellipse_fit_features.shape[0], self._poses.num_frames)
-
-    def test_generate_signal_processing_attributes(self):
-        """
-        For some random identity, attempt to generate the signal processing
-        features for an arbitrary base feature.
-        """
-
-        moment = moments.Moments(self._poses, self._poses.cm_per_pixel)
-        ellipse_fit = ellipse_fitting.EllipseFit(
-            self._poses, self._poses.cm_per_pixel)
-
-        # check that I can access base feature signal processing attributes
-        self.assertEqual(moment._samplerate, ellipse_fit._samplerate)
 
     def test_generate_window_features(self):
         """

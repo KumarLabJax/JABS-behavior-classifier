@@ -1,14 +1,15 @@
 import json
 from ast import literal_eval
 import unittest 
-from pathlib import Path
 
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
 )
 
-from src.classifier.classifier import load_hyperparameters, ClassifierType
+from src.jabs.classifier import HYPERPARAMETER_PATH
+from src.jabs.classifier.classifier import load_hyperparameters, ClassifierType
+
 
 # Hyperparameter Tests
 class TestHyperparameters(unittest.TestCase):
@@ -16,11 +17,11 @@ class TestHyperparameters(unittest.TestCase):
     This test will attempt to build classifiers with a json file.
     """
     
-    _hyper_file = Path(__file__).parent.parent.parent / 'hyperparameters.json'
+    _hyper_file = HYPERPARAMETER_PATH
 
     @classmethod
     def setUpClass(cls) -> None:
-        print("hyper-parameter file location:",cls._hyper_file)
+        print("hyper-parameter file location:", cls._hyper_file)
 
         with open(cls._hyper_file, "rb") as j:
             data = json.loads(j.read())
