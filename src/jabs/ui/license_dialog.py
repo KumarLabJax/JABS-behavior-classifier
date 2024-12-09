@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton)
 
-from src.jabs import APP_NAME, APP_NAME_LONG
+from ..constants import APP_NAME, APP_NAME_LONG
 
 
 class LicenseAgreementDialog(QDialog):

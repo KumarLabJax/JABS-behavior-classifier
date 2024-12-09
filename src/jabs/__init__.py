@@ -1,2 +1,1 @@
-APP_NAME = "JABS"
-APP_NAME_LONG = "JAX Animal Behavior System"
+from .constants import APP_NAME, APP_NAME_LONG
