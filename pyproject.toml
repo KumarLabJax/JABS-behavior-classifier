@@ -12,6 +12,7 @@ packages = [
 
 [tool.poetry.scripts]
 jabs = "jabs.scripts:main"
+jabs-classify = "jabs.scripts.classify:main"
 
 [tool.poetry.dependencies]
 python = "~3.10"
