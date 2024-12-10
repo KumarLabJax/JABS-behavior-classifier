@@ -1,12 +1,17 @@
 [tool.poetry]
 name = "jabs-behavior-classifier"
 version = "0.17.3"
+license = "Proprietary"
+repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
 authors = ["Glen Beane <356266+gbeane@users.noreply.github.com>"]
 readme = "README.md"
 packages = [
     { include = "jabs", from = "src" },
 ]
+
+[tool.poetry.scripts]
+jabs = "jabs.scripts:main"
 
 [tool.poetry.dependencies]
 python = "~3.10"

@@ -11,7 +11,7 @@ src_path = str(pathlib.Path(__file__).parent / "src")
 if src_path not in sys.path:
     sys.path.append(src_path)
 
-from jabs.__main__ import main  # noqa: E402
+from jabs.scripts import main  # noqa: E402
 
 
 if __name__ == '__main__':

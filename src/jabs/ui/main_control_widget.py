@@ -11,7 +11,7 @@ import sys
 from typing import List
 from PySide6 import QtWidgets, QtCore
 
-from src.jabs.classifier import Classifier
+from jabs.classifier import Classifier
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
 from .identity_combo_box import IdentityComboBox

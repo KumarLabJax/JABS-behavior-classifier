@@ -8,9 +8,10 @@ import h5py
 import numpy as np
 from shapely.geometry import MultiPoint
 
-from src.jabs.utils import hash_file
+from jabs.utils import hash_file
 
 MINIMUM_CONFIDENCE = 0.3
+
 
 class PoseHashException(Exception):
     pass

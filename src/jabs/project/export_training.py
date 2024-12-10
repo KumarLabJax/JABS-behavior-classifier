@@ -18,8 +18,8 @@ import jabs.feature_extraction
 # TYPE_CHECKING is always false at runtime, so this gets around that
 # also requires enclosing Project and Classifier type hints in quotes
 if TYPE_CHECKING:
-    from src.jabs.project import Project
-    from src.jabs.types import ClassifierType
+    from jabs.project import Project
+    from jabs.types import ClassifierType
 
 
 def export_training_data(project: 'Project',
@@ -58,8 +58,8 @@ def export_training_data(project: 'Project',
     string_type = h5py.special_dtype(vlen=str)
 
     with h5py.File(out_file, 'w') as out_h5:
-        out_h5.attrs['file_version'] = src.feature_extraction.FEATURE_VERSION
-        out_h5.attrs['app_version'] = src.version.version_str()
+        out_h5.attrs['file_version'] = jabs.feature_extraction.FEATURE_VERSION
+        out_h5.attrs['app_version'] = jabs.version.version_str()
         out_h5.attrs['min_pose_version'] = pose_version
         out_h5.attrs['behavior'] = behavior
         write_project_settings(out_h5, project.get_behavior_metadata(behavior), 'settings')

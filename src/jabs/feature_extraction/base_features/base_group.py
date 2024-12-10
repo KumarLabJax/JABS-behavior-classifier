@@ -1,4 +1,4 @@
-from src.jabs.feature_extraction.feature_group_base_class import FeatureGroup
+from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 
 from . import Angles, PairwisePointDistances, \
     PointSpeeds, PointVelocityDirs, \
