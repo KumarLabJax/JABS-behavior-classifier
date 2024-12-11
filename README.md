@@ -25,7 +25,8 @@ training data and prediction output, are forthcoming.
 ## Pose Files
 
 JABS requires pose files generated from the Kumar Lab's mouse pose 
-estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
+estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). 
+Multi-mouse is still under development. Contact us for more information.
 
 ## Requirements
 Developed and tested on Python 3.10. See the `pyproject.toml` 
@@ -59,8 +60,8 @@ poetry install
 
 #### Activating 
 
-The virtual environment must be activated before you can run the labeling 
-interface. To activate, run the following command:
+Every time you start a new terminal session the virtual environment must be activated 
+before you can run the labeling interface. To activate, run the following command:
 
 ```commandline
 source jabs.venv/bin/activate
@@ -80,7 +81,16 @@ The XGBoost Classifier has a dependency on the OpenMP library. This does
 not ship with MacOS. XGBoost should work "out of the box" on other platforms. 
 On MacOS, you can install libomp with Homebrew (preferred) with the following 
 command `brew install libomp`. You can also install libomp from source if you 
-can't use Homebrew, but this is beyond the scope of this Readme.  
+can't use Homebrew, but this is beyond the scope of this Readme.
+
+#### Running JABS
+
+Installing a pre-built Python package or running `poetry install` will add
+three commands to the Python environment:
+
+* jabs: launch the JABS GUI
+* jabs-classify: command line classifier, run jabs-classify --help for more information
+* jabs-init: initialize a JABS project directory, see jabs-init --help for more information
 
 ### Windows
 
@@ -152,3 +162,10 @@ To uninstall, simply delete the environment:
 ```bash
 conda env remove -n jabs
 ```
+
+## Building Python Packages
+
+Developers can build a Python package using the `poetry build` command. This will produce 
+both a .tar.gz and a Python Wheel file (.whl) in the dist directory. The wheel file can be 
+installed with pip: `pip install jabs_behavior_classifier-<version>-py3-none-any.whl`. Since 
+the Wheel does not contain any compiled code it is platform independent. 
