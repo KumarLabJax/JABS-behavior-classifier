@@ -71,8 +71,15 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
                          complete_as_percent=False, suffix='identities')
 
         features = IdentityFeatures(
-            input_pose_file, curr_id, feature_dir, pose_est, fps=fps, op_settings=classifier_settings, cache_window=cache_window
+            input_pose_file,
+            curr_id,
+            feature_dir,
+            pose_est,
+            fps=fps,
+            op_settings=classifier_settings,
+            cache_window=cache_window
         ).get_features(classifier_settings['window_size'])
+
         per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(features['per_frame']))
         window_features = pd.DataFrame(IdentityFeatures.merge_window_features(features['window']))
 
@@ -207,7 +214,10 @@ def classify_main():
     )
     parser.add_argument(
         '--skip-window-cache',
-        help="Default will cache all features when --feature-dir is provided. Providing this flag will only cache per-frame features, reducing cache size at the cost of needing to re-calculate window features.",
+        help=(
+            "Default will cache all features when --feature-dir is provided. Providing this flag will only cache "
+            "per-frame features, reducing cache size at the cost of needing to re-calculate window features."
+        ),
         default=False,
         action='store_true'
     )
@@ -243,7 +253,15 @@ def classify_main():
         print(f"  Social: {classifier_settings['social']}")
         print(f"  CM Units: {classifier_settings['cm_units']}")
 
-        classify_pose(classifier, in_pose_path, out_dir, behavior, fps=args.fps, feature_dir=args.feature_dir, cache_window=not args.skip_window_cache)
+        classify_pose(
+            classifier,
+            in_pose_path,
+            out_dir,
+            behavior,
+            fps=args.fps,
+            feature_dir=args.feature_dir,
+            cache_window=not args.skip_window_cache
+        )
 
 
 def train_main():

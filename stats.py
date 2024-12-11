@@ -4,7 +4,7 @@ import itertools
 import numpy as np
 from tabulate import tabulate
 
-from classify import train
+from src.jabs.scripts.classify import train
 from src.jabs.classifier import Classifier
 from src.jabs.types import ProjectDistanceUnit
 from src.jabs.project import load_training_data
