@@ -2,6 +2,7 @@ import abc
 import typing
 import numpy as np
 from scipy import signal
+import warnings
 
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
@@ -271,7 +272,9 @@ class Feature(abc.ABC):
                 window_values = val[slice_start:slice_end][
                     slice_frames_valid == 1]
 
-                op_result[i] = op(window_values)
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    op_result[i] = op(window_values)
 
             values[f"{key}"] = op_result
 
