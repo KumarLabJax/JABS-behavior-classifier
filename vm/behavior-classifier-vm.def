@@ -4,17 +4,22 @@
 Bootstrap: docker
 From: python:3.10-bookworm
 
+%setup
+    mkdir -p ${SINGULARITY_ROOTFS}/behavior-classifier
+
 %files
-    .. /behavior-classifier
+    ../docs /behavior-classifier/docs
+    ../src /behavior-classifier/src
+    ../tests /behavior-classifier/tests
+    ../vm /behavior-classifier/vm
+    ../*.* /behavior-classifier/
 
 %runscript
-    exec python /behavior-classifier/classify.py "$@"
+    exec poetry --directory=/behavior-classifier/ run jabs-classify "$@"
 
 %post
-    pip install -r /behavior-classifier/requirements.txt
-    export PYTHONPATH=$PYTHONPATH:/behavior-classifier
+    pip install poetry
+    poetry --directory=/behavior-classifier/ install
     # Run unittests to ensure build environment should work as intended
-    python3 -m unittest discover -s /behavior-classifier/tests/
-
-%environment
-    export PYTHONPATH=$PYTHONPATH:/behavior-classifier
+    cd /behavior-classifier/
+    poetry run python3 -m unittest discover -s /behavior-classifier/tests/
