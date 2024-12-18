@@ -32,6 +32,6 @@ class HuMoments(Feature):
                 continue
             hu_moments = cv2.HuMoments(self._moment_cache.get_all_moments(frame))
             for i, name in enumerate(self._feature_names):
-                values[name][frame] = hu_moments[i]
+                values[name][frame] = hu_moments[i, 0]
 
         return values
