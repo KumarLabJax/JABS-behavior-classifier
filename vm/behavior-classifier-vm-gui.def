@@ -15,15 +15,21 @@ From: python:3.10-bookworm
     ../*.* /behavior-classifier/
 
 %runscript
-    exec poetry --directory=/behavior-classifier/ run jabs "$@"
+    exec jabs "$@"
 
 %post
     pip install poetry
     poetry --directory=/behavior-classifier/ install
-    
+    poetry --directory=/behavior-classifier/ build
+    pip install /behavior-classifier/dist/jabs_behavior_classifier-*-py3-none-any.whl
+
     # Run unittests to ensure build environment should work as intended
     cd /behavior-classifier/
-    poetry run python3 -m unittest discover -s /behavior-classifier/tests/
+    python3 -m unittest discover -s /behavior-classifier/tests/
+
+    # Cleanup
+    rm -R /behavior-classifier
+    
     # GUI libraries
     apt-get update && apt-get install -y qt6-base-dev libglu1-mesa-dev libgl1-mesa-glx alsa-utils libnss3 libxkbfile1 'libxcb*'
     # Note that libxcb is wildcarded because it wasn't very clear which xcb library was missing, so we can just grab them all
