@@ -4,7 +4,7 @@ version = "0.17.3"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
-authors = ["Glen Beane <356266+gbeane@users.noreply.github.com>"]
+authors = ["Glen Beane", "Brian Geuther"]
 readme = "README.md"
 packages = [
     { include = "jabs", from = "src" },
@@ -14,6 +14,7 @@ packages = [
 jabs = "jabs.scripts:main"
 jabs-classify = "jabs.scripts.classify:main"
 jabs-init = "jabs.scripts.initialize_project:main"
+jabs-stats = "jabs.scripts.stats:main"
 
 [tool.poetry.dependencies]
 python = "~3.10"
