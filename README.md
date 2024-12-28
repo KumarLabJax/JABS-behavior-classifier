@@ -33,49 +33,91 @@ Developed and tested on Python 3.10. See the `pyproject.toml`
 for a list of required Python packages. These packages are available from the 
 Python Package Index (PyPI).
 
+Currently, the `pyproject.toml` file requires Python 3.10.X, but we hope to validate 
+for Python 3.12 and possibly 3.13 soon.
+
 See below for conda installation instructions.
 
-### Python Virtual Environment
+## Python Env Setup
 
-The following instructions are for Linux or MacOS Users. Windows users can 
-follow the instructions in the "Windows" section below.
+We recommend creating a Python Virtualenv for JABS:
 
-#### Creating the Virtual Environment
+```
+python -m venv jabs.venv
 
-This project uses Poetry for packaging and dependency management. If you're not
-installing from a pre-build JABS package (i.e. you are installing from a git clone) 
-you will need to install Poetry by following the instructions on 
+# Linux and MacOS
+source jabs.venv/bin/activate
+
+# Windows
+jabs.venv\Scripts\activate.bat
+```
+
+### JABS Installation
+
+Developers should follow the Developer Setup section below. This section describes how 
+to install JABS into a Python environment for a non-developer user.
+
+#### PyPI
+
+JABS is not available on PyPI at this time, but we hope to begin publishing it there soon. 
+
+#### Pip install from Github
+
+With the jabs.venv virtualenv activated, run the following command to install JABS from our
+git repository. This will install the latest commit from the main branch:
+`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git`
+
+you can also specify a branch:
+
+`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name`
+
+or a specific commit:
+
+`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash`
+
+
+### Running JABS
+
+After installing JABS, four commands will be added to the bin directory of your 
+Python virtualenv:
+
+* jabs: launch the JABS GUI
+* jabs-init: initialize a new JABS project directory from the command line
+* jabs-classify: run a trained classifier from the command line
+* jabs-stats: 
+
+You can run the <command> --help to get usage information for the commands.
+
+**NOTE:** The first time you run the JABS GUI it might take several minutes to launch. Subsequent startup 
+times should be shortened. 
+
+### Developer Setup
+
+The following instructions are for Linux or MacOS Developers. Commands for JABS developers 
+using Windows might be slightly different.
+
+This project uses Poetry for packaging and dependency management. JABS developers will
+need to install Poetry by following the instructions on 
 [Poetry's official website](https://python-poetry.org/docs/#installation).
 
 You can use Poetry to manage your virtualenv, or manage your virtualenv externally to 
 Poetry and use Poetry only for installing dependencies. The following instructions 
-will use the Python `venv` module to manually create a virtual environment and 
-activate it. 
+assume that you've already created and activated a Python environment for JABS 
+using whichever method you prefer.
+
+Clone the JABS git repository, and with your JABS virtualenv activated, run the
+following command in the project root:
 
 ```commandline
-python -m venv jabs.venv
-source jabs.venv/bin/activate
 poetry install
 ```
 
-#### Activating 
+This will install all dependencies and JABS will be installed in "editable" mode, 
+meaning that the JABS Python modules installed in the virtualenv will be links 
+to the files in the cloned git repository. JABS code changes will be reflected 
+immediately in the Python environment.
 
-Every time you start a new terminal session the virtual environment must be activated 
-before you can run the labeling interface. To activate, run the following command:
-
-```commandline
-source jabs.venv/bin/activate
-```
-
-#### Deactivating
-
-The virtual environment can be deactivated if you no longer need it:
-
-```commandline
-deactivate
-```
-
-#### Enabling XGBoost Classifier
+### Enabling XGBoost Classifier
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does
 not ship with MacOS. XGBoost should work "out of the box" on other platforms. 
@@ -83,53 +125,6 @@ On MacOS, you can install libomp with Homebrew (preferred) with the following
 command `brew install libomp`. You can also install libomp from source if you 
 can't use Homebrew, but this is beyond the scope of this Readme.
 
-#### Running JABS
-
-Installing a pre-built Python package or running `poetry install` will add
-three commands to the Python environment:
-
-* jabs: launch the JABS GUI
-* jabs-classify: command line classifier, run jabs-classify --help for more information
-* jabs-init: initialize a JABS project directory, see jabs-init --help for more information
-
-### Windows
-
-Make sure that a compatible version of Python is installed (3.10).
-
-#### Windows Scripts
-
-There are two convenience scripts included with JABS, `setup_windows.bat` and 
-`jabs.bat`, that allow a user to set up the Python environment and launch 
-JABS without using the command prompt.
-
-The `setup_windows.bat` script will create a Python virtual 
-environment in the JABS directory called `jabs.venv` and then install all 
-the required packages from PyPi. This script can be executed by double-clicking 
-on it in the Windows Explorer. This script only needs to be executed once.
-
-The `jabs.bat` script will activate the jabs.venv virtual environment and 
-launch the JABS application. This can be executed by double-clicking on it in 
-the Windows Explorer.
-
-#### Manual Configuration
-
-You can also set up the Python virtual environment and execute JABS from the 
-Windows Command Prompt (cmd.exe). 
-
-To configure the Python virtual environment manually, Open a Command Prompt in 
-the JABS directory and run the following commands:
-```commandline
-python -m venv jabs.venv
-jabs.venv\Scripts\activate.bat
-pip install -r requirements.txt
-```
-
-To launch JABS from the command prompt, open a command prompt in the JABS 
-directory and run the following commands:
-```commandline
-jabs.venv\Scripts\activate.bat
-python -m src.jabs
-```
 
 ### Singularity/Linux
 
