@@ -88,22 +88,22 @@ Python virtualenv:
 
 You can run the <command> --help to get usage information for the commands.
 
-**NOTE:** The first time you run the JABS GUI it might take several minutes to launch. Subsequent startup 
-times should be shortened. 
+**NOTE: The first time you run the JABS GUI it might take several minutes to launch.
+Subsequent startup times should be significantly reduced.**
 
 ### Developer Setup
 
-The following instructions are for Linux or MacOS Developers. Commands for JABS developers 
-using Windows might be slightly different.
+The following instructions are for Linux or MacOS Developers. Commands for JABS 
+developers using Windows might be slightly different.
 
-This project uses Poetry for packaging and dependency management. JABS developers will
-need to install Poetry by following the instructions on 
+This project uses Poetry for packaging and dependency management. JABS developers 
+will need to install Poetry by following the instructions on 
 [Poetry's official website](https://python-poetry.org/docs/#installation).
 
-You can use Poetry to manage your virtualenv, or manage your virtualenv externally to 
-Poetry and use Poetry only for installing dependencies. The following instructions 
-assume that you've already created and activated a Python environment for JABS 
-using whichever method you prefer.
+You can use Poetry to manage your virtualenv, or manage your virtualenv externally
+to Poetry and use Poetry only for installing dependencies. The following 
+instructions assume that you've already created and activated a Python environment 
+for JABS using whichever method you prefer.
 
 Clone the JABS git repository, and with your JABS virtualenv activated, run the
 following command in the project root:
@@ -128,7 +128,11 @@ can't use Homebrew, but this is beyond the scope of this Readme.
 
 ### Singularity/Linux
 
-We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is indended for command-line use on compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable environment. Please inspect the definition files for related linux packages to run the software.
+We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is 
+indended for command-line use on compute clusters when scaling inferences. 
+The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable 
+environment. Please inspect the definition files for related linux packages 
+to run the software.
 
 ### Conda
 
@@ -149,7 +153,7 @@ conda activate jabs
 Then run the GUI with:
 
 ```bash
-python app.py
+jabs
 ```
 
 To uninstall, simply delete the environment:
@@ -160,7 +164,10 @@ conda env remove -n jabs
 
 ## Building Python Packages
 
-Developers can build a Python package using the `poetry build` command. This will produce 
-both a .tar.gz and a Python Wheel file (.whl) in the dist directory. The wheel file can be 
-installed with pip: `pip install jabs_behavior_classifier-<version>-py3-none-any.whl`. Since 
-the Wheel does not contain any compiled code it is platform independent. 
+Developers can build a Python package using the `poetry build` command. This 
+will produce both a .tar.gz and a Python Wheel file (.whl) in the dist 
+directory. The wheel file can be installed with pip: 
+
+```pip install jabs_behavior_classifier-<version>-py3-none-any.whl``` 
+
+Since the Wheel does not contain any compiled code it is platform independent. 
