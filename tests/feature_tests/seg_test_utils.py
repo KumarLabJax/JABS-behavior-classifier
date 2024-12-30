@@ -10,51 +10,38 @@ import tempfile
 import shutil
 import gzip
 
+from src.jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup
 import src.jabs.pose_estimation as pose_est
 
 
 class SegDataBaseClass(object):
-    _tmpdir = None
-    data_dir = "data"
-    dataPath = Path(__file__).parent.parent / data_dir
+    """Common setup and teardown for segmentation tests."""
+
+    pixel_scale = 1.0
+    dataPath = Path(__file__).parent / '../data'
     dataFileName = "sample_pose_est_v6.h5.gz"
+    _tmpdir = None
 
     @classmethod
-    def setUpClass(cls):
-        """
-        This method overloads unittest.TestCase's setUp class level method.
-        In this case the segmentation data reader can be reused.
-        """
-
-        # direct loading of segmentation data
-        with h5py.File(os.path.join(cls.dataPath, cls.dataFileName), "r") as h5obj:
-            cls.seg_data = h5obj.get("poseest/seg_data")[:]
-        
-        # create pose estimation v6 file, which also contains segmentation data
+    def setUpClass(cls) -> None:
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
-        open_func = open 
-
-        try: 
-            with gzip.open(cls.dataFileName, "rb") as fh:
-                fh.read(1)
-            open_func = gzip.open
-        except OSError:
-            """ Not a valid gun zip file. """
-
-        with open_func(cls.dataPath / cls.dataFileName, 'rb') as f_in:
-            with open(cls._tmpdir_path / cls.dataFileName.replace(".gz", ""), 'wb') as f_out:
+        with gzip.open(cls.dataPath / cls.dataFileName, 'rb') as f_in:
+            with open(cls._tmpdir_path / cls.dataFileName.replace('.h5.gz', '.h5'),
+                      'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
-        
+
         cls._pose_est_v6 = pose_est.open_pose_file(
-            cls._tmpdir_path / cls.dataFileName.replace(".gz", ""))
+            cls._tmpdir_path / cls.dataFileName.replace('.h5.gz', '.h5'))
+
+        cls._moment_cache = SegmentationFeatureGroup(cls._pose_est_v6, cls.pixel_scale)
+        cls.feature_mods = cls._moment_cache._init_feature_mods(1)
 
     @ classmethod
     def tearDown(cls):
         if cls._tmpdir:
             cls._tmpdir.cleanup()
-
 
 def setUpModule():
     """ Use if code should be executed once for all tests. """
