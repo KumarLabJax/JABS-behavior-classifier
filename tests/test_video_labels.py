@@ -1,6 +1,6 @@
 import unittest
 
-from src.project.video_labels import VideoLabels
+from src.jabs.project import VideoLabels
 
 
 class TestVideoLabels(unittest.TestCase):

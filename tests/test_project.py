@@ -4,9 +4,9 @@ import shutil
 import unittest
 from pathlib import Path
 
-from src.project.project import Project
-from src.project.video_labels import VideoLabels
-from src.utils import hide_stderr
+from src.jabs.project import Project
+from src.jabs.project import VideoLabels
+from src.jabs.utils import hide_stderr
 
 
 class TestProject(unittest.TestCase):

@@ -16,6 +16,7 @@ import gzip
 import shutil
 from random import choice
 
+
 class TestH5Data(unittest.TestCase):
 
     out_file = "tmp_data.h5"
@@ -34,8 +35,8 @@ class TestH5Data(unittest.TestCase):
         cls.dataset.append((f"d{len(cls.dataset)+1}", di))
 
     def test_create_h5(self):
-        '''Control, can create a simple h5 file with gzipped datasets.
-        '''
+        """ Control, can create a simple h5 file with gzipped datasets. """
+
         with h5py.File(self.out_file, "w") as h5obj:
             for name, data in self.dataset:
                 h5obj.create_dataset(name, data=data, compression="gzip")
@@ -46,9 +47,12 @@ class TestH5Data(unittest.TestCase):
         os.remove(self.out_file)
     
     def test_load_h5(self):
-        '''Check the difference in file size between gzipped and non gzipped file.  Also try loading the gzipped file.
-        '''
-        compressed_file = f"compressed_{self.out_file}.gz" # adding a .gz suffix to the compressed dataset file.
+        """
+        Check the difference in file size between gzipped and non gzipped file.
+        Also try loading the gzipped file.
+        """
+
+        compressed_file = f"compressed_{self.out_file}.gz"
 
         # write two h5 files with the same data, one file is compressed with gzip
         # the other is not.
@@ -89,11 +93,12 @@ class TestH5Data(unittest.TestCase):
         # clean up temporary files
         os.remove(self.out_file)
         os.remove(compressed_file)
-    
 
     def test_gzip_open(self):
-        '''Trying to replicate the strategy employed in test_pose_file.
-        '''
+        """
+        Trying to replicate the strategy employed in test_pose_file.
+        """
+
         compressed_file = f"compressed_{self.out_file}.gz" # adding a .gz suffix to the compressed dataset file.
 
         # write two h5 files with the same data, one file is compressed with gzip
@@ -150,12 +155,3 @@ class TestH5Data(unittest.TestCase):
             with h5py.File(gzfile, "r") as h5obj: 
                 name, data = choice(self.dataset)
                 assert h5obj.get(name)[:][-1] == data[-1]
-        
-            
-
-
-        
-
-
-
-    
