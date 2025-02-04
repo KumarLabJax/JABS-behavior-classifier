@@ -1,4 +1,7 @@
 @echo off
+
+REM discontinue support for this script once we are delivering wheels for installing JABS with pip
+
 :: Check for Python Installation
 echo Checking for python
 for /f "tokens=*" %%i in ('python --version 2^>nul') do set VER=%%i
@@ -12,7 +15,7 @@ if %OK% == 1 (
   echo Found %VER%
   echo Setting up Python Virtualenv...
   python -m venv jabs.venv
-  jabs.venv\Scripts\activate.bat & pip install -r requirements.txt
+  jabs.venv\Scripts\activate.bat & pip install -r requirements-old.txt
 ) else (
   echo JABS Requires Python 3.10
 )
