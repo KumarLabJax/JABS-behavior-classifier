@@ -33,19 +33,19 @@ jabs" subdirectory. Features will be computed the first time the "Train" button
 is clicked. This can be very time consuming depending on the number and length
 of videos in the project directory.
 
-The initialize_project.py script can also be used to initialize a project
+The `jabs-init` script can also be used to initialize a project
 directory before it is opened in the JABS GUI. This script checks to make sure
 that a pose file exists for each video in the directory, and that the pose file
 and video have the same number of frames. Then, after these basic checks, the
 script will compute features for all of the videos in the project. Since
-initialize_project.py can compute features for multiple videos in parallel, it
+`jabs-int` can compute features for multiple videos in parallel, it
 is significantly faster than doing so through the GUI during the training
 process.
 
-### initialize_project.py usage:
+### jabs-init usage:
 
 ```text
-usage: initialize_project.py [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE]
+usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE]
                              [--force-pixel-distances]
                              project_dir
 
@@ -67,14 +67,14 @@ optional arguments:
                         use pixel distances when computing features even if project supports cm
 ```
 
-### example initialize_project.py command
+### example jabs-init command
 
-The following command runs the initialize_project.py script to compute features
+The following command runs the `jabs-init` script to compute features
 using window sizes of 2, 5, and 10. The script will use up to 8 processes for
-computing features (-p8). If no -p argument is passed, initialize_project.py
+computing features (-p8). If no -p argument is passed, `jabs-init`
 will use up to 4 processes.
 
-`./initialize_project.py -p8 -w2 -w5 -w10 <path/to/project/dir>`
+`jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>`
 
 ## The JABS Directory
 
@@ -106,7 +106,7 @@ different platform.
 
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable. While non-portable,
-these files can be used alongside `classify.py classify --classifier` for
+these files can be used alongside `jabs-classify classify --classifier` for
 predicting on the same machine the gui running the training.
 
 ### jabs/features
@@ -123,7 +123,7 @@ This directory contains prediction files. There will be one subdirectory per
 behavior containing one prediction file per video. Prediction files are
 automatically opened and displayed by JABS if they exist. Prediction files are
 portable, and are the same format as the output of the command line classifier
-tool (`classify.py`).
+tool (`jabs-classify`).
 
 ## GUI
 
@@ -209,7 +209,7 @@ tool (`classify.py`).
 - **File→Export Training Data:** Create a file with the information needed to
   share a classifier. This exported file is written to the project directory and
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
-  used as one input for the `classify.py` script.
+  used as one input for the `jabs-classify` script.
 - **View→View Playlist:** can be used to hide/show video playlist
 - **View→Show Track:** show/hide track overlay for the subject. The track
   overlay shows the nose position for the previous 5 frames and the next 10
@@ -343,21 +343,21 @@ while not in select mode:
 
 ## The Command Line Classifier
 
-JABS includes a script called `classify.py`, which can be used to classify a
+JABS includes a script called `jabs-classify`, which can be used to classify a
 single video from the command line.
 
 ```text
-usage: classify.py COMMAND COMMAND_ARGS
+usage: jabs-classify COMMAND COMMAND_ARGS
 
 commands:
  classify   classify a pose file
  train      train a classifier that can be used to classify multiple pose files
 
-See `classify.py COMMAND --help` for information on a specific command.
+See `jabs-classify COMMAND --help` for information on a specific command.
 ```
 
 ```text
-usage: classify.py classify [-h] [--random-forest | --gradient-boosting | --xgboost]
+usage: jabs-classify classify [-h] [--random-forest | --gradient-boosting | --xgboost]
                             (--training TRAINING | --classifier CLASSIFIER) --input-pose
                             INPUT_POSE --out-dir OUT_DIR [--fps FPS]
                             [--feature-dir FEATURE_DIR]
@@ -384,11 +384,11 @@ optionally override the classifier specified in the training file:
 Classifier Input (one of the following is required):
   --training TRAINING   Training data h5 file exported from JABS
   --classifier CLASSIFIER
-                        Classifier file produced from the `classify.py train` command
+                        Classifier file produced from the `jabs-classify train` command
 ```
 
 ```text
-usage: classify.py train [-h] [--random-forest | --gradient-boosting | --xgboost]
+usage: jabs-classify train [-h] [--random-forest | --gradient-boosting | --xgboost]
                          training_file out_file
 
 positional arguments:
@@ -406,7 +406,7 @@ optionally override the classifier specified in the training file:
 ```
 
 Note: xgboost may be unavailable on Mac OS if libomp is not installed.
-See `classify.py classify --help` output for list of classifiers supported in
+See `jabs-classify classify --help` output for list of classifiers supported in
 the current execution environment.
 
 Note: fps parameter is used to specify the frames per second (used for scaling
@@ -414,10 +414,10 @@ time unit for speed and velocity features from "per frame" to "per second").
 
 ## Command Line Feature Generation
 
-JABS includes a script called `generate_features.py`, which can be used to generate a feature file for a single video from the command line.
+JABS includes a script called `jabs-features`, which can be used to generate a feature file for a single video from the command line.
 
 ```text
-usage: generate_features.py [-h] --pose-file POSE_FILE --pose-version POSE_VERSION
+usage: jabs-features [-h] --pose-file POSE_FILE --pose-version POSE_VERSION
                             --feature-dir FEATURE_DIR [--use-cm-distances]
                             [--window-size WINDOW_SIZE] [--fps FPS]
 
@@ -451,7 +451,7 @@ The prediction files are saved
 in `<JABS project dir>/jabs/predictions/<video_name>.h5` if
 they were generated by the JABS GUI.
 
-The `classify.py` script saves inference
+The `jabs-classify` script saves inference
 files in `<out-dir>/<video_name>_behavior.h5`
 
 #### Contents
@@ -522,7 +522,7 @@ A feature file represents features calculated by JABS for a single animal in a v
 
 The feature files for JABS projects are saved in `<JABS project dir>/jabs/features/<video_name>/<identity>/features.h5`.
 
-Similarly, feature files generated by `classify.py` or `generate_features.py` are saved in the directory indicated by `--feature-dir` with a similar structure: `<feature_dir>/<video_name>/<identity>/features.h5`.
+Similarly, feature files generated by `jabs-classify` or `jabs-features` are saved in the directory indicated by `--feature-dir` with a similar structure: `<feature_dir>/<video_name>/<identity>/features.h5`.
 
 #### Contents
 

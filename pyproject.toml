@@ -14,6 +14,7 @@ packages = [
 jabs = "jabs.scripts:main"
 jabs-classify = "jabs.scripts.classify:main"
 jabs-init = "jabs.scripts.initialize_project:main"
+jabs-features = "jabs.scripts.generate_features:main"
 jabs-stats = "jabs.scripts.stats:main"
 
 [tool.poetry.dependencies]

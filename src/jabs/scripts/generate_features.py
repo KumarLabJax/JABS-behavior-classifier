@@ -1,9 +1,18 @@
+#!/usr/bin/env python
+
+"""
+initialize JABS features for a pose file
+
+computes features if they do not exist
+"""
+
 import argparse
 from pathlib import Path
-from src.project import Project
-from src.pose_estimation import open_pose_file
-from src.feature_extraction.features import IdentityFeatures
-from src.types import ProjectDistanceUnit
+
+from jabs.project import Project
+from jabs.pose_estimation import open_pose_file
+from jabs.feature_extraction.features import IdentityFeatures
+from jabs.types import ProjectDistanceUnit
 
 
 def generate_feature_cache(args):
@@ -25,7 +34,7 @@ def generate_feature_cache(args):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog=f"{script_name()} features")
     parser.add_argument('--pose-file', required=True, type=Path,
                         help='pose file to compute features for')
     parser.add_argument('--pose-version', required=True, type=int,
@@ -43,6 +52,9 @@ def main():
 
     generate_feature_cache(args)
 
+
+def script_name():
+    return Path(sys.argv[0]).name
 
 if __name__ == '__main__':
     main()
