@@ -103,7 +103,7 @@ else
 
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE})"
     module load singularity
-    singularity exec "${CLASSIFICATION_IMG}" python3 /behavior-classifier/generate_features.py --pose-file "${POSE_FILE}" --feature-dir "${FEATURE_FOLDER}" --use-cm-distances --pose-version 2
+    singularity exec "${CLASSIFICATION_IMG}" jabs-features --pose-file "${POSE_FILE}" --feature-dir "${FEATURE_FOLDER}" --use-cm-distances
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
