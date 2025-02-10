@@ -8,6 +8,7 @@ computes features if they do not exist
 
 import argparse
 from pathlib import Path
+import sys
 
 from jabs.project import Project
 from jabs.pose_estimation import open_pose_file
@@ -28,9 +29,12 @@ def generate_feature_cache(args):
     for curr_id in pose_est.identities:
         # Note: Features are still cached with the highest pose version.
         # It isn't until get_features is called that filtering occurs
-        _ = IdentityFeatures(
+        features = IdentityFeatures(
             args.pose_file, curr_id, args.feature_dir, pose_est, fps=args.fps, op_settings=settings, cache_window=cache_window
         )
+        # Window features are not automatically generated.
+        if cache_window:
+            _ = features.get_window_features(settings['window_size'], settings['social'], force=True)
 
 
 def main():
