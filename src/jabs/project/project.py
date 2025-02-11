@@ -414,12 +414,22 @@ class Project:
         obtain the default per-behavior settings
         :return: dictionary of project settings
         """
+        return self.settings_by_pose_version(self._min_pose_version, self.distance_unit, self.static_objects)
+
+    @staticmethod
+    def settings_by_pose_version(pose_version: int = 2, distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL, static_objects: typing.List = []):
+        """
+        obtain project settings for a specified pose version
+        :param pose_version: pose version to indicate settings
+        :param distance_unit: distance unit for settings
+        :param static_objects: keys of static objects to include
+        """
         return {
-            'cm_units': self.distance_unit,
+            'cm_units': distance_unit,
             'window_size': fe.DEFAULT_WINDOW_SIZE,
-            'social': self.can_use_social_features,
-            'static_objects': {obj: True if obj in self.static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
-            'segmentation': self.can_use_segmentation,
+            'social': pose_version >= 3,
+            'static_objects': {obj: True if pose_version >= 5 and obj in static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
+            'segmentation': pose_version >= 6,
             'window': True,
             'fft': True,
             'balance_labels': False,
