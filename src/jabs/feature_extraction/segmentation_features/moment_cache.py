@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import matplotlib.pyplot as plt
 from jabs.pose_estimation import PoseEstimation
 
 
@@ -25,6 +25,8 @@ class MomentInfo:
         self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
         self._seg_data = self._poses.get_segmentation_data(identity)
         self._seg_flags = self._poses.get_segmentation_flags(identity)
+        self._contours = [None] * self._poses._num_frames
+
 
         # Parse out the contour matrix into a list of contour lists
         tmp_contour_data = []
@@ -36,8 +38,10 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours) < 1:
+                
                 moments = {key: np.nan for key in self._moment_keys}
             else:
+                self._contours[frame] = self.calculate_contours(contours)
                 moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
@@ -62,6 +66,9 @@ class MomentInfo:
         """
         key_idx = self._moment_keys.index(key)
         return self._moments[frame, key_idx]
+    
+    def get_contours(self, frame):
+        return self._contours[frame]
 
     def get_all_moments(self, frame):
         """
@@ -119,3 +126,57 @@ class MomentInfo:
         render = np.zeros([frame_size, frame_size, 1], dtype=np.uint8)
         _ = cv2.drawContours(render, contour_list, -1, [1], -1)
         return cv2.moments(render)
+    
+    def calculate_contours(self, contour_list):
+        """
+        Draw all contours given data for a particular mouse in a particular video frame.
+
+        :param img: The current video frame.
+        :param seg_data: This will be the segmentation for a particular frame and indentity.
+        :param color: color of segmentation contours rendered on the GUI.
+        :return: None
+        """
+        frame_size = [800, 800]
+        mask = np.zeros(frame_size, dtype=np.uint8)
+        cv2.drawContours(mask, contour_list, -1, (1), thickness=cv2.FILLED)
+        kernel = np.ones((7, 7), np.uint8)
+        eroded_mask = cv2.erode(mask, kernel, iterations=1)
+        dilated_mask = cv2.dilate(eroded_mask, kernel, iterations=1)
+        contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # if len(contours) > 0:
+        #     largest_contour = max(contours, key=cv2.contourArea)
+        #     ellipse = cv2.fitEllipse(largest_contour)
+        #     (x, y), (major_axis, minor_axis), angle = ellipse
+        #     a = max(major_axis, minor_axis) / 2  
+        #     b = min(major_axis, minor_axis) / 2 
+        #     eccentricity = np.sqrt(1 - (b**2 / a**2))
+        # output_mask = cv2.cvtColor(dilated_mask, cv2.COLOR_GRAY2BGR)
+        # cv2.ellipse(output_mask, ellipse, (255, 0, 0), 2)
+
+        # plt.figure(figsize=(10, 10))
+        # plt.subplot(2, 2, 1)
+        # plt.title('Original Mask')
+        # plt.imshow(mask, cmap='gray')
+        # plt.axis('off')
+
+        # plt.subplot(2, 2, 2)
+        # plt.title('Eroded Mask')
+        # plt.imshow(eroded_mask, cmap='gray')
+        # plt.axis('off')
+
+        # plt.subplot(2, 2, 3)
+        # plt.title('Dilated Mask')
+        # plt.imshow(dilated_mask, cmap='gray')
+        # plt.axis('off')
+
+
+        # plt.subplot(2, 2, 4)
+        # plt.title('Ellipse Fit')
+        # plt.imshow(output_mask)
+        # plt.axis('off')
+
+        # plt.show()
+
+        # plt.savefig("/Users/zhanglu/Documents/SAP/classifier/heuristic_classifier/ellipse_fit_JABS.png")
+        return contours

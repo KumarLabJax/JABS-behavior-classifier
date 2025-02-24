@@ -40,6 +40,9 @@ class ShapeDescriptors(Feature):
         euler_number = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
         hole_area_ratio = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
 
+        eccentricity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+
+
         # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
         for frame in range(self._poses.num_frames):
             # Safety for division by 0 (no segmentation to calculate on)
@@ -86,6 +89,17 @@ class ShapeDescriptors(Feature):
             euler_number[frame] = np.sum(contour_flags[:len(contour_list)]==1)-np.sum(contour_flags[:len(contour_list)]==0)
             hole_area_ratio[frame] = (hole_areas * self._pixel_scale**2)/self._moment_cache.get_moment(frame, 'm00')
 
+            # CALCULATE ECCENTRICITY
+            contours = self._moment_cache.get_contours(frame)
+            if len(contours) > 0:
+                largest_contour = max(contours, key=cv2.contourArea)
+                ellipse = cv2.fitEllipse(largest_contour)
+                (a, b), (major_axis, minor_axis), angle = ellipse
+                a = max(major_axis, minor_axis) / 2  
+                b = min(major_axis, minor_axis) / 2 
+                eccentricity[frame] = np.sqrt(1 - (b**2 / a**2))
+
+
         # Calculate the centroid speeds
         centroid_speeds = np.hypot(np.gradient(x), np.gradient(y)) * self._poses.fps
 
@@ -100,5 +114,7 @@ class ShapeDescriptors(Feature):
         values['solidity'] = solidity
         values['euler_number'] = euler_number
         values['hole_area_ratio'] = hole_area_ratio
+        values['eccentricity'] = eccentricity
+
 
         return values
