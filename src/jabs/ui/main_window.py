@@ -242,11 +242,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def behavior_label_add_event(self, behaviors: list[str]):
         """ handle project updates required when user adds new behavior labels """
-        project_metadata = self._project.load_metadata()
 
         # check for new behaviors
         for behavior in behaviors:
-            if behavior not in project_metadata["behavior"].keys():
+            if behavior not in self._project.metadata["behavior"].keys():
                 # save new behavior with default settings
                 self._project.save_behavior_metadata(behavior, {})
 
