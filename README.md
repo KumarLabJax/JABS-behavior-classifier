@@ -75,6 +75,28 @@ or a specific commit:
 
 `pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash`
 
+#### Pip install from local source
+
+If you've cloned the JABS repository, you can install by running the following command in 
+the project root directory:
+
+`pip install .`
+
+If you want to install the package in "editable" mode, use the `-e` flag. This links to
+the python files instead of copying them during installation so that they can be edited. 
+
+`pip install -e .`
+
+
+#### Windows .bat scripts
+
+There are two scripts that Windows users can use to simplify installing and running JABS. These 
+can be executed by double-clicking on them in Windows Explorer. 
+
+* setup_windows.bat: this will create a Python virtualenv called jabs.venv in the project root and 
+then install JABS as a Python package. 
+* launch_jabs.bat: this script will activate the jabs.venv environment and then launch the JABS GUI. 
+
 
 ### Running JABS
 
