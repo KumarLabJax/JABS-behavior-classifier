@@ -31,7 +31,7 @@ class MainControlWidget(QtWidgets.QWidget):
     classifier_changed = QtCore.Signal()
     behavior_changed = QtCore.Signal(str)
     kfold_changed = QtCore.Signal()
-    behavior_list_changed = QtCore.Signal(dict)
+    new_behavior_label = QtCore.Signal(dict)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
     use_balace_labels_changed = QtCore.Signal(int)
@@ -426,7 +426,6 @@ class MainControlWidget(QtWidgets.QWidget):
         if idx != -1:
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
-        self.behavior_list_changed.emit(self._behaviors)
 
     def _set_window_sizes(self, sizes: List[int]):
         """ set the list of available window sizes """
@@ -447,7 +446,9 @@ class MainControlWidget(QtWidgets.QWidget):
         if ok and text not in self._behaviors:
             self.behavior_selection.addItem(text)
             self.behavior_selection.setCurrentText(text)
-            self.behavior_list_changed.emit(self._behaviors)
+            self._behaviors.append(text)
+            self._behaviors.sort()
+            self.new_behavior_label.emit(self._behaviors)
 
     def _get_first_label(self):
         """
@@ -467,7 +468,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self._behaviors = [text]
         self.behavior_selection.addItem(text)
         self.behavior_selection.setCurrentText(text)
-        self.behavior_list_changed.emit(self._behaviors)
+        self.new_behavior_label.emit(self._behaviors)
         self._behavior_changed()
 
     def _new_window_size(self):
