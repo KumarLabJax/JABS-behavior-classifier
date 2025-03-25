@@ -406,7 +406,6 @@ class MainControlWidget(QtWidgets.QWidget):
         # run all the updates for when a behavior changes
         self._behavior_changed()
 
-
     def set_identities(self, identities):
         """ populate the identity_selection combobox """
         self.identity_selection.currentIndexChanged.disconnect()
@@ -427,6 +426,9 @@ class MainControlWidget(QtWidgets.QWidget):
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
         self.behavior_list_changed.emit(self._behaviors)
+
+        if len(self._behaviors) == 0:
+            self._get_first_label()
 
     def _set_window_sizes(self, sizes: List[int]):
         """ set the list of available window sizes """
@@ -451,24 +453,26 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _get_first_label(self):
         """
-        show the new label dialog until the user enters one. Used when
-        opening a new project for the fist time.
-        TODO: make custom dialog so the user can't close the dialog until
-          they've entered a behavior label
+        show the new label dialog.
+        Used when opening a new project for the fist time or if a user archives all behaviors in a project.
         """
-        ok = False
-        text = ""
+        dialog = QtWidgets.QInputDialog()
+        dialog.setWindowTitle("New Behavior")
+        dialog.setLabelText("Please enter a behavior name to continue:")
+        dialog.setOkButtonText("OK")
+        dialog.setCancelButtonText("Quit JABS")
+        dialog.setWindowFlags(dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint)
 
-        while not ok:
-            text, ok = QtWidgets.QInputDialog.getText(
-                self, 'New Behavior',
-                'New project - please enter a behavior name to continue:',
-                QtWidgets.QLineEdit.Normal)
-        self._behaviors = [text]
-        self.behavior_selection.addItem(text)
-        self.behavior_selection.setCurrentText(text)
-        self.behavior_list_changed.emit(self._behaviors)
-        self._behavior_changed()
+        if dialog.exec():
+            text, ok = dialog.textValue(), dialog.result()
+            if ok:
+                self._behaviors = [text]
+                self.behavior_selection.addItem(text)
+                self.behavior_selection.setCurrentText(text)
+                self.new_behavior_label.emit(self._behaviors)
+                self._behavior_changed()
+        else:
+            sys.exit(0)
 
     def _new_window_size(self):
         """
