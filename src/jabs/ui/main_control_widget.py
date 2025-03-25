@@ -455,6 +455,9 @@ class MainControlWidget(QtWidgets.QWidget):
         """
         show the new label dialog.
         Used when opening a new project for the fist time or if a user archives all behaviors in a project.
+
+        dialog is customized to hide the window close button. The only way to close the dialog is to create a new
+        label or to quit jabs (the Cancel button of the dialog has been renamed "Quit JABS").
         """
         dialog = QtWidgets.QInputDialog()
         dialog.setWindowTitle("New Behavior")
