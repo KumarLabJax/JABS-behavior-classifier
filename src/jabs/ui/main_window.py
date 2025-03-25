@@ -249,7 +249,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 # save new behavior with default settings
                 self._project.save_behavior_metadata(behavior, {})
 
-
     def display_status_message(self, message: str, duration: int = 3000):
         """
         display a message in the main window status bar
