@@ -91,7 +91,7 @@ class ShapeDescriptors(Feature):
 
             # CALCULATE ECCENTRICITY
             contours = self._moment_cache.get_contours(frame)
-            if len(contours) > 0:
+            if contours is not None and len(contours) > 0:
                 largest_contour = max(contours, key=cv2.contourArea)
                 ellipse = cv2.fitEllipse(largest_contour)
                 (a, b), (major_axis, minor_axis), angle = ellipse
@@ -115,6 +115,5 @@ class ShapeDescriptors(Feature):
         values['euler_number'] = euler_number
         values['hole_area_ratio'] = hole_area_ratio
         values['eccentricity'] = eccentricity
-
 
         return values

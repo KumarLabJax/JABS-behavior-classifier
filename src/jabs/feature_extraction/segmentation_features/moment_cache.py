@@ -25,7 +25,7 @@ class MomentInfo:
         self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
         self._seg_data = self._poses.get_segmentation_data(identity)
         self._seg_flags = self._poses.get_segmentation_flags(identity)
-        self._contours = [None] * self._poses._num_frames
+        self._filtered_contours = [None] * self._poses._num_frames
 
 
         # Parse out the contour matrix into a list of contour lists
@@ -38,10 +38,10 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours) < 1:
-                
+                self._filtered_contours[frame] = None
                 moments = {key: np.nan for key in self._moment_keys}
             else:
-                self._contours[frame] = self.calculate_contours(contours)
+                self._filtered_contours[frame] = self.calculate_filtered_contours(contours)
                 moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
@@ -68,7 +68,13 @@ class MomentInfo:
         return self._moments[frame, key_idx]
     
     def get_contours(self, frame):
-        return self._contours[frame]
+        """
+        retrieve filtered contours for a given video frame.
+
+        :param frame: The frame index for which to retrieve the filtered contours.
+        :return: List of filtered contours for the specified frame.
+        """
+        return self._filtered_contours[frame]
 
     def get_all_moments(self, frame):
         """
@@ -127,14 +133,12 @@ class MomentInfo:
         _ = cv2.drawContours(render, contour_list, -1, [1], -1)
         return cv2.moments(render)
     
-    def calculate_contours(self, contour_list):
+    def calculate_filtered_contours(self, contour_list):
         """
-        Draw all contours given data for a particular mouse in a particular video frame.
+        Calculate and return filtered (eroded and dilated to remove tail) contours from a given list of contours.
 
-        :param img: The current video frame.
-        :param seg_data: This will be the segmentation for a particular frame and indentity.
-        :param color: color of segmentation contours rendered on the GUI.
-        :return: None
+        :param contour_list: List of contours to be processed
+        :return: List of filtered contours
         """
         frame_size = [800, 800]
         mask = np.zeros(frame_size, dtype=np.uint8)
@@ -144,39 +148,4 @@ class MomentInfo:
         dilated_mask = cv2.dilate(eroded_mask, kernel, iterations=1)
         contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # if len(contours) > 0:
-        #     largest_contour = max(contours, key=cv2.contourArea)
-        #     ellipse = cv2.fitEllipse(largest_contour)
-        #     (x, y), (major_axis, minor_axis), angle = ellipse
-        #     a = max(major_axis, minor_axis) / 2  
-        #     b = min(major_axis, minor_axis) / 2 
-        #     eccentricity = np.sqrt(1 - (b**2 / a**2))
-        # output_mask = cv2.cvtColor(dilated_mask, cv2.COLOR_GRAY2BGR)
-        # cv2.ellipse(output_mask, ellipse, (255, 0, 0), 2)
-
-        # plt.figure(figsize=(10, 10))
-        # plt.subplot(2, 2, 1)
-        # plt.title('Original Mask')
-        # plt.imshow(mask, cmap='gray')
-        # plt.axis('off')
-
-        # plt.subplot(2, 2, 2)
-        # plt.title('Eroded Mask')
-        # plt.imshow(eroded_mask, cmap='gray')
-        # plt.axis('off')
-
-        # plt.subplot(2, 2, 3)
-        # plt.title('Dilated Mask')
-        # plt.imshow(dilated_mask, cmap='gray')
-        # plt.axis('off')
-
-
-        # plt.subplot(2, 2, 4)
-        # plt.title('Ellipse Fit')
-        # plt.imshow(output_mask)
-        # plt.axis('off')
-
-        # plt.show()
-
-        # plt.savefig("/Users/zhanglu/Documents/SAP/classifier/heuristic_classifier/ellipse_fit_JABS.png")
         return contours
