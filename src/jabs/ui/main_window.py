@@ -83,7 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # archive behavior action
         self._archive_behavior = QtGui.QAction('Archive Behavior', self)
         self._archive_behavior.setStatusTip('Open Archive Behavior Dialog')
-        self._archive_behavior.setEnabled(True)
+        self._archive_behavior.setEnabled(False)
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
 
@@ -213,6 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.set_project(self._project)
 
         # Update which controls should be available
+        self._archive_behavior.setEnabled(True)
         self.enable_cm_units.setEnabled(self._project.is_cm_unit)
         self.enable_social_features.setEnabled(self._project.can_use_social_features)
         self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
@@ -387,8 +388,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _archive_behavior_callback(self, behavior):
-        self._central_widget.remove_behavior(behavior)
         self._project.archive_behavior(behavior)
+        self._central_widget.remove_behavior(behavior)
 
     def show_license_dialog(self):
         dialog = LicenseAgreementDialog(self)

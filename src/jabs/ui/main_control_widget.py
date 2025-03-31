@@ -385,7 +385,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self._behaviors = sorted(list(project_settings['behavior'].keys()))
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
-        if 'selected_behavior' in project_settings:
+        if 'selected_behavior' in project_settings and project_settings['selected_behavior']:
             # make sure this behavior is in the behavior selection drop down
             if project_settings['selected_behavior'] not in self._behaviors:
                 self.behavior_selection.clear()

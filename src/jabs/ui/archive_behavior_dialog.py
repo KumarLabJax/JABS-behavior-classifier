@@ -46,10 +46,15 @@ class ArchiveBehaviorDialog(QDialog):
 
     def __archive(self):
         behavior = self._behavior_selection.currentText()
-        self.behavior_archived.emit(behavior)
 
         # remove from combo box
         self.__remove_behavior(behavior)
+
+        # if there are no other behaviors that can be archived hide the dialog
+        if self._behavior_selection.count() == 0:
+            self.hide()
+
+        self.behavior_archived.emit(behavior)
 
     def __remove_behavior(self, behavior: str):
         idx = self._behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
