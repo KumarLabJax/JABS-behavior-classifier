@@ -117,6 +117,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Feature subset actions
         # All these settings should be updated whenever the behavior_changed event occurs
         self._central_widget._controls.behavior_changed.connect(self.behavior_changed_event)
+        self._central_widget._controls.new_behavior_label.connect(self.behavior_label_add_event)
 
         self.enable_cm_units = QtGui.QAction('CM Units', self)
         self.enable_cm_units.setCheckable(True)
@@ -222,7 +223,7 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 menu_item.setEnabled(False)
 
-    def behavior_changed_event(self, new_behavior):
+    def behavior_changed_event(self, new_behavior: str):
         """ menu items to change when a new behavior is selected. """
         # skip if no behavior assigned (only should occur during new project)
         if new_behavior is None or new_behavior == '':
@@ -239,7 +240,16 @@ class MainWindow(QtWidgets.QMainWindow):
         for static_object, menu_item in self.enable_landmark_features.items():
             menu_item.setChecked(static_settings.get(static_object, False))
 
-    def display_status_message(self, message: str, duration: int=3000):
+    def behavior_label_add_event(self, behaviors: list[str]):
+        """ handle project updates required when user adds new behavior labels """
+
+        # check for new behaviors
+        for behavior in behaviors:
+            if behavior not in self._project.metadata["behavior"].keys():
+                # save new behavior with default settings
+                self._project.save_behavior_metadata(behavior, {})
+
+    def display_status_message(self, message: str, duration: int = 3000):
         """
         display a message in the main window status bar
         :param message: message to display

@@ -252,8 +252,8 @@ class Project:
         """
         get the project metadata and preferences.
 
-        Returns a copy of the metadata dict, so that self._info can't be
-        modified
+        Returns a copy of the metadata dict, so that self._metadata can't be
+        modified by the caller
         """
         return dict(self._metadata)
 
@@ -655,6 +655,13 @@ class Project:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
             json.dump(archived_labels, f, indent=True)
+
+        # remove from project settings
+        try:
+            del self._metadata["behavior"][behavior]
+        except KeyError:
+            pass
+        self.save_metadata({})
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
