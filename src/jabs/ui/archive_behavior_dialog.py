@@ -56,6 +56,9 @@ class ArchiveBehaviorDialog(QDialog):
 
         self.behavior_archived.emit(behavior)
 
+        if self._behavior_selection.count() == 0:
+            self.done(1)
+
     def __remove_behavior(self, behavior: str):
         idx = self._behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
         if idx != -1:
