@@ -385,7 +385,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self._behaviors = sorted(list(project_settings['behavior'].keys()))
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
-        if 'selected_behavior' in project_settings:
+        if 'selected_behavior' in project_settings and project_settings['selected_behavior']:
             # make sure this behavior is in the behavior selection drop down
             if project_settings['selected_behavior'] not in self._behaviors:
                 self.behavior_selection.clear()
@@ -406,7 +406,6 @@ class MainControlWidget(QtWidgets.QWidget):
         # run all the updates for when a behavior changes
         self._behavior_changed()
 
-
     def set_identities(self, identities):
         """ populate the identity_selection combobox """
         self.identity_selection.currentIndexChanged.disconnect()
@@ -426,6 +425,9 @@ class MainControlWidget(QtWidgets.QWidget):
         if idx != -1:
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
+
+        if len(self._behaviors) == 0:
+            self._get_first_label()
 
     def _set_window_sizes(self, sizes: List[int]):
         """ set the list of available window sizes """
@@ -452,24 +454,29 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _get_first_label(self):
         """
-        show the new label dialog until the user enters one. Used when
-        opening a new project for the fist time.
-        TODO: make custom dialog so the user can't close the dialog until
-          they've entered a behavior label
-        """
-        ok = False
-        text = ""
+        show the new label dialog.
+        Used when opening a new project for the fist time or if a user archives all behaviors in a project.
 
-        while not ok:
-            text, ok = QtWidgets.QInputDialog.getText(
-                self, 'New Behavior',
-                'New project - please enter a behavior name to continue:',
-                QtWidgets.QLineEdit.Normal)
-        self._behaviors = [text]
-        self.behavior_selection.addItem(text)
-        self.behavior_selection.setCurrentText(text)
-        self.new_behavior_label.emit(self._behaviors)
-        self._behavior_changed()
+        dialog is customized to hide the window close button. The only way to close the dialog is to create a new
+        label or to quit jabs (the Cancel button of the dialog has been renamed "Quit JABS").
+        """
+        dialog = QtWidgets.QInputDialog()
+        dialog.setWindowTitle("New Behavior")
+        dialog.setLabelText("Please enter a behavior name to continue:")
+        dialog.setOkButtonText("OK")
+        dialog.setCancelButtonText("Quit JABS")
+        dialog.setWindowFlags(dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint)
+
+        if dialog.exec():
+            text, ok = dialog.textValue(), dialog.result()
+            if ok:
+                self._behaviors = [text]
+                self.behavior_selection.addItem(text)
+                self.behavior_selection.setCurrentText(text)
+                self.new_behavior_label.emit(self._behaviors)
+                self._behavior_changed()
+        else:
+            sys.exit(0)
 
     def _new_window_size(self):
         """
@@ -481,7 +488,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self, 'New Window Size', 'Enter a new window size:', value=1,
             minValue=1)
         if ok:
-            # if this window size is not already in the drop down, add it.
+            # if this window size is not already in the drop-down, add it.
             if self._window_size.findData(val) == -1:
                 self._add_window_size(val)
 
