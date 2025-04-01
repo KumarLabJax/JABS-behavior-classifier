@@ -45,17 +45,18 @@ class ArchiveBehaviorDialog(QDialog):
         self._confirm.setChecked(False)
 
     def __archive(self):
+        # remove selected behavior from combo box
         behavior = self._behavior_selection.currentText()
-
-        # remove from combo box
         self.__remove_behavior(behavior)
 
-        # if there are no other behaviors that can be archived hide the dialog
+        # if there are no other behaviors that can be archived then hide the dialog
         if self._behavior_selection.count() == 0:
             self.hide()
 
+        # emit the signal to handle archiving the behavior
         self.behavior_archived.emit(behavior)
 
+        # after emitting the signal, we can close the dialog if there are no more behaviors in the drop-down
         if self._behavior_selection.count() == 0:
             self.done(1)
 
