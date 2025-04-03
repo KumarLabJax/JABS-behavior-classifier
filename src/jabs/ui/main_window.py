@@ -2,13 +2,15 @@ import sys
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
 
-from jabs.project import Project, export_training_data
+from jabs.project import export_training_data
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.version import version_str
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from .about_dialog import AboutDialog
 from .central_widget import CentralWidget
+from .project_loader_thread import ProjectLoaderThread
 from .video_list_widget import VideoListDockWidget
 from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .license_dialog import LicenseAgreementDialog
@@ -20,7 +22,7 @@ USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    def __init__(self, app_name, app_name_long, *args, **kwargs):
+    def __init__(self, app_name: str, app_name_long: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
@@ -32,6 +34,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._app_name = app_name
         self._app_name_long = app_name_long
         self._project = None
+        self._project_loader_thread = None
+        self._progress_dialog = None
 
         self._status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -116,8 +120,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Feature subset actions
         # All these settings should be updated whenever the behavior_changed event occurs
-        self._central_widget._controls.behavior_changed.connect(self.behavior_changed_event)
-        self._central_widget._controls.new_behavior_label.connect(self.behavior_label_add_event)
+        self._central_widget.controls.behavior_changed.connect(self.behavior_changed_event)
+        self._central_widget.controls.new_behavior_label.connect(self.behavior_label_add_event)
 
         self.enable_cm_units = QtGui.QAction('CM Units', self)
         self.enable_cm_units.setCheckable(True)
@@ -174,7 +178,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.export_training_status_change.connect(
             self._export_training.setEnabled)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent):
         """
         override keyPressEvent so we can pass some key press events on
         to the centralWidget
@@ -205,24 +209,17 @@ class MainWindow(QtWidgets.QMainWindow):
             # anything else pass on to the super class keyPressEvent
             super(MainWindow, self).keyPressEvent(event)
 
-    def open_project(self, project_path):
+    def open_project(self, project_path: str):
         """ open a new project directory """
-        self._project = Project(project_path)
-        # The central_widget updates main_control_widget
-        self.centralWidget().set_project(self._project)
-        self.video_list.set_project(self._project)
+        self._progress_dialog = QtWidgets.QProgressDialog(
+            "Loading project...", None, 0, 0, self)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.show()
+        self._project_loader_thread = ProjectLoaderThread(project_path)
+        self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
+        self._project_loader_thread.load_error.connect(self._project_load_error_callback)
+        self._project_loader_thread.start()
 
-        # Update which controls should be available
-        self._archive_behavior.setEnabled(True)
-        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
-        self.enable_social_features.setEnabled(self._project.can_use_social_features)
-        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
-        available_objects = self._project.static_objects
-        for static_object, menu_item in self.enable_landmark_features.items():
-            if static_object in available_objects:
-                menu_item.setEnabled(True)
-            else:
-                menu_item.setEnabled(False)
 
     def behavior_changed_event(self, new_behavior: str):
         """ menu items to change when a new behavior is selected. """
@@ -275,7 +272,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not USE_NATIVE_FILE_DIALOG:
             options |= QtWidgets.QFileDialog.DontUseNativeDialog
 
-        # on MacOS QFileDialog can cause some error messages to be written to stderr but the dialog still works
+        # on macOS QFileDialog can cause some error messages to be written to stderr but the dialog still works
         # so hide anything written to stderr while we're showing the dialog. we can use a Qt based file dialog instead
         # of the native one by setting the env variable USE_NATIVE_FILE_DIALOG to a non-true value (default is True)
         with hide_stderr():
@@ -318,7 +315,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
-    def _toggle_video_list(self, checked):
+    def _toggle_video_list(self, checked: bool):
         """ show/hide video list """
         if not checked:
             # user unchecked
@@ -327,44 +324,44 @@ class MainWindow(QtWidgets.QMainWindow):
             # user checked
             self.video_list.show()
 
-    def _toggle_track(self, checked):
+    def _toggle_track(self, checked: bool):
         """ show/hide track overlay for subject. """
         self._central_widget.show_track(checked)
 
-    def _toggle_pose_overlay(self, checked):
+    def _toggle_pose_overlay(self, checked: bool):
         """ show/hide pose overlay for subject. """
         self._central_widget.overlay_pose(checked)
 
-    def _toggle_landmark_overlay(self, checked):
+    def _toggle_landmark_overlay(self, checked: bool):
         """ show/hide landmark features. """
         self._central_widget.overlay_landmarks(checked)
 
-    def _toggle_segmentation_overlay(self, checked):
+    def _toggle_segmentation_overlay(self, checked: bool):
         """ show/hide segmentation overlay for subject. """
         self._central_widget.overlay_segmentation(checked)
 
-    def _toggle_cm_units(self, checked):
+    def _toggle_cm_units(self, checked: bool):
         """ toggle project to use pixel units. """
         # TODO: Warn the user that features may need to be re-calculated
         self._project.save_behavior_metadata(self._central_widget.behavior, {'cm_units': checked})
 
-    def _toggle_social_features(self, checked):
+    def _toggle_social_features(self, checked: bool):
         """ toggle project to use social features. """
         self._project.save_behavior_metadata(self._central_widget.behavior, {'social': checked})
 
-    def _toggle_window_features(self, checked):
+    def _toggle_window_features(self, checked: bool):
         """ toggle project to use window features. """
         self._project.save_behavior_metadata(self._central_widget.behavior, {'window': checked})
 
-    def _toggle_fft_features(self, checked):
+    def _toggle_fft_features(self, checked: bool):
         """ toggle project to use fft features. """
         self._project.save_behavior_metadata(self._central_widget.behavior, {'fft': checked})
 
-    def _toggle_segmentation_features(self, checked):
+    def _toggle_segmentation_features(self, checked: bool):
         """ toggle project to use segmentation features. """
         self._project.save_behavior_metadata(self._central_widget.behavior, {'segmentation': checked})
 
-    def _toggle_static_object_feature(self, checked):
+    def _toggle_static_object_feature(self, checked: bool):
         """ toggle project to use a specific static object feature set. """
         # get the key from the caller
         key = self.sender().text().split(' ')[1].lower()
@@ -372,7 +369,7 @@ class MainWindow(QtWidgets.QMainWindow):
         all_object_settings[key] = checked
         self._project.save_behavior_metadata(self._central_widget.behavior, {'static_objects': all_object_settings})
 
-    def _video_list_selection(self, filename):
+    def _video_list_selection(self, filename: str):
         """
         handle a click on a new video in the list loaded into the main
         window dock
@@ -387,9 +384,42 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.behavior_archived.connect(self._archive_behavior_callback)
         dialog.exec_()
 
-    def _archive_behavior_callback(self, behavior):
+    def _archive_behavior_callback(self, behavior: str):
         self._project.archive_behavior(behavior)
         self._central_widget.remove_behavior(behavior)
+
+    def _project_loaded_callback(self):
+        """
+        Callback function to be called when the project is loaded.
+        """
+        self._project = self._project_loader_thread.project
+        self._project_loader_thread = None
+
+        # The central_widget updates main_control_widget
+        self.centralWidget().set_project(self._project)
+        self.video_list.set_project(self._project)
+
+        # Update which controls should be available
+        self._archive_behavior.setEnabled(True)
+        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
+        self.enable_social_features.setEnabled(self._project.can_use_social_features)
+        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
+        available_objects = self._project.static_objects
+        for static_object, menu_item in self.enable_landmark_features.items():
+            if static_object in available_objects:
+                menu_item.setEnabled(True)
+            else:
+                menu_item.setEnabled(False)
+        self._progress_dialog.close()
+
+    def _project_load_error_callback(self, error: Exception):
+        """
+        Callback function to be called when the project fails to load.
+        """
+        self._project_loader_thread = None
+        self._progress_dialog.close()
+        QtWidgets.QMessageBox.critical(
+            self, "Error loading project", str(error))
 
     def show_license_dialog(self):
         dialog = LicenseAgreementDialog(self)
