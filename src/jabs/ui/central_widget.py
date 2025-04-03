@@ -281,6 +281,10 @@ class CentralWidget(QtWidgets.QWidget):
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
 
+    @property
+    def controls(self):
+        return self._controls
+
     def _change_behavior(self, new_behavior):
         """
         make UI changes to reflect the currently selected behavior

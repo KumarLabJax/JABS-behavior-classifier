@@ -9,4 +9,5 @@ __all__ = [
     "get_bool_env_var",
     "hash_file",
     "hide_stderr",
+    "FINAL_TRAIN_SEED",
 ]
