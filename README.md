@@ -29,12 +29,12 @@ estimation neural networks. Single mouse pose files are generated from [this rep
 Multi-mouse is still under development. Contact us for more information.
 
 ## Requirements
-Developed and tested on Python 3.10. See the `pyproject.toml` 
+JABS was initially developed and tested on Python 3.10. See the `pyproject.toml` 
 for a list of required Python packages. These packages are available from the 
 Python Package Index (PyPI).
 
-Currently, the `pyproject.toml` file requires Python 3.10.X, but we hope to validate 
-for Python 3.12 and possibly 3.13 soon.
+Currently, the `pyproject.toml` file supports Python 3.10, 3.11, and 3.12, but we hope to validate 
+for Python 3.13 soon.
 
 See below for conda installation instructions.
 
