@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QUrl
 class UserGuideDialog(QDialog):
     """ dialog that shows html rendering of user guide """
 
-    _doc_dir = Path(os.path.realpath(__file__)).parent.parent.parent / 'docs'
+    _doc_dir = Path(os.path.realpath(__file__)).parent / 'docs'
 
     def __init__(self, app_name, *args, **kwargs):
         super().__init__(*args, **kwargs)
