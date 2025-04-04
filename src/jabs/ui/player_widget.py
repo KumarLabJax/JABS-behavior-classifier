@@ -1,13 +1,13 @@
 import time
-import typing
 from pathlib import Path
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtGui import QPaintEvent
 
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimationV3
-from jabs.video_stream import (VideoStream, label_identity, label_all_identities,
+from jabs.pose_estimation import PoseEstimationV3, PoseEstimation
+from jabs.video_stream import (VideoReader, label_identity, label_all_identities,
                                draw_track, overlay_pose, overlay_landmarks, overlay_segmentation)
 
 _CLOSEST_LABEL_COLOR = (255, 0, 0)
@@ -72,28 +72,31 @@ class _PlayerThread(QtCore.QThread):
 
     # signals used to update the UI components from the thread
     newImage = QtCore.Signal(dict)
-    updatePosition = QtCore.Signal(int)
+    updatePosition = QtCore.Signal(dict)
     endOfFile = QtCore.Signal()
 
-    def __init__(self, video_stream, pose_est, identity, show_track=False,
-                 overlay_pose=False, identities=None, overlay_landmarks=False, 
-                 overlay_segmentation=False):
+    def __init__(self, video_reader, pose_est, identity, show_track=False,
+                 overlay_pose_flag=False, identities=None, overlay_landmarks_flag=False,
+                 overlay_segmentation_flag=False):
         super().__init__()
-        self._stream = video_stream
+        self._video_reader = video_reader
         self._pose_est = pose_est
         self._identity = identity
         self._label_closest = False
         self._show_track = show_track
-        self._overlay_pose = overlay_pose
-        self._overlay_segmentation = overlay_segmentation
-        self._overlay_landmarks = overlay_landmarks
+        self._overlay_pose = overlay_pose_flag
+        self._overlay_segmentation = overlay_segmentation_flag
+        self._overlay_landmarks = overlay_landmarks_flag
         self._identities = identities if identities is not None else []
+        self._playing = False
+        self._lock = QtCore.QMutex()
 
-    def terminate(self):
+    def stop_playback(self):
         """
         tell run thread to stop playback
         """
-        self._stream.stop()
+        with QtCore.QMutexLocker(self._lock):
+            self._playing = False
 
     def set_identity(self, identity):
         """
@@ -121,6 +124,78 @@ class _PlayerThread(QtCore.QThread):
     def set_overlay_landmarks(self, new_val: bool):
         self._overlay_landmarks = new_val
 
+    def _read_and_emit_frame(self):
+        frame = self._video_reader.load_next_frame()
+        image = self._prepare_image(frame)
+        self.newImage.emit({'image': image, 'source': self._video_reader.filename})
+        self.updatePosition.emit({'index': frame['index'], 'source': self._video_reader.filename})
+
+    def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
+        if frame['data'] is None:
+            return None
+
+        if self._identity is not None:
+
+            if self._show_track:
+                draw_track(frame['data'], self._pose_est,
+                           self._identity, frame['index'])
+
+            if self._overlay_pose:
+                overlay_pose(
+                    frame['data'],
+                    *self._pose_est.get_points(frame['index'], self._identity)
+                )
+            if self._overlay_segmentation:
+                overlay_segmentation(
+                    frame['data'],
+                    self._pose_est,
+                    identity=self._identity,
+                    frameIndex=frame['index'],
+                    identities=self._identities
+                )
+            if self._overlay_landmarks:
+                overlay_landmarks(frame['data'], self._pose_est)
+
+            if self._label_closest:
+                closest_fov_id = _get_closest_animal_id(
+                    self._identity, frame['index'],
+                    self._pose_est, ClosestIdentityInfo._half_fov_deg)
+                if closest_fov_id is not None:
+                    label_identity(frame['data'], self._pose_est,
+                                   closest_fov_id, frame['index'],
+                                   color=_CLOSEST_FOV_LABEL_COLOR)
+
+                closest_id = _get_closest_animal_id(
+                    self._identity, frame['index'], self._pose_est)
+                if closest_id is not None and closest_id != closest_fov_id:
+                    label_identity(frame['data'], self._pose_est,
+                                   closest_id, frame['index'],
+                                   color=_CLOSEST_LABEL_COLOR)
+
+        # label all identities
+        label_all_identities(frame['data'],
+                             self._pose_est, self._identities,
+                             frame['index'], subject=self._identity)
+
+        # convert OpenCV image (numpy array) to QImage
+        image = QtGui.QImage(frame['data'], frame['data'].shape[1],
+                             frame['data'].shape[0],
+                             QtGui.QImage.Format_RGB888).rgbSwapped()
+
+        return image
+
+    def seek(self, position: int):
+        if not self._playing:
+            self._video_reader.seek(position)
+            self._read_and_emit_frame()
+
+    def load_new_video(self, video_reader: VideoReader, pose_est: PoseEstimation, identity: int, identities: list):
+        if not self._playing:
+            self._video_reader = video_reader
+            self._pose_est = pose_est
+            self._identity = identity
+            self._identities = identities
+
     def run(self):
         """
         method to be run as a thread during playback
@@ -130,70 +205,20 @@ class _PlayerThread(QtCore.QThread):
 
         # flag used to terminate loop after we've displayed the last frame
         end_of_file = False
-
-        # tell stream to start buffering frames
-        self._stream.start()
+        with QtCore.QMutexLocker(self._lock):
+            self._playing = True
 
         next_timestamp = 0
         start_time = 0
 
         # iterate until we've been told to stop (user clicks pause button)
         # or we reach end of file
-        while not self._stream.stopped and not end_of_file:
+        while self._playing and not end_of_file:
             now = time.perf_counter()
+            frame = self._video_reader.load_next_frame()
+            image = self._prepare_image(frame)
 
-            # grab next frame from stream buffer
-            frame = self._stream.read()
-
-            if frame['data'] is not None:
-                if self._identity is not None:
-
-                    if self._show_track:
-                        draw_track(frame['data'], self._pose_est,
-                                   self._identity, frame['index'])
-
-                    if self._overlay_pose:
-                        overlay_pose(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'], self._identity)
-                        )
-                    if self._overlay_segmentation:
-                        overlay_segmentation(
-                            frame['data'],
-                            self._pose_est,
-                            identity=self._identity,
-                            frameIndex=frame['index'],
-                            identities=self._identities
-                        )
-                    if self._overlay_landmarks:
-                        overlay_landmarks(frame['data'], self._pose_est)
-
-                    if self._label_closest:
-                        closest_fov_id = _get_closest_animal_id(
-                            self._identity, frame['index'],
-                            self._pose_est, ClosestIdentityInfo._half_fov_deg)
-                        if closest_fov_id is not None:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_fov_id, frame['index'],
-                                           color=_CLOSEST_FOV_LABEL_COLOR)
-
-                        closest_id = _get_closest_animal_id(
-                            self._identity, frame['index'], self._pose_est)
-                        if closest_id is not None and closest_id != closest_fov_id:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_id, frame['index'],
-                                           color=_CLOSEST_LABEL_COLOR)
-
-                # label all identities
-                label_all_identities(frame['data'],
-                                     self._pose_est, self._identities,
-                                     frame['index'], subject=self._identity)
-
-                # convert OpenCV image (numpy array) to QImage
-                image = QtGui.QImage(frame['data'], frame['data'].shape[1],
-                                     frame['data'].shape[0],
-                                     QtGui.QImage.Format_RGB888).rgbSwapped()
-
+            if image:
                 # don't update frame until we've shown the last one for the
                 # required duration
                 if start_time > 0:
@@ -206,9 +231,9 @@ class _PlayerThread(QtCore.QThread):
 
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
-                if not self._stream.stopped:
-                    self.newImage.emit({'image': image, 'source': self})
-                    self.updatePosition.emit(frame['index'])
+                if self._playing:
+                    self.newImage.emit({'image': image, 'source': self._video_reader.filename})
+                    self.updatePosition.emit({'index': frame['index'], 'source': self._video_reader.filename})
 
                 # update timestamp for when should the next frame be shown
                 next_timestamp += frame['duration']
@@ -284,7 +309,7 @@ class _FrameWidget(QtWidgets.QLabel):
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
 
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent):
         """
         override the paintEvent() handler to scale the image if the widget is
         resized.
@@ -358,7 +383,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # keep track of the current state
         self._playing = False
         self._seeking = False
-        self._loading = False
 
         # VideoStream object, will be initialized when video is loaded
         self._video_stream = None
@@ -375,7 +399,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # currently selected identity -- if set will be labeled in the video
         self._active_identity = None
 
-        # player thread spawned during playback
+        # player thread to read and prepare frames for display
         self._player_thread = None
 
         #  - setup Widget UI components
@@ -441,13 +465,11 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.setFocusPolicy(QtCore.Qt.NoFocus)
         self._position_slider.sliderMoved.connect(self._position_slider_moved,
                                                   QtCore.Qt.QueuedConnection)
-        self._position_slider.sliderPressed.connect(
-            self._position_slider_clicked)
-        self._position_slider.sliderReleased.connect(
-            self._position_slider_release)
+        self._position_slider.sliderPressed.connect(self._position_slider_clicked)
+        self._position_slider.sliderReleased.connect(self._position_slider_release)
         self._position_slider.setEnabled(False)
 
-        # -- setup the layout of the components
+        # -- set up the layout of the components
 
         # player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
@@ -468,7 +490,9 @@ class PlayerWidget(QtWidgets.QWidget):
         # make sure we terminate the player thread if it is still active
         # during destruction
         if self._player_thread:
-            self._stop_player_thread()
+            self._player_thread.stop_playback()
+            self._player_thread.wait()
+            self._player_thread = None
 
     def current_frame(self):
         """ return the current frame """
@@ -485,7 +509,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = None
         self._identities = None
         self._pose_est = None
-        self._active_identity = None
+        self._active_identity = 0
         self._position_slider.setValue(0)
         self._position_slider.setEnabled(False)
         self._play_button.setEnabled(False)
@@ -499,26 +523,16 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def show_closest(self, new_val: typing.Optional[bool]=None):
+    def show_closest(self, new_val: bool | None):
         if new_val is None:
             self._label_closest = not self._label_closest
         else:
             self._label_closest = new_val
 
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
-
         if self._player_thread:
             self._player_thread.label_closest(self._label_closest)
-        else:
-            # if not playing, reload the current frame to apply current
-            # labeling state
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
 
-    def show_track(self, new_val: typing.Optional[bool]=None):
+    def show_track(self, new_val: bool | None):
         """
         change "show track" state. Accepts a new boolean value, or toggles
         current state if no value given.
@@ -528,19 +542,10 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             self._show_track = new_val
 
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
-
         if self._player_thread:
             self._player_thread.set_show_track(self._show_track)
-        else:
-            # if not playing, reload current frame to apply current track state
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
 
-    def overlay_pose(self, new_val: typing.Optional[bool]=None):
+    def overlay_pose(self, new_val: bool | None):
         """
         change "overlay pose" state. Accepts a new boolean value, or toggles
         current state if no value given.
@@ -556,13 +561,12 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._player_thread:
             self._player_thread.set_overlay_pose(self._overlay_pose)
-        else:
-            # if not playing, reload current frame to apply current track state
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+            if not self._playing:
+                # if we are not playing, we need to update the current frame
+                # to show the overlay
+                self._seek(self._position_slider.value())
 
-    def overlay_segmentation(self, new_val: typing.Optional[bool]=None):
+    def overlay_segmentation(self, new_val: bool | None):
         """
         change "overlay segmentation" state. Accepts a new boolean value, or toggles
         current state if no value given.
@@ -572,19 +576,14 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             self._overlay_segmentation = new_val
 
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
-
         if self._player_thread:
             self._player_thread.set_overlay_segmentation(self._overlay_segmentation)
-        else:
-            # if not playing, reload current frame to apply current track state
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+            if not self._playing:
+                # if we are not playing, we need to update the current frame
+                # to show the overlay
+                self._seek(self._position_slider.value())
 
-    def overlay_landmarks(self, new_val: typing.Optional[bool]=None):
+    def overlay_landmarks(self, new_val: bool | None):
         """
         change "overlay landmarks" state. Accepts a new boolean value, or
         toggles current state if no value given.
@@ -594,25 +593,17 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             self._overlay_landmarks = new_val
 
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
-
         if self._player_thread:
             self._player_thread.set_overlay_landmarks(self._overlay_landmarks)
-        else:
-            # if not playing, reload current frame to apply current track state
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+            if not self._playing:
+                # if we are not playing, we need to update the current frame
+                # to show the overlay
+                self._seek(self._position_slider.value())
 
     def set_identities(self, identities):
         self._identities = identities
         if self._player_thread:
             self._player_thread.set_identities(self._identities)
-        else:
-            self._video_stream.seek(self._position_slider.value())
-            self._update_frame(self._video_stream.read())
 
     def load_video(self, path: Path, pose_est):
         """
@@ -622,48 +613,50 @@ class PlayerWidget(QtWidgets.QWidget):
         """
 
         # if we already have a video loaded make sure it is stopped
-        self.stop(flush=False)
+        if self._playing:
+            self.stop()
+            self._player_thread.wait()
         self.reset()
 
         # load the video and pose file
-        self._video_stream = VideoStream(path)
+        self._video_stream = VideoReader(path)
 
         self._pose_est = pose_est
 
-        # setup the position slider
+        # tell main window to populate the identity selection drop down
+        # this will cause set_active_identity() to be called
+        self.updateIdentities.emit(self._pose_est.identities)
+        self.set_identities(self._pose_est.identities)
+
+        # set up the position slider
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
         self._position_slider.setEnabled(True)
 
-        # tell main window to populate the identity selection drop down
-        # this will cause set_active_identity() to be called, which will load
-        # and display the current frame
-        self.updateIdentities.emit(self._pose_est.identities)
-        self.set_identities(self._pose_est.identities)
+        if self._player_thread is None:
+            self._player_thread = _PlayerThread(
+                self._video_stream, self._pose_est, self._active_identity,
+                self._show_track, self._overlay_pose, self._identities,
+                self._overlay_landmarks, self._overlay_segmentation)
+            self._player_thread.newImage.connect(self._display_image)
+            self._player_thread.updatePosition.connect(self._set_position)
+            self._player_thread.endOfFile.connect(self.stop)
+            self._player_thread.label_closest(self._label_closest)
+        else:
+            self._player_thread.load_new_video(self._video_stream, self._pose_est, self._active_identity, self._identities)
+
+        self._seek(0)
 
         # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
         self._enable_frame_buttons()
 
-    def stop(self, flush=True):
+    def stop(self):
         """
         stop playing and reset the play button to its initial state
         """
-        # don't do anything if a video hasn't been loaded
-        if self._video_stream is None:
-            return
-
         # if we have an active player thread, terminate
         if self._player_thread:
-            self._stop_player_thread()
-            if flush:
-                # seek to the current position of the slider -- it's possible a
-                # player thread had read a frame or two beyond that but the
-                # frames were discarded when they arrived at the UI thread
-                # after playback stopped. This makes sure we don't skip over
-                # those frames when playback resumes.
-                # this also has the effect of flushing the read buffer
-                self._video_stream.seek(self._position_slider.value())
-                self._update_frame(self._video_stream.read())
+            self._player_thread.stop_playback()
 
         # change the icon to play
         self._play_button.setIcon(
@@ -675,17 +668,17 @@ class PlayerWidget(QtWidgets.QWidget):
         self._enable_frame_buttons()
         self._playing = False
 
-    def _stop_player_thread(self):
-        self._player_thread.terminate()
-        self._player_thread.wait()
-        self._player_thread = None
+    def _seek(self, position: int):
+        self._player_thread.seek(position)
+        self.updateFrameNumber.emit(position)
+        self._update_time_display(position)
 
     def _position_slider_clicked(self):
         """
         Click event for position slider.
-        Seek to the new position of the slider. If the video is playing, the
-        current player thread is terminated, and we seek to the new position.
-        New frame is displayed.
+        Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
+        playback will resume when slider is released.
+        New frame is displayed with the updated position.
         """
 
         # this prevents the player thread from updating the position of the
@@ -693,32 +686,25 @@ class PlayerWidget(QtWidgets.QWidget):
         self._seeking = True
         pos = self._position_slider.value()
 
-        # if the video is playing, we stop the player thread and wait for it
-        # to terminate
-        if self._player_thread:
-            self._stop_player_thread()
+        # stop playback while the slider is being manipulated
+        self._player_thread.stop_playback()
 
         # seek to the slider position and update the displayed frame
-        self._video_stream.seek(pos)
-        self._update_frame(self._video_stream.read())
+        self._seek(pos)
 
     def _position_slider_moved(self):
         """
-        position slider move event. seek the video to the new frame and display
-        it
+        position slider move event. seek the video to the new frame and display it
         """
-        self._video_stream.seek(self._position_slider.value())
-        self._update_frame(self._video_stream.read())
+        self._seek(self._position_slider.value())
 
     def _position_slider_release(self):
         """
         release event for the position slider.
         The new position gets updated for the final time. If we were playing
         when we clicked the slider then we resume playing after releasing.
-        :return:
         """
-        self._video_stream.seek(self._position_slider.value())
-        self._update_frame(self._video_stream.read())
+        self._seek(self._position_slider.value())
         self._seeking = False
 
         # resume playing
@@ -746,9 +732,12 @@ class PlayerWidget(QtWidgets.QWidget):
     def toggle_play(self):
         """
         handle clicking on the play/pause button
+
+        don't do anything if a video hasn't been loaded, or if we are seeking
+        (user clicks space bar while dagging slider)
         """
-        # don't do anything if a video hasn't been loaded, or if we are seeking
-        if self._video_stream is None or self._seeking:
+
+        if self._player_thread is None or self._seeking:
             return
 
         if self._playing:
@@ -768,9 +757,8 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frames: optional, number of frames to advance
         """
 
-        # don't do anything if a video hasn't been loaded or if the video is
-        # playing
-        if self._video_stream is None or self._playing:
+        # don't do anything if a video hasn't been loaded or if the video is playing
+        if self._player_thread is None or self._playing:
             return
 
         new_frame = min(self._position_slider.value() + frames,
@@ -781,17 +769,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # frame and advance the slider.
         if new_frame != self._position_slider.value():
             self._position_slider.setValue(new_frame)
-
-            if frames == 1:
-                # make sure the buffer isn't empty
-                self._video_stream.load_next_frame()
-            else:
-                # skipping ahead by more than one frame, can rely on the
-                # basic read ahead buffering to get the frame
-                self._video_stream.seek(new_frame)
-
-            frame = self._video_stream.read()
-            self._update_frame(frame)
+            self._player_thread.seek(new_frame)
 
     def previous_frame(self, frames=1):
         """
@@ -799,8 +777,7 @@ class PlayerWidget(QtWidgets.QWidget):
         :param frames: optional number of frames to move back
         """
 
-        # don't do anything if a video hasn't been loaded or if the video is
-        # playing
+        # don't do anything if a video hasn't been loaded or if the video is playing
         if self._video_stream is None or self._playing:
             return
 
@@ -811,24 +788,19 @@ class PlayerWidget(QtWidgets.QWidget):
         # new frame and display it.
         if new_frame != self._position_slider.value():
             self._position_slider.setValue(new_frame)
-            self._video_stream.seek(new_frame)
-            frame = self._video_stream.read()
-            self._update_frame(frame)
+            self._player_thread.seek(new_frame)
 
     def set_active_identity(self, identity):
         """ set an active identity, which will be labeled in the video """
 
         # don't do anything if a video isn't loaded
-        if self._video_stream is None:
+        if self._player_thread is None:
             return
 
         self._active_identity = identity
-        if self._player_thread:
-            self._player_thread.set_identity(identity)
-        else:
-            self._video_stream.seek(self._position_slider.value())
-            self._video_stream.load_next_frame()
-            self._update_frame(self._video_stream.read())
+        self._player_thread.set_identity(identity)
+        if not self._playing:
+            self._player_thread.seek(self._position_slider.value())
 
     @property
     def pixmap_clicked(self):
@@ -856,64 +828,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._next_frame_button.setEnabled(False)
         self._previous_frame_button.setEnabled(False)
 
-    def _update_frame(self, frame):
-        """
-        update the displayed frame
-        :param frame: dict returned by video_stream.read()
-        """
-        if frame['index'] != -1:
-            if self._identities:
-
-                if self._active_identity is not None:
-                    if self._show_track:
-                        draw_track(frame['data'], self._pose_est,
-                                   self._active_identity, frame['index'])
-
-                    if self._overlay_pose:
-                        overlay_pose(
-                            frame['data'],
-                            *self._pose_est.get_points(frame['index'],
-                                                       self._active_identity)
-                        )
-                    if self._overlay_segmentation:
-                        overlay_segmentation(
-                            frame['data'],
-                            self._pose_est,
-                            self._active_identity,
-                            frame['index'],
-                            identities=self._identities
-                        )
-                    if self._overlay_landmarks:
-                        overlay_landmarks(frame['data'], self._pose_est)
-
-                    if self._label_closest:
-                        closest_fov_id = _get_closest_animal_id(
-                            self._active_identity, frame['index'],
-                            self._pose_est, ClosestIdentityInfo._half_fov_deg)
-                        if closest_fov_id is not None:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_fov_id, frame['index'],
-                                           color=_CLOSEST_FOV_LABEL_COLOR)
-
-                        closest_id = _get_closest_animal_id(self._active_identity,
-                                                            frame['index'],
-                                                            self._pose_est)
-                        if closest_id is not None and closest_id != closest_fov_id:
-                            label_identity(frame['data'], self._pose_est,
-                                           closest_id, frame['index'],
-                                           color=_CLOSEST_LABEL_COLOR)
-
-                label_all_identities(frame['data'], self._pose_est,
-                                     self._identities, frame['index'],
-                                     subject=self._active_identity)
-
-            image = QtGui.QImage(frame['data'], frame['data'].shape[1],
-                                 frame['data'].shape[0],
-                                 QtGui.QImage.Format_RGB888).rgbSwapped()
-            self._display_image({'image': image})
-            self.updateFrameNumber.emit(frame['index'])
-            self._update_time_display(frame['index'])
-
     def _update_time_display(self, frame_number):
         """
         update the time and current frame labels with current frame
@@ -929,39 +843,35 @@ class PlayerWidget(QtWidgets.QWidget):
     def _display_image(self, data: dict):
         """
         display a new QImage sent from the player thread
-        :param image: QImage to display as next frame
+        :param data: dict emitted by player thread
+
+        data dict includes QImage to display as next frame as well as the source video
         """
-        image = data['image']
-        source = data.get('source')
-        # make sure the video stream hasn't been closed since this signal
-        # was sent
-        if self._video_stream is None:
+
+        # When switching videos, it's possible us to receive frames emitted by the player thread for the
+        # previous video. We need to ignore those frames.
+        if data['source'] != self._video_stream.filename:
             return
 
-        # if the frame came from a player thread, the data dict also includes
-        # a reference to the player thread object that sent it.
-        # We want to ignore frames being sent by a player thread other than
-        # self._player_thread. When switching videos, it's possible for the
-        # previous player thread to send it's last frame before terminating
-        # and have that frame overwrite the first frame of the newly loaded vid
-        if source and source != self._player_thread:
-            return
-
-        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
+        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(data['image']))
 
     @QtCore.Slot(int)
-    def _set_position(self, frame_number: int):
+    def _set_position(self, data: dict):
         """
         update the value of the position slider to the frame number sent from
         the player thread
         :param frame_number: new value for the progress slider
         """
-        # don't update the slider value if user is seeking, since that can
-        # interfere.
-        # Also make sure the video stream hasn't been closed since the signal
-        # was sent.
-        if not self._playing or self._seeking or self._video_stream is None:
+
+        # ignore events from previous videos that haven't been processed yet
+        if data["source"] != self._video_stream.filename:
             return
+
+        # don't update the slider value if user is seeking, since that can interfere.
+        if self._seeking:
+            return
+
+        frame_number = data["index"]
 
         self._position_slider.setValue(frame_number)
         self.updateFrameNumber.emit(frame_number)
@@ -969,15 +879,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self):
         """
-        start a new player thread and connect it to the UI components
+        start a video playback
         """
-        self._player_thread = _PlayerThread(
-            self._video_stream, self._pose_est, self._active_identity,
-            self._show_track, self._overlay_pose, self._identities,
-            self._overlay_landmarks, self._overlay_segmentation)
-        self._player_thread.newImage.connect(self._display_image)
-        self._player_thread.updatePosition.connect(self._set_position)
-        self._player_thread.endOfFile.connect(self.stop)
-        self._player_thread.label_closest(self._label_closest)
         self._player_thread.start()
         self._playing = True

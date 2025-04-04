@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import typing
 from pathlib import Path
@@ -7,8 +9,7 @@ from .pose_est_v5 import PoseEstimationV5
 
 
 class PoseEstimationV6(PoseEstimationV5):
-    '''Version 6 of the Pose Estimation class.
-    '''
+    """Version 6 of the Pose Estimation class."""
 
     def __init__(self, file_path: Path,
                  cache_dir: typing.Optional[Path] = None,
@@ -42,11 +43,11 @@ class PoseEstimationV6(PoseEstimationV5):
         self._segmentation_dict["seg_data"] = self._segmentation_sort(self._segmentation_dict["seg_data"], self._segmentation_dict["longterm_seg_id"])
         self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(self._segmentation_dict["seg_external_flag"], self._segmentation_dict["longterm_seg_id"])
 
-    def get_seg_id(self, frameIndex: int, identity: int) -> int:
+    def get_seg_id(self, frame_index: int, identity: int) -> np.ndarray[Any, Any] | None:
         if self._segmentation_dict["longterm_seg_id"] is None:
             return None
         else:
-            return self._segmentation_dict['longterm_seg_id'][frameIndex, identity]
+            return self._segmentation_dict['longterm_seg_id'][frame_index, identity]
 
     @classmethod
     def _segmentation_sort(cls, seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
@@ -68,44 +69,46 @@ class PoseEstimationV6(PoseEstimationV5):
             sorted_seg_data[animal_preset_frames, animal_idx, ...] = seg_data[np.where(detected_idxs)]
         return sorted_seg_data
 
-    def get_segmentation_data(self, identity: int) -> np.ndarray:
-        ''' Given a particular identity, return the appropriate segmentation
-        data.
+    def get_segmentation_data(self, identity: int) -> np.ndarray | None:
+        """
+        Given a particular identity, return the appropriate segmentation data.
         :param identity: identity to return segmentation data for.
-        :return: the ndarray of segmentation data (if it exists) otherwise the 
+        :return: the ndarray of segmentation data (if it exists) otherwise the
             function returns None.
-        '''
+        """
 
         if self._segmentation_dict["seg_data"] is None:
             return None
         else:
             return self._segmentation_dict['seg_data'][:, identity, ...]
 
-    def get_segmentation_flags(self, identity: int) -> np.ndarray:
-        ''' Given a particular identity, return the appropriate segmentation
+    def get_segmentation_flags(self, identity: int) -> np.ndarray | None:
+        """
+        Given a particular identity, return the appropriate segmentation
         internal/external flags.
         :param identity: identity to return segmentation flags for.
-        :return: the ndarray of segmentation flags (if it exists) otherwise the 
+        :return: the ndarray of segmentation flags (if it exists) otherwise the
             function returns None.
-        '''
+        """
 
         if self._segmentation_dict["seg_external_flag"] is None:
             return None
         else:
             return self._segmentation_dict['seg_external_flag'][:, identity, ...] 
 
-    def get_segmentation_data_per_frame(self, frameIndex, identity: int) -> np.ndarray:
-        ''' Given a particular identity, return the appropriate segmentation
-        data.
+    def get_segmentation_data_per_frame(self, frame_index, identity: int) -> np.ndarray | None:
+        """
+        Given a particular identity, return the appropriate segmentation data.
         :param identity: identity to return segmentation data for.
-        :return: the ndarray of segmentation data (if it exists) otherwise the 
+        :param frame_index: index of the frame to return segmentation data for.
+        :return: the ndarray of segmentation data (if it exists) otherwise the
             function returns None.
-        '''
+        """
 
         if self._segmentation_dict["seg_data"] is None:
             return None
         else:
-            return self._segmentation_dict['seg_data'][frameIndex, identity, ...]
+            return self._segmentation_dict['seg_data'][frame_index, identity, ...]
 
     @property
     def format_major_version(self) -> int:

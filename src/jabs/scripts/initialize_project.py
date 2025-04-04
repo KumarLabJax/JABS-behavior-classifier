@@ -17,7 +17,7 @@ import jabs.feature_extraction
 import jabs.project
 from jabs.types import ProjectDistanceUnit
 from jabs.cli import cli_progress_bar
-from jabs.video_stream import VideoStream
+from jabs.video_stream import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5
 
@@ -58,7 +58,7 @@ def validate_video_worker(params: dict):
 
     # make sure we can open the video
     try:
-        vid_frames = VideoStream.get_nframes_from_file(vid_path)
+        vid_frames = VideoReader.get_nframes_from_file(vid_path)
     except:
         return {'video': params['video'], 'okay': False,
                 'message': "Unable to open video"}
