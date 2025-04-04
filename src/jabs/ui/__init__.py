@@ -12,3 +12,22 @@ from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
+from .user_guide_viewer_widget import UserGuideDialog
+
+__all__ = [
+    'AboutDialog',
+    'CentralWidget',
+    'ClassifyThread',
+    'FrameLabelsWidget',
+    'GlobalInferenceWidget',
+    'IdentityComboBox',
+    'KFoldSliderWidget',
+    'FrameLabelCountWidget',
+    'MainWindow',
+    'ManualLabelWidget',
+    'PlayerWidget',
+    'PredictionVisWidget',
+    'TimelineLabelWidget',
+    'TrainingThread',
+    'UserGuideDialog'
+]
