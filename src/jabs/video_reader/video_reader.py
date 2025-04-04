@@ -81,15 +81,15 @@ class VideoReader:
         """ grab the next frame from the file """
         (grabbed, frame) = self.stream.read()
         if grabbed:
-            frame = {
+            data = {
                 'data': frame,
                 'index': self._frame_index,
                 'duration': self._duration
             }
             self._frame_index += 1
         else:
-            frame = self._EOF
-        return frame
+            data = self._EOF
+        return data
 
     @staticmethod
     def _resize_image(image, width=None, height=None, interpolation=None):

@@ -652,7 +652,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self):
         """
-        start a video playback
+        start video playback in player thread
         """
         self._player_thread.start()
         self._playing = True
