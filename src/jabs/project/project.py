@@ -777,6 +777,17 @@ class Project:
             'groups': np.concatenate(all_groups),
         }, group_mapping
 
+    def clear_cache(self):
+        if self._cache_dir is not None:
+            for f in self._cache_dir.glob('*'):
+                try:
+                    if f.is_dir():
+                        shutil.rmtree(f)
+                    else:
+                        f.unlink()
+                except OSError:
+                    pass
+
     def __update_version(self):
         """ update the version number saved in project metadata """
         # only update if the version in the metadata is different from current

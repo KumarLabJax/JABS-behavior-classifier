@@ -77,12 +77,12 @@ class MainWindow(QtWidgets.QMainWindow):
         app_menu.addAction(exit_action)
 
         # export training data action
-        self._export_training = QtGui.QAction('Export Training Data', self)
-        self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_T))
-        self._export_training.setStatusTip('Export training data for this classifier')
-        self._export_training.setEnabled(False)
-        self._export_training.triggered.connect(self._export_training_data)
-        file_menu.addAction(self._export_training)
+        export_training = QtGui.QAction('Export Training Data', self)
+        export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_T))
+        export_training.setStatusTip('Export training data for this classifier')
+        export_training.setEnabled(False)
+        export_training.triggered.connect(export_training_data)
+        file_menu.addAction(export_training)
 
         # archive behavior action
         self._archive_behavior = QtGui.QAction('Archive Behavior', self)
@@ -90,6 +90,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._archive_behavior.setEnabled(False)
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
+
+        # clear cache action
+        self._clear_cache = QtGui.QAction('Clear Project Cache', self)
+        self._clear_cache.setStatusTip('Clear Project Cache')
+        self._clear_cache.setEnabled(False)
+        self._clear_cache.triggered.connect(self._clear_cache_action)
+        file_menu.addAction(self._clear_cache)
 
         # video playlist menu item
         self.view_playlist = QtGui.QAction('View Playlist', self)
@@ -176,7 +183,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # handle event to set status of File-Export Training Data action
         self._central_widget.export_training_status_change.connect(
-            self._export_training.setEnabled)
+            export_training.setEnabled)
 
     def keyPressEvent(self, event: QKeyEvent):
         """
@@ -401,6 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update which controls should be available
         self._archive_behavior.setEnabled(True)
+        self._clear_cache.setEnabled(True)
         self.enable_cm_units.setEnabled(self._project.is_cm_unit)
         self.enable_social_features.setEnabled(self._project.can_use_social_features)
         self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
@@ -420,6 +428,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
         QtWidgets.QMessageBox.critical(
             self, "Error loading project", str(error))
+
+    def _clear_cache_action(self):
+        """
+        Clear the cache for the current project. Opens a dialog to get user confirmation first.
+        """
+
+        app = QtWidgets.QApplication.instance()
+        dont_use_native_dialogs = QtWidgets.QApplication.instance().testAttribute(
+            Qt.ApplicationAttribute.AA_DontUseNativeDialogs)
+
+        if dont_use_native_dialogs is False:
+            # QMessageBox style is not ideal (on macOS it shows a large folder icon in the message box), so we set the
+            # attribute to use Qt style
+            app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
+
+        result = QtWidgets.QMessageBox.warning(
+            self,
+            "Clear Cache",
+            "Are you sure you want to clear the project cache?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+
+        if dont_use_native_dialogs is False:
+            # reset the attribute to use native dialogs
+            app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, False)
+
+        if result == QtWidgets.QMessageBox.Yes:
+            self._project.clear_cache()
+            # need to reload the current video to force the pose file to reload
+            self._central_widget.load_video(self._project.video_path(self.video_list.selected_video))
+            self.display_status_message("Cache cleared", 3000)
 
     def show_license_dialog(self):
         dialog = LicenseAgreementDialog(self)
