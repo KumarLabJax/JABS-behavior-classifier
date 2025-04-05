@@ -438,9 +438,9 @@ class MainWindow(QtWidgets.QMainWindow):
         dont_use_native_dialogs = QtWidgets.QApplication.instance().testAttribute(
             Qt.ApplicationAttribute.AA_DontUseNativeDialogs)
 
+        # if app is currently set to use native dialogs, we will temporarily set it to use Qt dialogs
+        # the native style, at least on macOS, is not ideal so we'll force the Qt dialog instead
         if dont_use_native_dialogs is False:
-            # QMessageBox style is not ideal (on macOS it shows a large folder icon in the message box), so we set the
-            # attribute to use Qt style
             app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
 
         result = QtWidgets.QMessageBox.warning(
@@ -451,9 +451,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.No
         )
 
-        if dont_use_native_dialogs is False:
-            # reset the attribute to use native dialogs
-            app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, False)
+        # restore the original setting
+        app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, dont_use_native_dialogs)
 
         if result == QtWidgets.QMessageBox.Yes:
             self._project.clear_cache()
