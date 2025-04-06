@@ -18,8 +18,8 @@ from jabs.pose_estimation import get_pose_path, open_pose_file, \
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
 from jabs.version import version_str
-from jabs.video_stream import VideoReader
-from jabs.video_stream.utilities import get_frame_count, get_fps
+from jabs.video_reader import VideoReader
+from jabs.video_reader.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 2
