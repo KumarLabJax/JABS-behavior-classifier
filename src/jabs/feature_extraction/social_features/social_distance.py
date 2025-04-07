@@ -14,7 +14,7 @@ class ClosestIdentityInfo:
 
     # TODO  For now this is taken from the ICY paper where the full field of
     # view is 240 degrees. Do we want this to be configurable?
-    _half_fov_deg = 120
+    HALF_FOV_DEGREE = 120
 
     def __init__(self, poses: PoseEstimation, identity: int,
                  pixel_scale: float):
@@ -66,7 +66,7 @@ class ClosestIdentityInfo:
                                 self_base_neck_point,
                                 other_centroid)
 
-                            if abs(view_angle) <= self._half_fov_deg:
+                            if abs(view_angle) <= self.HALF_FOV_DEGREE:
                                 # other animal is in FoV
                                 if closest_fov_dist is None or curr_dist < closest_fov_dist:
                                     self._closest_fov_identities[frame] = curr_id

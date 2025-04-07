@@ -268,15 +268,14 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.show_track(show)
 
     # main window -> central_widget -> player_widget
-    # "checked" seems like a more intuitive parameter name.
-    def overlay_pose(self, new_val: bool):
-        self._player_widget.overlay_pose(new_val)
+    def overlay_pose(self, checked: bool):
+        self._player_widget.overlay_pose(checked)
 
-    def overlay_landmarks(self, new_val: bool):
-        self._player_widget.overlay_landmarks(new_val)
+    def overlay_landmarks(self, checked: bool):
+        self._player_widget.overlay_landmarks(checked)
 
-    def overlay_segmentation(self, new_val: bool):
-        self._player_widget.overlay_segmentation(new_val)
+    def overlay_segmentation(self, checked: bool):
+        self._player_widget.overlay_segmentation(checked)
 
     def remove_behavior(self, behavior: str):
         self._controls.remove_behavior(behavior)
