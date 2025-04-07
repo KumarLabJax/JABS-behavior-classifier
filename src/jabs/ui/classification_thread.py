@@ -3,7 +3,7 @@ import pandas as pd
 from PySide6 import QtCore
 
 from jabs.feature_extraction import IdentityFeatures, DEFAULT_WINDOW_SIZE
-from jabs.video_stream.utilities import get_fps
+from jabs.video_reader.utilities import get_fps
 
 
 class ClassifyThread(QtCore.QThread):

@@ -18,8 +18,8 @@ from jabs.pose_estimation import get_pose_path, open_pose_file, \
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
 from jabs.version import version_str
-from jabs.video_stream import VideoStream
-from jabs.video_stream.utilities import get_frame_count, get_fps
+from jabs.video_reader import VideoReader
+from jabs.video_reader.utilities import get_frame_count, get_fps
 from .video_labels import VideoLabels
 
 _PREDICTION_FILE_VERSION = 2
@@ -111,7 +111,7 @@ class Project:
             for v in self.videos:
                 path = get_pose_path(self.video_path(v))
                 pose_frames = get_frames_from_file(path)
-                vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
+                vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
                 if pose_frames != vid_frames:
                     print(f"{v}: video and pose file have different number of frames",
                           file=sys.stderr)

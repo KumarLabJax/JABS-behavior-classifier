@@ -12,7 +12,7 @@ def version_str():
         # not installed as a package, assume we're running out of a cloned git repo without running `poetry install`
         # try to get the version from the pyproject.toml file
 
-        # placeholder string in case we can't get verson from the pyproject.toml file for some reason
+        # placeholder string in case we can't get version from the pyproject.toml file for some reason
         version = "dev"
 
         pyproject_file = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
