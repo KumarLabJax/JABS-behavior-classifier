@@ -318,7 +318,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_pose(self, new_val: bool | None):
+    def overlay_pose(self, new_val: bool | None = None):
         """
         change "overlay pose" state. Accepts a new boolean value, or toggles
         current state if no value given.
@@ -336,7 +336,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_segmentation(self, new_val: bool | None):
+    def overlay_segmentation(self, new_val: bool | None = None):
         """
         change "overlay segmentation" state. Accepts a new boolean value, or toggles
         current state if no value given.
@@ -353,7 +353,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_landmarks(self, new_val: bool | None):
+    def overlay_landmarks(self, new_val: bool | None = None):
         """
         change "overlay landmarks" state. Accepts a new boolean value, or
         toggles current state if no value given.
@@ -649,7 +649,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self):
         """
-        start a video playback
+        start video playback in player thread
         """
         self._player_thread.start()
         self._playing = True

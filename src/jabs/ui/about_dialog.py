@@ -23,7 +23,7 @@ class AboutDialog(QDialog):
         layout.addWidget(label, alignment=Qt.AlignCenter)
 
         layout.addWidget(QLabel(
-            "Copyright 2021 The Jackson Laboratory. All Rights Reserved"),
+            "Copyright 2025 The Jackson Laboratory. All Rights Reserved"),
             alignment=Qt.AlignCenter)
 
         email_label = QLabel("<a href='mailto:jabs@jax.org'>jabs@jax.org</a>")

@@ -10,9 +10,9 @@ from PySide6.QtCore import Qt, QUrl
 class UserGuideDialog(QDialog):
     """ dialog that shows html rendering of user guide """
 
-    _doc_dir = Path(os.path.realpath(__file__)).parent.parent.parent / 'docs'
+    _doc_dir = Path(os.path.realpath(__file__)).parent / 'docs'
 
-    def __init__(self, app_name, *args, **kwargs):
+    def __init__(self, app_name: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setWindowTitle(f"{app_name} User Guide")
         self.resize(1000, 600)
@@ -38,7 +38,7 @@ class UserGuideDialog(QDialog):
         base_url = QUrl(f'{user_guide_path.parent.as_uri()}/')
 
         try:
-            html = markdown2.markdown_path(user_guide_path,  extras=['fenced-code-blocks'])
+            html = markdown2.markdown_path(str(user_guide_path),  extras=['fenced-code-blocks'])
         except:
             # if there is any error rendering the markdown as html, display
             # an error message instead
