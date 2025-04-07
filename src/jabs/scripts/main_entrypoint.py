@@ -1,7 +1,9 @@
 import argparse
 import sys
+from pathlib import Path
 
 from PySide6 import QtWidgets
+from PySide6.QtGui import QIcon
 
 from jabs.ui import MainWindow
 from jabs.constants import APP_NAME, APP_NAME_LONG
@@ -14,6 +16,12 @@ def main():
     """
 
     app = QtWidgets.QApplication(sys.argv)
+
+    try:
+        icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
+        app.setWindowIcon(QIcon(str(icon_path)))
+    except:
+        pass
 
     main_window = MainWindow(app_name=APP_NAME, app_name_long=APP_NAME_LONG)
 
