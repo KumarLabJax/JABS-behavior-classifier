@@ -220,7 +220,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
         self._project_loader_thread.start()
 
-
     def behavior_changed_event(self, new_behavior: str):
         """ menu items to change when a new behavior is selected. """
         # skip if no behavior assigned (only should occur during new project)

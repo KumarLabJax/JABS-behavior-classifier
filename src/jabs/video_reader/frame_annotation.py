@@ -77,7 +77,7 @@ def label_identity(img, pose_est, identity, frame_index,
         center = shape.centroid
 
         # draw a marker at this location.
-        cv2.circle(img, (int(center.x), int(center.y)), 2, color,
+        cv2.circle(img, (int(center.x), int(center.y)), 4, color,
                    -1, lineType=cv2.LINE_AA)
 
 

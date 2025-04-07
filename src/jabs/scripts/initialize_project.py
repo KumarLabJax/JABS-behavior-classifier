@@ -17,7 +17,7 @@ import jabs.feature_extraction
 import jabs.project
 from jabs.types import ProjectDistanceUnit
 from jabs.cli import cli_progress_bar
-from jabs.video_stream import VideoReader
+from jabs.video_reader import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5
 
