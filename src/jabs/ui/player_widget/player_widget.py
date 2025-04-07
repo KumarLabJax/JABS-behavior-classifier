@@ -328,9 +328,6 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             self._overlay_pose = new_val
 
-        # don't do anything else if a video isn't loaded
-        if self._video_stream is None:
-            return
 
         if self._player_thread:
             self._player_thread.set_overlay_pose(self._overlay_pose)
