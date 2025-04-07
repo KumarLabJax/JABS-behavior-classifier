@@ -81,6 +81,7 @@ class VideoReader:
         """ grab the next frame from the file """
         (grabbed, frame) = self.stream.read()
         if grabbed:
+
             data = {
                 'data': frame,
                 'index': self._frame_index,

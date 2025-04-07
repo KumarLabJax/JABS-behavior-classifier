@@ -301,15 +301,15 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show/hide the overlay
                 self._seek(self._position_slider.value())
 
-    def show_track(self, new_val: bool | None = None):
+    def show_track(self, enabled: bool | None = None):
         """
         change "show track" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
-        if new_val is None:
+        if enabled is None:
             self._show_track = not self._show_track
         else:
-            self._show_track = new_val
+            self._show_track = enabled
 
         if self._player_thread:
             self._player_thread.set_show_track(self._show_track)
@@ -318,15 +318,15 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_pose(self, new_val: bool | None = None):
+    def overlay_pose(self, enabled: bool | None = None):
         """
         change "overlay pose" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
-        if new_val is None:
+        if enabled is None:
             self._overlay_pose = not self._overlay_pose
         else:
-            self._overlay_pose = new_val
+            self._overlay_pose = enabled
 
 
         if self._player_thread:
@@ -336,15 +336,15 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_segmentation(self, new_val: bool | None = None):
+    def overlay_segmentation(self, enabled: bool | None = None):
         """
         change "overlay segmentation" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
-        if new_val is None:
+        if enabled is None:
             self._overlay_segmentation = not self._overlay_segmentation
         else:
-            self._overlay_segmentation = new_val
+            self._overlay_segmentation = enabled
 
         if self._player_thread:
             self._player_thread.set_overlay_segmentation(self._overlay_segmentation)
@@ -353,15 +353,15 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_landmarks(self, new_val: bool | None = None):
+    def overlay_landmarks(self, enabled: bool | None = None):
         """
         change "overlay landmarks" state. Accepts a new boolean value, or
         toggles current state if no value given.
         """
-        if new_val is None:
+        if enabled is None:
             self._overlay_landmarks = not self._overlay_landmarks
         else:
-            self._overlay_landmarks = new_val
+            self._overlay_landmarks = enabled
 
         if self._player_thread:
             self._player_thread.set_overlay_landmarks(self._overlay_landmarks)
