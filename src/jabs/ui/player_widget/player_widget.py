@@ -339,7 +339,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 # to show the overlay
                 self._seek(self._position_slider.value())
 
-    def overlay_segmentation(self, new_val: bool | None = none):
+    def overlay_segmentation(self, new_val: bool | None = None):
         """
         change "overlay segmentation" state. Accepts a new boolean value, or toggles
         current state if no value given.
