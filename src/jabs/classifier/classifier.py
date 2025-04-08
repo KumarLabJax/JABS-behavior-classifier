@@ -447,8 +447,12 @@ class Classifier:
                 warnings.simplefilter("ignore", category=FutureWarning)
                 result = self._classifier.predict(self.sort_features_to_classify(features))
             return result
-        # Random forests and gradient boost can't handle NAs, so fill them with 0s
-        return self._classifier.predict(self.sort_features_to_classify(features.fillna(0)))
+        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+        return self._classifier.predict(
+            self.sort_features_to_classify(
+                features.replace([np.inf, -np.inf], 0).fillna(0)
+            )
+        )
 
     def predict_proba(self, features):
         """
@@ -459,8 +463,12 @@ class Classifier:
                 warnings.simplefilter("ignore", category=FutureWarning)
                 result = self._classifier.predict_proba(self.sort_features_to_classify(features))
             return result
-        # Random forests and gradient boost can't handle NAs, so fill them with 0s
-        return self._classifier.predict_proba(self.sort_features_to_classify(features.fillna(0)))
+        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+        return self._classifier.predict_proba(
+            self.sort_features_to_classify(
+                features.replace([np.inf, -np.inf], 0).fillna(0)
+            )
+        )
 
     def save(self, path: Path):
         joblib.dump(self, path)
@@ -468,7 +476,7 @@ class Classifier:
         # If the classifier was not generated from exported training data
         # we can hash the serialized classifier.
         # Note that this hash changes every time the "train" button is
-        # pressed, whether or not the training data changes.
+        # pressed, regardless of whether the training data changes.
         if self._classifier_file is None:
             self._classifier_file = Path(path).name
             self._classifier_hash = hash_file(Path(path))
