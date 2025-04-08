@@ -38,7 +38,6 @@ class PlayerThread(QtCore.QThread):
         self._overlay_segmentation = overlay_segmentation_flag
         self._overlay_landmarks = overlay_landmarks_flag
         self._identities = identities if identities is not None else []
-        self._lock = QtCore.QMutex()
 
     def stop_playback(self):
         """
