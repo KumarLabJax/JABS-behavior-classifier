@@ -38,15 +38,13 @@ class PlayerThread(QtCore.QThread):
         self._overlay_segmentation = overlay_segmentation_flag
         self._overlay_landmarks = overlay_landmarks_flag
         self._identities = identities if identities is not None else []
-        self._playing = False
         self._lock = QtCore.QMutex()
 
     def stop_playback(self):
         """
         tell run thread to stop playback
         """
-        with QtCore.QMutexLocker(self._lock):
-            self._playing = False
+        self.requestInterruption()
 
     def set_identity(self, identity):
         """
@@ -132,12 +130,12 @@ class PlayerThread(QtCore.QThread):
         return image
 
     def seek(self, position: int):
-        if not self._playing:
+        if not self.isRunning():
             self._video_reader.seek(position)
             self._read_and_emit_frame()
 
     def load_new_video(self, video_reader: VideoReader, pose_est: PoseEstimation, identity: int, identities: list):
-        if not self._playing:
+        if not self.isRunning():
             self._video_reader = video_reader
             self._pose_est = pose_est
             self._identity = identity
@@ -150,17 +148,13 @@ class PlayerThread(QtCore.QThread):
         and sending to the UI component for display.
         """
 
-        # flag used to terminate loop after we've displayed the last frame
         end_of_file = False
-        with QtCore.QMutexLocker(self._lock):
-            self._playing = True
-
         next_timestamp = 0
         start_time = 0
 
         # iterate until we've been told to stop (user clicks pause button)
         # or we reach end of file
-        while self._playing and not end_of_file:
+        while not self.isInterruptionRequested() and not end_of_file:
             now = time.perf_counter()
             frame = self._video_reader.load_next_frame()
             image = self._prepare_image(frame)
@@ -178,7 +172,7 @@ class PlayerThread(QtCore.QThread):
 
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
-                if self._playing:
+                if not self.isInterruptionRequested():
                     self.newImage.emit({'image': image, 'source': self._video_reader.filename})
                     self.updatePosition.emit({'index': frame['index'], 'source': self._video_reader.filename})
 
