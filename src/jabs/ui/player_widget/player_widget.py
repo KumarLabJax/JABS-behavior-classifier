@@ -142,6 +142,9 @@ class PlayerWidget(QtWidgets.QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # make sure the player thread is stopped when quitting the application
+        QtCore.QCoreApplication.instance().aboutToQuit.connect(self.cleanup)
+
         # keep track of the current state
         self._playing = False
         self._seeking = False
@@ -248,10 +251,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
-    def __del__(self):
-        # make sure we terminate the player thread if it is still active
-        # during destruction
-        if self._player_thread:
+    def cleanup(self):
+        """
+        cleanup function to stop the player thread if it is running
+        """
+        if self._player_thread is not None:
             self._player_thread.stop_playback()
             self._player_thread.wait()
             self._player_thread = None
@@ -327,7 +331,6 @@ class PlayerWidget(QtWidgets.QWidget):
             self._overlay_pose = not self._overlay_pose
         else:
             self._overlay_pose = enabled
-
 
         if self._player_thread:
             self._player_thread.set_overlay_pose(self._overlay_pose)
