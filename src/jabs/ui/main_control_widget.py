@@ -31,7 +31,7 @@ class MainControlWidget(QtWidgets.QWidget):
     classifier_changed = QtCore.Signal()
     behavior_changed = QtCore.Signal(str)
     kfold_changed = QtCore.Signal()
-    new_behavior_label = QtCore.Signal(dict)
+    new_behavior_label = QtCore.Signal(list)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
     use_balace_labels_changed = QtCore.Signal(int)
