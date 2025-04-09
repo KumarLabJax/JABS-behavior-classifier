@@ -47,9 +47,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
                 continue
 
             # draw a vertical bar of pixels
-            for y in range(self._bar_padding,
-                           self._bar_padding + self._bar_height):
-                qp.drawPoint(x, y)
+            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
         qp.end()
 
     def set_num_frames(self, num_frames):

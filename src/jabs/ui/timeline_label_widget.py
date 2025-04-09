@@ -81,7 +81,7 @@ class TimelineLabelWidget(QWidget):
         """ override QWidget paintEvent """
 
         # make sure we have something to draw
-        if self._pixmap is None:
+        if self._pixmap is None or self._bin_size == 0:
             return
 
         # get the current position
@@ -170,10 +170,7 @@ class TimelineLabelWidget(QWidget):
             else:
                 continue
 
-            # draw a vertical bar of pixels
-            for y in range(self._bar_padding,
-                           self._bar_padding + self._bar_height):
-                qp.drawPoint(x, y)
+            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
         qp.end()
 
     def _update_scale(self):
