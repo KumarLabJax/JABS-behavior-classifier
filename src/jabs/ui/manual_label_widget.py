@@ -218,7 +218,7 @@ class ManualLabelWidget(QWidget):
         """ called to reposition the view around new current frame """
         self._current_frame = current_frame
         # force redraw
-        self.update()
+        self.repaint()
 
     def set_num_frames(self, num_frames):
         """ set number of frames in current video, needed to properly render """
