@@ -14,6 +14,7 @@ from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier
 )
+from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
@@ -483,7 +484,14 @@ class Classifier:
             self._classifier_source = 'serialized'
 
     def load(self, path: Path):
-        c = joblib.load(path)
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", InconsistentVersionWarning)
+            c = joblib.load(path)
+            for warning in caught_warnings:
+                if issubclass(warning.category, InconsistentVersionWarning):
+                    raise ValueError("Classifier trained with different version of sklearn.")
+                else:
+                    warnings.warn(warning.message, warning.category)
 
         if not isinstance(c, Classifier):
             raise ValueError(
@@ -511,7 +519,7 @@ class Classifier:
             self._classifier_source = 'pickle'
 
     def _update_classifier_type(self):
-        # we may need to update the classifier type based on
+        # we may need to update the classifier type based
         # on the type of the loaded object
         if isinstance(self._classifier, RandomForestClassifier):
             self._classifier_type = ClassifierType.RANDOM_FOREST
