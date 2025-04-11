@@ -689,8 +689,8 @@ class CentralWidget(QtWidgets.QWidget):
             classifier_loaded = self._project.load_classifier(self._classifier,
                                                               self.behavior)
         except Exception as e:
-            print("failed to load classifier", file=sys.stderr)
-            print(e, file=sys.stderr)
+            print("failed to load classifier:", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
             print("classifier will need to be retrained")
 
         if classifier_loaded:
