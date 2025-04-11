@@ -235,7 +235,7 @@ class IdentityFeatures:
 
         file_path = self._identity_feature_dir / 'features.h5'
 
-        with h5py.File(file_path, 'a') as features_h5:
+        with h5py.File(file_path, 'w') as features_h5:
             features_h5.attrs['num_frames'] = self._num_frames
             features_h5.attrs['identity'] = self._identity
             features_h5.attrs['version'] = self._version
