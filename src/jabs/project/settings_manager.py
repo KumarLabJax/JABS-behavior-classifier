@@ -13,7 +13,7 @@ class SettingsManager:
     Class to manage project properties/settings.
     """
 
-    def __init__(self, project_paths: 'ProjectPaths'):
+    def __init__(self, project_paths: "ProjectPaths"):
         """
         Initialize the ProjectProperties.
         :param project_paths: ProjectPaths object to manage file paths.
@@ -27,14 +27,14 @@ class SettingsManager:
         :return: Dictionary of project properties.
         """
         try:
-            with self._paths.project_file.open(mode='r', newline='\n') as f:
+            with self._paths.project_file.open(mode="r", newline="\n") as f:
                 settings = json.load(f)
         except FileNotFoundError:
             settings = {}
 
         # Ensure default keys exist
-        settings.setdefault('behavior', {})
-        settings.setdefault('window_sizes', [feature_extraction.DEFAULT_WINDOW_SIZE])
+        settings.setdefault("behavior", {})
+        settings.setdefault("window_sizes", [feature_extraction.DEFAULT_WINDOW_SIZE])
 
         return settings
 
@@ -45,10 +45,10 @@ class SettingsManager:
         """
         # Merge data with current metadata
         self._project_info.update(data)
-        self._project_info['version'] = version_str()
+        self._project_info["version"] = version_str()
 
         # Save combined info to file
-        with self._paths.project_file.open(mode='w', newline='\n') as f:
+        with self._paths.project_file.open(mode="w", newline="\n") as f:
             json.dump(self._project_info, f, indent=2, sort_keys=True)
 
     @property
@@ -68,12 +68,12 @@ class SettingsManager:
 
         defaults = self._project_info.get("defaults", {})
 
-        all_behavior_data = self._project_info.get('behavior', {})
+        all_behavior_data = self._project_info.get("behavior", {})
         merged_data = all_behavior_data.get(behavior, defaults)
         merged_data.update(data)
 
         all_behavior_data[behavior] = merged_data
-        self.save_project_file({'behavior': all_behavior_data})
+        self.save_project_file({"behavior": all_behavior_data})
 
     def get_behavior(self, behavior: str) -> dict:
         """
@@ -81,12 +81,12 @@ class SettingsManager:
         :param behavior: Behavior key to read.
         :return: Dictionary of behavior metadata.
         """
-        return self._project_info.get('behavior', {}).get(behavior, {})
+        return self._project_info.get("behavior", {}).get(behavior, {})
 
     def update_version(self):
         """
         Update the version number in the metadata if it differs from the current version.
         """
-        current_version = self._project_info.get('version')
+        current_version = self._project_info.get("version")
         if current_version != version_str():
-            self.save_project_file({'version': version_str()})
+            self.save_project_file({"version": version_str()})

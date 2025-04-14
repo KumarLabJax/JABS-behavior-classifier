@@ -6,8 +6,8 @@ class ProjectPaths:
     Class to manage project paths.
     """
 
-    __JABS_DIR = 'jabs'
-    __PROJECT_FILE = 'project.json'
+    __JABS_DIR = "jabs"
+    __PROJECT_FILE = "project.json"
 
     def __init__(self, base_path: Path, use_cache: bool = True):
         self._base_path = base_path
@@ -18,7 +18,7 @@ class ProjectPaths:
         self._prediction_dir = self._jabs_dir / "predictions"
         self._classifier_dir = self._jabs_dir / "classifiers"
         self._archive_dir = self._jabs_dir / "archive"
-        self._cache_dir = self._jabs_dir / 'cache' if use_cache else None
+        self._cache_dir = self._jabs_dir / "cache" if use_cache else None
 
         self._project_file = self._jabs_dir / self.__PROJECT_FILE
 

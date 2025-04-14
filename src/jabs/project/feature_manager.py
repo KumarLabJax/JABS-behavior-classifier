@@ -1,5 +1,10 @@
 import jabs.feature_extraction as feature_extraction
-from jabs.pose_estimation import get_pose_path, get_pose_file_major_version, get_static_objects_in_file, PoseEstimation
+from jabs.pose_estimation import (
+    get_pose_path,
+    get_pose_file_major_version,
+    get_static_objects_in_file,
+    PoseEstimation,
+)
 from jabs.types import ProjectDistanceUnit
 from .project_paths import ProjectPaths
 
@@ -28,7 +33,6 @@ class FeatureManager:
 
         self._extended_features = self.__initialize_extended_features()
 
-
     def __initialize_pose_data(self, videos: list[str]):
         """Initialize pose version and static object data."""
         pose_versions = []
@@ -39,14 +43,18 @@ class FeatureManager:
             static_object_sets.append(set(get_static_objects_in_file(pose_path)))
 
         self._min_pose_version = min(pose_versions) if pose_versions else 0
-        self._static_objects = set.intersection(*static_object_sets) if len(static_object_sets) else []
+        self._static_objects = (
+            set.intersection(*static_object_sets) if len(static_object_sets) else []
+        )
 
     def __initialize_distance_unit(self, videos: list[str]):
         """Determine the distance unit for the project."""
         self._distance_unit = ProjectDistanceUnit.CM
         for vid in videos:
-            attrs = PoseEstimation.get_pose_file_attributes(get_pose_path(self._project_paths.project_dir / vid))
-            cm_per_pixel = attrs['poseest'].get('cm_per_pixel', None)
+            attrs = PoseEstimation.get_pose_file_attributes(
+                get_pose_path(self._project_paths.project_dir / vid)
+            )
+            cm_per_pixel = attrs["poseest"].get("cm_per_pixel", None)
 
             if cm_per_pixel is None:
                 self._distance_unit = ProjectDistanceUnit.PIXEL

@@ -11,11 +11,7 @@ def mock_project(tmp_path):
     project = MagicMock()
     project.project_paths.prediction_dir = tmp_path / "predictions"
     project.project_paths.prediction_dir.mkdir(parents=True)
-    project._metadata = {
-        "video_files": {
-            "test_video.avi": {"identities": 2}
-        }
-    }
+    project._metadata = {"video_files": {"test_video.avi": {"identities": 2}}}
     return project
 
 
@@ -61,9 +57,13 @@ def test_load_predictions(prediction_manager, mock_project):
         prediction_group = h5.create_group("predictions")
         behavior_group = prediction_group.create_group(behavior)
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
-        behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
+        behavior_group.create_dataset(
+            "probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]]
+        )
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(video, behavior)
+    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
+        video, behavior
+    )
 
     assert "0" in predictions
     assert "1" in predictions
@@ -83,7 +83,9 @@ def test_load_predictions_missing_behavior(prediction_manager, mock_project):
         h5.attrs["version"] = 2
         h5.create_group("predictions")
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(video, behavior)
+    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
+        video, behavior
+    )
 
     assert predictions == {}
     assert probabilities == {}
@@ -99,7 +101,9 @@ def test_load_predictions_invalid_file(prediction_manager, mock_project):
     with open(prediction_file, "w") as f:
         f.write("invalid content")
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(video, "Walking")
+    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
+        video, "Walking"
+    )
 
     assert predictions == {}
     assert probabilities == {}
