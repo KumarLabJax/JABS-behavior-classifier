@@ -13,6 +13,9 @@ if typing.TYPE_CHECKING:
     from .project import Project
 
 
+class MissingBehaviorError(Exception):
+    pass
+
 class PredictionManager:
     """
     Class to manage the loading and saving of predictions.
@@ -99,9 +102,8 @@ class PredictionManager:
                 assert h5.attrs["version"] == self._PREDICTION_FILE_VERSION
                 prediction_group = h5["predictions"]
                 if to_safe_name(behavior) not in prediction_group:
-                    # TODO: this isn't an IOError, it's a KeyError, but KeyError can be thrown from other stuff and is handled differently.
                     # This needs to appear as if no saved predictions exist for this video.
-                    raise IOError(
+                    raise MissingBehaviorError(
                         f"Behavior {to_safe_name(behavior)} not in prediction file."
                     )
                 behavior_group = prediction_group[to_safe_name(behavior)]
@@ -131,8 +133,8 @@ class PredictionManager:
                     probabilities[identity] = _probabilities[i]
                     frame_indexes[identity] = indexes
 
-        except IOError:
-            # no saved predictions for this video
+        except MissingBehaviorError:
+            # no saved predictions for this behavior for this video
             pass
         except (AssertionError, KeyError) as e:
             print(f"unable to open saved inferences for {video}", file=sys.stderr)

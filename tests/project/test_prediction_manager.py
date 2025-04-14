@@ -1,18 +1,38 @@
 import pytest
 import h5py
 import numpy as np
-from unittest.mock import MagicMock
+from pathlib import Path
 from src.jabs.project.prediction_manager import PredictionManager
+
+
+class MockProjectPaths:
+    """Class to simulate project paths."""
+    def __init__(self, base_path):
+        self.prediction_dir = base_path / "predictions"
+        self.prediction_dir.mkdir(parents=True, exist_ok=True)
+
+
+class MockProject:
+    """Class to simulate a project."""
+    def __init__(self, base_path):
+        self.project_paths = MockProjectPaths(base_path)
+        self.settings_manager = MockSettingsManager()
+
+
+class MockSettingsManager:
+    """Class to simulate project settings."""
+    def __init__(self):
+        self.project_settings = {
+            "video_files": {
+                "test_video.avi": {"identities": 2}
+            }
+        }
 
 
 @pytest.fixture
 def mock_project(tmp_path):
     """Fixture to create a mock project with necessary paths."""
-    project = MagicMock()
-    project.project_paths.prediction_dir = tmp_path / "predictions"
-    project.project_paths.prediction_dir.mkdir(parents=True)
-    project._metadata = {"video_files": {"test_video.avi": {"identities": 2}}}
-    return project
+    return MockProject(tmp_path)
 
 
 @pytest.fixture
@@ -27,8 +47,8 @@ def test_write_predictions(prediction_manager, tmp_path):
     behavior = "Walking"
     predictions = np.array([[1, 0, -1], [0, 1, -1]])
     probabilities = np.array([[0.9, 0.8, -1], [0.7, 0.6, -1]])
-    poses = MagicMock(pose_file="pose_file.h5", hash="12345", identity_to_track=None)
-    classifier = MagicMock(classifier_file="classifier.pkl", classifier_hash="67890")
+    poses = type("PoseEstimation", (object,), {"pose_file": "pose_file.h5", "hash": "12345", "identity_to_track": None})()
+    classifier = type("Classifier", (object,), {"classifier_file": "classifier.pkl", "classifier_hash": "67890"})()
 
     PredictionManager.write_predictions(
         behavior, output_path, predictions, probabilities, poses, classifier
@@ -51,7 +71,7 @@ def test_load_predictions(prediction_manager, mock_project):
     behavior = "Walking"
     prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
 
-    # Create a mock prediction file
+    # Create a valid HDF5 prediction file
     with h5py.File(prediction_file, "w") as h5:
         h5.attrs["version"] = 2
         prediction_group = h5.create_group("predictions")
@@ -101,10 +121,6 @@ def test_load_predictions_invalid_file(prediction_manager, mock_project):
     with open(prediction_file, "w") as f:
         f.write("invalid content")
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
-        video, "Walking"
-    )
-
-    assert predictions == {}
-    assert probabilities == {}
-    assert frame_indexes == {}
+    # Assert that an exception is raised when trying to load predictions
+    with pytest.raises(OSError):
+        prediction_manager.load_predictions(video, "Walking")
