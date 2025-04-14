@@ -85,7 +85,7 @@ class Feature(abc.ABC):
 
     @classmethod
     def is_supported(
-            cls, pose_version: int, static_objects: typing.List[str]) -> bool:
+            cls, pose_version: int, static_objects: typing.Set[str]) -> bool:
         """
         check that a feature is supported by a pose file
         :param pose_version: pose file version

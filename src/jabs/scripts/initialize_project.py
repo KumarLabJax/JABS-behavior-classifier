@@ -201,7 +201,7 @@ def main():
     project = jabs.project.Project(args.project_dir)
     total_identities = project.total_project_identities
 
-    distance_unit = project.distance_unit
+    distance_unit = project.feature_manager.distance_unit
 
     def feature_job_producer():
         """ producer for Pool.imap_unordered """

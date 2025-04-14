@@ -353,7 +353,7 @@ class Classifier:
         if self._behavior is None:
             self._project_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.get_behavior_metadata(self._behavior)
+            self._project_settings = project.settings_manager.get_behavior(self._behavior)
 
     def set_dict_settings(self, settings: dict):
         """

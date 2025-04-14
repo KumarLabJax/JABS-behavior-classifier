@@ -29,7 +29,7 @@ class TestProject(unittest.TestCase):
     def setUpClass(cls):
         # create a project with empty video file and annotations
 
-        test_data_dir = Path(__file__).parent / 'data'
+        test_data_dir = Path(__file__).parent.parent / 'data'
 
         # make sure the test project dir is gone in case we previously
         # threw an exception during setup
@@ -53,7 +53,7 @@ class TestProject(unittest.TestCase):
                 with open(pose_path, 'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-        # setup a project directory with annotations
+        # set up a project directory with annotations
         Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
 
         # create an annotation
@@ -79,21 +79,19 @@ class TestProject(unittest.TestCase):
     def test_create(self):
         """ test creating a new empty Project """
         project_dir = Path('test_project_dir')
-        _ = Project(project_dir)
+        project = Project(project_dir)
 
         # make sure that the empty project directory was created
         self.assertTrue(project_dir.exists())
 
         # make sure the jabs directory was created
-        self.assertTrue((project_dir / Project._PROJ_DIR).exists())
+        self.assertTrue(project.project_paths.jabs_dir.exists())
 
         # make sure the jabs/annotations directory was created
-        self.assertTrue(
-            (project_dir / Project._PROJ_DIR / 'annotations').exists())
+        self.assertTrue(project.project_paths.annotations_dir.exists())
 
         # make sure the jabs/predictions directory was created
-        self.assertTrue(
-            (project_dir / Project._PROJ_DIR / 'predictions').exists())
+        self.assertTrue(project.project_paths.prediction_dir.exists())
 
         # remove project dir
         shutil.rmtree(project_dir)
@@ -158,7 +156,7 @@ class TestProject(unittest.TestCase):
     def test_min_pose_version(self):
         # dummy project contains version 3 and 4 pose files
         # min should be 3
-        self.assertEqual(self.project._min_pose_version, 3)
+        self.assertEqual(self.project.feature_manager.min_pose_version, 3)
 
     def test_can_use_social_true(self):
-        self.assertTrue(self.project.can_use_social_features)
+        self.assertTrue(self.project.feature_manager.can_use_social_features)

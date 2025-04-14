@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import jabs.version
 import jabs.feature_extraction
+import jabs.version
+from jabs.project.project_utils import to_safe_name
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
@@ -53,7 +54,7 @@ def export_training_data(project: 'Project',
 
     if out_file is None:
         out_file = (project.dir /
-                    f"{project.to_safe_name(behavior)}_training_{ts}.h5")
+                    f"{to_safe_name(behavior)}_training_{ts}.h5")
 
     string_type = h5py.special_dtype(vlen=str)
 

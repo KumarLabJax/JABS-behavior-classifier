@@ -161,7 +161,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        self._controls.update_project_settings(project.metadata)
+        self._controls.update_project_settings(project.settings)
 
     def load_video(self, path):
         """
@@ -178,8 +178,7 @@ class CentralWidget(QtWidgets.QWidget):
         try:
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = \
-                self._project.load_predictions(path.name,
-                                               self.behavior)
+                self._project.prediction_manager.load_predictions(path.name, self.behavior)
 
             # load labels for new video and set track for current identity
             self._labels = self._project.load_video_labels(path)
@@ -302,13 +301,13 @@ class CentralWidget(QtWidgets.QWidget):
         # load saved predictions
         if self._loaded_video:
             self._predictions, self._probabilities, self._frame_indexes = \
-                self._project.load_predictions(self._loaded_video.name, self.behavior)
+                self._project.prediction_manager.load_predictions(self._loaded_video.name, self.behavior)
 
         # display labels and predictions for new behavior
         self._set_label_track()
         self._set_train_button_enabled_state()
 
-        self._project.save_metadata({'selected_behavior': self.behavior})
+        self._project.settings_manager.save_project_file({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
         """
@@ -646,7 +645,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _save_window_sizes(self, window_sizes):
         """ save the window sizes to the project settings """
-        self._project.save_metadata({'window_sizes': window_sizes})
+        self._project.settings_manager.save_project_file({'window_sizes': window_sizes})
 
     def update_behavior_settings(self, key, val):
         """ propagates an updated setting to the project """
@@ -654,7 +653,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self.behavior == '':
             return
 
-        self._project.save_behavior_metadata(self.behavior, {key: val})
+        self._project.settings_manager.save_behavior(self.behavior, {key: val})
 
     def _use_balance_labels_changed(self):
         if self.behavior == '':
@@ -678,7 +677,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None or self.behavior is None:
             return
 
-        behavior_metadata = self._project.get_behavior_metadata(self.behavior)
+        behavior_metadata = self._project.settings_manager.get_behavior(self.behavior)
         self._controls.set_window_size(behavior_metadata['window_size'])
         self._controls.use_balance_labels = behavior_metadata['balance_labels']
         self._controls.use_symmetric = behavior_metadata['symmetric_behavior']

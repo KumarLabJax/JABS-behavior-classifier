@@ -14,7 +14,7 @@ from jabs.classifier import Classifier
 from jabs.cli import cli_progress_bar
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
-from jabs.project import Project
+from jabs.project.prediction_manager import PredictionManager
 
 DEFAULT_FPS = 30
 
@@ -110,7 +110,7 @@ def classify_pose(classifier: Classifier, input_pose_file: Path, out_dir: Path,
         sys.exit(f"Unable to create output directory: {e}")
     behavior_out_path = behavior_out_dir / (pose_stem + '_behavior.h5')
 
-    Project.write_predictions(
+    PredictionManager.write_predictions(
         behavior,
         behavior_out_path,
         prediction_labels,

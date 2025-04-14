@@ -34,7 +34,7 @@ class ClassifyThread(QtCore.QThread):
         probabilities = {}
         frame_indexes = {}
 
-        project_settings = self._project.get_behavior_metadata(self._behavior)
+        project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
         # iterate over each video in the project
         for video in self._project.videos:

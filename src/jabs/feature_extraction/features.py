@@ -626,7 +626,7 @@ class IdentityFeatures:
     def get_available_extended_features(
             cls,
             pose_version: int,
-            static_objects: typing.List[str]
+            static_objects: typing.Set[str]
     ) -> typing.Dict[str, typing.List[str]]:
         """
         get all of the extended features that can be used given a minimum pose
