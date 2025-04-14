@@ -230,11 +230,10 @@ def main():
 
     pool.close()
 
-    # save window sizes to project metadata
-    project_metadata = project.load_metadata()
+    # save window sizes to project settings
     deduped_window_sizes = set(
-        project_metadata.get('window_sizes', []) + window_sizes)
-    project.save_metadata({'window_sizes': list(deduped_window_sizes)})
+        project.settings_manager.project_settings.get('window_sizes', []) + window_sizes)
+    project.settings_manager.save_project_file({'window_sizes': list(deduped_window_sizes)})
 
     print('\n' + '-' * 70)
     if args.force_pixel_distances:

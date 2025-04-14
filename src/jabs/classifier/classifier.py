@@ -358,7 +358,7 @@ class Classifier:
     def set_dict_settings(self, settings: dict):
         """
         assign project settings via a dict to the classifier
-        :settings: dict of project settings. Must be same structure as project.get_behavior_metadata
+        :settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
         """

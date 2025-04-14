@@ -14,7 +14,6 @@ from jabs.pose_estimation import get_pose_path, open_pose_file, \
     get_frames_from_file
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
-from jabs.version import version_str
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_frame_count, get_fps
 from .feature_manager import FeatureManager
@@ -37,23 +36,18 @@ class Project:
         """
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
+        self._total_project_identities = 0
+        self._enabled_extended_features = {}
 
-        self._initialize_metadata()
+        self._settings_manager = SettingsManager(self._paths)
         self._initialize_videos(enable_video_check)
 
         self._prediction_manager = PredictionManager(self)
-        self._setting_manager = SettingsManager(self._paths)
         self._feature_manager = FeatureManager(self._paths, self._videos)
 
         # write out the defaults to the project file
-        self._setting_manager.save_project_file({'defaults': self.get_project_defaults()})
+        self._settings_manager.save_project_file({'defaults': self.get_project_defaults()})
 
-
-    def _initialize_metadata(self):
-        """Initialize project metadata."""
-        self._metadata = self.load_metadata()
-        self._total_project_identities = 0
-        self._enabled_extended_features = {}
 
     def _initialize_videos(self, enable_video_check):
         """Initialize video-related data and perform checks."""
@@ -91,7 +85,7 @@ class Project:
 
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
-        video_metadata = self._metadata.get('video_files', {})
+        video_metadata = self._settings_manager.project_settings.get('video_files', {})
         for video in self._videos:
             vinfo = video_metadata.get(video, {})
             nidentities = vinfo.get('identities')
@@ -104,7 +98,7 @@ class Project:
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
-        self.save_metadata({'video_files': video_metadata})
+        self._settings_manager.save_project_file({'video_files': video_metadata})
 
     @property
     def videos(self):
@@ -136,14 +130,14 @@ class Project:
         get the project metadata and preferences.
 
         """
-        return self._setting_manager.project_settings
+        return self._settings_manager.project_settings
 
     @property
     def settings_manager(self) -> SettingsManager:
         """
         get the project settings manager
         """
-        return self._setting_manager
+        return self._settings_manager
 
     @property
     def total_project_identities(self):
@@ -235,72 +229,7 @@ class Project:
             json.dump(annotations.as_dict(), f, indent=2)
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
-
-    def save_metadata(self, data: dict):
-        """
-        save project settings and metadata into the project directory. This may
-        include things like custom behavior labels added by the user as well
-        as the most recently selected behavior label
-
-        any keys in the project metadata dict not included in the data, will
-        not be modified
-        :param data: dictionary with state information to save
-        :return: None
-        """
-
-        # merge data with current metadata
-        self._metadata.update(data)
-        self._metadata['version'] = version_str()
-
-        # save combined info to file
-        with self._paths.project_file.open(mode='w', newline='\n') as f:
-            json.dump(self._metadata, f, indent=2, sort_keys=True)
-
-    def load_metadata(self):
-        """
-        load project metadata
-        :return: dictionary of project metadata, empty dict if unable to open
-        file (such as when the project is first created and the file does not
-        exist)
-        """
-        try:
-            with self._paths.project_file.open(mode='r', newline='\n') as f:
-                settings = json.load(f)
-        except:
-            settings = {}
-
-        if 'behavior' not in settings:
-            settings['behavior'] = {}
-        if 'window_sizes' not in settings:
-            settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
-
-        return settings
-
-    def save_behavior_metadata(self, behavior: str, data: dict):
-        """
-        save metadata specific to a behavior
-        :behavior: behavior key to write metadata to
-        :data: dictionary of metadata to update
-        """
-        all_behavior_data = self._metadata.get('behavior', {})
-        merged_data = all_behavior_data.get(behavior, self.get_project_defaults())
-        merged_data.update(data)
-        all_behavior_data.update({behavior: merged_data})
-        self.save_metadata({'behavior': all_behavior_data})
-
-    def get_behavior_metadata(self, behavior: str):
-        """
-        get metadata specific to a requested behavior
-        :behavior: string of the behavior key to read
-        :return: dictionary of behavior metadata in the project. 
-        get_project_defaults if behavior not present
-        """
-        # If settings are never changed, this is an empty dict.
-        current_meta = dict(self._metadata['behavior'].get(behavior, {}))
-        if current_meta:
-            return current_meta
-        return self.get_project_defaults()
+        self._settings_manager.update_version()
 
     def get_project_defaults(self):
         """
@@ -338,7 +267,7 @@ class Project:
         classifier.save(self._paths.classifier_dir / (to_safe_name(behavior) + '.pickle'))
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
+        self._settings_manager.update_version()
 
     def load_classifier(self, classifier, behavior: str):
         """
@@ -411,7 +340,7 @@ class Project:
             self._prediction_manager.write_predictions(behavior, output_path, prediction_labels, prediction_prob, poses, classifier)
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
+        self._settings_manager.update_version()
 
 
     def archive_behavior(self, behavior: str):
@@ -454,13 +383,6 @@ class Project:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
             json.dump(archived_labels, f, indent=True)
-
-        # remove from project settings
-        try:
-            del self._metadata["behavior"][behavior]
-        except KeyError:
-            pass
-        self.save_metadata({})
 
     def video_path(self, video_file):
         """ take a video file name and generate the path used to open it """
@@ -542,7 +464,7 @@ class Project:
                 group_mapping[group_id] = {'video': video, 'identity': identity}
 
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self.get_behavior_metadata(behavior)
+                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self._settings_manager.get_behavior(behavior)
                 )
 
                 labels = self.load_video_labels(video).get_track_labels(
@@ -554,7 +476,7 @@ class Project:
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self.get_behavior_metadata(behavior)['window_size'], labels)
+                    self._settings_manager.get_behavior(behavior)['window_size'], labels)
                 window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
@@ -575,13 +497,6 @@ class Project:
             'labels': np.concatenate(all_labels),
             'groups': np.concatenate(all_groups),
         }, group_mapping
-
-    def __update_version(self):
-        """ update the version number saved in project metadata """
-        # only update if the version in the metadata is different from current
-        version = self._metadata.get('version')
-        if version != version_str():
-            self.save_metadata({'version': version_str()})
 
     def __has_pose(self, vid: str):
         """ check to see if a video has a corresponding pose file """
