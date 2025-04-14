@@ -8,7 +8,6 @@ dist
 test-reports
 
 jabs.venv
-rotta.venv
 venv
 .venv
 
