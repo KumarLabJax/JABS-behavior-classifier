@@ -46,6 +46,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self.setWidget(self.file_list)
 
         self._project = None
+        self._selected_video = None
 
         # connect to the model selectionChanged signal
         self.file_list.currentItemChanged.connect(self._selection_changed)
@@ -54,6 +55,12 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         """ signal main window that use changed selected video """
         if current:
             self.selectionChanged.emit(current.text())
+            self._selected_video = current.text()
+
+    @property
+    def selected_video(self):
+        """ return the currently selected video """
+        return self._selected_video
 
     def set_project(self, project):
         """
