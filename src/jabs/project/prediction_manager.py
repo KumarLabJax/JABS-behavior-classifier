@@ -136,7 +136,7 @@ class PredictionManager:
                     probabilities[identity] = _probabilities[i]
                     frame_indexes[identity] = indexes
 
-        except MissingBehaviorError:
+        except (MissingBehaviorError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
         except (AssertionError, KeyError) as e:
