@@ -23,7 +23,7 @@ from .video_manager import VideoManager
 
 
 class Project:
-    """ represents a JABS project """
+    """represents a JABS project"""
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
         """
@@ -38,12 +38,16 @@ class Project:
         self._enabled_extended_features = {}
 
         self._settings_manager = SettingsManager(self._paths)
-        self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
+        self._video_manager = VideoManager(
+            self._paths, self._settings_manager, enable_video_check
+        )
         self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
         self._prediction_manager = PredictionManager(self)
 
         # write out the defaults to the project file
-        self._settings_manager.save_project_file({'defaults': self.get_project_defaults()})
+        self._settings_manager.save_project_file(
+            {"defaults": self.get_project_defaults()}
+        )
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
@@ -141,10 +145,11 @@ class Project:
         :param annotations: VideoLabels object
         :return: None
         """
-        path = self._paths.annotations_dir / Path(
-            annotations.filename).with_suffix('.json')
+        path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(
+            ".json"
+        )
 
-        with path.open(mode='w', newline='\n') as f:
+        with path.open(mode="w", newline="\n") as f:
             json.dump(annotations.as_dict(), f, indent=2)
 
         # update app version saved in project metadata if necessary
@@ -155,10 +160,18 @@ class Project:
         obtain the default per-behavior settings
         :return: dictionary of project settings
         """
-        return self.settings_by_pose_version(self._feature_manager.min_pose_version, self._feature_manager.distance_unit, self._feature_manager.static_objects)
+        return self.settings_by_pose_version(
+            self._feature_manager.min_pose_version,
+            self._feature_manager.distance_unit,
+            self._feature_manager.static_objects,
+        )
 
     @staticmethod
-    def settings_by_pose_version(pose_version: int = 2, distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL, static_objects: set[str] | None = None):
+    def settings_by_pose_version(
+        pose_version: int = 2,
+        distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL,
+        static_objects: set[str] | None = None,
+    ):
         """
         obtain project settings for a specified pose version
         :param pose_version: pose version to indicate settings
@@ -169,16 +182,18 @@ class Project:
             static_objects = set()
 
         return {
-            'cm_units': distance_unit,
-            'window_size': fe.DEFAULT_WINDOW_SIZE,
-            'social': pose_version >= 3,
-            'static_objects': {obj: True if pose_version >= 5 and obj in static_objects else False for obj in
-                               fe.landmark_features.LandmarkFeatureGroup.feature_map.keys()},
-            'segmentation': pose_version >= 6,
-            'window': True,
-            'fft': True,
-            'balance_labels': False,
-            'symmetric_behavior': False,
+            "cm_units": distance_unit,
+            "window_size": fe.DEFAULT_WINDOW_SIZE,
+            "social": pose_version >= 3,
+            "static_objects": {
+                obj: True if pose_version >= 5 and obj in static_objects else False
+                for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map.keys()
+            },
+            "segmentation": pose_version >= 6,
+            "window": True,
+            "fft": True,
+            "balance_labels": False,
+            "symmetric_behavior": False,
         }
 
     def save_classifier(self, classifier, behavior: str):
@@ -187,7 +202,9 @@ class Project:
         :param classifier: the classifier to save
         :param behavior: string behavior name. This affects the path we save to
         """
-        classifier.save(self._paths.classifier_dir / (to_safe_name(behavior) + '.pickle'))
+        classifier.save(
+            self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
+        )
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
@@ -199,8 +216,8 @@ class Project:
         :param behavior: string behavior name.
         :return: True if load is successful and False if the file doesn't exist
         """
-        classifier_path = (
-                self._paths.classifier_dir / (to_safe_name(behavior) + '.pickle')
+        classifier_path = self._paths.classifier_dir / (
+            to_safe_name(behavior) + ".pickle"
         )
         try:
             classifier.load(classifier_path)
@@ -208,8 +225,9 @@ class Project:
         except OSError:
             return False
 
-    def save_predictions(self, predictions, probabilities,
-                         frame_indexes, behavior: str, classifier):
+    def save_predictions(
+        self, predictions, probabilities, frame_indexes, behavior: str, classifier
+    ):
         """
         save predictions for the current project
         :param predictions: predictions for all videos in project (dictionary
@@ -231,7 +249,7 @@ class Project:
 
         for video in self._video_manager.videos:
             # setup an output filename based on the behavior and video names
-            file_base = Path(video).with_suffix('').name + ".h5"
+            file_base = Path(video).with_suffix("").name + ".h5"
             output_path = self._paths.prediction_dir / file_base
 
             # make sure behavior directory exists
@@ -240,13 +258,15 @@ class Project:
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
             video_tracks = self._video_manager.load_video_labels(video)
-            poses = open_pose_file(get_pose_path(self._video_manager.video_path(video)),
-                                   self._paths.cache_dir)
+            poses = open_pose_file(
+                get_pose_path(self._video_manager.video_path(video)),
+                self._paths.cache_dir,
+            )
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
-                (poses.num_identities, video_tracks.num_frames), -1,
-                dtype=np.int8)
+                (poses.num_identities, video_tracks.num_frames), -1, dtype=np.int8
+            )
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
             # populate numpy arrays
@@ -256,15 +276,25 @@ class Project:
                 inferred_indexes = frame_indexes[video][identity]
                 track = video_tracks.get_track_labels(identity, behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity][inferred_indexes]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
+                prediction_labels[identity_index, inferred_indexes] = predictions[
+                    video
+                ][identity][inferred_indexes]
+                prediction_prob[identity_index, inferred_indexes] = probabilities[
+                    video
+                ][identity][inferred_indexes]
 
             # write to h5 file
-            self._prediction_manager.write_predictions(behavior, output_path, prediction_labels, prediction_prob, poses, classifier)
+            self._prediction_manager.write_predictions(
+                behavior,
+                output_path,
+                prediction_labels,
+                prediction_prob,
+                poses,
+                classifier,
+            )
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
-
 
     def archive_behavior(self, behavior: str):
         """
@@ -292,22 +322,24 @@ class Project:
         archived_labels = {}
         for video in self._video_manager.videos:
             annotations = self._video_manager.load_video_labels(video).as_dict()
-            for ident in annotations['labels']:
-                if behavior in annotations['labels'][ident]:
+            for ident in annotations["labels"]:
+                if behavior in annotations["labels"][ident]:
                     if video not in archived_labels:
                         archived_labels[video] = {
-                            'num_frames': annotations['num_frames']
+                            "num_frames": annotations["num_frames"]
                         }
                         archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations['labels'][ident].pop(behavior)
+                    archived_labels[video][behavior][ident] = annotations["labels"][
+                        ident
+                    ].pop(behavior)
             self.save_annotations(VideoLabels.load(annotations))
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
+        with gzip.open(
+            self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt"
+        ) as f:
             json.dump(archived_labels, f, indent=True)
-
-
 
     def counts(self, behavior):
         """
@@ -324,8 +356,6 @@ class Project:
         for video in self._video_manager.videos:
             counts[video] = self.__read_counts(video, behavior)
         return counts
-
-
 
     def get_labeled_features(self, behavior=None, progress_callable=None):
         """
@@ -379,45 +409,56 @@ class Project:
             fps = get_fps(str(video_path))
 
             for identity in pose_est.identities:
-                group_mapping[group_id] = {'video': video, 'identity': identity}
+                group_mapping[group_id] = {"video": video, "identity": identity}
 
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self._settings_manager.get_behavior(behavior)
+                    video,
+                    identity,
+                    self.feature_dir,
+                    pose_est,
+                    fps=fps,
+                    op_settings=self._settings_manager.get_behavior(behavior),
                 )
 
-                labels = self._video_manager.load_video_labels(video).get_track_labels(
-                    str(identity), behavior).get_labels()
+                labels = (
+                    self._video_manager.load_video_labels(video)
+                    .get_track_labels(str(identity), behavior)
+                    .get_labels()
+                )
 
                 per_frame_features = features.get_per_frame(labels)
-                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(per_frame_features)
+                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
+                    per_frame_features
+                )
                 per_frame_features = pd.DataFrame(per_frame_features)
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self._settings_manager.get_behavior(behavior)['window_size'], labels)
-                window_features = fe.IdentityFeatures.merge_window_features(window_features)
+                    self._settings_manager.get_behavior(behavior)["window_size"], labels
+                )
+                window_features = fe.IdentityFeatures.merge_window_features(
+                    window_features
+                )
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
 
                 all_labels.append(labels[labels != TrackLabels.Label.NONE])
 
-                all_groups.append(
-                    np.full(per_frame_features.shape[0],
-                            group_id))
+                all_groups.append(np.full(per_frame_features.shape[0], group_id))
                 group_id += 1
 
                 if progress_callable is not None:
                     progress_callable()
 
         return {
-            'window': pd.concat(all_window, join='inner'),
-            'per_frame': pd.concat(all_per_frame, join='inner'),
-            'labels': np.concatenate(all_labels),
-            'groups': np.concatenate(all_groups),
+            "window": pd.concat(all_window, join="inner"),
+            "per_frame": pd.concat(all_per_frame, join="inner"),
+            "labels": np.concatenate(all_labels),
+            "groups": np.concatenate(all_groups),
         }, group_mapping
 
     def __has_pose(self, vid: str):
-        """ check to see if a video has a corresponding pose file """
+        """check to see if a video has a corresponding pose file"""
         path = self._paths.project_dir / vid
 
         try:
@@ -438,13 +479,13 @@ class Project:
         )
         """
         video_filename = Path(video).name
-        path = self._paths.annotations_dir / Path(video_filename).with_suffix('.json')
+        path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
 
         counts = []
 
         if path.exists():
             with path.open() as f:
-                labels = json.load(f).get('labels')
+                labels = json.load(f).get("labels")
                 for identity in labels:
                     blocks = labels[identity].get(behavior, [])
                     frames_behavior = 0
@@ -452,14 +493,18 @@ class Project:
                     bouts_behavior = 0
                     bouts_not_behavior = 0
                     for b in blocks:
-                        if b['present']:
+                        if b["present"]:
                             bouts_behavior += 1
-                            frames_behavior += b['end'] - b['start'] + 1
+                            frames_behavior += b["end"] - b["start"] + 1
                         else:
                             bouts_not_behavior += 1
-                            frames_not_behavior += b['end'] - b['start'] + 1
+                            frames_not_behavior += b["end"] - b["start"] + 1
 
-                    counts.append((identity,
-                                   (frames_behavior, frames_not_behavior),
-                                   (bouts_behavior, bouts_not_behavior)))
+                    counts.append(
+                        (
+                            identity,
+                            (frames_behavior, frames_not_behavior),
+                            (bouts_behavior, bouts_not_behavior),
+                        )
+                    )
         return counts

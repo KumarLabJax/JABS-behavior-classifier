@@ -10,10 +10,13 @@ from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
 
 
-
 class VideoManager:
-
-    def __init__(self, paths: ProjectPaths, settings_manager: SettingsManager, enable_video_check: bool = True):
+    def __init__(
+        self,
+        paths: ProjectPaths,
+        settings_manager: SettingsManager,
+        enable_video_check: bool = True,
+    ):
         """
         Initialize the VideoManager with paths.
 
@@ -31,7 +34,7 @@ class VideoManager:
         self._videos = self.get_videos(self._paths.project_dir)
         self._videos.sort()
 
-        #self._validate_pose_files()
+        # self._validate_pose_files()
         if enable_video_check:
             self._validate_video_frame_counts()
 
@@ -56,7 +59,7 @@ class VideoManager:
         video_filename = Path(video_name).name
         self.check_video_name(video_filename)
 
-        path = self._paths.annotations_dir / Path(video_filename).with_suffix('.json')
+        path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
 
         # if annotations already exist for this video file in the project open
         # it, otherwise create a new empty VideoLabels
@@ -82,25 +85,26 @@ class VideoManager:
 
     @staticmethod
     def get_videos(dir_path: Path):
-        """ Get list of video filenames (without path) in a directory """
-        return [f.name for f in dir_path.glob("*") if f.suffix in ['.avi', '.mp4']]
+        """Get list of video filenames (without path) in a directory"""
+        return [f.name for f in dir_path.glob("*") if f.suffix in [".avi", ".mp4"]]
 
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
-        video_metadata = self._settings_manager.project_settings.get('video_files', {})
+        video_metadata = self._settings_manager.project_settings.get("video_files", {})
         for video in self._videos:
             vinfo = video_metadata.get(video, {})
-            nidentities = vinfo.get('identities')
+            nidentities = vinfo.get("identities")
 
             if nidentities is None:
                 pose_file = open_pose_file(
-                    get_pose_path(self.video_path(video)), self._paths.cache_dir)
+                    get_pose_path(self.video_path(video)), self._paths.cache_dir
+                )
                 nidentities = pose_file.num_identities
-                vinfo['identities'] = nidentities
+                vinfo["identities"] = nidentities
 
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
-        self._settings_manager.save_project_file({'video_files': video_metadata})
+        self._settings_manager.save_project_file({"video_files": video_metadata})
 
     def _validate_video_frame_counts(self):
         """Ensure video and pose file frame counts match."""
@@ -110,11 +114,14 @@ class VideoManager:
             pose_frames = get_frames_from_file(path)
             vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
             if pose_frames != vid_frames:
-                print(f"{v}: video and pose file have different number of frames", file=sys.stderr)
+                print(
+                    f"{v}: video and pose file have different number of frames",
+                    file=sys.stderr,
+                )
                 err = True
         if err:
             raise ValueError("Video and Pose File frame counts differ")
 
     def video_path(self, video_file) -> Path:
-        """ take a video file name and generate the path used to open it """
+        """take a video file name and generate the path used to open it"""
         return Path(self._paths.project_dir, video_file)

@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
 class MissingBehaviorError(Exception):
     pass
 
+
 class PredictionManager:
     """
     Class to manage the loading and saving of predictions.
@@ -95,7 +96,9 @@ class PredictionManager:
         file_base = Path(video).with_suffix("").name + ".h5"
         path = self._project.project_paths.prediction_dir / file_base
 
-        nident = self._project.settings_manager.project_settings["video_files"][video]["identities"]
+        nident = self._project.settings_manager.project_settings["video_files"][video][
+            "identities"
+        ]
 
         try:
             with h5py.File(path, "r") as h5:

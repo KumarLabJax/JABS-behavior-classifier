@@ -57,6 +57,7 @@ def video_manager(project_paths, settings_manager):
 
     return VideoManager(project_paths, settings_manager, enable_video_check=False)
 
+
 def test_get_videos(video_manager, project_paths):
     """Test retrieving video files from the project directory."""
     videos = video_manager.get_videos(project_paths.project_dir)
@@ -77,11 +78,14 @@ def test_load_video_labels(video_manager, project_paths):
 
     # Create a dummy annotation file
     annotation_file = project_paths.annotations_dir / "video1.json"
-    annotation_file.write_text('{"labels": {}, "num_frames": 1000, "file": "video1.avi"}')
+    annotation_file.write_text(
+        '{"labels": {}, "num_frames": 1000, "file": "video1.avi"}'
+    )
 
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
+
 
 def test_load_video_labels_invalid_video(video_manager, project_paths):
     """Test loading video labels for an invalid video file."""
