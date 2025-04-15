@@ -145,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Static objects
         enable_landmark_features = {}
-        for landmark_name in LandmarkFeatureGroup._feature_map.keys():
+        for landmark_name in LandmarkFeatureGroup.feature_map.keys():
             landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
             landmark_action.setCheckable(True)
             landmark_action.triggered.connect(self._toggle_static_object_feature)
@@ -374,7 +374,7 @@ class MainWindow(QtWidgets.QMainWindow):
         window dock
         """
         try:
-            self._central_widget.load_video(self._project.video_path(filename))
+            self._central_widget.load_video(self._project.video_manager.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
 

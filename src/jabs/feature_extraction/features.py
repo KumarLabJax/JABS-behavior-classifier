@@ -31,7 +31,7 @@ _EXTENDED_FEATURE_MODULES = [
 _BASE_FILTERS = {
     'social': SocialFeatureGroup.module_names(),
     'segmentation': SegmentationFeatureGroup.module_names(),
-    'static_objects': LandmarkFeatureGroup._feature_map,
+    'static_objects': LandmarkFeatureGroup.feature_map,
 }
 
 _WINDOW_FILTERS = {

@@ -15,6 +15,7 @@ from pathlib import Path
 import jabs.pose_estimation
 import jabs.feature_extraction
 import jabs.project
+from jabs.project.video_manager import VideoManager
 from jabs.types import ProjectDistanceUnit
 from jabs.cli import cli_progress_bar
 from jabs.video_reader import VideoReader
@@ -26,7 +27,7 @@ def generate_files_worker(params: dict):
     """ worker function used for generating project feature and cache files """
     project = params['project']
     pose_est = project.load_pose_est(
-        project.video_path(params['video']))
+        project.video_manager.video_path(params['video']))
 
     features = jabs.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
@@ -136,7 +137,7 @@ def main():
     print(f"Initializing project directory: {args.project_dir}")
 
     # first to a quick check to make sure the h5 files exist for each video
-    videos = jabs.project.Project.get_videos(args.project_dir)
+    videos = VideoManager.get_videos(args.project_dir)
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
@@ -205,9 +206,9 @@ def main():
 
     def feature_job_producer():
         """ producer for Pool.imap_unordered """
-        for video in project.videos:
+        for video in project.video_manager.videos:
             for identity in project.load_pose_est(
-                    project.video_path(video)).identities:
+                    project.video_manager.video_path(video)).identities:
                 yield ({
                     'video': video,
                     'identity': identity,

@@ -103,11 +103,11 @@ class TestProject(unittest.TestCase):
 
     def test_get_video_list(self):
         """get list of video files in an existing project"""
-        self.assertListEqual(self.project.videos, self._FILENAMES)
+        self.assertListEqual(self.project.video_manager.videos, self._FILENAMES)
 
     def test_load_annotations(self):
         """test loading annotations from a saved project"""
-        labels = self.project.load_video_labels(self._FILENAMES[0])
+        labels = self.project.video_manager.load_video_labels(self._FILENAMES[0])
 
         with (
             self._EXISTING_PROJ_PATH
@@ -117,7 +117,7 @@ class TestProject(unittest.TestCase):
         ).open("r") as f:
             dict_from_file = json.load(f)
 
-        self.assertTrue(len(self.project.videos), 2)
+        self.assertTrue(len(self.project.video_manager.videos), 2)
 
         # check to see that calling as_dict() on the VideoLabels object
         # matches what was used to load the annotation track from disk
@@ -125,7 +125,7 @@ class TestProject(unittest.TestCase):
 
     def test_save_annotations(self):
         """test saving annotations"""
-        labels = self.project.load_video_labels(self._FILENAMES[0])
+        labels = self.project.video_manager.load_video_labels(self._FILENAMES[0])
         walking_labels = labels.get_track_labels("0", "Walking")
 
         # make some changes
@@ -151,7 +151,7 @@ class TestProject(unittest.TestCase):
         test load annotations for a file that doesn't exist raises ValueError
         """
         with self.assertRaises(ValueError):
-            self.project.load_video_labels("bad_filename.avi")
+            self.project.video_manager.load_video_labels("bad_filename.avi")
 
     def test_exception_creating_video_labels(self):
         """
@@ -159,7 +159,7 @@ class TestProject(unittest.TestCase):
         """
         with self.assertRaises(IOError):
             with hide_stderr():
-                self.project.load_video_labels(self._FILENAMES[1])
+                self.project.video_manager.load_video_labels(self._FILENAMES[1])
 
     def test_bad_video_file(self):
         with self.assertRaises(IOError):

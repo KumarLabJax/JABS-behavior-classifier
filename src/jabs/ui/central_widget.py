@@ -181,7 +181,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
 
             # load labels for new video and set track for current identity
-            self._labels = self._project.load_video_labels(path)
+            self._labels = self._project.video_manager.load_video_labels(path)
 
             # open the video
             self._loaded_video = path
