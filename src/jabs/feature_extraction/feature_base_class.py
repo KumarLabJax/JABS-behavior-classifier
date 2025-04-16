@@ -76,7 +76,7 @@ class Feature(abc.ABC):
         return cls._name
 
     @classmethod
-    def feature_names(cls) -> typing.List[str]:
+    def feature_names(cls) -> list[str]:
         """
         return a list of strings containing the names of the features for the
         feature set
@@ -85,7 +85,7 @@ class Feature(abc.ABC):
 
     @classmethod
     def is_supported(
-            cls, pose_version: int, static_objects: typing.List[str]) -> bool:
+            cls, pose_version: int, static_objects: set[str]) -> bool:
         """
         check that a feature is supported by a pose file
         :param pose_version: pose file version
@@ -121,7 +121,7 @@ class Feature(abc.ABC):
         pass
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> typing.Dict:
+               per_frame_values: dict) -> dict:
         """
         standard method for computing window feature values
 
@@ -144,7 +144,7 @@ class Feature(abc.ABC):
         identity: int,
         window_size: int,
         per_frame_values: dict
-    ) -> typing.Dict:
+    ) -> dict:
         """
         The standard method for computing signal processing window features.
 
@@ -176,7 +176,7 @@ class Feature(abc.ABC):
         return values
 
     def _window_circular(self, identity: int, window_size: int,
-                         per_frame_values: dict) -> typing.Dict:
+                         per_frame_values: dict) -> dict:
         """
         helper function for overriding window features to be circular
 
@@ -194,7 +194,7 @@ class Feature(abc.ABC):
 
     def _compute_window_feature(self, feature_values: dict,
                                 frame_mask: np.ndarray, window_size: int,
-                                op: typing.Callable) -> np.ndarray:
+                                op: typing.Callable) -> dict:
         """
         helper function to compute window feature values
 
@@ -214,7 +214,7 @@ class Feature(abc.ABC):
 
     def _compute_signal_features(
             self, freqs: np.ndarray, psd: dict,
-            frame_mask: np.ndarray, op: typing.Callable, **kwargs) -> np.ndarray:
+            frame_mask: np.ndarray, op: typing.Callable, **kwargs) -> dict:
         """
         helper function to compute signal window feature values.
 
@@ -236,7 +236,7 @@ class Feature(abc.ABC):
     def _compute_window_features_circular(
             self, feature_values: dict, frame_mask: np.ndarray,
             window_size: int, op: typing.Callable
-    ) -> typing.Dict:
+    ) -> dict:
         """
         special case compute_window_features for circular measurements
 

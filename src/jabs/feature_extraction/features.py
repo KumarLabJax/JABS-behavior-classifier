@@ -31,7 +31,7 @@ _EXTENDED_FEATURE_MODULES = [
 _BASE_FILTERS = {
     'social': SocialFeatureGroup.module_names(),
     'segmentation': SegmentationFeatureGroup.module_names(),
-    'static_objects': LandmarkFeatureGroup._feature_map,
+    'static_objects': LandmarkFeatureGroup.feature_map,
 }
 
 _WINDOW_FILTERS = {
@@ -626,7 +626,7 @@ class IdentityFeatures:
     def get_available_extended_features(
             cls,
             pose_version: int,
-            static_objects: typing.List[str]
+            static_objects: typing.Set[str]
     ) -> typing.Dict[str, typing.List[str]]:
         """
         get all of the extended features that can be used given a minimum pose

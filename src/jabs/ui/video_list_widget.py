@@ -62,9 +62,9 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         """
         self._project = project
         self.file_list.clear()
-        for video in self._project.videos:
+        for video in self._project.video_manager.videos:
             self.file_list.addItem(video)
 
         # select the first video in the list
-        if len(self._project.videos):
+        if len(self._project.video_manager.videos):
             self.file_list.setCurrentRow(0)

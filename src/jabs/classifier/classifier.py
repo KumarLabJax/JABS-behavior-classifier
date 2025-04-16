@@ -353,12 +353,12 @@ class Classifier:
         if self._behavior is None:
             self._project_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.get_behavior_metadata(self._behavior)
+            self._project_settings = project.settings_manager.get_behavior(self._behavior)
 
     def set_dict_settings(self, settings: dict):
         """
         assign project settings via a dict to the classifier
-        :settings: dict of project settings. Must be same structure as project.get_behavior_metadata
+        :settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
         """

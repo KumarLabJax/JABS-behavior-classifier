@@ -19,7 +19,7 @@ class LandmarkFeatureGroup(FeatureGroup):
     }
 
     # maps static objects to the names of features derived from that object
-    _feature_map = {
+    feature_map = {
         'corners': [DistanceToCorner.name(), BearingToCorner.name()],
         'lixit': [DistanceToLixit.name(), BearingToLixit.name()],
         'food_hopper': [FoodHopper.name()]
@@ -96,7 +96,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         object
         """
         try:
-            return cls._feature_map[static_object]
+            return cls.feature_map[static_object]
         except KeyError:
             return []
 
@@ -130,7 +130,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         get a list of all objects supported
         :return: list of the object names
         """
-        return cls._feature_map.keys()
+        return cls.feature_map.keys()
 
     @classmethod
     def get_objects_from_features(cls, features: list):
@@ -142,7 +142,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         """
         found_objects = []
         for cur_feature in features:
-            for obj, feats in cls._feature_map.items():
+            for obj, feats in cls.feature_map.items():
                 if cur_feature in feats:
                     found_objects.append(obj)
         return list(set(found_objects))
