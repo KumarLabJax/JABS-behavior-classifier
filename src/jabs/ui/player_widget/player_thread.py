@@ -97,8 +97,7 @@ class PlayerThread(QtCore.QThread):
                     frame['data'],
                     self._pose_est,
                     identity=self._identity,
-                    frameIndex=frame['index'],
-                    identities=self._identities
+                    frameIndex=frame['index']
                 )
             if self._overlay_landmarks:
                 overlay_landmarks(frame['data'], self._pose_est)
