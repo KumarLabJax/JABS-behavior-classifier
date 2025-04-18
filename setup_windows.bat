@@ -36,11 +36,12 @@ if "!SKIP_VERSION_CHECK!"=="0" (
     if "!VER:~7,4!"=="3.10" set OK=1
     if "!VER:~7,4!"=="3.11" set OK=1
     if "!VER:~7,4!"=="3.12" set OK=1
+    if "!VER:~7,4!"=="3.13" set OK=1
 
     if "!OK!"=="1" (
         echo Found !VER!
     ) else (
-        echo JABS Requires Python 3.10, 3.11, or 3.12
+        echo Compatible Python not found
         REM restore working directory
         cd /d "%initialDir%"
         exit /b 1
