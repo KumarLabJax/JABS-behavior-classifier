@@ -11,7 +11,13 @@ from .project_paths import ProjectPaths
 
 class FeatureManager:
     """
-    Class to manage features for a project.
+    Class to manage task of determining which features are supported by an instance
+    of a Project and storing this information so it can be accessed as necessary.
+
+    Looks at the pose version and static objects in the project to
+    determine the common set of features supported (for example, if one pose files
+    has social features and another does not, then those features will be disabled
+    for the project).
     """
 
     def __init__(self, project_paths: ProjectPaths, videos: list[str]):
