@@ -34,11 +34,11 @@ class ClassifyThread(QtCore.QThread):
         probabilities = {}
         frame_indexes = {}
 
-        project_settings = self._project.get_behavior_metadata(self._behavior)
+        project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
         # iterate over each video in the project
-        for video in self._project.videos:
-            video_path = self._project.video_path(video)
+        for video in self._project.video_manager.videos:
+            video_path = self._project.video_manager.video_path(video)
 
             # load the poses for this video
             pose_est = self._project.load_pose_est(video_path)

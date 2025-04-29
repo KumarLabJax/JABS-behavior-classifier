@@ -76,7 +76,7 @@ class FeatureGroup(abc.ABC):
     def get_supported_feature_modules(
             cls,
             pose_version: int,
-            static_objects: typing.List[str]
+            static_objects: typing.Set[str]
     ) -> typing.List[str]:
         """
 

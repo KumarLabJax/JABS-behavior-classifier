@@ -14,6 +14,11 @@ class _CacheFileVersion(Exception):
 class PoseEstimationV4(PoseEstimation):
     """
     class for opening and parsing version 4 of the pose estimation HDF5 file
+
+    Note, because how we need to handle reordering points based on the identity information
+    available in v4+ pose files, this does not inherit from the PoseEstimationV3 class, and
+    instead it inherits directly from the PoseEstimation class. All versions > 4 inherit
+    from this PoseEstimationV4 class because the only add additional optional information.
     """
 
     __CACHE_FILE_VERSION = 3

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from typing import Tuple, List
-from jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 
 _ID_COLOR = (215, 222, 0)
 _ACTIVE_COLOR = (0, 0, 255)
@@ -83,7 +83,7 @@ def label_identity(img, pose_est, identity, frame_index,
 
 def label_all_identities(img, pose_est, identities, frame_index, subject=None):
     """
-    label all of the identities in the frame
+    label all the identities in the frame
     :param img: image to draw the labels on
     :param pose_est: pose estimations for this video
     :param identities: list of identity names
@@ -146,7 +146,7 @@ def draw_track(img: np.ndarray, pose_est: PoseEstimation, identity: int,
         future_track_points = points[frame_index:frame_index+future_points,
                                      point_index]
         track_point_mask = mask[frame_index:frame_index+future_points, point_index]
-        # filter out masked out points
+        # filter out masked points
         future_track_points = [
             (p[0], p[1]) for p in future_track_points[track_point_mask != 0]
         ]
@@ -211,7 +211,7 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
                        -1, lineType=cv2.LINE_AA)
 
 
-def trim_seg(arr: np.ndarray) -> np.ndarray:
+def trim_seg(arr: np.ndarray) -> np.ndarray | None:
     """
     Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
 
@@ -248,14 +248,12 @@ def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, i
     cv2.drawContours(img, trimmed_contours, -1, color, 2)
         
 
-def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimation,
-    identity: int, frameIndex: int, identities=None, color=(255, 255, 255)):
+def overlay_segmentation(img: np.ndarray, pose_est: PoseEstimationV6, identity: int, frameIndex: int):
     """
     :param img: The current video frame.
     :param pose_est: This will be a pose estimation object >= v6.
     :param identity: This integer identifies which mouse the segmentation will be applied to.
     :param frameIndex: This integer identifies the current video frame index.
-    :param color [optional]: color of segmentation contours rendered on the GUI.
     :return: None
     """
     # No segmentation data to display

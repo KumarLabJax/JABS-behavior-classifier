@@ -145,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Static objects
         enable_landmark_features = {}
-        for landmark_name in LandmarkFeatureGroup._feature_map.keys():
+        for landmark_name in LandmarkFeatureGroup.feature_map.keys():
             landmark_action = QtGui.QAction(f'Enable {landmark_name.capitalize()} Features', self)
             landmark_action.setCheckable(True)
             landmark_action.triggered.connect(self._toggle_static_object_feature)
@@ -227,7 +227,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         # Populate settings based project data
-        behavior_metadata = self._project.get_behavior_metadata(new_behavior)
+        behavior_metadata = self._project.settings_manager.get_behavior(new_behavior)
         self.enable_cm_units.setChecked(behavior_metadata.get('cm_units', False))
         self.enable_window_features.setChecked(behavior_metadata.get('window', False))
         self.enable_fft_features.setChecked(behavior_metadata.get('fft', False))
@@ -242,9 +242,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # check for new behaviors
         for behavior in behaviors:
-            if behavior not in self._project.metadata["behavior"].keys():
+            if behavior not in self._project.settings_manager.project_settings["behavior"].keys():
                 # save new behavior with default settings
-                self._project.save_behavior_metadata(behavior, {})
+                self._project.settings_manager.save_behavior(behavior, {})
 
     def display_status_message(self, message: str, duration: int = 3000):
         """
@@ -306,7 +306,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             out_path = export_training_data(self._project,
                                             self._central_widget.behavior,
-                                            self._project._min_pose_version,
+                                            self._project.feature_manager.min_pose_version,
                                             self._central_widget.classifier_type,
                                             FINAL_TRAIN_SEED)
             self.display_status_message(f"Training data exported: {out_path}",
@@ -342,31 +342,31 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_cm_units(self, checked: bool):
         """ toggle project to use pixel units. """
         # TODO: Warn the user that features may need to be re-calculated
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'cm_units': checked})
+        self._project.save_behavior(self._central_widget.behavior, {'cm_units': checked})
 
     def _toggle_social_features(self, checked: bool):
         """ toggle project to use social features. """
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'social': checked})
+        self._project.save_behavior(self._central_widget.behavior, {'social': checked})
 
     def _toggle_window_features(self, checked: bool):
         """ toggle project to use window features. """
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'window': checked})
+        self._project.save_behavior(self._central_widget.behavior, {'window': checked})
 
     def _toggle_fft_features(self, checked: bool):
         """ toggle project to use fft features. """
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'fft': checked})
+        self._project.save_behavior(self._central_widget.behavior, {'fft': checked})
 
     def _toggle_segmentation_features(self, checked: bool):
         """ toggle project to use segmentation features. """
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'segmentation': checked})
+        self._project.save_behavior(self._central_widget.behavior, {'segmentation': checked})
 
     def _toggle_static_object_feature(self, checked: bool):
         """ toggle project to use a specific static object feature set. """
         # get the key from the caller
         key = self.sender().text().split(' ')[1].lower()
-        all_object_settings = self._project.get_behavior_metadata(self._central_widget.behavior).get('static_objects', {})
+        all_object_settings = self._project.get_behavior(self._central_widget.behavior).get('static_objects', {})
         all_object_settings[key] = checked
-        self._project.save_behavior_metadata(self._central_widget.behavior, {'static_objects': all_object_settings})
+        self._project.save_behavior(self._central_widget.behavior, {'static_objects': all_object_settings})
 
     def _video_list_selection(self, filename: str):
         """
@@ -374,9 +374,10 @@ class MainWindow(QtWidgets.QMainWindow):
         window dock
         """
         try:
-            self._central_widget.load_video(self._project.video_path(filename))
+            self._central_widget.load_video(self._project.video_manager.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
+            self._project_load_error_callback(e)
 
     def _open_archive_behavior_dialog(self):
         dialog = ArchiveBehaviorDialog(self._central_widget.behaviors)
@@ -400,10 +401,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update which controls should be available
         self._archive_behavior.setEnabled(True)
-        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
-        self.enable_social_features.setEnabled(self._project.can_use_social_features)
-        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
-        available_objects = self._project.static_objects
+        self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
+        self.enable_social_features.setEnabled(self._project.feature_manager.can_use_social_features)
+        self.enable_segmentation_features.setEnabled(self._project.feature_manager.can_use_segmentation_features)
+        available_objects = self._project.feature_manager.static_objects
         for static_object, menu_item in self.enable_landmark_features.items():
             if static_object in available_objects:
                 menu_item.setEnabled(True)

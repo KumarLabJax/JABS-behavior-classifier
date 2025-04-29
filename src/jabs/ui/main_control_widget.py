@@ -386,13 +386,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
         if 'selected_behavior' in project_settings and project_settings['selected_behavior']:
-            # make sure this behavior is in the behavior selection drop down
-            if project_settings['selected_behavior'] not in self._behaviors:
-                self.behavior_selection.clear()
-                self._behaviors = sorted(self._behaviors + [project_settings['selected_behavior']])
-                self.behavior_selection.addItems(self._behaviors)
-            behavior_index = self._behaviors.index(
-                project_settings['selected_behavior'])
+            if project_settings['selected_behavior'] in self._behaviors:
+                behavior_index = self._behaviors.index(
+                    project_settings['selected_behavior'])
 
         if len(self._behaviors) == 0:
             self._get_first_label() 
@@ -446,11 +442,11 @@ class MainControlWidget(QtWidgets.QWidget):
                                                   QtWidgets.QLineEdit.Normal
                                                   )
         if ok and text not in self._behaviors:
-            self.behavior_selection.addItem(text)
-            self.behavior_selection.setCurrentText(text)
             self._behaviors.append(text)
             self._behaviors.sort()
             self.new_behavior_label.emit(self._behaviors)
+            self.behavior_selection.addItem(text)
+            self.behavior_selection.setCurrentText(text)
 
     def _get_first_label(self):
         """

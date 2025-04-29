@@ -15,6 +15,7 @@ from pathlib import Path
 import jabs.pose_estimation
 import jabs.feature_extraction
 import jabs.project
+from jabs.project.video_manager import VideoManager
 from jabs.types import ProjectDistanceUnit
 from jabs.cli import cli_progress_bar
 from jabs.video_reader import VideoReader
@@ -26,7 +27,7 @@ def generate_files_worker(params: dict):
     """ worker function used for generating project feature and cache files """
     project = params['project']
     pose_est = project.load_pose_est(
-        project.video_path(params['video']))
+        project.video_manager.video_path(params['video']))
 
     features = jabs.feature_extraction.IdentityFeatures(
         params['video'], params['identity'], project.feature_dir, pose_est,
@@ -136,7 +137,7 @@ def main():
     print(f"Initializing project directory: {args.project_dir}")
 
     # first to a quick check to make sure the h5 files exist for each video
-    videos = jabs.project.Project.get_videos(args.project_dir)
+    videos = VideoManager.get_videos(args.project_dir)
 
     # print the initial progress bar with 0% complete
     cli_progress_bar(0, len(videos),
@@ -201,13 +202,13 @@ def main():
     project = jabs.project.Project(args.project_dir)
     total_identities = project.total_project_identities
 
-    distance_unit = project.distance_unit
+    distance_unit = project.feature_manager.distance_unit
 
     def feature_job_producer():
         """ producer for Pool.imap_unordered """
-        for video in project.videos:
+        for video in project.video_manager.videos:
             for identity in project.load_pose_est(
-                    project.video_path(video)).identities:
+                    project.video_manager.video_path(video)).identities:
                 yield ({
                     'video': video,
                     'identity': identity,
@@ -230,11 +231,10 @@ def main():
 
     pool.close()
 
-    # save window sizes to project metadata
-    project_metadata = project.load_metadata()
+    # save window sizes to project settings
     deduped_window_sizes = set(
-        project_metadata.get('window_sizes', []) + window_sizes)
-    project.save_metadata({'window_sizes': list(deduped_window_sizes)})
+        project.settings_manager.project_settings.get('window_sizes', []) + window_sizes)
+    project.settings_manager.save_project_file({'window_sizes': list(deduped_window_sizes)})
 
     print('\n' + '-' * 70)
     if args.force_pixel_distances:

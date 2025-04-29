@@ -143,7 +143,7 @@ class TrainingThread(QtCore.QThread):
             print(f"Behavior: {self._behavior}")
             # TODO: move settings print to a common project function
             # this will reduce repeated formatting across this and classify.py
-            unit = "cm" if self._project.distance_unit == ProjectDistanceUnit.CM else "pixel"
+            unit = "cm" if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM else "pixel"
             print(f"Feature Distance Unit: {unit}")
             print('-' * 70)
 
