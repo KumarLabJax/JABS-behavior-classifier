@@ -341,6 +341,9 @@ class Project:
         ) as f:
             json.dump(archived_labels, f, indent=True)
 
+        # save project file
+        self._settings_manager.remove_behavior(behavior)
+
     def counts(self, behavior):
         """
         get the labeled frame counts and bout counts for each video in the

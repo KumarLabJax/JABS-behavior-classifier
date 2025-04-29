@@ -38,13 +38,15 @@ class SettingsManager:
 
         return settings
 
-    def save_project_file(self, data: dict):
+    def save_project_file(self, data: dict | None = None):
         """
         Save project properties & settings to the project file.
         :param data: Dictionary with state information to save.
         """
         # Merge data with current metadata
-        self._project_info.update(data)
+        if data is not None:
+            self._project_info.update(data)
+
         self._project_info["version"] = version_str()
 
         # Save combined info to file
@@ -87,7 +89,7 @@ class SettingsManager:
         # remove from project settings
         try:
             del self._project_info["behavior"][behavior]
-            self.save_project_file({})
+            self.save_project_file()
         except KeyError:
             pass
 
