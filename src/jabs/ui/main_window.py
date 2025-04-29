@@ -377,6 +377,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
+            self._project_load_error_callback(e)
 
     def _open_archive_behavior_dialog(self):
         dialog = ArchiveBehaviorDialog(self._central_widget.behaviors)
