@@ -103,7 +103,7 @@ def label_all_identities(img, pose_est, identities, frame_index, subject=None):
                 color = _ID_COLOR
             # write the identity at that location
             cv2.putText(img, str(identity), (int(center.x), int(center.y)),
-                        cv2.FONT_HERSHEY_PLAIN, 1.25, color, 2,
+                        cv2.FONT_HERSHEY_PLAIN, __scale_annotation_size(img, 1.25), color, 2,
                         lineType=cv2.LINE_AA)
 
 
@@ -207,7 +207,7 @@ def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray,
     # draw points at each keypoint of the pose (if it exists at this frame)
     for point, point_mask in zip(points, mask):
         if point_mask:
-            cv2.circle(img, (int(point[0]), int(point[1])), 2, color,
+            cv2.circle(img, (int(point[0]), int(point[1])), __scale_annotation_size(img, 2), color,
                        -1, lineType=cv2.LINE_AA)
 
 
@@ -283,7 +283,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     if lixit is not None:
         for i in range(lixit.shape[0]):
             x, y = lixit[i][0], lixit[i][1]
-            cv2.circle(img, (int(x), int(y)), 2, _LIXIT_COLOR,
+            cv2.circle(img, (int(x), int(y)), __scale_annotation_size(img, 2), _LIXIT_COLOR,
                        -1, lineType=cv2.LINE_AA)
 
     hopper_points = pose_est.static_objects.get('food_hopper')
@@ -291,3 +291,15 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
         hopper = [(p[0], p[1]) for p in hopper_points]
         cv2.polylines(img, np.int32([hopper]), True, _HOPPER_COLOR,
                       1, lineType=cv2.LINE_AA)
+
+def __scale_annotation_size(img: np.ndarray, size: int | float) -> int | float:
+    """
+    Scale the size of the landmark markers based on the size of the image. 800x800 is the video size
+    jabs was developed with, so we use that as a reference.
+    """
+    if type(size) == int:
+        return int(img.shape[0] / 800.0 * size)
+    elif type(size) == float:
+        return img.shape[0] / 800.0 * size
+    else:
+        raise ValueError("size must be int or float")
