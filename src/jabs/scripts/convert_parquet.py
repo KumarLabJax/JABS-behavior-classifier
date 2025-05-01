@@ -86,12 +86,12 @@ import numpy as np
 from jabs.pose_estimation import PoseEstimation
 
 KEYPOINT_MAP = {
-    "1": PoseEstimation.KeypointIndex.NOSE,
-    "2": PoseEstimation.KeypointIndex.LEFT_EAR,
-    "3": PoseEstimation.KeypointIndex.RIGHT_EAR,
-    "4": PoseEstimation.KeypointIndex.BASE_TAIL,
-    "5": PoseEstimation.KeypointIndex.TIP_TAIL,
-    "6": PoseEstimation.KeypointIndex.CENTER_SPINE,
+    1: PoseEstimation.KeypointIndex.NOSE,
+    2: PoseEstimation.KeypointIndex.LEFT_EAR,
+    3: PoseEstimation.KeypointIndex.RIGHT_EAR,
+    4: PoseEstimation.KeypointIndex.BASE_TAIL,
+    5: PoseEstimation.KeypointIndex.TIP_TAIL,
+    6: PoseEstimation.KeypointIndex.CENTER_SPINE,
 }
 
 
@@ -156,7 +156,7 @@ def convert_data_frame(
 
         jabs_id_mask[frame, identity] = False
 
-        for keypoint in ["1", "2", "3", "4", "5", "6"]:
+        for keypoint in range(1,7):
             jabs_keypoint = KEYPOINT_MAP[keypoint]
             x = row[f"kpt_{keypoint}_x"]
             y = row[f"kpt_{keypoint}_y"]
