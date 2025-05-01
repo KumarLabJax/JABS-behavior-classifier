@@ -258,17 +258,17 @@ def main():
         Expects the input parquet file to have the following columns:
           - frame: frame number
           - animal_id: identifier for each animal, unique per frame
-          - kpt_1_x: x coordinate of keypoint 1
+          - kpt_1_x: x coordinate of keypoint 1 (nose)
           - kpt_1_y: y coordinate of keypoint 1
-          - kpt_2_x: x coordinate of keypoint 2
+          - kpt_2_x: x coordinate of keypoint 2 (left ear)
           - kpt_2_y: y coordinate of keypoint 2
-          - kpt_3_x: x coordinate of keypoint 3
+          - kpt_3_x: x coordinate of keypoint 3 (right ear)
           - kpt_3_y: y coordinate of keypoint 3
-          - kpt_4_x: x coordinate of keypoint 4
+          - kpt_4_x: x coordinate of keypoint 4 (base tail)
           - kpt_4_y: y coordinate of keypoint 4
-          - kpt_5_x: x coordinate of keypoint 5
+          - kpt_5_x: x coordinate of keypoint 5 (tip tail)
           - kpt_5_y: y coordinate of keypoint 5
-          - kpt_6_x: x coordinate of keypoint 6
+          - kpt_6_x: x coordinate of keypoint 6 (center)
           - kpt_6_y: y coordinate of keypoint 6
         
         """,
