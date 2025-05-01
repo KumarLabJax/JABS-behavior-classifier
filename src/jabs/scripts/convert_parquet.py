@@ -153,6 +153,8 @@ def convert_data_frame(
     for index, row in df.iterrows():
         frame = row["frame"]
         identity = row["jabs_identity"]
+
+        # jabs "instance_embed_id" uses 1-based indexing (zero is used to fill missing data)
         jabs_embed_id[frame, identity] = identity + 1
 
         jabs_id_mask[frame, identity] = False
@@ -175,6 +177,10 @@ def convert_data_frame(
         pose_group["confidence"] = jabs_confidences
         pose_group["id_mask"] = jabs_id_mask
         pose_group["instance_embed_id"] = jabs_embed_id
+
+        # the parquet file uses global identities for the animal ids, while JABS alwasy uses 0..(num_identities-1)
+        # save the original animal ids in the pose file so we can map back to the original ids downstream
+        pose_group["external_identity_mapping"] = identities
 
         static_objects_group = pose_out.create_group("static_objects")
         if lixit_predictions is not None:
