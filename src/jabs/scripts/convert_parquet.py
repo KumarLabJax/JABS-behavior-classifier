@@ -178,7 +178,7 @@ def convert_data_frame(
         pose_group["id_mask"] = jabs_id_mask
         pose_group["instance_embed_id"] = jabs_embed_id
 
-        # the parquet file uses global identities for the animal ids, while JABS alwasy uses 0..(num_identities-1)
+        # the parquet file uses global identities for the animal ids, while JABS always uses 0..(num_identities-1)
         # save the original animal ids in the pose file so we can map back to the original ids downstream
         pose_group["external_identity_mapping"] = identities
 
