@@ -82,6 +82,7 @@ from pathlib import Path
 import h5py
 import pandas as pd
 import numpy as np
+from argparse_formatter import FlexiFormatter
 
 from jabs.pose_estimation import PoseEstimation
 
@@ -249,8 +250,29 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
 
 
 def main():
+
     parser = argparse.ArgumentParser(
-        description="Convert Envision parquet file to JABS Pose format"
+        description="""
+        Convert parquet pose file to JABS Pose format.
+        
+        Expects the input parquet file to have the following columns:
+          - frame: frame number
+          - animal_id: identifier for each animal, unique per frame
+          - kpt_1_x: x coordinate of keypoint 1
+          - kpt_1_y: y coordinate of keypoint 1
+          - kpt_2_x: x coordinate of keypoint 2
+          - kpt_2_y: y coordinate of keypoint 2
+          - kpt_3_x: x coordinate of keypoint 3
+          - kpt_3_y: y coordinate of keypoint 3
+          - kpt_4_x: x coordinate of keypoint 4
+          - kpt_4_y: y coordinate of keypoint 4
+          - kpt_5_x: x coordinate of keypoint 5
+          - kpt_5_y: y coordinate of keypoint 5
+          - kpt_6_x: x coordinate of keypoint 6
+          - kpt_6_y: y coordinate of keypoint 6
+        
+        """,
+        formatter_class=FlexiFormatter,
     )
 
     parser.add_argument(
