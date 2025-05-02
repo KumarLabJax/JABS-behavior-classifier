@@ -298,7 +298,8 @@ def __scale_annotation_size(img: np.ndarray, size: int | float) -> int | float:
     jabs was developed with, so we use that as a reference.
     """
     if type(size) == int:
-        return int(img.shape[0] / 800.0 * size)
+        # scale an integer size, add half of the baseline image size so it effectively rounds up
+        return (img.shape[0] + 400) // 800 * size
     elif type(size) == float:
         return img.shape[0] / 800.0 * size
     else:

@@ -137,12 +137,12 @@ def convert_data_frame(
         None
     """
 
-    identities = df["animal_id"].unique()
+    identities = df["animal_id"].unique().tolist()
     num_identities = len(identities)
 
     # create "jabs identities" for each row
     # jabs identities are sequential integers starting at 0
-    df["jabs_identity"] = df["animal_id"].apply(lambda x: identities.tolist().index(x))
+    df["jabs_identity"] = df["animal_id"].apply(lambda x: identities.index(x))
 
     # build the jabs pose data structure
     jabs_points = np.zeros((num_frames, num_identities, 12, 2), dtype=np.uint16)
@@ -216,29 +216,20 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
     right_side_y = []
 
     with open(path, "r") as f:
-        reader = csv.reader(f)
-        header = next(reader)
+        reader = csv.DictReader(f)
 
         try:
-            tip_x_index = header.index("tip.x")
-            tip_y_index = header.index("tip.y")
-            left_side_x_index = header.index("left_side.x")
-            left_side_y_index = header.index("left_side.y")
-            right_side_x_index = header.index("right_side.x")
-            right_side_y_index = header.index("right_side.y")
-        except ValueError:
+            for row in reader:
+                tip_x.append(float(row["tip.x"]))
+                tip_y.append(float(row["tip.y"]))
+                left_side_x.append(float(row["left_side.x"]))
+                left_side_y.append(float(row["left_side.y"]))
+                right_side_x.append(float(row["right_side.x"]))
+                right_side_y.append(float(row["right_side.y"]))
+        except KeyError:
             sys.exit(
                 "CSV file does not contain the required columns: tip.x, tip.y, left_side.x, left_side.y, right_side.x, right_side.y"
             )
-
-        for row in reader:
-            tip_x.append(float(row[tip_x_index]))
-            tip_y.append(float(row[tip_y_index]))
-            left_side_x.append(float(row[left_side_x_index]))
-            left_side_y.append(float(row[left_side_y_index]))
-            right_side_x.append(float(row[right_side_x_index]))
-            right_side_y.append(float(row[right_side_y_index]))
-
     return {
         "tip": (
             np.array(tip_y).mean(dtype=np.float32),
