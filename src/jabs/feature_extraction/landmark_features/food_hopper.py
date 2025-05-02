@@ -14,14 +14,14 @@ class FoodHopper(Feature):
     _min_pose = 5
     _static_objects = ['food_hopper']
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict:
         """
         get the per frame feature values for the food hopper landmark
         :param identity: identity to get feature values for
         :return: numpy ndarray of values with shape (nframes, 10)
-        for each frame, the 10 values indicated if the corresponding keypoint
-        is on the food hopper (1) or not (0). (10 points because the mid tail
-        and tail tip are excluded)
+        for each frame, the 10 values are the signed distance from the key point
+        to the polygon defined by the food hopper key points (10 points
+        because the mid tail and tail tip are excluded)
         """
         hopper = self._poses.static_objects['food_hopper']
         if self._pixel_scale is not None:
@@ -34,9 +34,9 @@ class FoodHopper(Feature):
 
         values = {}
 
-        # for each keypoint we will find if that keypoint is within the
-        # food hopper at each frame, then we will set values to 1.0 everywhere
-        # this is true
+        # for each keypoint (except mid tail and tail tip), compute signed distance (measureDist=True)
+        # to the polygon defined by the food hopper key points. Distance is negative if the key point
+        # is outside the polygon, positive if inside, zero if it is on the edge
         for key_point in PoseEstimation.KeypointIndex:
             # skip over the key points we don't care about
             if key_point in _EXCLUDED_POINTS:

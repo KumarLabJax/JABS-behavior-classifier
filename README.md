@@ -106,12 +106,13 @@ Python virtualenv:
 * jabs: launch the JABS GUI
 * jabs-init: initialize a new JABS project directory from the command line
 * jabs-classify: run a trained classifier from the command line
-* jabs-stats: 
+* jabs-stats: print accuracy statistics for the given classifier
+* jabs-convert-parquet: convert parquet pose file to JABS pose file format
 
-You can run the <command> --help to get usage information for the commands.
+You can run the <command> --help to get usage information for each of the commands.
 
-**NOTE: The first time you run the JABS GUI it might take several minutes to launch.
-Subsequent startup times should be significantly reduced.**
+**NOTE: On some platforms, the first time you run the JABS GUI it might take several 
+minutes to launch. Subsequent startup times should be significantly reduced.**
 
 ### Developer Setup
 

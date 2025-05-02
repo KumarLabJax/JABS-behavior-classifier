@@ -632,7 +632,7 @@ class CentralWidget(QtWidgets.QWidget):
             for i, ident in enumerate(self._pose_est.identities):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
                 curr_c_hull = c_hulls[self._curr_frame_index]
-                if curr_c_hull is not None and curr_c_hull.contains(pt):
+                if curr_c_hull is not None and (curr_c_hull.contains(pt) or curr_c_hull.distance(pt) < 5):
                     self._controls.set_identity_index(i)
                     break
 
