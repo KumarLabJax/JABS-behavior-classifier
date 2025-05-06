@@ -85,11 +85,13 @@ class Feature(abc.ABC):
 
     @classmethod
     def is_supported(
-            cls, pose_version: int, static_objects: set[str]) -> bool:
+            cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
         """
         check that a feature is supported by a pose file
         :param pose_version: pose file version
         :param static_objects: list of static object available in pose file
+        :param kwargs: additional attributes that can be used to determine if a feature
+          is supported by the project, not used by the default method but might be used by subclasses
         :return: True if the pose file supports the feature, false otherwise
         """
 

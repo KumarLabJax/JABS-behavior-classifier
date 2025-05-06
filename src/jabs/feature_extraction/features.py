@@ -1,5 +1,4 @@
 from pathlib import Path
-import typing
 
 import h5py
 import numpy as np
@@ -58,7 +57,7 @@ class IdentityFeatures:
 
     def __init__(self, source_file, identity, directory, pose_est,
                  force: bool = False, fps: int = 30,
-                 op_settings: dict = {}, cache_window: bool = True):
+                 op_settings: dict | None = None, cache_window: bool = True):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -83,7 +82,7 @@ class IdentityFeatures:
         self._fps = fps
         self._pose_hash = pose_est.hash
         self._identity = identity
-        self._op_settings = dict(op_settings)
+        self._op_settings = dict(op_settings) if op_settings else None
         self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else None
 
         self._identity_feature_dir = None if directory is None else (
@@ -95,6 +94,7 @@ class IdentityFeatures:
         self._compute_social_features = pose_est.format_major_version >= 3
         self._compute_segmentation_features = pose_est.format_major_version >= 6
         distance_scale = self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
+
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
@@ -626,13 +626,16 @@ class IdentityFeatures:
     def get_available_extended_features(
             cls,
             pose_version: int,
-            static_objects: typing.Set[str]
-    ) -> typing.Dict[str, typing.List[str]]:
+            static_objects: set[str],
+            **kwargs,
+    ) -> dict[str, list[str]]:
         """
-        get all of the extended features that can be used given a minimum pose
+        get all the extended features that can be used given a minimum pose
         version and list of available static objects
         :param pose_version: integer pose version
         :param static_objects: list of static object names
+        :param kwargs: additional keyword arguments that might be used to determine
+          if a feature is supported for a given pose file
         :return: dictionary of supported extended features, where the keys
         are "feature group" name(s) and values are feature names that can
         be used from that group
@@ -643,6 +646,6 @@ class IdentityFeatures:
 
         return {
             feature_group.name(): feature_group.get_supported_feature_modules(
-                pose_version, static_objects) for feature_group in
+                pose_version, static_objects, **kwargs) for feature_group in
             _EXTENDED_FEATURE_MODULES
         }

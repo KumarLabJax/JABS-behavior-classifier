@@ -98,7 +98,7 @@ class VideoManager:
             vinfo = video_metadata.get(video, {})
             nidentities = vinfo.get("identities")
 
-            if nidentities is None:
+            if not nidentities:
                 pose_file = open_pose_file(
                     get_pose_path(self.video_path(video)), self._paths.cache_dir
                 )

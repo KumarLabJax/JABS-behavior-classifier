@@ -226,3 +226,7 @@ class PoseEstimation(ABC):
             attrs = dict(pose_h5.attrs)
             attrs['poseest'] = dict(pose_h5['poseest'].attrs)
             return attrs
+
+    @property
+    def lixit_keypoints(self) -> int:
+        return 0

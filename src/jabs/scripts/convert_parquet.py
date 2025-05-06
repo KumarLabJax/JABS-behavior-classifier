@@ -313,9 +313,9 @@ def main():
             continue
 
         if args.out_dir is None:
-            output_file = parquet_file.with_suffix(".h5")
+            output_file = parquet_file.with_name(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
         else:
-            output_file = args.out_dir / parquet_file.with_suffix(".h5").name
+            output_file = args.out_dir / Path(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
         convert(args.parquet_path, output_file, lixit_predictions, args.num_frames)
 
 

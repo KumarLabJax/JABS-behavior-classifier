@@ -1,7 +1,7 @@
 from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
-from .lixit import DistanceToLixit, BearingToLixit, LixitDistanceInfo
+from .lixit import DistanceToLixit, BearingToLixit, LixitDistanceInfo, MouseLixitAngle
 from .food_hopper import FoodHopper
 
 
@@ -15,14 +15,19 @@ class LandmarkFeatureGroup(FeatureGroup):
         BearingToCorner.name(): BearingToCorner,
         DistanceToLixit.name(): DistanceToLixit,
         BearingToLixit.name(): BearingToLixit,
-        FoodHopper.name(): FoodHopper
+        FoodHopper.name(): FoodHopper,
+        MouseLixitAngle.name(): MouseLixitAngle,
     }
 
     # maps static objects to the names of features derived from that object
     feature_map = {
-        'corners': [DistanceToCorner.name(), BearingToCorner.name()],
-        'lixit': [DistanceToLixit.name(), BearingToLixit.name()],
-        'food_hopper': [FoodHopper.name()]
+        "corners": [DistanceToCorner.name(), BearingToCorner.name()],
+        "lixit": [
+            DistanceToLixit.name(),
+            BearingToLixit.name(),
+            MouseLixitAngle.name(),
+        ],
+        "food_hopper": [FoodHopper.name()],
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -31,7 +36,14 @@ class LandmarkFeatureGroup(FeatureGroup):
         # only enable the features supported by this particular pose file
         self._enabled_features = []
         for o in poses.static_objects:
-            self._enabled_features.extend(self.static_object_features(o))
+            for feature in self.static_object_features(o):
+                # make sure the feature is supported before adding it to the enabled features
+                if self._features[feature].is_supported(
+                    poses.format_major_version,
+                    set(poses.static_objects.keys()),
+                    lixit_keypoints=poses.lixit_keypoints,
+                ):
+                    self._enabled_features.append(feature)
 
         self._corner_info = {}
         self._lixit_info = {}
@@ -45,25 +57,35 @@ class LandmarkFeatureGroup(FeatureGroup):
         modules = {}
 
         if identity not in self._corner_info:
-            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
+            self._corner_info[identity] = CornerDistanceInfo(
+                self._poses, self._pixel_scale
+            )
 
         if identity not in self._lixit_info:
-            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
+            self._lixit_info[identity] = LixitDistanceInfo(
+                self._poses, self._pixel_scale
+            )
 
         # initialize all the feature modules specified in the current config
         for feature in self._enabled_features:
-
             # corner and lixit features require a special initializer with
             # the shared-info object
             if feature in [DistanceToCorner.name(), BearingToCorner.name()]:
                 modules[feature] = self._features[feature](
-                    self._poses, self._pixel_scale, self._corner_info[identity])
-            elif feature in [DistanceToLixit.name(), BearingToLixit.name()]:
+                    self._poses, self._pixel_scale, self._corner_info[identity]
+                )
+            elif feature in [
+                DistanceToLixit.name(),
+                BearingToLixit.name(),
+                MouseLixitAngle.name(),
+            ]:
                 modules[feature] = self._features[feature](
-                    self._poses, self._pixel_scale, self._lixit_info[identity])
+                    self._poses, self._pixel_scale, self._lixit_info[identity]
+                )
             else:
                 modules[feature] = self._features[feature](
-                    self._poses, self._pixel_scale)
+                    self._poses, self._pixel_scale
+                )
 
         return modules
 
@@ -74,7 +96,9 @@ class LandmarkFeatureGroup(FeatureGroup):
         :return: CornerDistanceInfo object for the requested identity
         """
         if identity not in self._corner_info:
-            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
+            self._corner_info[identity] = CornerDistanceInfo(
+                self._poses, self._pixel_scale
+            )
         return self._corner_info[identity]
 
     def get_lixit_info(self, identity: int):
@@ -84,7 +108,9 @@ class LandmarkFeatureGroup(FeatureGroup):
         :return: LixitDistanceInfo object for the requested identity
         """
         if identity not in self._lixit_info:
-            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
+            self._lixit_info[identity] = LixitDistanceInfo(
+                self._poses, self._pixel_scale
+            )
         return self._lixit_info[identity]
 
     @classmethod
@@ -157,7 +183,9 @@ class LandmarkFeatureGroup(FeatureGroup):
         if static_objects is None:
             valid_objects = cls.get_supported_objects()
         else:
-            valid_objects = [x for x in static_objects if x in cls.get_supported_objects()]
+            valid_objects = [
+                x for x in static_objects if x in cls.get_supported_objects()
+            ]
 
         per_frame_features = {}
         window_features = {}
@@ -166,7 +194,9 @@ class LandmarkFeatureGroup(FeatureGroup):
             for current_feature in object_features:
                 object_feature_list = []
                 window_feature_dict = {}
-                per_frame_feature_names = cls.static_object_per_frame_features(current_feature)
+                per_frame_feature_names = cls.static_object_per_frame_features(
+                    current_feature
+                )
                 window_feature_mods = cls.static_object_window_features(current_feature)
                 for frame_feature in per_frame_feature_names:
                     window_feature_dict.update({frame_feature: window_feature_mods})
