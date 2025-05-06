@@ -137,8 +137,11 @@ def convert_data_frame(
         None
     """
 
-    identities = df["animal_id"].unique().tolist()
+    # we saw one parquet file with a single row with animal_id == 0
+    # we're going to trim those out if they exist
+    identities = [x for x in df["animal_id"].unique().tolist() if x != 0]
     num_identities = len(identities)
+    df = df[df["animal_id"].isin(identities)].copy()
 
     # create "jabs identities" for each row
     # jabs identities are sequential integers starting at 0
@@ -316,7 +319,7 @@ def main():
             output_file = parquet_file.with_name(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
         else:
             output_file = args.out_dir / Path(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
-        convert(args.parquet_path, output_file, lixit_predictions, args.num_frames)
+        convert(parquet_file, output_file, lixit_predictions, args.num_frames)
 
 
 if __name__ == "__main__":
