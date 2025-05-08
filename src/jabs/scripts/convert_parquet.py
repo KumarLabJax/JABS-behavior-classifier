@@ -45,10 +45,10 @@ Output h5 file:
         Parquet Keypoint 3: JABS Keypoint RIGHT_EAR
         Parquet Keypoint 4: JABS Keypoint BASE_TAIL
         Parquet Keypoint 5: JABS Keypoint TIP_TAIL
-        Parquet Keypoint 6: JABS Keypoint CENTER_SPINE
+        Parquet Keypoint 6: ignored
 
-    NOTE: Parquet Keypoint 6 is not inferred by the pose estimation pipeline. It is a computed centroid
-    (perhaps of the bounding box?). Currently, we're mapping this to the JABS center spine keypoint.
+    NOTE: Parquet Keypoint 6 is not inferred by the pose estimation pipeline. It is near, but not exactly
+    the centroid. JABS computes a centroid, so we ignore this keypoint.
 
 Lixit keypoints:
 
@@ -92,7 +92,6 @@ KEYPOINT_MAP = {
     3: PoseEstimation.KeypointIndex.RIGHT_EAR,
     4: PoseEstimation.KeypointIndex.BASE_TAIL,
     5: PoseEstimation.KeypointIndex.TIP_TAIL,
-    6: PoseEstimation.KeypointIndex.CENTER_SPINE,
 }
 
 
@@ -162,7 +161,10 @@ def convert_data_frame(
 
         jabs_id_mask[frame, identity] = False
 
-        for keypoint in range(1,7):
+        # we only iterate over keypoints 1-5, since keypoint 6 is computed and
+        # doesn't map to a jabs keypoint. It's similar to our computed
+        # centroids
+        for keypoint in range(1,6):
             jabs_keypoint = KEYPOINT_MAP[keypoint]
             x = row[f"kpt_{keypoint}_x"]
             y = row[f"kpt_{keypoint}_y"]
@@ -270,10 +272,7 @@ def main():
           - kpt_4_x: x coordinate of keypoint 4 (base tail)
           - kpt_4_y: y coordinate of keypoint 4
           - kpt_5_x: x coordinate of keypoint 5 (tip tail)
-          - kpt_5_y: y coordinate of keypoint 5
-          - kpt_6_x: x coordinate of keypoint 6 (center)
-          - kpt_6_y: y coordinate of keypoint 6
-        
+          - kpt_5_y: y coordinate of keypoint 5        
         """,
         formatter_class=FlexiFormatter,
     )
