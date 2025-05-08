@@ -211,15 +211,21 @@ class BearingToLixit(Feature):
 
 class MouseLixitAngle(Feature):
     """
-    Feature is based on the angle between the vector going from the tip of the lixit to the middle of the two sides
-    and the vector going from the center of spine* to the nose
+    This class computes two features.
+
+    1. the angle between the vector going from the tip of the lixit to the middle of the two sides
+    and the vector going from the centroid to the nose
+
+    2. the angle between the vector going from the tip of the lixit to the middle of the two sides
+    and the vector going from the base tail to the centroid
 
     The intention of including this feature is to provide a measure of how the mouse is oriented with respect to
-    the lixit. Unlike the "bearing to lixit", which is a measure of the angle between the mouse and the lixit, this
-    feature will allow the classifier to learn when the mouse is approaching the lixit from the front.
+    the lixit. Unlike the "bearing to lixit", which is a measure of the angle between the direction the mouse
+    is facing and the lixit, this feature will allow the classifier to learn when the mouse is approaching the lixit
+    from the front.
     """
 
-    _name = "mouse_lixit_angle_cosine"
+    _name = "mouse_lixit_angle"
     _min_pose = 5
     _static_objects = ["lixit"]
 
@@ -242,11 +248,7 @@ class MouseLixitAngle(Feature):
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """
-        Calculate the cosine of the angle between the vector from the mouse's spine center to its nose
-        and the vector from the lixit's tip to the midpoint of its left and right sides.
-
-        This feature provides a measure of how the mouse is oriented with respect to the lixit,
-        allowing the classifier to determine when the mouse is approaching the lixit from the front.
+        Calculate per frame features.
 
         Args:
             identity (int): The identity of the mouse for which the feature is being calculated.
@@ -258,10 +260,26 @@ class MouseLixitAngle(Feature):
         # Get the poses (keypoint coordinates) for the given identity, scaled by pixel_scale
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
+        # get centroids
+        # first, get an array of the indexes of valid frames only
+        frame_valid = self._poses.identity_mask(identity)
+        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
+
+        # then get centroids for all frames where this identity is present
+        convex_hulls = self._poses.get_identity_convex_hulls(identity)
+        centroids = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
+        for i in indexes:
+            centroids[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
+
         # Compute the vector from the nose to the center of the spine for the mouse
+        mouse_vectors = (
+                points[:, PoseEstimation.KeypointIndex.NOSE, :]
+                - centroids
+        )
+
         mouse_back_vectors = (
-            points[:, PoseEstimation.KeypointIndex.CENTER_SPINE, :]
-            - points[:, PoseEstimation.KeypointIndex.NOSE, :]
+                centroids
+                - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
         )
 
         # Get the lixit points for the closest lixit to the given identity
@@ -274,16 +292,21 @@ class MouseLixitAngle(Feature):
             lixit_points[:, 0, :] - (lixit_points[:, 1, :] + lixit_points[:, 2, :]) / 2
         )
 
-        # Compute the dot product of the mouse back vector and the lixit vector
-        dot_product = np.einsum("ij,ij->i", mouse_back_vectors, lixit_vectors)
+        # Compute the dot product of the mouse vectors and the lixit vectors
+        dot_product = np.einsum("ij,ij->i", mouse_vectors, lixit_vectors)
+        dot_product_back = np.einsum("ij,ij->i", mouse_back_vectors, lixit_vectors)
 
-        # Compute the norms (magnitudes) of the mouse back vectors and lixit vectors
+        # Compute the norms (magnitudes) of the mouse vectors and lixit vectors
+        norm_mouse_vectors = np.linalg.norm(mouse_vectors, axis=1)
         norm_mouse_back_vectors = np.linalg.norm(mouse_back_vectors, axis=1)
         norm_lixit_vectors = np.linalg.norm(lixit_vectors, axis=1)
 
         # Compute the cosine of the angle between the two vectors and clip it to the range [-1, 1]
         return {
-            self._name: np.clip(
-                dot_product / (norm_mouse_back_vectors * norm_lixit_vectors), -1.0, 1.0
-            )
+            f"centroid - nose": np.clip(
+                dot_product / (norm_mouse_vectors * norm_lixit_vectors), -1.0, 1.0
+            ),
+            f"base-tail - centroid": np.clip(
+                dot_product_back / (norm_mouse_back_vectors * norm_lixit_vectors), -1.0, 1.0
+            ),
         }
