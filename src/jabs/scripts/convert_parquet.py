@@ -223,12 +223,15 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
 
         try:
             for row in reader:
-                tip_x.append(float(row["tip.x"]))
-                tip_y.append(float(row["tip.y"]))
-                left_side_x.append(float(row["left_side.x"]))
-                left_side_y.append(float(row["left_side.y"]))
-                right_side_x.append(float(row["right_side.x"]))
-                right_side_y.append(float(row["right_side.y"]))
+                if row["tip.x"] and row["tip.y"]:
+                    tip_x.append(float(row["tip.x"]))
+                    tip_y.append(float(row["tip.y"]))
+                if row["left_side.x"] and row["left_side.y"]:
+                    left_side_x.append(float(row["left_side.x"]))
+                    left_side_y.append(float(row["left_side.y"]))
+                if row["right_side.x"] and row["right_side.y"]:
+                    right_side_x.append(float(row["right_side.x"]))
+                    right_side_y.append(float(row["right_side.y"]))
         except KeyError:
             sys.exit(
                 "CSV file does not contain the required columns: tip.x, tip.y, left_side.x, left_side.y, right_side.x, right_side.y"
