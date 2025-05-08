@@ -139,6 +139,7 @@ def convert_data_frame(
     # we saw one parquet file with a single row with animal_id == 0
     # we're going to trim those out if they exist
     identities = [x for x in df["animal_id"].unique().tolist() if x != 0]
+    identities.sort()
     num_identities = len(identities)
     df = df[df["animal_id"].isin(identities)].copy()
 
