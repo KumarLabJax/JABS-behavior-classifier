@@ -18,6 +18,7 @@ from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
 from .main_control_widget import MainControlWidget
 
+_CLICK_THRESHOLD = 20
 
 class CentralWidget(QtWidgets.QWidget):
     """
@@ -31,7 +32,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         # video player
         self._player_widget = PlayerWidget()
-        self._player_widget.updateIdentities.connect(self._set_identities)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
@@ -176,19 +176,26 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.select_button_set_checked(False)
 
         try:
+            self._loaded_video = path
+
+            # open poses and any labels that might exist for this video
+            self._pose_est = self._project.load_pose_est(path)
+            self._labels = self._project.video_manager.load_video_labels(path, self._pose_est.external_identities)
+
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = \
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
 
-            # load labels for new video and set track for current identity
-            self._labels = self._project.video_manager.load_video_labels(path)
 
-            # open the video
-            self._loaded_video = path
-            self._pose_est = self._project.load_pose_est(path)
+            # load video into player
             self._player_widget.load_video(path, self._pose_est)
 
             # update ui components with properties of new video
+            if self._pose_est.external_identities:
+                self._set_identities(self._pose_est.external_identities)
+            else:
+                self._set_identities(self._pose_est.identities)
+
             self.manual_labels.set_num_frames(self._player_widget.num_frames())
             self.manual_labels.set_framerate(self._player_widget.stream_fps())
             self.prediction_vis.set_num_frames(self._player_widget.num_frames())
@@ -392,10 +399,10 @@ class CentralWidget(QtWidgets.QWidget):
         behavior or identity is changed
         """
         behavior = self._controls.current_behavior
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
-        if identity != '' and behavior != '' and self._labels is not None:
-            labels = self._labels.get_track_labels(identity, behavior)
+        if identity != -1 and behavior != '' and self._labels is not None:
+            labels = self._labels.get_track_labels(str(identity), behavior)
             self.manual_labels.set_labels(
                 labels, mask=self._player_widget.get_identity_mask())
             self.timeline_widget.set_labels(labels)
@@ -408,7 +415,7 @@ class CentralWidget(QtWidgets.QWidget):
         behavior
         """
         return self._labels.get_track_labels(
-            self._controls.current_identity,
+            str(self._controls.current_identity_index),
             self._controls.current_behavior
         )
 
@@ -527,7 +534,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
         try:
             indexes = self._frame_indexes[identity]
@@ -583,7 +590,7 @@ class CentralWidget(QtWidgets.QWidget):
         # by only updating the current identity in the current video
         self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
         label_behavior_current = 0
         label_not_behavior_current = 0
@@ -627,14 +634,36 @@ class CentralWidget(QtWidgets.QWidget):
         handle event where user clicked on the video -- if they click
         on one of the mice, make that one active
         """
+        clicked_identity = None
         if self._pose_est is not None:
             pt = Point(event['x'], event['y'])
             for i, ident in enumerate(self._pose_est.identities):
                 c_hulls = self._pose_est.get_identity_convex_hulls(ident)
                 curr_c_hull = c_hulls[self._curr_frame_index]
-                if curr_c_hull is not None and (curr_c_hull.contains(pt) or curr_c_hull.distance(pt) < 5):
-                    self._controls.set_identity_index(i)
+
+                # if the click is in a convex hull, set that identity as active
+                if curr_c_hull is not None and curr_c_hull.contains(pt):
+                    clicked_identity = i
                     break
+
+            # if the click was not on a convex hull, check to see if it was close to one
+            # with few keypoints, sometimes the convex hull is thin and easy to miss when clicking on the mouse
+            min_distance = float('inf')
+            closest_identity = None
+            for i, ident in enumerate(self._pose_est.identities):
+                c_hulls = self._pose_est.get_identity_convex_hulls(ident)
+                curr_c_hull = c_hulls[self._curr_frame_index]
+
+                # if the click is in a convex hull, set that identity as active
+                if curr_c_hull is not None and curr_c_hull.distance(pt) < min_distance:
+                    closest_identity = i
+                    min_distance = curr_c_hull.distance(pt)
+
+            if clicked_identity is None and min_distance < _CLICK_THRESHOLD:
+                clicked_identity = closest_identity
+
+        if clicked_identity is not None:
+            self._controls.set_identity_index(clicked_identity)
 
     def _window_feature_size_changed(self, new_size):
         """ handle window feature size change """

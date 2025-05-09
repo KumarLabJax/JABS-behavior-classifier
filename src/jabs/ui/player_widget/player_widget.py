@@ -395,10 +395,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoReader(path)
 
         self._pose_est = pose_est
-
-        # tell main window to populate the identity selection drop down
-        # this will cause set_active_identity() to be called
-        self.updateIdentities.emit(self._pose_est.identities)
         self.set_identities(self._pose_est.identities)
 
         # set up the position slider

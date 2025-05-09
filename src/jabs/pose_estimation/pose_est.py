@@ -50,6 +50,7 @@ class PoseEstimation(ABC):
         super().__init__()
         self._num_frames = 0
         self._identities = []
+        self._external_identities = None
         self._convex_hull_cache = dict()
         self._path = file_path
         self._cache_dir = cache_dir
@@ -230,3 +231,7 @@ class PoseEstimation(ABC):
     @property
     def lixit_keypoints(self) -> int:
         return 0
+
+    @property
+    def external_identities(self) -> list[int] | None:
+        return self._external_identities

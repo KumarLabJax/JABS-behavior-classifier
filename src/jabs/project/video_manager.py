@@ -51,11 +51,12 @@ class VideoManager:
     def total_project_identities(self) -> int:
         return self._total_project_identities
 
-    def load_video_labels(self, video_name):
+    def load_video_labels(self, video_name, external_identities: list[int] | None = None):
         """
         load labels for a video from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
         :param video_name: filename of the video: string or pathlib.Path
+        :param external_identities: list of external identities that correspond to the jabs identities
         :return: initialized VideoLabels object
         """
 
@@ -72,7 +73,7 @@ class VideoManager:
         else:
             video_path = self._paths.project_dir / video_filename
             nframes = get_frame_count(str(video_path))
-            return VideoLabels(video_filename, nframes)
+            return VideoLabels(video_filename, nframes, external_identities)
 
     def check_video_name(self, video_filename):
         """

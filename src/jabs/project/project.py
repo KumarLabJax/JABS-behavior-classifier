@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import get_pose_path, open_pose_file, PoseEstimation
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
 from jabs.video_reader.utilities import get_fps
@@ -126,7 +126,7 @@ class Project:
         """
         return self._paths
 
-    def load_pose_est(self, video_path: Path):
+    def load_pose_est(self, video_path: Path) -> PoseEstimation:
         """
         return a PoseEstimation object for a given video path
         :param video_path: pathlib.Path containing location of video file
@@ -257,11 +257,11 @@ class Project:
 
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
-            video_tracks = self._video_manager.load_video_labels(video)
             poses = open_pose_file(
                 get_pose_path(self._video_manager.video_path(video)),
                 self._paths.cache_dir,
             )
+            video_tracks = self._video_manager.load_video_labels(video, poses.external_identities)
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
@@ -271,15 +271,14 @@ class Project:
 
             # populate numpy arrays
             for identity in predictions[video]:
-                identity_index = int(identity)
 
                 inferred_indexes = frame_indexes[video][identity]
-                track = video_tracks.get_track_labels(identity, behavior)
+                track = video_tracks.get_track_labels(str(identity), behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[
+                prediction_labels[identity, inferred_indexes] = predictions[
                     video
                 ][identity][inferred_indexes]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[
+                prediction_prob[identity, inferred_indexes] = probabilities[
                     video
                 ][identity][inferred_indexes]
 
@@ -424,7 +423,7 @@ class Project:
                 )
 
                 labels = (
-                    self._video_manager.load_video_labels(video)
+                    self._video_manager.load_video_labels(video, pose_est.external_identities)
                     .get_track_labels(str(identity), behavior)
                     .get_labels()
                 )

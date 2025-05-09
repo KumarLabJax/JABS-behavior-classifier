@@ -51,16 +51,15 @@ class ClassifyThread(QtCore.QThread):
             probabilities[video] = {}
             frame_indexes[video] = {}
 
-            for ident in pose_est.identities:
+            for identity in pose_est.identities:
                 self.current_status.emit(
-                    f"Classifying {video},  Identity {ident}")
+                    f"Classifying {video},  Identity {identity}")
 
                 # get the features for this identity
                 features = IdentityFeatures(
-                    video, ident, self._project.feature_dir,
+                    video, identity, self._project.feature_dir,
                     pose_est, fps=fps, op_settings=project_settings,
                 )
-                identity = str(ident)
                 feature_values = features.get_features(project_settings.get('window_size', DEFAULT_WINDOW_SIZE))
 
                 # reformat the data in a single 2D numpy array to pass

@@ -41,6 +41,7 @@ class PredictionManager:
         probabilities,
         poses,
         classifier,
+        external_identities: list[int] | None = None,
     ):
         """
         write predictions out to a file
@@ -50,6 +51,7 @@ class PredictionManager:
         :param probabilities: matrix of probability for the predicted class of shape [n_animals, n_frames]
         :param poses: PoseEstimation object for which predictions were made
         :param classifier: Classifier object for which was used to make predictions
+        :param external_identities: list of external identities that correspond to the jabs identities
         """
         # TODO catch exceptions
         with h5py.File(output_path, "a") as h5:
@@ -57,6 +59,8 @@ class PredictionManager:
             h5.attrs["pose_hash"] = poses.hash
             h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
             prediction_group = h5.require_group("predictions")
+            if external_identities is not None:
+                prediction_group.create_dataset("external_identity_map", data=np.array(external_identities, dtype=np.uint32))
             behavior_group = prediction_group.require_group(to_safe_name(behavior))
             behavior_group.attrs["classifier_file"] = classifier.classifier_file
             behavior_group.attrs["classifier_hash"] = classifier.classifier_hash
@@ -117,7 +121,6 @@ class PredictionManager:
                 _classes = behavior_group["predicted_class"][:]
 
                 for i in range(nident):
-                    identity = str(i)
                     indexes = np.asarray(
                         range(behavior_group["predicted_class"].shape[1])
                     )
@@ -132,9 +135,9 @@ class PredictionManager:
 
                     # we're left with classes/probabilities for frames that
                     # were inferred and their frame indexes
-                    predictions[identity] = _classes[i]
-                    probabilities[identity] = _probabilities[i]
-                    frame_indexes[identity] = indexes
+                    predictions[i] = _classes[i]
+                    probabilities[i] = _probabilities[i]
+                    frame_indexes[i] = indexes
 
         except (MissingBehaviorError, FileNotFoundError):
             # no saved predictions for this behavior for this video

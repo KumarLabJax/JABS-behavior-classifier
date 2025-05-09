@@ -179,14 +179,14 @@ def convert_data_frame(
 
     with h5py.File(output_path, "w") as pose_out:
         pose_group = pose_out.create_group("poseest")
-        pose_group["points"] = jabs_points
-        pose_group["confidence"] = jabs_confidences
-        pose_group["id_mask"] = jabs_id_mask
-        pose_group["instance_embed_id"] = jabs_embed_id
+        pose_group.create_dataset("points", data=jabs_points, dtype=np.uint16)
+        pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
+        pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
+        pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
 
         # the parquet file uses global identities for the animal ids, while JABS always uses 0..(num_identities-1)
         # save the original animal ids in the pose file so we can map back to the original ids downstream
-        pose_group["external_identity_mapping"] = identities
+        pose_group.create_dataset("external_identity_mapping", data=identities, dtype=np.uint32)
 
         static_objects_group = pose_out.create_group("static_objects")
         if lixit_predictions is not None:

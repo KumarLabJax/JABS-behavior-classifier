@@ -13,10 +13,11 @@ class VideoLabels:
 
     TODO stop using str for identities in method parameters, switch to int
     """
-    def __init__(self, filename, num_frames):
+    def __init__(self, filename, num_frames, external_identities: list[int] | None = None):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
+        self._external_identities = external_identities
 
     @property
     def filename(self):
@@ -78,7 +79,7 @@ class VideoLabels:
                 counts.append((identity, c[0], c[1]))
         return counts
 
-    def as_dict(self):
+    def as_dict(self) -> dict:
         """
         return dict representation of self, useful for JSON serialization and
         saving to disk or caching in memory without storing the full
@@ -88,8 +89,11 @@ class VideoLabels:
         {
             "file": "filename.avi",
             "num_frames": 100,
+            "external_identities: {
+                "jabs identity", 1234,
+            },
             "labels": {
-                "identity": {
+                "jabs identity": {
                     "behavior": [
                         {
                             "start": 25,
@@ -102,19 +106,27 @@ class VideoLabels:
         }
 
         """
-        labels = {}
+
+        label_dict = {
+            'file': self._filename,
+            'num_frames': self._num_frames,
+            "labels": {},
+        }
+
         for identity in self._identity_labels:
-            labels[identity] = {}
+            label_dict["labels"][identity] = {}
             for behavior in self._identity_labels[identity]:
                 blocks = self._identity_labels[identity][behavior].get_blocks()
                 if len(blocks):
-                    labels[identity][behavior] = blocks
+                    label_dict["labels"][identity][behavior] = blocks
 
-        return {
-            'file': self._filename,
-            'num_frames': self._num_frames,
-            'labels': labels
-        }
+
+        if self._external_identities is not None:
+            label_dict['external_identities'] = {}
+            for i, identity in enumerate(self._external_identities):
+                label_dict['external_identities'][str(i)] = identity
+
+        return label_dict
 
     @classmethod
     def load(cls, video_label_dict):

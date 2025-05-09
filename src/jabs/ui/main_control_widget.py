@@ -240,11 +240,16 @@ class MainControlWidget(QtWidgets.QWidget):
         return list(self._behaviors)
 
     @property
-    def current_identity(self):
+    def current_identity(self) -> str:
+        """
+        this will be the external identity
+        if the pose file doesn't have external identities this will be the string representation of the jabs identity
+        """
         return self.identity_selection.currentText()
 
     @property
-    def current_identity_index(self):
+    def current_identity_index(self) -> int:
+        """ identity index is the same as the JABS identity """
         return self.identity_selection.currentIndex()
 
     @property
