@@ -1,5 +1,4 @@
 import abc
-import typing
 
 from jabs.pose_estimation import PoseEstimation
 from .feature_base_class import Feature
@@ -8,7 +7,7 @@ from .feature_base_class import Feature
 class FeatureGroup(abc.ABC):
 
     # to be defined in subclass
-    _features: typing.Dict[str, typing.Type[Feature]] = {}
+    _features: dict[str, Feature] = {}
     _name = None
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -25,7 +24,7 @@ class FeatureGroup(abc.ABC):
         # by default, all features are turned on
         self._enabled_features = list(self._features.keys())
 
-    def per_frame(self, identity: int) -> typing.Dict:
+    def per_frame(self, identity: int) -> dict:
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for
@@ -39,7 +38,7 @@ class FeatureGroup(abc.ABC):
         }
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: typing.Dict) -> typing.Dict:
+               per_frame_values: dict) -> dict:
         """
         compute window feature values for a given identities per frame values
         :param identity: subject identity
@@ -76,17 +75,19 @@ class FeatureGroup(abc.ABC):
     def get_supported_feature_modules(
             cls,
             pose_version: int,
-            static_objects: typing.Set[str]
-    ) -> typing.List[str]:
+            static_objects: set[str],
+            **kwargs,
+    ) -> list[str]:
         """
-
+        Get the features supported by this group based on the pose version,
+          static objects, and optional additional attributes
         :param pose_version:
         :param static_objects:
+        :param kwargs:
         :return:
         """
         features = []
         for feature_name, feature_class in cls._features.items():
-            if feature_class.is_supported(pose_version, static_objects):
+            if feature_class.is_supported(pose_version, static_objects, **kwargs):
                 features.append(feature_name)
-
         return features

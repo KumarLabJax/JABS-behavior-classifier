@@ -29,6 +29,7 @@ class PoseEstimationV5(PoseEstimationV4):
         # data
 
         self._static_objects = {}
+        self._lixit_keypoints = 0
 
         # open the hdf5 pose file
         with h5py.File(self._path, 'r') as pose_h5:
@@ -39,7 +40,7 @@ class PoseEstimationV5(PoseEstimationV4):
                 if g == 'poseest':
                     continue
 
-                # 'static_objects'. Currently anything else is ignored
+                # v5 adds a 'static_objects' dataset, but is otherwise the same as v4
                 if g == 'static_objects':
                     for d in pose_h5['static_objects']:
                         static_object_data = pose_h5['static_objects'][d][:]
@@ -47,10 +48,26 @@ class PoseEstimationV5(PoseEstimationV4):
                             static_object_data = np.flip(static_object_data, axis=-1)
                         self._static_objects[d] = static_object_data
 
-        # drop "lixit" from the static objects if it is an empty array
-        if 'lixit' in self._static_objects and self._static_objects['lixit'].shape[0] == 0:
-            del self._static_objects['lixit']
+        if 'lixit' in self._static_objects:
+            # drop "lixit" from the static objects if it is an empty array
+            if self._static_objects['lixit'].shape[0] == 0:
+                del self._static_objects['lixit']
+            else:
+                # if the lixit data is not empty, we need to get the number of
+                # keypoints in the lixit data
+                if self._static_objects['lixit'].ndim == 3:
+                    # if the lixit data is 3D, it means we have 3 points per
+                    # lixit (tip, left side, right side -- in that order) and the shape is #lixit x 3 x 2
+                    self._lixit_keypoints = 3
+                else:
+                    # if the lixit data is 2D, it means we have 1 point per
+                    # lixit (tip) and the shape is #lixit x 2
+                    self._lixit_keypoints = 1
 
     @property
     def format_major_version(self) -> int:
         return 5
+
+    @property
+    def lixit_keypoints(self) -> int:
+        return self._lixit_keypoints

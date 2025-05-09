@@ -1,9 +1,10 @@
 import jabs.feature_extraction as feature_extraction
 from jabs.pose_estimation import (
-    get_pose_path,
-    get_pose_file_major_version,
-    get_static_objects_in_file,
     PoseEstimation,
+    get_points_per_lixit,
+    get_pose_file_major_version,
+    get_pose_path,
+    get_static_objects_in_file,
 )
 from jabs.types import ProjectDistanceUnit
 from .project_paths import ProjectPaths
@@ -24,9 +25,9 @@ class FeatureManager:
         """
         Initialize the FeatureManager.
         """
+        self._lixit_keypoints = 0
 
         self._project_paths = project_paths
-
         self.__initialize_pose_data(videos)
         self.__initialize_distance_unit(videos)
 
@@ -43,6 +44,7 @@ class FeatureManager:
         """Initialize pose version and static object data."""
         pose_versions = []
         static_object_sets = []
+
         for vid in videos:
             pose_path = get_pose_path(self._project_paths.project_dir / vid)
             pose_versions.append(get_pose_file_major_version(pose_path))
@@ -52,6 +54,17 @@ class FeatureManager:
         self._static_objects = (
             set.intersection(*static_object_sets) if len(static_object_sets) else []
         )
+
+        # determine number of keypoints used to define lixit (if present)
+        # this will be used to determine if we can use single or three lixit keypoints
+        # (three keypoint lixit is backwards compatible with single keypoint lixit by
+        # ignoring left and right side keypoints)
+        if "lixit" in self._static_objects:
+            lixit_keypoints = []
+            for vid in videos:
+                pose_path = get_pose_path(self._project_paths.project_dir / vid)
+                lixit_keypoints.append(get_points_per_lixit(pose_path))
+            self._lixit_keypoints = min(lixit_keypoints)
 
     def __initialize_distance_unit(self, videos: list[str]):
         """Determine the distance unit for the project."""
@@ -72,7 +85,9 @@ class FeatureManager:
         :return: Dictionary of enabled extended features.
         """
         return feature_extraction.IdentityFeatures.get_available_extended_features(
-            self._min_pose_version, self._static_objects
+            self._min_pose_version,
+            self._static_objects,
+            lixit_keypoints=self._lixit_keypoints,
         )
 
     @property

@@ -45,10 +45,10 @@ Output h5 file:
         Parquet Keypoint 3: JABS Keypoint RIGHT_EAR
         Parquet Keypoint 4: JABS Keypoint BASE_TAIL
         Parquet Keypoint 5: JABS Keypoint TIP_TAIL
-        Parquet Keypoint 6: JABS Keypoint CENTER_SPINE
+        Parquet Keypoint 6: ignored
 
-    NOTE: Parquet Keypoint 6 is not inferred by the pose estimation pipeline. It is a computed centroid
-    (perhaps of the bounding box?). Currently, we're mapping this to the JABS center spine keypoint.
+    NOTE: Parquet Keypoint 6 is not inferred by the pose estimation pipeline. It is near, but not exactly
+    the centroid. JABS computes a centroid, so we ignore this keypoint.
 
 Lixit keypoints:
 
@@ -92,7 +92,6 @@ KEYPOINT_MAP = {
     3: PoseEstimation.KeypointIndex.RIGHT_EAR,
     4: PoseEstimation.KeypointIndex.BASE_TAIL,
     5: PoseEstimation.KeypointIndex.TIP_TAIL,
-    6: PoseEstimation.KeypointIndex.CENTER_SPINE,
 }
 
 
@@ -137,8 +136,12 @@ def convert_data_frame(
         None
     """
 
-    identities = df["animal_id"].unique().tolist()
+    # we saw one parquet file with a single row with animal_id == 0
+    # we're going to trim those out if they exist
+    identities = [x for x in df["animal_id"].unique().tolist() if x != 0]
+    identities.sort()
     num_identities = len(identities)
+    df = df[df["animal_id"].isin(identities)].copy()
 
     # create "jabs identities" for each row
     # jabs identities are sequential integers starting at 0
@@ -159,7 +162,10 @@ def convert_data_frame(
 
         jabs_id_mask[frame, identity] = False
 
-        for keypoint in range(1,7):
+        # we only iterate over keypoints 1-5, since keypoint 6 is computed and
+        # doesn't map to a jabs keypoint. It's similar to our computed
+        # centroids
+        for keypoint in range(1,6):
             jabs_keypoint = KEYPOINT_MAP[keypoint]
             x = row[f"kpt_{keypoint}_x"]
             y = row[f"kpt_{keypoint}_y"]
@@ -220,12 +226,15 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
 
         try:
             for row in reader:
-                tip_x.append(float(row["tip.x"]))
-                tip_y.append(float(row["tip.y"]))
-                left_side_x.append(float(row["left_side.x"]))
-                left_side_y.append(float(row["left_side.y"]))
-                right_side_x.append(float(row["right_side.x"]))
-                right_side_y.append(float(row["right_side.y"]))
+                if row["tip.x"] and row["tip.y"]:
+                    tip_x.append(float(row["tip.x"]))
+                    tip_y.append(float(row["tip.y"]))
+                if row["left_side.x"] and row["left_side.y"]:
+                    left_side_x.append(float(row["left_side.x"]))
+                    left_side_y.append(float(row["left_side.y"]))
+                if row["right_side.x"] and row["right_side.y"]:
+                    right_side_x.append(float(row["right_side.x"]))
+                    right_side_y.append(float(row["right_side.y"]))
         except KeyError:
             sys.exit(
                 "CSV file does not contain the required columns: tip.x, tip.y, left_side.x, left_side.y, right_side.x, right_side.y"
@@ -264,10 +273,7 @@ def main():
           - kpt_4_x: x coordinate of keypoint 4 (base tail)
           - kpt_4_y: y coordinate of keypoint 4
           - kpt_5_x: x coordinate of keypoint 5 (tip tail)
-          - kpt_5_y: y coordinate of keypoint 5
-          - kpt_6_x: x coordinate of keypoint 6 (center)
-          - kpt_6_y: y coordinate of keypoint 6
-        
+          - kpt_5_y: y coordinate of keypoint 5        
         """,
         formatter_class=FlexiFormatter,
     )
@@ -313,10 +319,10 @@ def main():
             continue
 
         if args.out_dir is None:
-            output_file = parquet_file.with_suffix(".h5")
+            output_file = parquet_file.with_name(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
         else:
-            output_file = args.out_dir / parquet_file.with_suffix(".h5").name
-        convert(args.parquet_path, output_file, lixit_predictions, args.num_frames)
+            output_file = args.out_dir / Path(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
+        convert(parquet_file, output_file, lixit_predictions, args.num_frames)
 
 
 if __name__ == "__main__":

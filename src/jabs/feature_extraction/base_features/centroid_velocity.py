@@ -25,7 +25,7 @@ class CentroidVelocityDir(Feature):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         bearings = self._poses.compute_all_bearings(identity)
         frame_valid = self._poses.identity_mask(identity)
@@ -36,9 +36,6 @@ class CentroidVelocityDir(Feature):
 
         # get an array of the indexes of valid frames only
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-
-        # get centroids for all frames where this identity is present
-        centroids = [convex_hulls[i].centroid for i in indexes]
 
         # get centroids for all frames where this identity is present
         centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
