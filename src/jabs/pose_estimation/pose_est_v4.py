@@ -220,6 +220,7 @@ class PoseEstimationV4(PoseEstimation):
             self._num_frames = int(cache_h5.attrs['num_frames'])
             self._identities = [*range(self._num_identities)]
             if "external_identity_mapping" in pose_grp:
+                # we're going to serialize these in a JSON file so convert from uint32 stored in the hdf5 to Python int
                 self._external_identities = pose_grp["external_identity_mapping"][:].astype(int).tolist()
 
             # get pixel size
