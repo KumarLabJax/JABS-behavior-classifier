@@ -21,7 +21,7 @@ class PoseEstimationV4(PoseEstimation):
     from this PoseEstimationV4 class because the only add additional optional information.
     """
 
-    __CACHE_FILE_VERSION = 3
+    __CACHE_FILE_VERSION = 4
 
     def __init__(self, file_path: Path,
                  cache_dir: typing.Optional[Path] = None,
@@ -70,6 +70,8 @@ class PoseEstimationV4(PoseEstimation):
                 all_confidence = pose_grp['confidence'][:]
                 id_mask = pose_grp['id_mask'][:]
                 instance_embed_id = pose_grp['instance_embed_id'][:]
+                if "external_identity_mapping" in pose_grp:
+                    self._external_identities = pose_grp["external_identity_mapping"][:].astype(int).tolist()
 
             self._num_frames = len(all_points)
             self._num_identities = np.max(np.ma.array(instance_embed_id[...], mask=id_mask[...]))
@@ -217,6 +219,8 @@ class PoseEstimationV4(PoseEstimation):
             self._num_identities = int(cache_h5.attrs['num_identities'])
             self._num_frames = int(cache_h5.attrs['num_frames'])
             self._identities = [*range(self._num_identities)]
+            if "external_identity_mapping" in pose_grp:
+                self._external_identities = pose_grp["external_identity_mapping"][:].astype(int).tolist()
 
             # get pixel size
             self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
@@ -244,6 +248,8 @@ class PoseEstimationV4(PoseEstimation):
                 group.attrs['cm_per_pixel'] = self._cm_per_pixel
 
             if self._num_identities > 0:
+                if self._external_identities:
+                    group.create_dataset('external_identity_mapping', data=np.array(self._external_identities, dtype=np.uint32))
                 group.create_dataset('points', data=self._points)
                 group.create_dataset('point_mask', data=self._point_mask)
                 group.create_dataset('identity_mask', data=self._identity_mask)
