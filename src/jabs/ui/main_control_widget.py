@@ -241,7 +241,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def current_identity(self):
-        return self.identity_selection.currentText()
+        return str(self.identity_selection.currentIndex())
 
     @property
     def current_identity_index(self):
