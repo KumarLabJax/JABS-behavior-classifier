@@ -271,15 +271,14 @@ class Project:
 
             # populate numpy arrays
             for identity in predictions[video]:
-                identity_index = int(identity)
 
                 inferred_indexes = frame_indexes[video][identity]
-                track = video_tracks.get_track_labels(identity, behavior)
+                track = video_tracks.get_track_labels(str(identity), behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[
+                prediction_labels[identity, inferred_indexes] = predictions[
                     video
                 ][identity][inferred_indexes]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[
+                prediction_prob[identity, inferred_indexes] = probabilities[
                     video
                 ][identity][inferred_indexes]
 

@@ -399,10 +399,10 @@ class CentralWidget(QtWidgets.QWidget):
         behavior or identity is changed
         """
         behavior = self._controls.current_behavior
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
-        if identity != '' and behavior != '' and self._labels is not None:
-            labels = self._labels.get_track_labels(identity, behavior)
+        if identity != -1 and behavior != '' and self._labels is not None:
+            labels = self._labels.get_track_labels(str(identity), behavior)
             self.manual_labels.set_labels(
                 labels, mask=self._player_widget.get_identity_mask())
             self.timeline_widget.set_labels(labels)
@@ -415,7 +415,7 @@ class CentralWidget(QtWidgets.QWidget):
         behavior
         """
         return self._labels.get_track_labels(
-            self._controls.current_identity,
+            str(self._controls.current_identity_index),
             self._controls.current_behavior
         )
 
@@ -534,7 +534,7 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
         try:
             indexes = self._frame_indexes[identity]
@@ -590,7 +590,7 @@ class CentralWidget(QtWidgets.QWidget):
         # by only updating the current identity in the current video
         self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
-        identity = self._controls.current_identity
+        identity = self._controls.current_identity_index
 
         label_behavior_current = 0
         label_not_behavior_current = 0

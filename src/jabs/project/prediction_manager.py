@@ -121,7 +121,6 @@ class PredictionManager:
                 _classes = behavior_group["predicted_class"][:]
 
                 for i in range(nident):
-                    identity = str(i)
                     indexes = np.asarray(
                         range(behavior_group["predicted_class"].shape[1])
                     )
@@ -136,9 +135,9 @@ class PredictionManager:
 
                     # we're left with classes/probabilities for frames that
                     # were inferred and their frame indexes
-                    predictions[identity] = _classes[i]
-                    probabilities[identity] = _probabilities[i]
-                    frame_indexes[identity] = indexes
+                    predictions[i] = _classes[i]
+                    probabilities[i] = _probabilities[i]
+                    frame_indexes[i] = indexes
 
         except (MissingBehaviorError, FileNotFoundError):
             # no saved predictions for this behavior for this video
