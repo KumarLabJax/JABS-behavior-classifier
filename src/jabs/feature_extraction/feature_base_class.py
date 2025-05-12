@@ -163,7 +163,17 @@ class Feature(abc.ABC):
             adjusted_feature = np.nan_to_num(per_frame, nan=0)
             if len(adjusted_feature) < 2 * window_size + 1:
                 adjusted_feature = np.pad(adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature)))
-            freqs, ts, Zxx = signal.stft(adjusted_feature, fs=self._fps, nperseg=window_size * 2 + 1, noverlap=window_size * 2, window='hann', scaling='psd', detrend='linear')
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                freqs, ts, Zxx = signal.stft(
+                    adjusted_feature,
+                    fs=self._fps,
+                    nperseg=window_size * 2 + 1,
+                    noverlap=window_size * 2,
+                    window='hann',
+                    scaling='psd',
+                    detrend='linear'
+                )
             psd = np.abs(Zxx)
             psd_data[per_frame_key] = psd
 
@@ -275,7 +285,7 @@ class Feature(abc.ABC):
                     slice_frames_valid == 1]
 
                 with warnings.catch_warnings():
-                    warnings.simplefilter('ignore')
+                    warnings.simplefilter('ignore', category=RuntimeWarning)
                     op_result[i] = op(window_values)
 
             values[f"{key}"] = op_result
