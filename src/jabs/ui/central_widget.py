@@ -590,7 +590,8 @@ class CentralWidget(QtWidgets.QWidget):
         # by only updating the current identity in the current video
         self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
 
-        identity = self._controls.current_identity_index
+        #TODO fix so we're not using the identity index as a string for keys in the label counts
+        identity = str(self._controls.current_identity_index)
 
         label_behavior_current = 0
         label_not_behavior_current = 0
