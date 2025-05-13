@@ -429,12 +429,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._settings.value("license_accepted", False, type=bool):
             return QtWidgets.QDialog.Accepted
 
+        # show dialog
         dialog = LicenseAgreementDialog(self)
         result = dialog.exec_()
 
-        # save the license acceptance
+        # persist the license acceptance
         if result == QtWidgets.QDialog.Accepted:
             self._settings.setValue("license_accepted", True)
+            self._settings.setValue("license_version", version_str())
             self._settings.sync()
 
         return result
