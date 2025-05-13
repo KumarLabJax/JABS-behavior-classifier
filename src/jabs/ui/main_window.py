@@ -4,6 +4,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
+from jabs.constants import COMPANY_NAME_SHORT
 from jabs.project import export_training_data
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.version import version_str
@@ -42,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._user_guide_window = None
 
-        self._settings = QtCore.QSettings("JAX", app_name)
+        self._settings = QtCore.QSettings(COMPANY_NAME_SHORT, app_name)
 
         menu = self.menuBar()
 

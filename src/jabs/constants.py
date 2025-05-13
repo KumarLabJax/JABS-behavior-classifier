@@ -1,2 +1,3 @@
+COMPANY_NAME_SHORT = "JAX"
 APP_NAME = "JABS"
-APP_NAME_LONG = "JAX Animal Behavior System"
+APP_NAME_LONG = f"{COMPANY_NAME_SHORT} Animal Behavior System"
