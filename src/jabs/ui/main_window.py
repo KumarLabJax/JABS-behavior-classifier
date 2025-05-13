@@ -42,6 +42,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._user_guide_window = None
 
+        self._settings = QtCore.QSettings("JAX", app_name)
+
         menu = self.menuBar()
 
         app_menu = menu.addMenu(self._app_name)
@@ -422,6 +424,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self, "Error loading project", str(error))
 
     def show_license_dialog(self):
+
+        # check to see if user already accepted the license
+        if self._settings.value("license_accepted", False, type=bool):
+            return QtWidgets.QDialog.Accepted
+
         dialog = LicenseAgreementDialog(self)
         result = dialog.exec_()
+
+        # save the license acceptance
+        if result == QtWidgets.QDialog.Accepted:
+            self._settings.setValue("license_accepted", True)
+            self._settings.sync()
+
         return result
