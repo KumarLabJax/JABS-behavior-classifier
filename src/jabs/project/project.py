@@ -323,6 +323,8 @@ class Project:
         for video in self._video_manager.videos:
 
             labels = self._video_manager.load_video_labels(video)
+
+            # if no labels for video skip it
             if labels is None:
                 continue
 
