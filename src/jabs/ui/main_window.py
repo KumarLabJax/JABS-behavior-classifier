@@ -1,9 +1,11 @@
 import sys
+from pathlib import Path
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
+from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.project import export_training_data
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.version import version_str
@@ -18,6 +20,10 @@ from .user_guide_viewer_widget import UserGuideDialog
 
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
+
+RECENT_PROJECTS_KEY = "recent_projects"
+LICENSE_ACCEPTED_KEY = "license_accepted"
+LICENSE_VERSION_KEY = "license_version"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -42,6 +48,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._user_guide_window = None
 
+        self._settings = QtCore.QSettings(ORG_NAME, app_name)
+
+        # setup menu bar
         menu = self.menuBar()
 
         app_menu = menu.addMenu(self._app_name)
@@ -55,6 +64,11 @@ class MainWindow(QtWidgets.QMainWindow):
         open_action.setStatusTip('Open Project')
         open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
+
+        # open recent
+        self._open_recent_menu = QtWidgets.QMenu('Open Recent', self)
+        file_menu.addMenu(self._open_recent_menu)
+        self._update_recent_projects()
 
         # about app
         about_action = QtGui.QAction(f' &About {self._app_name}', self)
@@ -410,6 +424,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
+
+        # update the recent project menu
+        self._add_recent_project(str(self._project.project_paths.project_dir))
         self._progress_dialog.close()
 
     def _project_load_error_callback(self, error: Exception):
@@ -422,6 +439,63 @@ class MainWindow(QtWidgets.QMainWindow):
             self, "Error loading project", str(error))
 
     def show_license_dialog(self):
+        """ prompt the user to accept the license agreement if they haven't already """
+
+        # check to see if user already accepted the license
+        if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
+            return QtWidgets.QDialog.Accepted
+
+        # show dialog
         dialog = LicenseAgreementDialog(self)
         result = dialog.exec_()
+
+        # persist the license acceptance
+        if result == QtWidgets.QDialog.Accepted:
+            self._settings.setValue(LICENSE_ACCEPTED_KEY, True)
+            self._settings.setValue(LICENSE_VERSION_KEY, version_str())
+            self._settings.sync()
+
         return result
+
+    def _update_recent_projects(self):
+        """ update the contents of the Recent Projects menu """
+        self._open_recent_menu.clear()
+        recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
+
+        # add menu action for each of the recent projects
+        for project_path in recent_projects:
+            action = self._open_recent_menu.addAction(project_path)
+            action.setData(project_path)
+            action.triggered.connect(self._open_recent_project)
+
+    def _add_recent_project(self, project_path: Path):
+        """ add a project to the recent projects list """
+
+        # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
+        path_str = str(project_path)
+
+        recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
+
+        # remove the project if it already exists in the list since we're going to add it to the front of the list
+        # this keeps the list sorted with the most recent project at the top
+        if path_str in recent_projects:
+            recent_projects.remove(path_str)
+
+        # add the project to the front of the list and truncate the list to the max size
+        recent_projects.insert(0, path_str)
+        recent_projects = recent_projects[:RECENT_PROJECTS_MAX]
+
+        # persist updated recent projects list
+        self._settings.setValue(RECENT_PROJECTS_KEY, recent_projects)
+        self._settings.sync()
+
+        # update the menu
+        self._update_recent_projects()
+
+    def _open_recent_project(self):
+        """ open a recent project """
+        action  = self.sender()
+        if action:
+            project_path = action.data()
+            if project_path:
+                self.open_project(project_path)
