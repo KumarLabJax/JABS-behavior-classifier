@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import matplotlib.pyplot as plt
 from jabs.pose_estimation import PoseEstimation
 
 
@@ -25,6 +25,8 @@ class MomentInfo:
         self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
         self._seg_data = self._poses.get_segmentation_data(identity)
         self._seg_flags = self._poses.get_segmentation_flags(identity)
+        self._filtered_contours = [None] * self._poses._num_frames
+
 
         # Parse out the contour matrix into a list of contour lists
         tmp_contour_data = []
@@ -36,8 +38,10 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours) < 1:
+                self._filtered_contours[frame] = None
                 moments = {key: np.nan for key in self._moment_keys}
             else:
+                self._filtered_contours[frame] = self.calculate_filtered_contours(contours)
                 moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
@@ -62,6 +66,15 @@ class MomentInfo:
         """
         key_idx = self._moment_keys.index(key)
         return self._moments[frame, key_idx]
+    
+    def get_contours(self, frame):
+        """
+        retrieve filtered contours for a given video frame.
+
+        :param frame: The frame index for which to retrieve the filtered contours.
+        :return: List of filtered contours for the specified frame.
+        """
+        return self._filtered_contours[frame]
 
     def get_all_moments(self, frame):
         """
@@ -119,3 +132,20 @@ class MomentInfo:
         render = np.zeros([frame_size, frame_size, 1], dtype=np.uint8)
         _ = cv2.drawContours(render, contour_list, -1, [1], -1)
         return cv2.moments(render)
+    
+    def calculate_filtered_contours(self, contour_list):
+        """
+        Calculate and return filtered (eroded and dilated to remove tail) contours from a given list of contours.
+
+        :param contour_list: List of contours to be processed
+        :return: List of filtered contours
+        """
+        frame_size = [800, 800]
+        mask = np.zeros(frame_size, dtype=np.uint8)
+        cv2.drawContours(mask, contour_list, -1, (1), thickness=cv2.FILLED)
+        kernel = np.ones((7, 7), np.uint8)
+        eroded_mask = cv2.erode(mask, kernel, iterations=1)
+        dilated_mask = cv2.dilate(eroded_mask, kernel, iterations=1)
+        contours, _ = cv2.findContours(dilated_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        return contours
