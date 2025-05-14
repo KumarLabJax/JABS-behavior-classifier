@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt
@@ -467,9 +468,12 @@ class MainWindow(QtWidgets.QMainWindow):
             action.setData(project_path)
             action.triggered.connect(self._open_recent_project)
 
-    def _add_recent_project(self, project_path: str):
+    def _add_recent_project(self, project_path: Path):
         """ add a project to the recent projects list """
+
+        # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
         path_str = str(project_path)
+
         recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
 
         # remove the project if it already exists in the list since we're going to add it to the front of the list
