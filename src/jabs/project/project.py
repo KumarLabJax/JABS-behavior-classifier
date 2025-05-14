@@ -12,7 +12,7 @@ import jabs.feature_extraction as fe
 from jabs.pose_estimation import get_pose_path, open_pose_file, PoseEstimation
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
-from jabs.video_reader.utilities import get_fps
+from jabs.video_reader.utilities import get_fps, get_frame_count
 from .feature_manager import FeatureManager
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
@@ -261,11 +261,13 @@ class Project:
                 get_pose_path(self._video_manager.video_path(video)),
                 self._paths.cache_dir,
             )
-            video_tracks = self._video_manager.load_video_labels(video, poses.external_identities)
+
+            video_path = self._paths.project_dir / self._video_manager.video_path(video)
+            nframes = get_frame_count(str(video_path))
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
-                (poses.num_identities, video_tracks.num_frames), -1, dtype=np.int8
+                (poses.num_identities, nframes), -1, dtype=np.int8
             )
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
@@ -273,7 +275,6 @@ class Project:
             for identity in predictions[video]:
 
                 inferred_indexes = frame_indexes[video][identity]
-                track = video_tracks.get_track_labels(str(identity), behavior)
 
                 prediction_labels[identity, inferred_indexes] = predictions[
                     video
@@ -320,7 +321,12 @@ class Project:
         # archive labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            annotations = self._video_manager.load_video_labels(video).as_dict()
+
+            labels = self._video_manager.load_video_labels(video)
+            if labels is None:
+                continue
+
+            annotations = labels.as_dict()
             for ident in annotations["labels"]:
                 if behavior in annotations["labels"][ident]:
                     if video not in archived_labels:
@@ -404,6 +410,17 @@ class Project:
 
         group_id = 0
         for video in self._video_manager.videos:
+
+            video_labels = self._video_manager.load_video_labels(video)
+
+            # if there are no labels for this video, skip it
+            if video_labels is None:
+                if progress_callable is not None:
+                    # increment progress bar for each skipped identity in the video
+                    for _ in range(self._video_manager.get_video_identity_count(video)):
+                        progress_callable()
+                continue
+
             video_path = self._video_manager.video_path(video)
             pose_est = self.load_pose_est(video_path)
             # fps used to scale some features from per pixel time unit to
@@ -413,6 +430,17 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {"video": video, "identity": identity}
 
+                labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
+
+                # if there are no labels for this identity, skip it
+                if (
+                    np.count_nonzero(labels == TrackLabels.Label.BEHAVIOR) == 0
+                    and np.count_nonzero(labels == TrackLabels.Label.NOT_BEHAVIOR) == 0
+                ):
+                    if progress_callable is not None:
+                        progress_callable()
+                    continue
+
                 features = fe.IdentityFeatures(
                     video,
                     identity,
@@ -420,12 +448,6 @@ class Project:
                     pose_est,
                     fps=fps,
                     op_settings=self._settings_manager.get_behavior(behavior),
-                )
-
-                labels = (
-                    self._video_manager.load_video_labels(video, pose_est.external_identities)
-                    .get_track_labels(str(identity), behavior)
-                    .get_labels()
                 )
 
                 per_frame_features = features.get_per_frame(labels)

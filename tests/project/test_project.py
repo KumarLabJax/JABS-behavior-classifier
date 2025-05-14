@@ -153,13 +153,11 @@ class TestProject(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.project.video_manager.load_video_labels("bad_filename.avi")
 
-    def test_exception_creating_video_labels(self):
+    def test_no_saved_video_labels(self):
         """
-        test OPError raised if unable to open avi file to get num frames
+        test loading labels for a video with no saved labels returns None
         """
-        with self.assertRaises(IOError):
-            with hide_stderr():
-                self.project.video_manager.load_video_labels(self._FILENAMES[1])
+        assert self.project.video_manager.load_video_labels(self._FILENAMES[1]) is None
 
     def test_bad_video_file(self):
         with self.assertRaises(IOError):

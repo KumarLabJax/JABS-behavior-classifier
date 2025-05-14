@@ -28,6 +28,7 @@ class VideoManager:
         self._paths = paths
         self._settings_manager = settings_manager
         self._videos = []
+        self._video_identity_count = {}
         self._total_project_identities = 0
 
         self._initialize_videos(enable_video_check)
@@ -51,13 +52,12 @@ class VideoManager:
     def total_project_identities(self) -> int:
         return self._total_project_identities
 
-    def load_video_labels(self, video_name, external_identities: list[int] | None = None):
+    def load_video_labels(self, video_name) -> VideoLabels | None:
         """
         load labels for a video from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
         :param video_name: filename of the video: string or pathlib.Path
-        :param external_identities: list of external identities that correspond to the jabs identities
-        :return: initialized VideoLabels object
+        :return: initialized VideoLabels object if annotations exist, otherwise None
         """
 
         video_filename = Path(video_name).name
@@ -71,9 +71,7 @@ class VideoManager:
             with path.open() as f:
                 return VideoLabels.load(json.load(f))
         else:
-            video_path = self._paths.project_dir / video_filename
-            nframes = get_frame_count(str(video_path))
-            return VideoLabels(video_filename, nframes, external_identities)
+            return None
 
     def check_video_name(self, video_filename):
         """
@@ -92,6 +90,15 @@ class VideoManager:
         """Get list of video filenames (without path) in a directory"""
         return [f.name for f in dir_path.glob("*") if f.suffix in [".avi", ".mp4"]]
 
+    def get_video_identity_count(self, video_name: str) -> int:
+        """
+        Get the number of identity count for a specific video.
+
+        :param video_name: Name of the video file
+        :return: Number of identities in the video
+        """
+        return self._video_identity_count.get(video_name, 0)
+
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
         video_metadata = self._settings_manager.project_settings.get("video_files", {})
@@ -106,6 +113,7 @@ class VideoManager:
                 nidentities = pose_file.num_identities
                 vinfo["identities"] = nidentities
 
+            self._video_identity_count[video] = nidentities
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
         self._settings_manager.save_project_file({"video_files": video_metadata})

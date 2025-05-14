@@ -4,6 +4,8 @@ import numpy as np
 
 from pathlib import Path
 
+#TODO: this unit test should be removed or fixed. This shouldn't have been commited in it's current state
+#  it references a file that doesn't exist in the repository, and it has significant amounts of unreachable code
 
 def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
     """
@@ -26,6 +28,7 @@ def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) ->
     return seg_data_tmp
 
 
+@unittest.skip("broken")
 class TestPoseMatchSegmentation(unittest.TestCase):
     """
     Ensure that the segmentation data is sorted properly so that 

@@ -5,8 +5,10 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from shapely.geometry import Point
 
 import jabs.feature_extraction
-from ..classifier.classifier import Classifier
-from ..project.track_labels import TrackLabels
+from jabs.classifier import Classifier
+from jabs.project import VideoLabels
+from jabs.project.track_labels import TrackLabels
+from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
 from .frame_labels_widget import FrameLabelsWidget
@@ -180,7 +182,12 @@ class CentralWidget(QtWidgets.QWidget):
 
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
-            self._labels = self._project.video_manager.load_video_labels(path, self._pose_est.external_identities)
+            self._labels = self._project.video_manager.load_video_labels(path)
+
+            # if no saved labels exist, initialize a new VideoLabels object
+            if self._labels is None:
+                nframes = get_frame_count(str(path))
+                self._labels = VideoLabels(path, nframes, self._pose_est.external_identities)
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = \
