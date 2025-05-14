@@ -435,10 +435,9 @@ class Project:
                 labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
 
                 # if there are no labels for this identity, skip it
-                if (
-                    np.count_nonzero(labels == TrackLabels.Label.BEHAVIOR) == 0
-                    and np.count_nonzero(labels == TrackLabels.Label.NOT_BEHAVIOR) == 0
-                ):
+                if np.count_nonzero(
+                    (labels == TrackLabels.Label.BEHAVIOR) | (labels == TrackLabels.Label.NOT_BEHAVIOR)
+                ) == 0:
                     if progress_callable is not None:
                         progress_callable()
                     continue
