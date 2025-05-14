@@ -1,3 +1,6 @@
-COMPANY_NAME_SHORT = "JAX"
+ORG_NAME = "JAX"
 APP_NAME = "JABS"
-APP_NAME_LONG = f"{COMPANY_NAME_SHORT} Animal Behavior System"
+APP_NAME_LONG = f"{ORG_NAME} Animal Behavior System"
+
+# maximum number of recent projects to show in the File->Recent Projects menu
+RECENT_PROJECTS_MAX = 5
