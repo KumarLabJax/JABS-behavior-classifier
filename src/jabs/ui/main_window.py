@@ -495,4 +495,3 @@ class MainWindow(QtWidgets.QMainWindow):
             project_path = action.data()
             if project_path:
                 self.open_project(project_path)
-                self._add_recent_project(project_path)
