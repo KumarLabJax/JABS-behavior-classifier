@@ -12,7 +12,7 @@ import jabs.feature_extraction as fe
 from jabs.pose_estimation import get_pose_path, open_pose_file, PoseEstimation
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
-from jabs.video_reader.utilities import get_fps, get_frame_count
+from jabs.video_reader.utilities import get_fps
 from .feature_manager import FeatureManager
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
@@ -263,7 +263,7 @@ class Project:
             )
 
             video_path = self._paths.project_dir / self._video_manager.video_path(video)
-            nframes = get_frame_count(str(video_path))
+            nframes = poses.num_frames
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
