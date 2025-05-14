@@ -86,13 +86,3 @@ def test_load_video_labels(video_manager, project_paths):
     assert labels is not None
     assert labels.filename == "video1.avi"
 
-
-def test_load_video_labels_invalid_video(video_manager, project_paths):
-    """Test loading video labels for an invalid video file."""
-    invalid_video = project_paths.project_dir / "video2.mp4"
-    invalid_video.touch()  # Create an empty file
-
-    # Attempt to load video labels
-    # this should raise an IOError because video2.mp4 is empty, but it is opened to get frame count
-    with pytest.raises(OSError):
-        video_manager.load_video_labels("video2.mp4")

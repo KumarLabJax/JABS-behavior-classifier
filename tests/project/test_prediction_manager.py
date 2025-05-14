@@ -92,11 +92,11 @@ def test_load_predictions(prediction_manager, mock_project):
         video, behavior
     )
 
-    assert "0" in predictions
-    assert "1" in predictions
-    assert np.array_equal(predictions["0"], [1, 0, -1])
-    assert np.array_equal(probabilities["0"], [0.9, 0.8, -1])
-    assert np.array_equal(frame_indexes["0"], [0, 1])
+    assert 0 in predictions
+    assert 1 in predictions
+    assert np.array_equal(predictions[0], [1, 0, -1])
+    assert np.array_equal(probabilities[0], [0.9, 0.8, -1])
+    assert np.array_equal(frame_indexes[0], [0, 1])
 
 
 def test_load_predictions_missing_behavior(prediction_manager, mock_project):
