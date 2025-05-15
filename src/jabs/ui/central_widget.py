@@ -707,7 +707,7 @@ class CentralWidget(QtWidgets.QWidget):
             # Copy behavior of use_balance_labels_changed
             return
 
-        self.update_behavior_settings('symmetric_behavior', self._controls.use_balance_labels)
+        self.update_behavior_settings('symmetric_behavior', self._controls.use_symmetric)
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
