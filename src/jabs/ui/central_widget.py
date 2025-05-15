@@ -187,7 +187,7 @@ class CentralWidget(QtWidgets.QWidget):
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 nframes = get_frame_count(str(path))
-                self._labels = VideoLabels(path, nframes, self._pose_est.external_identities)
+                self._labels = VideoLabels(path.name, nframes, self._pose_est.external_identities)
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = \
