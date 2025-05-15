@@ -4,8 +4,6 @@ from importlib import import_module
 from pathlib import Path
 import joblib
 import re
-import json
-from ast import literal_eval
 import warnings
 
 import numpy as np
@@ -26,7 +24,7 @@ from jabs.project import TrackLabels, Project, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
-_VERSION = 8
+_VERSION = 9
 
 _classifier_choices = [
     ClassifierType.RANDOM_FOREST,
@@ -45,27 +43,6 @@ except Exception:
     # we can otherwise ignore this exception
     _xgboost = None
 
-def load_hyperparameters()->dict:
-    """ 
-    This function loads the hyperparameters for each classifier from the hyperparameters.json file.
-
-    :return: a dictionary of hyperparameters for each classifier.
-    """
-    mapped_parameters = {"random_forest": ClassifierType.RANDOM_FOREST, "xg_boost": ClassifierType.XGBOOST, "gradient_boost": ClassifierType.GRADIENT_BOOSTING}
-
-    with open(Path(__file__).parent / 'hyperparameters.json', "rb") as j:
-        data = json.loads(j.read())
-
-    parameters = data["parameters"]
-
-    for classifier in parameters:
-        for key in parameters[classifier]:
-            try:
-                parameters[classifier][key] = literal_eval(parameters[classifier][key])
-            except Exception as e:
-                continue
-    
-    return {mapped_parameters[key]: parameters[key] for key in parameters}
 
 class Classifier:
     LABEL_THRESHOLD = 20
@@ -76,7 +53,6 @@ class Classifier:
         ClassifierType.XGBOOST: "XGBoost"
     }
 
-    _classifier_hyperparameters = load_hyperparameters()
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         """
@@ -93,7 +69,6 @@ class Classifier:
         self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
-        self._hyperparameters = self._classifier_hyperparameters[classifier]
 
         self._classifier_file = None
         self._classifier_hash = None
@@ -341,7 +316,6 @@ class Classifier:
         if classifier not in _classifier_choices:
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
-        self._hyperparameters = self._classifier_hyperparameters[classifier]
 
     def set_project_settings(self, project: Project):
         """
@@ -553,27 +527,25 @@ class Classifier:
     def _fit_random_forest(self, features, labels,
                            random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs,
-                                                random_state=random_seed, **self._hyperparameters)
+            classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         else:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs, **self._hyperparameters)
+            classifier = RandomForestClassifier(n_jobs=self._n_jobs)
         return classifier.fit(features.fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels,
                             random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = GradientBoostingClassifier(random_state=random_seed, **self._hyperparameters)
+            classifier = GradientBoostingClassifier(random_state=random_seed)
         else:
-            classifier = GradientBoostingClassifier(**self._hyperparameters)
+            classifier = GradientBoostingClassifier()
         return classifier.fit(features.fillna(0), labels)
 
     def _fit_xgboost(self, features, labels,
                      random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs,
-                                                random_state=random_seed, **self._hyperparameters)
+            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         else:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, **self._hyperparameters)
+            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
         classifier.fit(features, labels)
         return classifier
 
