@@ -60,27 +60,34 @@ class IdentityFeatures:
                  compression_opts: int = COMPRESSION_OPTS_DEFAULT):
         """
         Args:
-            source_file: name of the source video or pose file, used for
-            identity: identity to extract features for
-            directory: path of the project directory. A value of None
-                can
-            pose_est: PoseEstimation object corresponding to this video
-            force: force regeneration of per frame features even if the
-            fps: frames per second. Used for converting angular velocity
-                from
-            op_settings: dict of optional settings to enable/disable
-            cache_window: bool to indicate saving the window features in
-                the cache directory
+            source_file:
+              name of the source video or pose file, used for generating
+              filenames for saving extracted features into the project
+              directory. You can use None for this argument if directory
+              is also set to None
+            identity:
+              identity to extract features for
+            directory:
+              path of the project directory. A value of None can be given
+              to prevent saving to and loading from a project dir.
+            pose_est:
+              PoseEstimation object corresponding to this video
+            force:
+              force regeneration of per frame features even if the
+              per frame feature .h5 file exists for this video/identity
+            fps:
+              frames per second. Used for converting angular velocity
+              from degrees per frame to degrees per second
+            op_settings:
+              dict of optional settings to enable/disable when returning
+              features. This will modify the contents returned by
+              get_window_features, get_per_frame, and get_features
+            cache_window:
+              bool to indicate saving the window features in the cache
+              directory
             compression_opts: int to indicate the compression level for
-                saving features
-        generating filenames for saving extracted features into the project
-        directory. You can use None for this argument if directory is also set
-        to None
-        be given to prevent saving to and loading from a project dir.
-        per frame feature .h5 file exists for this video/identity
-        degrees per frame to degrees per second
-        when returning features. This will modify the contents returned by
-        get_window_features, get_per_frame, and get_features
+              saving features
+
         """
 
         self._pose_version = pose_est.format_major_version
