@@ -591,20 +591,20 @@ class Classifier:
             all_counts: labeled frame and bout counts for the entire
                 project
 
+
+            all_counts is a dict with the following form
+            {
+                '<video name>': [
+                    (
+                        <identity>,
+                        (behavior frame count, not behavior frame count),
+                        (behavior bout count, not behavior bout count)
+                    ),
+                ]
+            }
+
         Returns:
             number of groups that meet label criteria
-
-
-        all_counts is a dict with the following form
-        {
-            '<video name>': [
-                (
-                    <identity>,
-                    (behavior frame count, not behavior frame count),
-                    (behavior bout count, not behavior bout count)
-                ),
-            ]
-        }
         """
         group_count = 0
         for video, counts in all_counts.items():
