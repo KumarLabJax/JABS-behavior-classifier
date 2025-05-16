@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-"""
-initialize a JABS project directory
+"""initialize a JABS project directory
 
 computes features if they do not exist
 optional regenerate and overwrite existing feature h5 files
@@ -24,7 +23,7 @@ DEFAULT_WINDOW_SIZE = 5
 
 
 def generate_files_worker(params: dict):
-    """ worker function used for generating project feature and cache files """
+    """worker function used for generating project feature and cache files"""
     project = params['project']
     pose_est = project.load_pose_est(
         project.video_manager.video_path(params['video']))
@@ -53,7 +52,7 @@ def generate_files_worker(params: dict):
 
 
 def validate_video_worker(params: dict):
-    """ worker function for validating project video """
+    """worker function for validating project video"""
 
     vid_path = params['project_dir'] / params['video']
 
@@ -81,7 +80,7 @@ def validate_video_worker(params: dict):
 
 
 def match_to_pose(video: str, project_dir: Path):
-    """ make sure a video has a corresponding h5 file """
+    """make sure a video has a corresponding h5 file"""
     path = project_dir / video
 
     try:
@@ -205,7 +204,7 @@ def main():
     distance_unit = project.feature_manager.distance_unit
 
     def feature_job_producer():
-        """ producer for Pool.imap_unordered """
+        """producer for Pool.imap_unordered"""
         for video in project.video_manager.videos:
             for identity in project.load_pose_est(
                     project.video_manager.video_path(video)).identities:

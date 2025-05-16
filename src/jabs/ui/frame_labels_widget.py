@@ -4,8 +4,7 @@ from PySide6.QtWidgets import QWidget, QSizePolicy, QApplication
 
 
 class FrameLabelsWidget(QWidget):
-    """
-    draws ticks and frame labels, intended to be used under one or more
+    """draws ticks and frame labels, intended to be used under one or more
     ManualLabelsWidget
     """
 
@@ -43,8 +42,7 @@ class FrameLabelsWidget(QWidget):
         self._font_height = self._font_metrics.height()
 
     def sizeHint(self):
-        """
-        Override QWidget.sizeHint to give an initial starting size.
+        """Override QWidget.sizeHint to give an initial starting size.
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -57,8 +55,7 @@ class FrameLabelsWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) / 2
 
     def paintEvent(self, event):
-        """
-        override QWidget paintEvent
+        """override QWidget paintEvent
 
         This draws the widget.
         """
@@ -75,12 +72,13 @@ class FrameLabelsWidget(QWidget):
         qp.end()
 
     def _draw_ticks(self, painter, start, end):
-        """
-        draw ticks draw ticks at the proper interval and draw the frame
+        """draw ticks draw ticks at the proper interval and draw the frame
         number under the tick
-        :param painter: active QPainter
-        :param start: starting frame number
-        :param end: ending frame number
+
+        Args:
+            painter: active QPainter
+            start: starting frame number
+            end: ending frame number
         """
 
         for i in range(start, end + 1):
@@ -96,14 +94,13 @@ class FrameLabelsWidget(QWidget):
                                  self._font_height + 8, label_text)
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view around new current frame """
+        """called to reposition the view around new current frame"""
         self._current_frame = current_frame
         # force redraw
         self.update()
 
     def set_num_frames(self, num_frames):
-        """
-        set number of frames in current video, needed to keep from drawing
+        """set number of frames in current video, needed to keep from drawing
         ticks past the end of the video (pace that is drawn as padding by
         ManualLabelsWidget
         """

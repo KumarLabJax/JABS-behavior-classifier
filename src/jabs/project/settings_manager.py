@@ -9,22 +9,22 @@ if typing.TYPE_CHECKING:
 
 
 class SettingsManager:
-    """
-    Class to manage project properties/settings.
-    """
+    """Class to manage project properties/settings."""
 
     def __init__(self, project_paths: "ProjectPaths"):
-        """
-        Initialize the ProjectProperties.
-        :param project_paths: ProjectPaths object to manage file paths.
+        """Initialize the ProjectProperties.
+
+        Args:
+            project_paths: ProjectPaths object to manage file paths.
         """
         self._paths = project_paths
         self._project_info = self._load_project_file()
 
     def _load_project_file(self) -> dict:
-        """
-        Load project properties from the project file.
-        :return: Dictionary of project properties.
+        """Load project properties from the project file.
+
+        Returns:
+            Dictionary of project properties.
         """
         try:
             with self._paths.project_file.open(mode="r", newline="\n") as f:
@@ -39,9 +39,10 @@ class SettingsManager:
         return settings
 
     def save_project_file(self, data: dict | None = None):
-        """
-        Save project properties & settings to the project file.
-        :param data: Dictionary with state information to save.
+        """Save project properties & settings to the project file.
+
+        Args:
+            data: Dictionary with state information to save.
         """
         # Merge data with current metadata
         if data is not None:
@@ -55,17 +56,19 @@ class SettingsManager:
 
     @property
     def project_settings(self) -> dict:
-        """
-        Get a copy of the current project properties and settings.
-        :return: dict
+        """Get a copy of the current project properties and settings.
+
+        Returns:
+            dict
         """
         return dict(self._project_info)
 
     def save_behavior(self, behavior: str, data: dict):
-        """
-        Save a behavior to project file.
-        :param behavior: Behavior name.
-        :param data: Dictionary of behavior settings.
+        """Save a behavior to project file.
+
+        Args:
+            behavior: Behavior name.
+            data: Dictionary of behavior settings.
         """
 
         defaults = self._project_info.get("defaults", {})
@@ -78,10 +81,13 @@ class SettingsManager:
         self.save_project_file({"behavior": all_behavior_data})
 
     def get_behavior(self, behavior: str) -> dict:
-        """
-        Get metadata specific to a requested behavior.
-        :param behavior: Behavior key to read.
-        :return: Dictionary of behavior metadata.
+        """Get metadata specific to a requested behavior.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            Dictionary of behavior metadata.
         """
         return self._project_info.get("behavior", {}).get(behavior, {})
 
@@ -94,9 +100,7 @@ class SettingsManager:
             pass
 
     def update_version(self):
-        """
-        Update the version number in the metadata if it differs from the current version.
-        """
+        """Update the version number in the metadata if it differs from the current version."""
         current_version = self._project_info.get("version")
         if current_version != version_str():
             self.save_project_file({"version": version_str()})

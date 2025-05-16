@@ -13,11 +13,14 @@ class PairwisePointDistances(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict with feature values
         """
-                compute the value of the per frame features for a specific identity
-                :param identity: identity to compute features for
-                :return: dict with feature values
-                """
 
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 

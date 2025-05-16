@@ -8,8 +8,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 class Angles(Feature):
 
-    """
-    this module computes joint angles
+    """this module computes joint angles
     the result is a dict of features of length #frames rows
     """
 
@@ -50,13 +49,15 @@ class Angles(Feature):
     def _compute_angles(
             a: np.ndarray, b: np.ndarray, c: np.ndarray
     ) -> np.ndarray:
-        """
-        compute angles for a set of points
-        :param a: array of point coordinates
-        :param b: array of vertex point coordinates
-        :param c: array of point coordinates
-        :return: array containing angles, in degrees, formed from the lines
-        ab and ba for each row in a, b, and c with range [0, 360)
+        """compute angles for a set of points
+
+        Args:
+            a: array of point coordinates
+            b: array of vertex point coordinates
+            c: array of point coordinates
+
+        Returns:
+            array containing angles, in degrees, formed from the lines ab and ba for each row in a, b, and c with range [0, 360)
         """
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0]) -

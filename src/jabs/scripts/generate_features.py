@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-"""
-initialize JABS features for a pose file
+"""initialize JABS features for a pose file
 
 computes features if they do not exist
 """

@@ -11,8 +11,7 @@ if typing.TYPE_CHECKING:
 
 
 class ShapeDescriptors(Feature):
-    """
-    Feature related to shape descriptors of the segmentation data.
+    """Feature related to shape descriptors of the segmentation data.
     Ellipse-fit was adopted from https://doi.org/10.1038/nmeth.2281
     Additional shape features are taken from definitions in http://dx.doi.org/10.5772/6237
     """

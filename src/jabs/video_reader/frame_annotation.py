@@ -37,12 +37,16 @@ __CONNECTED_SEGMENTS = [
 
 
 def __gen_line_fragments(exclude_points: np.ndarray):
-    """
-    generate line fragments from the connected segments. will break up
+    """generate line fragments from the connected segments. will break up
     segments if a point within the segment is excluded, or will remove the
     segment completely if it does not have at least two points
-    :param exclude_points: list of points to exclude when generating segments
-    :return: yields lists of Keypoint indexes that make up the segments to draw
+
+    Args:
+        exclude_points: list of points to exclude when generating
+            segments
+
+    Returns:
+        yields lists of Keypoint indexes that make up the segments to draw
     """
     curr_fragment = []
     for curr_pt_indexes in __CONNECTED_SEGMENTS:
@@ -65,15 +69,17 @@ def label_identity(
     frame_index: int,
     color: tuple[int] = _ID_COLOR,
 ):
-    """
-    label the identity on an image
-    :param img: image to label
-    :param pose_est: pose estimations for this video
-    :param identity: identity to label
-    :param frame_index: index of frame to label
-    :param color: color to use for label
-    If point = None, use center of mass.
-    :return: None
+    """label the identity on an image
+
+    Args:
+        img: image to label
+        pose_est: pose estimations for this video
+        identity: identity to label
+        frame_index: index of frame to label
+        color: color to use for label
+
+    Returns:
+        None
     """
 
     shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
@@ -94,14 +100,17 @@ def label_all_identities(
     frame_index: int,
     subject: int | None = None,
 ):
-    """
-    label all the identities in the frame
-    :param img: image to draw the labels on
-    :param pose_est: pose estimations for this video
-    :param identities: list of identity names
-    :param frame_index: index of frame, used to get all poses for frame
-    :param subject: identity to label as 'subject'
-    :return: None
+    """label all the identities in the frame
+
+    Args:
+        img: image to draw the labels on
+        pose_est: pose estimations for this video
+        identities: list of identity names
+        frame_index: index of frame, used to get all poses for frame
+        subject: identity to label as 'subject'
+
+    Returns:
+        None
     """
 
     for identity in identities:
@@ -138,19 +147,17 @@ def draw_track(
     past_points: int = 5,
     point_index=PoseEstimation.KeypointIndex.NOSE,
 ):
-    """
-    draw a track for a specified identity
+    """draw a track for a specified identity
 
-    :param img: image to draw track on
-    :param pose_est: pose estimations for this video
-    :param identity: subject identity
-    :param frame_index: index of the current frame
-    :param future_points: number of frames after current frame to use
-    for drawing the track
-    :param past_points: number of frames before current frame to use for
-    drawing the track
-    :param point_index: index of pose key point to use for drawing track,
-    if None use center of mass rather than a point. default to nose
+    Args:
+        img: image to draw track on
+        pose_est: pose estimations for this video
+        identity: subject identity
+        frame_index: index of the current frame
+        future_points: number of frames after current frame to use for drawing the track
+        past_points: number of frames before current frame to use for drawing the track
+        point_index: index of pose key point to use for drawing track,
+            if None use center of mass rather than a point. default to nose
     """
 
     slice_start = max(frame_index - past_points, 0)
@@ -221,12 +228,11 @@ def overlay_pose(
     img: np.ndarray, points: np.ndarray, mask: np.ndarray, color=(255, 255, 255)
 ):
     """
-
-    :param img:
-    :param points:
-    :param mask:
-    :param color:
-    :return:
+    Args:
+        img
+        points
+        mask
+        color
     """
 
     if points is None:
@@ -268,11 +274,13 @@ def overlay_pose(
 
 
 def trim_seg(arr: np.ndarray) -> np.ndarray | None:
-    """
-    Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
+    """Trims a single contour.  Returns an opencv-complaint contour (dtype = int).
 
-    :param arr: A numpy array with contour data.
-    :return: np.ndarray
+    Args:
+        arr: A numpy array with contour data.
+
+    Returns:
+        np.ndarray
     """
     assert arr.ndim == 2
     return_arr = arr[np.all(arr != -1, axis=1), :]
@@ -282,11 +290,13 @@ def trim_seg(arr: np.ndarray) -> np.ndarray | None:
 
 
 def trim_seg_list(arr: np.ndarray) -> List:
-    """
-    Trims all contours for an individual.
+    """Trims all contours for an individual.
 
-    :param arr: A numpy array with contour data.
-    :return: List
+    Args:
+        arr: A numpy array with contour data.
+
+    Returns:
+        List
     """
     assert arr.ndim == 3
     return [trim_seg(x) for x in arr if np.any(x != -1)]
@@ -295,13 +305,16 @@ def trim_seg_list(arr: np.ndarray) -> List:
 def draw_all_contours(
     img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, int, int]
 ):
-    """
-    Draw all contours given data for a particular mouse in a particular video frame.
+    """Draw all contours given data for a particular mouse in a particular video frame.
 
-    :param img: The current video frame.
-    :param seg_data: This will be the segmentation for a particular frame and indentity.
-    :param color: color of segmentation contours rendered on the GUI.
-    :return: None
+    Args:
+        img: The current video frame.
+        seg_data: This will be the segmentation for a particular frame
+            and identity.
+        color: color of segmentation contours rendered on the GUI.
+
+    Returns:
+        None
     """
     trimmed_contours = trim_seg_list(seg_data)
     cv2.drawContours(img, trimmed_contours, -1, color, 2)
@@ -311,11 +324,16 @@ def overlay_segmentation(
     img: np.ndarray, pose_est: PoseEstimationV6, identity: int, frame_index: int
 ):
     """
-    :param img: The current video frame.
-    :param pose_est: This will be a pose estimation object >= v6.
-    :param identity: This integer identifies which mouse the segmentation will be applied to.
-    :param frame_index: This integer identifies the current video frame index.
-    :return: None
+    Args:
+        img: The current video frame.
+        pose_est: This will be a pose estimation object >= v6.
+        identity: This integer identifies which mouse the segmentation
+            will be applied to.
+        frame_index: This integer identifies the current video frame
+            index.
+
+    Returns:
+        None
     """
     # No segmentation data to display
     if pose_est.format_major_version < 6:
@@ -388,8 +406,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
 
 
 def __scale_annotation_size(img: np.ndarray, size: int | float) -> int | float:
-    """
-    Scale the size of the landmark markers based on the size of the image. 800x800 is the video size
+    """Scale the size of the landmark markers based on the size of the image. 800x800 is the video size
     jabs was developed with, so we use that as a reference.
     """
     if type(size) == int:

@@ -11,9 +11,7 @@ if typing.TYPE_CHECKING:
 
 
 class HuMoments(Feature):
-    """
-    Feature for the hu image moments of the segmentation contours.
-    """
+    """Feature for the hu image moments of the segmentation contours."""
 
     _name = 'hu_moments'
     _feature_names = [f"hu{i}" for i in range(1, 8)]

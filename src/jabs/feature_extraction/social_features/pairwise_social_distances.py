@@ -35,10 +35,13 @@ class PairwiseSocialDistances(Feature):
         self._poses = poses
 
     def per_frame(self, identity: int) -> dict:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: dict with feature values
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict with feature values
         """
 
         return self._social_distance_info.compute_pairwise_social_distances(
@@ -49,8 +52,7 @@ class PairwiseSocialDistances(Feature):
 
 class PairwiseSocialFovDistances(PairwiseSocialDistances):
 
-    """
-    PairwiseSocialFovDistances, nearly the same as the PairwiseSocialDistances,
+    """PairwiseSocialFovDistances, nearly the same as the PairwiseSocialDistances,
     except closest_fov_identities is passed to compute_pairwise_social_distances
     rather than closest_identities
     """
@@ -58,11 +60,14 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
     _name = 'social_pairwise_fov_distances'
 
     def per_frame(self, identity: int) -> np.ndarray:
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            np.ndarray with feature values
         """
-                compute the value of the per frame features for a specific identity
-                :param identity: identity to compute features for
-                :return: np.ndarray with feature values
-                """
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset,
             self._social_distance_info.closest_fov_identities

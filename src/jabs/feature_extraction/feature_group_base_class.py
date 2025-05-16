@@ -25,11 +25,13 @@ class FeatureGroup(abc.ABC):
         self._enabled_features = list(self._features.keys())
 
     def per_frame(self, identity: int) -> dict:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: dict where each key is the name of a feature module included
-        in this FeatureGroup
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict where each key is the name of a feature module included in this FeatureGroup
         """
         feature_modules = self._init_feature_mods(identity)
         return {
@@ -39,15 +41,18 @@ class FeatureGroup(abc.ABC):
 
     def window(self, identity: int, window_size: int,
                per_frame_values: dict) -> dict:
-        """
-        compute window feature values for a given identities per frame values
-        :param identity: subject identity
-        :param window_size: window size
-          NOTE: (actual window size is 2 * window_size + 1)
-        :param per_frame_values: per frame feature values
-        :return: dictionary where keys are feature module names that are part
-        of this FeatureGroup. The value for each element is the window feature
-        dict returned by that module.
+        """compute window feature values for a given identities per frame values
+
+        Args:
+            identity: subject identity
+            window_size: window size NOTE: (actual window size is 2 *
+                window_size + 1)
+            per_frame_values: per frame feature values
+
+        Returns:
+            dictionary where keys are feature module names that are part
+            of this FeatureGroup. The value for each element is the window feature
+            dict returned by that module.
         """
         feature_modules = self._init_feature_mods(identity)
         return {
@@ -78,13 +83,13 @@ class FeatureGroup(abc.ABC):
             static_objects: set[str],
             **kwargs,
     ) -> list[str]:
-        """
-        Get the features supported by this group based on the pose version,
+        """Get the features supported by this group based on the pose version,
           static objects, and optional additional attributes
-        :param pose_version:
-        :param static_objects:
-        :param kwargs:
-        :return:
+
+        Args:
+            pose_version
+            static_objects
+            **kwargs
         """
         features = []
         for feature_name, feature_class in cls._features.items():

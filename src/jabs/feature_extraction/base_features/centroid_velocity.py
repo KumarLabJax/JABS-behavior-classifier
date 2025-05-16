@@ -12,7 +12,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 # work computing each feature. Fix at next update to feature h5 file format.
 
 class CentroidVelocityDir(Feature):
-    """ feature for the direction of the center of mass velocity """
+    """feature for the direction of the center of mass velocity"""
 
     _name = 'centroid_velocity_dir'
 
@@ -60,7 +60,7 @@ class CentroidVelocityDir(Feature):
 
 
 class CentroidVelocityMag(Feature):
-    """ feature for the magnitude of the center of mass velocity """
+    """feature for the magnitude of the center of mass velocity"""
 
     _name = 'centroid_velocity_mag'
 
@@ -68,10 +68,13 @@ class CentroidVelocityMag(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: np.ndarray with feature values
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            np.ndarray with feature values
         """
         values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         fps = self._poses.fps

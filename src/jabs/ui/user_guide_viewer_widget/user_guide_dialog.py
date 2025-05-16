@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QUrl
 
 
 class UserGuideDialog(QDialog):
-    """ dialog that shows html rendering of user guide """
+    """dialog that shows html rendering of user guide"""
 
     _doc_dir = Path(os.path.realpath(__file__)).parent / 'docs'
 

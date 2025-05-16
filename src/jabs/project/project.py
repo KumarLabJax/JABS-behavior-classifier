@@ -26,11 +26,12 @@ class Project:
     """represents a JABS project"""
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
-        """
-        Open a project at a given path. A project is a directory that contains
+        """Open a project at a given path. A project is a directory that contains
         avi files and their corresponding pose_est_v3.h5 files as well as json
         files containing project metadata and annotations.
-        :param project_path: path to project directory
+
+        Args:
+            project_path: path to project directory
         """
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
@@ -77,61 +78,57 @@ class Project:
 
     @property
     def settings(self):
-        """
-        get the project metadata and preferences.
+        """get the project metadata and preferences.
 
         """
         return self._settings_manager.project_settings
 
     @property
     def settings_manager(self) -> SettingsManager:
-        """
-        get the project settings manager
-        """
+        """get the project settings manager"""
         return self._settings_manager
 
     @property
     def total_project_identities(self):
-        """
-        sum the number of instances across all videos in the project
-        :return: integer sum
+        """sum the number of instances across all videos in the project
+
+        Returns:
+            integer sum
         """
         return self._video_manager.total_project_identities
 
     @property
     def prediction_manager(self) -> PredictionManager:
-        """
-        get the prediction manager for this project
-        """
+        """get the prediction manager for this project"""
         return self._prediction_manager
 
     @property
     def feature_manager(self) -> FeatureManager:
-        """
-        get the feature manager for this project
-        """
+        """get the feature manager for this project"""
         return self._feature_manager
 
     @property
     def video_manager(self) -> VideoManager:
-        """
-        get the video manager for this project
-        """
+        """get the video manager for this project"""
         return self._video_manager
 
     @property
     def project_paths(self) -> ProjectPaths:
-        """
-        get the project paths object for this project
-        """
+        """get the project paths object for this project"""
         return self._paths
 
     def load_pose_est(self, video_path: Path) -> PoseEstimation:
-        """
-        return a PoseEstimation object for a given video path
-        :param video_path: pathlib.Path containing location of video file
-        :return: PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
-        :raises ValueError: if video no in project or it does not have post file
+        """return a PoseEstimation object for a given video path
+
+        Args:
+            video_path: pathlib.Path containing location of video file
+
+        Returns:
+            PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
+
+        Raises:
+            ValueError: if video no in project or it does not have post
+                file
         """
         # ensure this video path is for a valid project video
         video_filename = Path(video_path).name
@@ -140,10 +137,13 @@ class Project:
         return open_pose_file(get_pose_path(video_path), self._paths.cache_dir)
 
     def save_annotations(self, annotations: VideoLabels):
-        """
-        save state of a VideoLabels object to the project directory
-        :param annotations: VideoLabels object
-        :return: None
+        """save state of a VideoLabels object to the project directory
+
+        Args:
+            annotations: VideoLabels object
+
+        Returns:
+            None
         """
         path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(
             ".json"
@@ -156,9 +156,10 @@ class Project:
         self._settings_manager.update_version()
 
     def get_project_defaults(self):
-        """
-        obtain the default per-behavior settings
-        :return: dictionary of project settings
+        """obtain the default per-behavior settings
+
+        Returns:
+            dictionary of project settings
         """
         return self.settings_by_pose_version(
             self._feature_manager.min_pose_version,
@@ -172,11 +173,12 @@ class Project:
         distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL,
         static_objects: set[str] | None = None,
     ):
-        """
-        obtain project settings for a specified pose version
-        :param pose_version: pose version to indicate settings
-        :param distance_unit: distance unit for settings
-        :param static_objects: keys of static objects to include
+        """obtain project settings for a specified pose version
+
+        Args:
+            pose_version: pose version to indicate settings
+            distance_unit: distance unit for settings
+            static_objects: keys of static objects to include
         """
         if static_objects is None:
             static_objects = set()
@@ -197,10 +199,11 @@ class Project:
         }
 
     def save_classifier(self, classifier, behavior: str):
-        """
-        Save the classifier for the given behavior
-        :param classifier: the classifier to save
-        :param behavior: string behavior name. This affects the path we save to
+        """Save the classifier for the given behavior
+
+        Args:
+            classifier: the classifier to save
+            behavior: string behavior name. This affects the path we save to
         """
         classifier.save(
             self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
@@ -210,11 +213,15 @@ class Project:
         self._settings_manager.update_version()
 
     def load_classifier(self, classifier, behavior: str):
-        """
-        Load cached classifier for the given behavior
-        :param classifier: the classifier to load
-        :param behavior: string behavior name.
-        :return: True if load is successful and False if the file doesn't exist
+        """Load cached classifier for the given behavior
+
+        Args:
+            classifier: the classifier to load
+            behavior: string behavior name.
+
+        Returns:
+            True if load is successful and False if the file doesn't
+            exist
         """
         classifier_path = self._paths.classifier_dir / (
             to_safe_name(behavior) + ".pickle"
@@ -228,23 +235,26 @@ class Project:
     def save_predictions(
         self, predictions, probabilities, frame_indexes, behavior: str, classifier
     ):
-        """
-        save predictions for the current project
-        :param predictions: predictions for all videos in project (dictionary
-        with each video name as a key and a numpy array (#identities, #frames))
-        :param probabilities: corresponding prediction probabilities, similar
-        structure to predictions parameter but with floating point values
-        :param frame_indexes: mapping of the predictions to video frames
-        :param behavior: string behavior name
-        :param classifier: Classifier object used to generate the predictions
+        """save predictions for the current project
 
-        Because the classifier does not run on every frame for every identity
-        (since an identity may not exist for every frame), we extract just
-        the features for the frames we need to classify. Now we want to map
-        these back to the corresponding frame.
-        predictions[video_name][identity, index] and
-        probabilities[video_name][identity, index] correspond to the frame
-        specified by frame_indexes[video][identity, index]
+        Args:
+            predictions: predictions for all videos in project
+                (dictionary with each video name as a key and a numpy array (#identities, #frames))
+            probabilities: corresponding prediction probabilities,
+                similar structure to predictions parameter but with floating point values
+            frame_indexes: mapping of the predictions to video frames
+            behavior: string behavior name
+            classifier: Classifier object used to generate the
+                predictions
+
+        Note:
+            Because the classifier does not run on every frame for every identity
+            (since an identity may not exist for every frame), we extract just
+            the features for the frames we need to classify. Now we want to map
+            these back to the corresponding frame.
+            predictions[video_name][identity, index] and
+            probabilities[video_name][identity, index] correspond to the frame
+            specified by frame_indexes[video][identity, index]
         """
 
         for video in self._video_manager.videos:
@@ -297,12 +307,15 @@ class Project:
         self._settings_manager.update_version()
 
     def archive_behavior(self, behavior: str):
-        """
-        Archive a behavior.
+        """Archive a behavior.
         Archives any labels for this behavior. Deletes any other files
         associated with this behavior.
-        :param behavior: string behavior name
-        :return: None
+
+        Args:
+            behavior: string behavior name
+
+        Returns:
+            None
         """
 
         safe_behavior = to_safe_name(behavior)
@@ -352,10 +365,11 @@ class Project:
         self._settings_manager.remove_behavior(behavior)
 
     def counts(self, behavior):
-        """
-        get the labeled frame counts and bout counts for each video in the
+        """get the labeled frame counts and bout counts for each video in the
         project
-        :return: dict where keys are video names and values are lists of
+
+        Returns:
+            dict where keys are video names and values are lists of
         (
             identity,
             (behavior frame count, not behavior frame count),
@@ -368,40 +382,41 @@ class Project:
         return counts
 
     def get_labeled_features(self, behavior=None, progress_callable=None):
-        """
-        the features for all labeled frames
+        """the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
-        :param behavior: the behavior settings to get labeled features for
-        if None, will use project defaults (all available features)
-        :param progress_callable: if provided this will be called
-        with no args every time an identity is processed to facilitate
-        progress tracking
+        Args:
+            behavior: the behavior settings to get labeled features for
+                if None, will use project defaults (all available features)
+            progress_callable: if provided this will be called
+                with no args every time an identity is processed to facilitate
+                progress tracking
 
-        :return: two dicts: features, group_mappings
+        Returns:
+            two dicts: features, group_mappings
 
-        The first dict contains features for all labeled frames and has the
-        following keys:
+            The first dict contains features for all labeled frames and has the
+            following keys:
 
-        {
-            'window': ,
-            'per_frame': ,
-            'labels': ,
-            'groups': ,
-        }
+            {
+                'window': ,
+                'per_frame': ,
+                'labels': ,
+                'groups': ,
+            }
 
-        The values contained in the first dict are suitable to pass as
-        arguments to the Classifier.leave_one_group_out() method.
+            The values contained in the first dict are suitable to pass as
+            arguments to the Classifier.leave_one_group_out() method.
 
-        The second dict in the tuple has group ids as the keys, and the
-        values are a dict containing the video and identity that corresponds to
-        that group id:
+            The second dict in the tuple has group ids as the keys, and the
+            values are a dict containing the video and identity that corresponds to
+            that group id:
 
-        {
-          <group id>: {'video': <video filename>, 'identity': <identity},
-          ...
-        }
+            {
+              <group id>: {'video': <video filename>, 'identity': <identity},
+              ...
+            }
         """
 
         all_per_frame = []
@@ -493,15 +508,16 @@ class Project:
         return True
 
     def __read_counts(self, video, behavior):
-        """
-        read labeled frame and bout counts from json file
-        :return: list of labeled frame and bout counts for each identity for the
-        specified behavior. Each element in the list is a tuple of the form
-        (
-            identity,
-            (behavior frame count, not behavior frame count)
-            (behavior bout count, not behavior bout count)
-        )
+        """read labeled frame and bout counts from json file
+
+        Returns:
+            list of labeled frame and bout counts for each identity for
+            the specified behavior. Each element in the list is a tuple of the form
+            (
+                identity,
+                (behavior frame count, not behavior frame count)
+                (behavior bout count, not behavior bout count)
+            )
         """
         video_filename = Path(video).name
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")

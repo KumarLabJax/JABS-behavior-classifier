@@ -5,7 +5,7 @@ from jabs.version import version_str
 
 
 class AboutDialog(QDialog):
-    """ dialog that shows application info such as version and copyright """
+    """dialog that shows application info such as version and copyright"""
 
     def __init__(self, app_name, *args, **kwargs):
         super().__init__(*args, **kwargs)

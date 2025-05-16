@@ -7,23 +7,26 @@ from jabs.types import ProjectDistanceUnit
 
 
 def read_project_settings(h5_file: h5py.Group) -> dict:
-    """
-    read dict of project settings
+    """read dict of project settings
 
-    :param h5_file: open h5 file to read settings from
-    :return: dictionary of all project settings
+    Args:
+        h5_file: open h5 file to read settings from
+
+    Returns:
+        dictionary of all project settings
     """
     all_settings = {}
     root_len = len(h5_file.name) + 1
 
     def _walk_project_settings(name, node) -> dict:
-        """
-        read dict of project settings walker
+        """read dict of project settings walker
 
-        :param name: root where node is located
-        :param node: name of node currently visiting
-        :return: dictionary of walked setting (if valid node)
-        :raises: ValueError if settings have too much depth
+        Args:
+            name: root where node is located
+            node: name of node currently visiting
+
+        Returns:
+            dictionary of walked setting (if valid node)
 
         meant to be used with h5py's visititems
         this walk can't use return/yield, so we just mutate the dict each visit
@@ -44,13 +47,14 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
 
 
 def load_training_data(training_file: Path):
-    """
-    load training data from file
+    """load training data from file
 
-    :param training_file: path to training h5 file
-    :return: features, group_mapping
-        features: dict containing training data with the following format:
-        {
+    Args:
+        training_file: path to training h5 file
+
+    Returns:
+        features, group_mapping features: dict containing training data
+        with the following format: {
             'per_frame': {}
             'window_features': {},
             'labels': [int],
@@ -67,7 +71,6 @@ def load_training_data(training_file: Path):
                 'video': str
             },
         }
-    :raises: OSError if unable to open h5 file for reading
     """
 
     features = {

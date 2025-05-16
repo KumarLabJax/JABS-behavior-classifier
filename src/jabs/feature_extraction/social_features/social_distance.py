@@ -6,8 +6,7 @@ from jabs.pose_estimation import PoseEstimation
 
 
 class ClosestIdentityInfo:
-    """
-    this info is needed to compute a number of different social features.
+    """this info is needed to compute a number of different social features.
     It can be done once for a given identity, and then an instance of this
     object can be passed into all the features that need it
     """
@@ -87,12 +86,15 @@ class ClosestIdentityInfo:
 
     @staticmethod
     def compute_angle(a, b, c):
-        """
-        compute angle created by three connected points
-        :param a: point
-        :param b: vertex point
-        :param c: point
-        :return: angle between AB and BC with range [-180, 180)
+        """compute angle created by three connected points
+
+        Args:
+            a: point
+            b: vertex point
+            c: point
+
+        Returns:
+            angle between AB and BC with range [-180, 180)
         """
 
         angle = np.degrees(
@@ -155,12 +157,15 @@ class ClosestIdentityInfo:
 
     @staticmethod
     def _compute_social_pairwise_distance(points1, points2):
-        """
-        compute distances between all pairs of points
-        :param points1: 1st collection of points
-        :param points2: 2st collection of points
-        :return: list of distances between all pairwise combinations of points
-            from points1 and points2
+        """compute distances between all pairs of points
+
+        Args:
+            points1: 1st collection of points
+            points2: 2nd collection of points
+
+        Returns:
+            list of distances between all pairwise combinations of
+            points from points1 and points2
         """
         distances = []
 

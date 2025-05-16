@@ -9,8 +9,7 @@ from jabs.pose_estimation import PoseEstimation
 
 
 class Feature(abc.ABC):
-    """
-    Abstract Base Class to define a common interface for classes that implement
+    """Abstract Base Class to define a common interface for classes that implement
     one or more related features
     """
 
@@ -72,13 +71,12 @@ class Feature(abc.ABC):
 
     @classmethod
     def name(cls) -> str:
-        """ return a string name of the feature """
+        """return a string name of the feature"""
         return cls._name
 
     @classmethod
     def feature_names(cls) -> list[str]:
-        """
-        return a list of strings containing the names of the features for the
+        """return a list of strings containing the names of the features for the
         feature set
         """
         return cls._feature_names
@@ -86,13 +84,18 @@ class Feature(abc.ABC):
     @classmethod
     def is_supported(
             cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
-        """
-        check that a feature is supported by a pose file
-        :param pose_version: pose file version
-        :param static_objects: list of static object available in pose file
-        :param kwargs: additional attributes that can be used to determine if a feature
-          is supported by the project, not used by the default method but might be used by subclasses
-        :return: True if the pose file supports the feature, false otherwise
+        """check that a feature is supported by a pose file
+
+        Args:
+            pose_version: pose file version
+            static_objects: list of static object available in pose file
+            **kwargs: additional attributes that can be used to
+                determine if a feature is supported by the project, not
+                used by the default method but might be used by
+                subclasses
+
+        Returns:
+            True if the pose file supports the feature, false otherwise
         """
 
         # check that the minimum pose version is met
@@ -109,8 +112,7 @@ class Feature(abc.ABC):
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """
-        each FeatureSet subclass will implement this to compute the
+        """each FeatureSet subclass will implement this to compute the
         features in the set
 
         returns an ndarray containing the feature values.
@@ -124,8 +126,7 @@ class Feature(abc.ABC):
 
     def window(self, identity: int, window_size: int,
                per_frame_values: dict) -> dict:
-        """
-        standard method for computing window feature values
+        """standard method for computing window feature values
 
         NOTE: some features may need to override this (for example, those with
         circular values such as angles)
@@ -147,13 +148,15 @@ class Feature(abc.ABC):
         window_size: int,
         per_frame_values: dict
     ) -> dict:
-        """
-        The standard method for computing signal processing window features.
+        """The standard method for computing signal processing window features.
 
-        :param identity: The identity of the mouse.
-        :param window_size: The window size used for signal formation.
-        :param per_frame_values: The values for a particular feature.
-        :return: a dictionary of the signal processing features.
+        Args:
+            identity: The identity of the mouse.
+            window_size: The window size used for signal formation.
+            per_frame_values: The values for a particular feature.
+
+        Returns:
+            a dictionary of the signal processing features.
         """
         values = {}
 
@@ -189,13 +192,15 @@ class Feature(abc.ABC):
 
     def _window_circular(self, identity: int, window_size: int,
                          per_frame_values: dict) -> dict:
-        """
-        helper function for overriding window features to be circular
+        """helper function for overriding window features to be circular
 
-        :param identity: The identity of the mouse.
-        :param window_size: The window size used for signal formation.
-        :param per_frame_values: The values for a particular feature.
-        :return: a dictionary of the circular window features.
+        Args:
+            identity: The identity of the mouse.
+            window_size: The window size used for signal formation.
+            per_frame_values: The values for a particular feature.
+
+        Returns:
+            a dictionary of the circular window features.
         """
         values = {}
         for op_name, op in self._window_operations.items():
@@ -207,16 +212,16 @@ class Feature(abc.ABC):
     def _compute_window_feature(self, feature_values: dict,
                                 frame_mask: np.ndarray, window_size: int,
                                 op: typing.Callable) -> dict:
-        """
-        helper function to compute window feature values
+        """helper function to compute window feature values
 
-        :param feature_values: dict of per frame feature values
-        :param frame_mask: array indicating which frames are valid for the
-        current identity
-        :param window_size: number of frames (in each direction) to include
-        in the window. The actual number of frames is 2 * window_size + 1
-        :param op: function to perform the actual computation
-        :return: dict containing feature values
+        Args:
+            feature_values: dict of per frame feature values
+            frame_mask: array indicating which frames are valid for the current identity
+            window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
+            op: function to perform the actual computation
+
+        Returns:
+            dict containing feature values
         """
         values = {}
         for key, val in feature_values.items():
@@ -227,17 +232,19 @@ class Feature(abc.ABC):
     def _compute_signal_features(
             self, freqs: np.ndarray, psd: dict,
             frame_mask: np.ndarray, op: typing.Callable, **kwargs) -> dict:
-        """
-        helper function to compute signal window feature values.
+        """helper function to compute signal window feature values.
 
-        :param freqs: frequency values for psd matrices
-        :param psd: dict of power spectral density
-        :param frame_mask: array indicating which frames are valid for the
-        current identity
-        :param op: function to perform the actual computation. Operation must
-        accept frequencies and psd as input
-        :param kwargs: additional keyword args used by op
-        :return: numpy nd array containing feature values
+        Args:
+            freqs: frequency values for psd matrices
+            psd: dict of power spectral density
+            frame_mask: array indicating which frames are valid for the current identity
+            op: function to perform the actual computation. Operation must accept frequencies and psd as input
+            **kwargs: additional keyword args used by op
+
+
+
+        Returns:
+            numpy nd array containing feature values
         """
         values = {}
         for key, value in psd.items():
@@ -249,15 +256,16 @@ class Feature(abc.ABC):
             self, feature_values: dict, frame_mask: np.ndarray,
             window_size: int, op: typing.Callable
     ) -> dict:
-        """
-        special case compute_window_features for circular measurements
+        """special case compute_window_features for circular measurements
 
-        :param feature_values: dict of per-frame feature values
-        :param frame_mask: numpy array that indicates if the frame is valid or
-        not for the specific identity we are computing features for
-        :param window_size:
-        :param op:
-        :return: dict with circular feature values
+        Args:
+            feature_values: dict of per-frame feature values
+            frame_mask: numpy array that indicates if the frame is valid for the specific identity we are computing features for
+            window_size:
+            op:
+
+        Returns:
+            dict with circular feature values
         """
         nframes = self._poses.num_frames
         values = {}

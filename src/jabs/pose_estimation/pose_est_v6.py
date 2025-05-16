@@ -15,12 +15,12 @@ class PoseEstimationV6(PoseEstimationV5):
                  cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
         """
-        :param file_path: Path object representing the location of the pose
-        file.
-        :param cache_dir: optional cache directory, used to cache convex hulls
-        for faster loading
-        :param fps: frames per second, used for scaling time series features
-        from "per frame" to "per second"
+        Args:
+            file_path: Path object representing the location of the pose file
+            cache_dir: optional cache directory, used to cache convex
+                hulls and transformed pose files for faster loading
+            fps: frames per second, used for scaling time series
+                features from "per frame" to "per second"
         """
         super().__init__(file_path, cache_dir, fps)
 
@@ -51,11 +51,16 @@ class PoseEstimationV6(PoseEstimationV5):
 
     @classmethod
     def _segmentation_sort(cls, seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
-        """
-        This method attempts to sort the segmentation data according to the longterm segmentation id.
-        :param seg_data: segmentation data with the first 2 dimensions being [frame,animal]
-        :param longterm_seg_id: identities to sort by, beginning with 1 (0 reserved for invalid data)
-        :return: sorted segmentation data
+        """This method attempts to sort the segmentation data according to the longterm segmentation id.
+
+        Args:
+            seg_data: segmentation data with the first 2 dimensions
+                being [frame,animal]
+            longterm_seg_id: identities to sort by, beginning with 1 (0
+                reserved for invalid data)
+
+        Returns:
+            sorted segmentation data
         """
         # Copy the data into the new array, sorted
         # Note that the -1 is the default for missing data
@@ -70,11 +75,14 @@ class PoseEstimationV6(PoseEstimationV5):
         return sorted_seg_data
 
     def get_segmentation_data(self, identity: int) -> np.ndarray | None:
-        """
-        Given a particular identity, return the appropriate segmentation data.
-        :param identity: identity to return segmentation data for.
-        :return: the ndarray of segmentation data (if it exists) otherwise the
-            function returns None.
+        """Given a particular identity, return the appropriate segmentation data.
+
+        Args:
+            identity: identity to return segmentation data for.
+
+        Returns:
+            the ndarray of segmentation data (if it exists) otherwise
+            the function returns None.
         """
 
         if self._segmentation_dict["seg_data"] is None:
@@ -83,12 +91,15 @@ class PoseEstimationV6(PoseEstimationV5):
             return self._segmentation_dict['seg_data'][:, identity, ...]
 
     def get_segmentation_flags(self, identity: int) -> np.ndarray | None:
-        """
-        Given a particular identity, return the appropriate segmentation
+        """Given a particular identity, return the appropriate segmentation
         internal/external flags.
-        :param identity: identity to return segmentation flags for.
-        :return: the ndarray of segmentation flags (if it exists) otherwise the
-            function returns None.
+
+        Args:
+            identity: identity to return segmentation flags for.
+
+        Returns:
+            the ndarray of segmentation flags (if it exists) otherwise
+            the function returns None.
         """
 
         if self._segmentation_dict["seg_external_flag"] is None:
@@ -97,12 +108,16 @@ class PoseEstimationV6(PoseEstimationV5):
             return self._segmentation_dict['seg_external_flag'][:, identity, ...] 
 
     def get_segmentation_data_per_frame(self, frame_index, identity: int) -> np.ndarray | None:
-        """
-        Given a particular identity, return the appropriate segmentation data.
-        :param identity: identity to return segmentation data for.
-        :param frame_index: index of the frame to return segmentation data for.
-        :return: the ndarray of segmentation data (if it exists) otherwise the
-            function returns None.
+        """Given a particular identity, return the appropriate segmentation data.
+
+        Args:
+            identity: identity to return segmentation data for.
+            frame_index: index of the frame to return segmentation data
+                for.
+
+        Returns:
+            the ndarray of segmentation data (if it exists) otherwise
+            the function returns None.
         """
 
         if self._segmentation_dict["seg_data"] is None:

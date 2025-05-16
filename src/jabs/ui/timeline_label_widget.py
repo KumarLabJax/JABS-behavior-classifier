@@ -12,8 +12,7 @@ from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
 
 
 class TimelineLabelWidget(QWidget):
-    """
-    Widget that shows a "zoomed out" overview of labels for the entire video.
+    """Widget that shows a "zoomed out" overview of labels for the entire video.
     Because each pixel along the width ends up representing multiple frames,
     you can't see fine detail, but you can see where manual labels have been
     applied. This can be useful for seeking through the video to a location of
@@ -55,8 +54,7 @@ class TimelineLabelWidget(QWidget):
         self._num_frames = 0
 
     def sizeHint(self):
-        """
-        Override QWidget.sizeHint to give an initial starting size.
+        """Override QWidget.sizeHint to give an initial starting size.
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -64,8 +62,7 @@ class TimelineLabelWidget(QWidget):
         return QSize(400, self._height)
 
     def resizeEvent(self, event):
-        """
-        handle resize event. Recalculates scaling factors and calls
+        """handle resize event. Recalculates scaling factors and calls
         update_bar() to downsample current label array and rerender the bar
         """
 
@@ -78,7 +75,7 @@ class TimelineLabelWidget(QWidget):
         self._update_bar()
 
     def paintEvent(self, event):
-        """ override QWidget paintEvent """
+        """override QWidget paintEvent"""
 
         # make sure we have something to draw
         if self._pixmap is None or self._bin_size == 0:
@@ -100,19 +97,17 @@ class TimelineLabelWidget(QWidget):
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
 
     def set_labels(self, labels):
-        """ load label track to display """
+        """load label track to display"""
         self._labels = labels
         self.update_labels()
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view """
+        """called to reposition the view"""
         self._current_frame = current_frame
         self.update()
 
     def set_num_frames(self, num_frames):
-        """
-        sets the number of frames in the current video
-        """
+        """sets the number of frames in the current video"""
         self._num_frames = num_frames
         self._update_scale()
         self._update_bar()
@@ -127,8 +122,7 @@ class TimelineLabelWidget(QWidget):
         self._update_bar()
 
     def _update_bar(self):
-        """
-        Updates the bar pixmap. Downsamples label array with the current size
+        """Updates the bar pixmap. Downsamples label array with the current size
         and updates self._pixmap
         """
 
@@ -174,7 +168,7 @@ class TimelineLabelWidget(QWidget):
         qp.end()
 
     def _update_scale(self):
-        """ update scale factor and bin size """
+        """update scale factor and bin size"""
         width = self.size().width()
 
         pad_size = math.ceil(

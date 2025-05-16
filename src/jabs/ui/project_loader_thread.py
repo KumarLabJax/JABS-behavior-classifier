@@ -4,8 +4,7 @@ from jabs.project import Project
 
 
 class ProjectLoaderThread (QThread):
-    """
-    JABS Project Loader Thread
+    """JABS Project Loader Thread
 
     This thread is used to load a JABS project in the background so that the main
     GUI thread remains responsive. It emits signals when the project is loaded.
@@ -20,9 +19,7 @@ class ProjectLoaderThread (QThread):
         self._project = None
 
     def run(self):
-        """
-        Run the thread.
-        """
+        """Run the thread."""
         # Open the project, this can take a while
         try:
             self._project = Project(self._project_path)
@@ -34,7 +31,5 @@ class ProjectLoaderThread (QThread):
 
     @property
     def project(self):
-        """
-        Return the loaded project.
-        """
+        """Return the loaded project."""
         return self._project

@@ -8,8 +8,7 @@ from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
 
 
 class PredictionVisWidget(QWidget):
-    """
-    widget used to show predicted class for a range of frames around the
+    """widget used to show predicted class for a range of frames around the
     current frame
     """
 
@@ -53,8 +52,7 @@ class PredictionVisWidget(QWidget):
         self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.Dense6Pattern)
 
     def sizeHint(self):
-        """
-        Override QWidget.sizeHint to give an initial starting size.
+        """Override QWidget.sizeHint to give an initial starting size.
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -67,8 +65,7 @@ class PredictionVisWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) // 2
 
     def paintEvent(self, event):
-        """
-        override QWidget paintEvent
+        """override QWidget paintEvent
 
         This draws the widget.
         """
@@ -142,17 +139,17 @@ class PredictionVisWidget(QWidget):
         qp.end()
 
     def set_predictions(self, predictions, probabilities):
-        """ set prediction data to display """
+        """set prediction data to display"""
         self._predictions = predictions
         self._probabilities = probabilities
         self.update()
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view around new current frame """
+        """called to reposition the view around new current frame"""
         self._current_frame = current_frame
         # force redraw
         self.repaint()
 
     def set_num_frames(self, num_frames):
-        """ set number of frames in current video, needed to properly render """
+        """set number of frames in current video, needed to properly render"""
         self._num_frames = num_frames

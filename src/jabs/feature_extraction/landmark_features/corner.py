@@ -11,8 +11,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 
 class CornerDistanceInfo:
-    """
-    because we have two features that both need to know which corner is the
+    """because we have two features that both need to know which corner is the
     closest, we compute that information once in this helper class and then
     pass it to both of the features
     The features are not merged into a single feature because one (bearing to
@@ -30,9 +29,10 @@ class CornerDistanceInfo:
         self._all_wall_distances = {}
 
     def cache_features(self, identity: int):
-        """
-        cache corner distances and bearings for a given identity
-        :param identity: integer identity to get distances for
+        """cache corner distances and bearings for a given identity
+
+        Args:
+            identity: integer identity to get distances for
         """
 
         if identity in self._cached_distances and identity in self._cached_bearings:
@@ -133,50 +133,65 @@ class CornerDistanceInfo:
         self._avg_wall_length = avg_wall_length
 
     def get_distances(self, identity: int) -> typing.Dict:
-        """
-        get corner distance features for a given identity
-        :param identity: integer identity to get distances for
-        :return: dict containing keyed distances
+        """get corner distance features for a given identity
+
+        Args:
+            identity: integer identity to get distances for
+
+        Returns:
+            dict containing keyed distances
         """
         if identity not in self._cached_distances:
             self.cache_features(identity)
         return self._cached_distances[identity]
 
     def get_bearings(self, identity: int) -> typing.Dict:
-        """
-        get corner bearing features for a given identity
-        :param identity: integer identity to get bearings for
-        :return: dict containing keyed bearings
+        """get corner bearing features for a given identity
+
+        Args:
+            identity: integer identity to get bearings for
+
+        Returns:
+            dict containing keyed bearings
         """
         if identity not in self._cached_bearings:
             self.cache_features(identity)
         return self._cached_bearings[identity]
 
     def get_closest_corner(self, identity: int) -> np.ndarray:
-        """
-        get the closest corner index
-        :param identity: integer identity to get the closest corner
-        :return: np.ndarray of the corner index
+        """get the closest corner index
+
+        Args:
+            identity: integer identity to get the closest corner
+
+        Returns:
+            np.ndarray of the corner index
         """
         if identity not in self._closest_corner_idx:
             self.cache_features(identity)
         return self._closest_corner_idx[identity]
 
     def get_wall_distances(self, identity: int) -> np.ndarray:
-        """
-        get the wall distances
-        :param identity: integer identity to get the wall distances
-        :return: np.ndarray of all wall distances
+        """get the wall distances
+
+        Args:
+            identity: integer identity to get the wall distances
+
+        Returns:
+            np.ndarray of all wall distances
         """
         if identity not in self._all_wall_distances:
             self.cache_features(identity)
         return self._all_wall_distances[identity]
 
     def get_avg_wall_length(self, identity: int = 0) -> np.ndarray:
-        """
-        gets the average wall length
-        :param identity: identity to cache if not yet calculated
-        :returns: average wall length
+        """gets the average wall length
+
+        Args:
+            identity: identity to cache if not yet calculated
+
+        Returns:
+            average wall length
         """
         if self._avg_wall_length is None:
             self.cache_features(identity)
@@ -184,10 +199,13 @@ class CornerDistanceInfo:
 
     @staticmethod
     def sort_points_clockwise(points):
-        """
-        sorts a list of points to be clockwise relative to the first point
-        :param points: points to sort of shape [n_points, 2]
-        :return: points sorted clockwise
+        """sorts a list of points to be clockwise relative to the first point
+
+        Args:
+            points: points to sort of shape [n_points, 2]
+
+        Returns:
+            points sorted clockwise
         """
         origin_point = np.mean(points, axis=0)
         vectors = points - origin_point
@@ -199,12 +217,15 @@ class CornerDistanceInfo:
 
     @staticmethod
     def compute_angle(a, b, c):
-        """
-        compute angle created by three connected points
-        :param a: point
-        :param b: vertex point
-        :param c: point
-        :return: angle between AB and BC with range [-180, 180)
+        """compute angle created by three connected points
+
+        Args:
+            a: point
+            b: vertex point
+            c: point
+
+        Returns:
+            angle between AB and BC with range [-180, 180)
         """
 
         # most of the point types are unsigned short integers
@@ -228,10 +249,13 @@ class DistanceToCorner(Feature):
         self._cached_distances = distances
 
     def per_frame(self, identity: int) -> typing.Dict:
-        """
-        get the per frame distance to the nearest corner values
-        :param identity: identity to get feature values for
-        :return: dict of numpy ndarray of values with shape (nframes,)
+        """get the per frame distance to the nearest corner values
+
+        Args:
+            identity: identity to get feature values for
+
+        Returns:
+            dict of numpy ndarray of values with shape (nframes,)
         """
 
         distances = self._cached_distances.get_distances(identity)
@@ -256,10 +280,13 @@ class BearingToCorner(Feature):
         self._cached_distances = distances
 
     def per_frame(self, identity: int) -> typing.Dict:
-        """
-        get the per frame bearing to the nearest corner values
-        :param identity: identity to get feature values for
-        :return: dict of numpy ndarray values with shape (nframes,)
+        """get the per frame bearing to the nearest corner values
+
+        Args:
+            identity: identity to get feature values for
+
+        Returns:
+            dict of numpy ndarray values with shape (nframes,)
         """
 
         bearings = self._cached_distances.get_bearings(identity)

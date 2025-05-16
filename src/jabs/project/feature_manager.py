@@ -11,8 +11,7 @@ from .project_paths import ProjectPaths
 
 
 class FeatureManager:
-    """
-    Class to manage task of determining which features are supported by an instance
+    """Class to manage task of determining which features are supported by an instance
     of a Project and storing this information so it can be accessed as necessary.
 
     Looks at the pose version and static objects in the project to
@@ -22,9 +21,7 @@ class FeatureManager:
     """
 
     def __init__(self, project_paths: ProjectPaths, videos: list[str]):
-        """
-        Initialize the FeatureManager.
-        """
+        """Initialize the FeatureManager."""
         self._lixit_keypoints = 0
 
         self._project_paths = project_paths
@@ -80,9 +77,10 @@ class FeatureManager:
                 break
 
     def __initialize_extended_features(self) -> dict:
-        """
-        Initialize extended features based on the pose version and static objects.
-        :return: Dictionary of enabled extended features.
+        """Initialize extended features based on the pose version and static objects.
+
+        Returns:
+            Dictionary of enabled extended features.
         """
         return feature_extraction.IdentityFeatures.get_available_extended_features(
             self._min_pose_version,
@@ -92,57 +90,66 @@ class FeatureManager:
 
     @property
     def can_use_social_features(self) -> bool:
-        """
-        Check if social features are available.
-        :return: True if social features are available, False otherwise.
+        """Check if social features are available.
+
+        Returns:
+            True if social features are available, False otherwise.
         """
         return self._can_use_social
 
     @property
     def can_use_segmentation_features(self) -> bool:
-        """
-        Check if segmentation features are available.
-        :return: True if segmentation features are available, False otherwise.
+        """Check if segmentation features are available.
+
+        Returns:
+            True if segmentation features are available, False
+            otherwise.
         """
         return self._can_use_segmentation
 
     @property
     def extended_features(self) -> dict:
-        """
-        Get the enabled extended features.
-        :return: Dictionary of enabled extended features.
+        """Get the enabled extended features.
+
+        Returns:
+            Dictionary of enabled extended features.
         """
         return self._extended_features
 
     @property
     def is_cm_unit(self) -> bool:
-        """
-        Check if the distance unit is in centimeters.
-        :return: True if the distance unit is in centimeters, False otherwise.
+        """Check if the distance unit is in centimeters.
+
+        Returns:
+            True if the distance unit is in centimeters, False
+            otherwise.
         """
         return self._distance_unit == ProjectDistanceUnit.CM
 
     @property
     def distance_unit(self) -> ProjectDistanceUnit:
-        """
-        Get the distance unit for the project.
-        :return: DistanceUnit enum value representing the distance unit.
+        """Get the distance unit for the project.
+
+        Returns:
+            DistanceUnit enum value representing the distance unit.
         """
         return self._distance_unit
 
     @property
     def min_pose_version(self) -> int:
-        """
-        Get the minimum pose version for the project.
-        :return: Minimum pose version.
+        """Get the minimum pose version for the project.
+
+        Returns:
+            Minimum pose version.
         """
         return self._min_pose_version
 
     @property
     def static_objects(self) -> set[str]:
-        """
-        Get the set of static objects in the project. This set contains all the static
+        """Get the set of static objects in the project. This set contains all the static
         objects that are present in all pose files in the project.
-        :return: Set of static objects.
+
+        Returns:
+            Set of static objects.
         """
         return self._static_objects

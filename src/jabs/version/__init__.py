@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def version_str():
-    """ return version string using the version specified in the pyproject.toml file """
+    """return version string using the version specified in the pyproject.toml file"""
     try:
         # if the jabs package is installed, return version from package metadata
         return importlib.metadata.version("jabs-behavior-classifier")

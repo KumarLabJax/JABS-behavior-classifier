@@ -1,5 +1,4 @@
-"""
-TODO: change exported training data from a single h5 file with pre-computed
+"""TODO: change exported training data from a single h5 file with pre-computed
  features to a bundle of pose files, labels, and list of features used for
  the classifier
 """
@@ -32,23 +31,27 @@ def export_training_data(
     training_seed: int,
     out_file: typing.Optional[Path] = None,
 ):
-    """
-    export training data from a project in a format that can be used to
+    """export training data from a project in a format that can be used to
     retrain a classifier elsewhere (for example, by the command line batch
     tool)
 
     writes exported data to the project directory
-    :param project: Project from which to export training data
-    :param behavior: Behavior to export
-    :param pose_version: Minimum required pose version for this classifier
-    :param classifier_type: Preferred classifier type
-    :param training_seed: random seed to use for training to get reproducable
-    results
-    :param out_file: optional output path, if None write to project dir
-    with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
-    :return: path of output file
-    :raises: OSError if unable to create output file (e.g. permission denied,
-    no such file or directory, etc)
+
+    Args:
+        project: Project from which to export training data
+        behavior: Behavior to export
+        pose_version: Minimum required pose version for this classifier
+        classifier_type: Preferred classifier type
+        training_seed: random seed to use for training to get
+            reproducable results
+        out_file: optional output path, if None write to project dir
+            with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
+
+    Returns:
+        path of output file
+
+    Raises:
+        OSError if unable to create output file (e.g. permission denied, no such file or directory, etc)
     """
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,12 +100,12 @@ def export_training_data(
 def write_project_settings(
     h5_file: typing.Union[h5py.File, h5py.Group], settings: dict, node: str = "settings"
 ):
-    """
-    write project settings to a training h5 file recursively
+    """write project settings to a training h5 file recursively
 
-    :param h5_file: open h5 file to write to
-    :param settings: dict of project settings
-    :param node: name of the node to write to
+    Args:
+        h5_file: open h5 file to write to
+        settings: dict of project settings
+        node: name of the node to write to
     """
     current_group = h5_file.require_group(node)
     for key, val in settings.items():

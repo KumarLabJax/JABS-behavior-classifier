@@ -49,10 +49,13 @@ class LandmarkFeatureGroup(FeatureGroup):
         self._lixit_info = {}
 
     def _init_feature_mods(self, identity: int):
-        """
-        initialize all the feature modules specified in the current config
-        :param identity: identity to initialize the features for
-        :return: dictionary of initialized feature modules for this group
+        """initialize all the feature modules specified in the current config
+
+        Args:
+            identity: identity to initialize the features for
+
+        Returns:
+            dictionary of initialized feature modules for this group
         """
         modules = {}
 
@@ -90,10 +93,13 @@ class LandmarkFeatureGroup(FeatureGroup):
         return modules
 
     def get_corner_info(self, identity: int):
-        """
-        gets the corner info for a specific identity
-        :param identity: identity to get info object for
-        :return: CornerDistanceInfo object for the requested identity
+        """gets the corner info for a specific identity
+
+        Args:
+            identity: identity to get info object for
+
+        Returns:
+            CornerDistanceInfo object for the requested identity
         """
         if identity not in self._corner_info:
             self._corner_info[identity] = CornerDistanceInfo(
@@ -102,10 +108,13 @@ class LandmarkFeatureGroup(FeatureGroup):
         return self._corner_info[identity]
 
     def get_lixit_info(self, identity: int):
-        """
-        gets the lixit info for a specific identity
-        :param identity: identity to get the info object for
-        :return: LixitDistanceInfo object for the requested identity
+        """gets the lixit info for a specific identity
+
+        Args:
+            identity: identity to get the info object for
+
+        Returns:
+            LixitDistanceInfo object for the requested identity
         """
         if identity not in self._lixit_info:
             self._lixit_info[identity] = LixitDistanceInfo(
@@ -115,11 +124,13 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     @classmethod
     def static_object_features(cls, static_object: str):
-        """
-        get a list of the features derived from a given static object (landmark)
-        :param static_object: name of object (e.g. 'corners')
-        :return: list of strings containing feature names derived from that
-        object
+        """get a list of the features derived from a given static object (landmark)
+
+        Args:
+            static_object: name of object (e.g. 'corners')
+
+        Returns:
+            list of strings containing feature names derived from that object
         """
         try:
             return cls.feature_map[static_object]
@@ -128,10 +139,14 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     @classmethod
     def static_object_per_frame_features(cls, feature_name: str):
-        """
-        get a list of per frame features derived from a static object feature
-        :param feature_name: name of feature to retrieve the per frame feature names
-        :return: list of strings containing per frame features derived from that object
+        """get a list of per frame features derived from a static object feature
+
+        Args:
+            feature_name: name of feature to retrieve the per frame
+                feature names
+
+        Returns:
+            list of strings containing per frame features derived from that object
         """
         try:
             return cls._features[feature_name].feature_names()
@@ -140,10 +155,13 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     @classmethod
     def static_object_window_features(cls, feature_name: str):
-        """
-        get a list of window features derived from a static object feature
-        :param feature_name: name of feature to retrieve the window feature names
-        :return: list of strings containing window features derived from that object
+        """get a list of window features derived from a static object feature
+
+        Args:
+            feature_name: name of feature to retrieve the window feature names
+
+        Returns:
+            list of strings containing window features derived from that object
         """
         try:
             return list(cls._features[feature_name]._window_operations.keys())
@@ -152,19 +170,24 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     @classmethod
     def get_supported_objects(cls):
-        """
-        get a list of all objects supported
-        :return: list of the object names
+        """get a list of all objects supported
+
+        Returns:
+            list of the object names
         """
         return cls.feature_map.keys()
 
     @classmethod
     def get_objects_from_features(cls, features: list):
-        """
-        gets a list of objects required to generate features
+        """gets a list of objects required to generate features
+
         this is the reverse of static_object_features
-        :param features: list of features which may include static object features
-        :return: list of objects needed to generate the features
+
+        Args:
+            features: list of features which may include static object features
+
+        Returns:
+            list of objects needed to generate the features
         """
         found_objects = []
         for cur_feature in features:
@@ -175,10 +198,10 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     @classmethod
     def get_feature_names(cls, static_objects: list = None):
-        """
-        get the features supported
-        :param static_objects: list of static objects. if None, get features for all supported static objects
-        :return:
+        """get the features supported
+
+        Args:
+            static_objects: list of static objects. if None, get features for all supported static objects
         """
         if static_objects is None:
             valid_objects = cls.get_supported_objects()

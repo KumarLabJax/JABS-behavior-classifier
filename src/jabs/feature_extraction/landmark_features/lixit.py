@@ -6,8 +6,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 
 class LixitDistanceInfo:
-    """
-    because we have two feature groups that both need to know which lixit is the
+    """because we have two feature groups that both need to know which lixit is the
     closest, we compute that information once in this helper class and then
     pass it to both of the features
     The features cannot be merged into a single feature because one requires a
@@ -102,30 +101,39 @@ class LixitDistanceInfo:
             )
 
     def get_distances(self, identity: int) -> dict:
-        """
-        get lixit distance feature for a given identity
-        :param identity: integer identity to get distances foor
-        :return: dict containing keyed distances
+        """get lixit distance feature for a given identity
+
+        Args:
+            identity: integer identity to get distances for
+
+        Returns:
+            dict containing keyed distances
         """
         if identity not in self._cached_distances:
             self.cache_features(identity)
         return self._cached_distances[identity]
 
     def get_bearings(self, identity: int) -> dict:
-        """
-        get lixit bearing features for a given identity
-        :param identity: integer identity to get bearings for
-        :return: dict containing keyed bearings
+        """get lixit bearing features for a given identity
+
+        Args:
+            identity: integer identity to get bearings for
+
+        Returns:
+            dict containing keyed bearings
         """
         if identity not in self._cached_bearings:
             self.cache_features(identity)
         return self._cached_bearings[identity]
 
     def get_closest_lixit(self, identity: int) -> np.ndarray:
-        """
-        get the closest lixit index
-        :param identity: integer identity to get the closest lixit
-        :return: np.ndarray of the lixit index
+        """get the closest lixit index
+
+        Args:
+            identity: integer identity to get the closest lixit
+
+        Returns:
+            np.ndarray of the lixit index
         """
         if identity not in self._closest_lixit_idx:
             self.cache_features(identity)
@@ -133,13 +141,15 @@ class LixitDistanceInfo:
 
     @staticmethod
     def compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
-        """
-        compute angles for a set of points
-        :param a: array of point coordinates
-        :param b: array of vertex point coordinates
-        :param c: array of point coordinates
-        :return: array containing angles, in degrees, formed from the lines
-        ab and ba for each row in a, b, and c with range [-180, 180)
+        """compute angles for a set of points
+
+        Args:
+            a: array of point coordinates
+            b: array of vertex point coordinates
+            c: array of point coordinates
+
+        Returns:
+            array containing angles, in degrees, formed from the lines ab and ba for each row in a, b, and c with range [-180, 180)
         """
         angles = np.degrees(
             np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0])
@@ -161,10 +171,13 @@ class DistanceToLixit(Feature):
         self._cached_distances = distances
 
     def per_frame(self, identity: int) -> dict:
-        """
-        get the per frame distance to nearest lixit
-        :param identity: identity to get feature values for
-        :return: dict of numpy ndarray of values with shape (nframes,)
+        """get the per frame distance to nearest lixit
+
+        Args:
+            identity: identity to get feature values for
+
+        Returns:
+            dict of numpy ndarray of values with shape (nframes,)
         """
         distances = self._cached_distances.get_distances(identity)
         return distances
@@ -193,10 +206,13 @@ class BearingToLixit(Feature):
         self._cached_distances = distances
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """
-        get the per frame bearing to the nearest lixit values
-        :param identity: identity to get the feature values for
-        :return: dict of numpy ndarray values with shape (nframes,)
+        """get the per frame bearing to the nearest lixit values
+
+        Args:
+            identity: identity to get the feature values for
+
+        Returns:
+            dict of numpy ndarray values with shape (nframes,)
         """
         bearings = self._cached_distances.get_bearings(identity)
 
@@ -210,8 +226,7 @@ class BearingToLixit(Feature):
 
 
 class MouseLixitAngle(Feature):
-    """
-    This class computes two features.
+    """This class computes two features.
 
     1. the angle between the vector going from the tip of the lixit to the middle of the two sides
     and the vector going from the centroid to the nose
@@ -247,8 +262,7 @@ class MouseLixitAngle(Feature):
         return False
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """
-        Calculate per frame features.
+        """Calculate per frame features.
 
         Args:
             identity (int): The identity of the mouse for which the feature is being calculated.
