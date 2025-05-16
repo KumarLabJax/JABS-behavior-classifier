@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.project.track_labels
+from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
@@ -39,9 +40,6 @@ _WINDOW_FILTERS = {
     'fft': list(Feature._signal_operations.keys()),
 }
 
-_COMPRESSION = "gzip"
-_COMPRESSION_OPTS_DEFAULT = 6
-
 
 class FeatureVersionException(Exception):
     pass
@@ -61,7 +59,7 @@ class IdentityFeatures:
     def __init__(self, source_file, identity, directory, pose_est,
                  force: bool = False, fps: int = 30,
                  op_settings: dict | None = None, cache_window: bool = True, 
-                 compression_opts: int = _COMPRESSION_OPTS_DEFAULT):
+                 compression_opts: int = COMPRESSION_OPTS_DEFAULT):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -251,7 +249,7 @@ class IdentityFeatures:
             features_h5.create_dataset(
                 'frame_valid',
                 data=self._frame_valid,
-                compression=_COMPRESSION,
+                compression=COMPRESSION,
                 compression_opts=self._compression_opts
             )
 
@@ -261,13 +259,13 @@ class IdentityFeatures:
                 features_h5.create_dataset(
                     "closest_identities",
                     data=closest_data.closest_identities,
-                    compression=_COMPRESSION,
+                    compression=COMPRESSION,
                     compression_opts=self._compression_opts
                 )
                 features_h5.create_dataset(
                     "closest_fov_identities",
                     data=closest_data.closest_fov_identities,
-                    compression=_COMPRESSION,
+                    compression=COMPRESSION,
                     compression_opts=self._compression_opts
                 )
 
@@ -280,7 +278,7 @@ class IdentityFeatures:
                     features_h5.create_dataset(
                         "closest_corners",
                         data=corner_data,
-                        compression=_COMPRESSION,
+                        compression=COMPRESSION,
                         compression_opts=self._compression_opts
                     )
                     features_h5.create_dataset("avg_wall_length", data=avg_wall_length)
@@ -289,7 +287,7 @@ class IdentityFeatures:
                         wall_dist_grp.create_dataset(
                             key,
                             data=value,
-                            compression=_COMPRESSION,
+                            compression=COMPRESSION,
                             compression_opts=self._compression_opts
                         )
 
@@ -299,7 +297,7 @@ class IdentityFeatures:
                     features_h5.create_dataset(
                         "closest_lixit",
                         data=lixit_data,
-                        compression=_COMPRESSION,
+                        compression=COMPRESSION,
                         compression_opts=self._compression_opts
                     )
 
@@ -312,7 +310,7 @@ class IdentityFeatures:
                 per_frame_group.create_dataset(
                     feature,
                     data=data,
-                    compression=_COMPRESSION,
+                    compression=COMPRESSION,
                     compression_opts=self._compression_opts
                 )
 
@@ -344,7 +342,7 @@ class IdentityFeatures:
                 window_group.create_dataset(
                     feature,
                     data=data,
-                    compression=_COMPRESSION,
+                    compression=COMPRESSION,
                     compression_opts=self._compression_opts
                 )
 

@@ -4,6 +4,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+
 from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
 
 
@@ -250,7 +252,23 @@ class PoseEstimationV4(PoseEstimation):
 
             if self._num_identities > 0:
                 if self._external_identities:
-                    group.create_dataset('external_identity_mapping', data=np.array(self._external_identities, dtype=np.uint32), compression='gzip')
-                group.create_dataset('points', data=self._points, compression='gzip')
-                group.create_dataset('point_mask', data=self._point_mask, compression='gzip')
-                group.create_dataset('identity_mask', data=self._identity_mask, compression='gzip')
+                    # note, this is a very small array so we're not going to compress it
+                    group.create_dataset('external_identity_mapping', data=np.array(self._external_identities, dtype=np.uint32))
+                group.create_dataset(
+                    'points',
+                    data=self._points,
+                    compression=COMPRESSION,
+                    compression_opts=COMPRESSION_OPTS_DEFAULT
+                )
+                group.create_dataset(
+                    'point_mask',
+                    data=self._point_mask,
+                    compression=COMPRESSION,
+                    compression_opts=COMPRESSION_OPTS_DEFAULT
+                )
+                group.create_dataset(
+                    'identity_mask',
+                    data=self._identity_mask,
+                    compression=COMPRESSION,
+                    compression_opts=COMPRESSION_OPTS_DEFAULT
+                )
