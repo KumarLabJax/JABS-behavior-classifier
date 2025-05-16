@@ -40,7 +40,7 @@ _WINDOW_FILTERS = {
 }
 
 _COMPRESSION = "gzip"
-_COMPRESSION_OPTS_DEFAULT = 5
+_COMPRESSION_OPTS_DEFAULT = 6
 
 
 class FeatureVersionException(Exception):
