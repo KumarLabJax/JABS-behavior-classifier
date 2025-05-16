@@ -88,12 +88,21 @@ class CornerDistanceInfo:
                 center_bearing = self.compute_angle(self_nose_point, self_base_neck_point, arena_center_np)
 
                 center_dist = self_shape.distance(arena_center)
+
                 # Calculate distance to all walls using cross product
                 p1 = corners.astype(np.float32)
                 p2 = np.roll(p1, 1, axis=0)
                 centroid_point = np.asarray(self_shape.centroid.xy).squeeze()
+
+                # Ensure 3D vectors for np.cross to avoid deprecation warning
+                centroid_point_3d = np.hstack([centroid_point, 0])
+                p1_3d = np.hstack([p1, np.zeros((p1.shape[0], 1), dtype=np.float32)])
+                p2_3d = np.hstack([p2, np.zeros((p2.shape[0], 1), dtype=np.float32)])
+
                 # Note that we can skip dividing by the norm of p2-p1 because we re-scale it anyway
-                wall_dist = np.abs(np.cross(centroid_point - p1, p2 - p1))  # / np.linalg.norm(p2 - p1)
+                wall_dist = np.abs(np.cross(centroid_point_3d - p1_3d, p2_3d - p1_3d))  # shape (N, 3)
+                wall_dist = wall_dist[:, 2]  # Take the z-component
+
                 shortest_wall_dist = np.min(wall_dist)
                 wall_dist_cv2 = cv2.pointPolygonTest(corners.astype(np.float32), centroid_point, True)
                 correction_scale = wall_dist_cv2 / shortest_wall_dist
