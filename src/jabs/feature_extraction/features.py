@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.project.track_labels
+from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.pose_estimation import PoseEstimation, PoseHashException
 
 # import feature modules
@@ -57,7 +58,8 @@ class IdentityFeatures:
 
     def __init__(self, source_file, identity, directory, pose_est,
                  force: bool = False, fps: int = 30,
-                 op_settings: dict | None = None, cache_window: bool = True):
+                 op_settings: dict | None = None, cache_window: bool = True, 
+                 compression_opts: int = COMPRESSION_OPTS_DEFAULT):
         """
         :param source_file: name of the source video or pose file, used for
         generating filenames for saving extracted features into the project
@@ -75,6 +77,7 @@ class IdentityFeatures:
         when returning features. This will modify the contents returned by
         get_window_features, get_per_frame, and get_features
         :param cache_window: bool to indicate saving the window features in the cache directory
+        :param compression_opts: int to indicate the compression level for saving features
         """
 
         self._pose_version = pose_est.format_major_version
@@ -84,6 +87,7 @@ class IdentityFeatures:
         self._identity = identity
         self._op_settings = dict(op_settings) if op_settings else None
         self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else None
+        self._compression_opts = compression_opts
 
         self._identity_feature_dir = None if directory is None else (
                 Path(directory) /
@@ -242,12 +246,28 @@ class IdentityFeatures:
             if self._distance_scale_factor is not None:
                 features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['pose_hash'] = self._pose_hash
-            features_h5.create_dataset('frame_valid', data=self._frame_valid)
+            features_h5.create_dataset(
+                'frame_valid',
+                data=self._frame_valid,
+                compression=COMPRESSION,
+                compression_opts=self._compression_opts
+            )
 
             if self._compute_social_features:
                 closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
-                features_h5['closest_identities'] = closest_data.closest_identities
-                features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
+
+                features_h5.create_dataset(
+                    "closest_identities",
+                    data=closest_data.closest_identities,
+                    compression=COMPRESSION,
+                    compression_opts=self._compression_opts
+                )
+                features_h5.create_dataset(
+                    "closest_fov_identities",
+                    data=closest_data.closest_fov_identities,
+                    compression=COMPRESSION,
+                    compression_opts=self._compression_opts
+                )
 
             if LandmarkFeatureGroup.name() in self._feature_modules:
                 corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(self._identity)
@@ -255,16 +275,31 @@ class IdentityFeatures:
                 wall_distances = corner_info.get_wall_distances(self._identity)
                 avg_wall_length = corner_info.get_avg_wall_length(self._identity)
                 if corner_data is not None:
-                    features_h5['closest_corners'] = corner_data
-                    features_h5['avg_wall_length'] = avg_wall_length
+                    features_h5.create_dataset(
+                        "closest_corners",
+                        data=corner_data,
+                        compression=COMPRESSION,
+                        compression_opts=self._compression_opts
+                    )
+                    features_h5.create_dataset("avg_wall_length", data=avg_wall_length)
                     wall_dist_grp = features_h5.require_group('wall_distances')
                     for key, value in wall_distances.items():
-                        wall_dist_grp[key] = value
+                        wall_dist_grp.create_dataset(
+                            key,
+                            data=value,
+                            compression=COMPRESSION,
+                            compression_opts=self._compression_opts
+                        )
 
                 lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(self._identity)
                 lixit_data = lixit_info.get_closest_lixit(self._identity)
                 if lixit_data is not None:
-                    features_h5['closest_lixit'] = lixit_data
+                    features_h5.create_dataset(
+                        "closest_lixit",
+                        data=lixit_data,
+                        compression=COMPRESSION,
+                        compression_opts=self._compression_opts
+                    )
 
             feature_group = features_h5.require_group('features')
             per_frame_group = feature_group.require_group('per_frame')
@@ -272,7 +307,12 @@ class IdentityFeatures:
             per_frame_as_pd = self.merge_per_frame_features(self._per_frame)
             per_frame_as_pd = pd.DataFrame(per_frame_as_pd)
             for feature, data in per_frame_as_pd.items():
-                per_frame_group.create_dataset(feature, data=data)
+                per_frame_group.create_dataset(
+                    feature,
+                    data=data,
+                    compression=COMPRESSION,
+                    compression_opts=self._compression_opts
+                )
 
     def __save_window_features(self, features, window_size):
         """
@@ -299,7 +339,12 @@ class IdentityFeatures:
             window_as_pd = self.merge_window_features(features)
             window_as_pd = pd.DataFrame(window_as_pd)
             for feature, data in window_as_pd.items():
-                window_group.create_dataset(feature, data=data)
+                window_group.create_dataset(
+                    feature,
+                    data=data,
+                    compression=COMPRESSION,
+                    compression_opts=self._compression_opts
+                )
 
     def __load_window_features(self, window_size):
         """

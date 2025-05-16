@@ -26,7 +26,7 @@ class PointVelocityDirs(Feature, abc.ABC):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         poses, point_masks = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         bearings = self._poses.compute_all_bearings(identity)
@@ -42,7 +42,7 @@ class PointVelocityDirs(Feature, abc.ABC):
 
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> dict:
+               per_frame_values: dict) -> dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)
