@@ -148,6 +148,7 @@ class MainControlWidget(QtWidgets.QWidget):
         label_layout = QtWidgets.QGridLayout()
 
         self._label_behavior_button = QtWidgets.QPushButton()
+        self._label_behavior_button.setToolTip('[z]')
         self._label_behavior_button.clicked.connect(self.label_behavior_clicked)
         self._label_behavior_button.setStyleSheet(f"""
                     QPushButton {{
@@ -168,6 +169,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 """)
 
         self._label_not_behavior_button = QtWidgets.QPushButton()
+        self._label_not_behavior_button.setToolTip('[c]')
         self._label_not_behavior_button.clicked.connect(
             self.label_not_behavior_clicked)
         self._label_not_behavior_button.setStyleSheet(f"""
@@ -189,6 +191,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 """)
 
         self._clear_label_button = QtWidgets.QPushButton("Clear Label")
+        self._clear_label_button.setToolTip('[x]')
         self._clear_label_button.clicked.connect(self.clear_label_clicked)
 
         self._select_button = QtWidgets.QPushButton("Select Frames")
@@ -531,11 +534,11 @@ class MainControlWidget(QtWidgets.QWidget):
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
         self._label_behavior_button.setToolTip(
-            f"Label frames {self.current_behavior}")
+            f"Label frames {self.current_behavior} [z]")
         self._label_not_behavior_button.setText(
             f"Not {self.current_behavior}")
         self._label_not_behavior_button.setToolTip(
-            f"Label frames Not {self.current_behavior}")
+            f"Label frames Not {self.current_behavior} [c]")
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):
