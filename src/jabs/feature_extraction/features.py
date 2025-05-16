@@ -242,12 +242,13 @@ class IdentityFeatures:
             if self._distance_scale_factor is not None:
                 features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
             features_h5.attrs['pose_hash'] = self._pose_hash
-            features_h5.create_dataset('frame_valid', data=self._frame_valid)
+            features_h5.create_dataset('frame_valid', data=self._frame_valid, compression="gzip")
 
             if self._compute_social_features:
                 closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
-                features_h5['closest_identities'] = closest_data.closest_identities
-                features_h5['closest_fov_identities'] = closest_data.closest_fov_identities
+
+                features_h5.create_dataset("closest_identities", data=closest_data.closest_identities, compression="gzip")
+                features_h5.create_dataset("closest_fov_identities", data=closest_data.closest_fov_identities, compression="gzip")
 
             if LandmarkFeatureGroup.name() in self._feature_modules:
                 corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(self._identity)
@@ -255,16 +256,16 @@ class IdentityFeatures:
                 wall_distances = corner_info.get_wall_distances(self._identity)
                 avg_wall_length = corner_info.get_avg_wall_length(self._identity)
                 if corner_data is not None:
-                    features_h5['closest_corners'] = corner_data
-                    features_h5['avg_wall_length'] = avg_wall_length
+                    features_h5.create_dataset("closest_corners", data=corner_data, compression="gzip")
+                    features_h5.create_dataset("avg_wall_length", data=avg_wall_length)
                     wall_dist_grp = features_h5.require_group('wall_distances')
                     for key, value in wall_distances.items():
-                        wall_dist_grp[key] = value
+                        wall_dist_grp.create_dataset(key, data=value, compression="gzip")
 
                 lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(self._identity)
                 lixit_data = lixit_info.get_closest_lixit(self._identity)
                 if lixit_data is not None:
-                    features_h5['closest_lixit'] = lixit_data
+                    features_h5.create_dataset("closest_lixit", data=lixit_data, compression="gzip")
 
             feature_group = features_h5.require_group('features')
             per_frame_group = feature_group.require_group('per_frame')
@@ -272,7 +273,7 @@ class IdentityFeatures:
             per_frame_as_pd = self.merge_per_frame_features(self._per_frame)
             per_frame_as_pd = pd.DataFrame(per_frame_as_pd)
             for feature, data in per_frame_as_pd.items():
-                per_frame_group.create_dataset(feature, data=data)
+                per_frame_group.create_dataset(feature, data=data, compression="gzip")
 
     def __save_window_features(self, features, window_size):
         """
@@ -299,7 +300,7 @@ class IdentityFeatures:
             window_as_pd = self.merge_window_features(features)
             window_as_pd = pd.DataFrame(window_as_pd)
             for feature, data in window_as_pd.items():
-                window_group.create_dataset(feature, data=data)
+                window_group.create_dataset(feature, data=data, compression="gzip")
 
     def __load_window_features(self, window_size):
         """

@@ -26,7 +26,6 @@ class CentroidVelocityDir(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         bearings = self._poses.compute_all_bearings(identity)
         frame_valid = self._poses.identity_mask(identity)
 
@@ -54,7 +53,7 @@ class CentroidVelocityDir(Feature):
         return {'centroid_velocity_dir': values}
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> dict:
+               per_frame_values: dict) -> dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)
@@ -68,7 +67,7 @@ class CentroidVelocityMag(Feature):
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """
         compute the value of the per frame features for a specific identity
         :param identity: identity to compute features for

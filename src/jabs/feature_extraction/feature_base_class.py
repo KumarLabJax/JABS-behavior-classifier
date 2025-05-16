@@ -108,7 +108,7 @@ class Feature(abc.ABC):
         return True
 
     @abc.abstractmethod
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """
         each FeatureSet subclass will implement this to compute the
         features in the set
