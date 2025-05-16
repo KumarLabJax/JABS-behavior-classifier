@@ -88,20 +88,22 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         """update counts and redraw widget
 
         Args:
-            frame_behavior_current: #frames labeled behavior for current
-            frame_not_behavior_current: #frames labeled not behavior for
-            frame_behavior_project: #frames labeled behavior for project
-            frame_not_behavior_project: #frames labeled not behavior for
-            bout_behavior_current: #bouts of behavior for current
-                identity
-            bout_not_behavior_current: #bouts not behavior for current
-            bout_behavior_project: #bouts behavior for project
-            bout_not_behavior_project: #bouts not behavior for project
-        identity (in current video)
-        current identity (in current video)
-        project
-        (in current video)
-        identity (in current video)
+            frame_behavior_current:
+              #frames labeled behavior for current identity (in current video)
+            frame_not_behavior_current:
+              #frames labeled not behavior for current identity (in current video)
+            frame_behavior_project:
+              #frames labeled behavior for project
+            frame_not_behavior_project:
+              #frames labeled not behavior for project
+            bout_behavior_current:
+              #bouts of behavior for current identity (in current video)
+            bout_not_behavior_current:
+              #bouts not behavior for current identity (in current video)
+            bout_behavior_project:
+              #bouts behavior for project
+            bout_not_behavior_project:
+              #bouts not behavior for project
         """
         self._frame_labels['behavior_current'].setText(
             f"{frame_behavior_current}")
