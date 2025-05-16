@@ -26,17 +26,20 @@ class ClosestFovAngles(Feature):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
 
-    def per_frame(self, identity: int) -> np.ndarray:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: dict with feature values
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict with feature values
         """
         # this is already computed
         return {'angle of closest social distance in FoV': self._social_distance_info.closest_fov_angles}
 
     def window(self, identity: int, window_size: int,
-               per_frame_values: np.ndarray) -> typing.Dict:
+               per_frame_values: dict[str, np.ndarray]) -> typing.Dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)

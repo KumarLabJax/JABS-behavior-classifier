@@ -14,8 +14,7 @@ class _CacheFileVersion(Exception):
 
 
 class PoseEstimationV4(PoseEstimation):
-    """
-    class for opening and parsing version 4 of the pose estimation HDF5 file
+    """class for opening and parsing version 4 of the pose estimation HDF5 file
 
     Note, because how we need to handle reordering points based on the identity information
     available in v4+ pose files, this does not inherit from the PoseEstimationV3 class, and
@@ -29,10 +28,14 @@ class PoseEstimationV4(PoseEstimation):
                  cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
         """
-        :param file_path: Path object representing the location of the pose file
-        :param cache_dir: optional cache directory, used to cache convex hulls
+        Args:
+            file_path: Path object representing the location of the pose
+                file
+            cache_dir: optional cache directory, used to cache convex
+                hulls
+            fps: frames per second, used for scaling time series
+                features
         for faster loading
-        :param fps: frames per second, used for scaling time series features
         from "per frame" to "per second"
         """
         super().__init__(file_path, cache_dir, fps)
@@ -146,14 +149,17 @@ class PoseEstimationV4(PoseEstimation):
 
     def get_points(self, frame_index: int, identity: int,
                    scale: typing.Optional[float] = None):
-        """
-        get points and mask for an identity for a given frame
-        :param frame_index: index of frame
-        :param identity: identity that we want the points for
-        :param scale: optional scale factor, set to cm_per_pixel to convert
+        """get points and mask for an identity for a given frame
+
+        Args:
+            frame_index: index of frame
+            identity: identity that we want the points for
+            scale: optional scale factor, set to cm_per_pixel to convert
+            fps: video frames per second
         poses from pixel coordinates to cm coordinates
-        :param fps: video frames per second
-        :return: points, mask if identity has data for this frame
+
+        Returns:
+            points, mask if identity has data for this frame
         """
         if not self._identity_mask[identity, frame_index]:
             return None, None
@@ -171,13 +177,17 @@ class PoseEstimationV4(PoseEstimation):
 
     def get_identity_poses(self, identity: int,
                            scale: typing.Optional[float] = None):
-        """
-        return all points and point masks
-        :param identity: included for compatibility with pose_est_v3. Should
+        """return all points and point masks
+
+        Args:
+            identity: included for compatibility with pose_est_v3.
+                Should
+            scale: optional scale factor, set to cm_per_pixel to convert
         always be zero.
-        :param scale: optional scale factor, set to cm_per_pixel to convert
         poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (#frames, 12, 2), numpy array of point
+
+        Returns:
+            numpy array of points (#frames, 12, 2), numpy array of point
         masks (#frames, 12)
         """
         if scale is not None:
@@ -192,17 +202,22 @@ class PoseEstimationV4(PoseEstimation):
         return self._identity_mask[identity, :]
 
     def get_identity_point_mask(self, identity):
-        """
-        get the point mask array for a given identity
-        :param identity: identity to return point mask for
-        :return: array of point masks (#frames, 12)
+        """get the point mask array for a given identity
+
+        Args:
+            identity: identity to return point mask for
+
+        Returns:
+            array of point masks (#frames, 12)
         """
         return self._point_mask[identity, :]
 
     def _load_from_cache(self):
         """
-        :return: None
-        :raises: IOError, KeyError, _CacheFileVersion, PoseHashException
+        Load data from a cached pose file. We do some transformation of the pose files so that, for example,
+        we can index them by identity. The cache file allows us to avoid doing this every time the pose file is loaded.
+        Returns:
+            None
         """
         filename = self._path.name.replace('.h5', '_cache.h5')
         cache_file_path = self._cache_dir / filename
@@ -234,9 +249,10 @@ class PoseEstimationV4(PoseEstimation):
                 self._identity_mask = pose_grp['identity_mask'][:]
 
     def _cache_poses(self):
-        """
-        cache the pose data in an h5 file in the project cache directory
-        :return: None
+        """cache the pose data in an h5 file in the project cache directory
+
+        Returns:
+            None
         """
         filename = self._path.name.replace('.h5', '_cache.h5')
         cache_file_path = self._cache_dir / filename

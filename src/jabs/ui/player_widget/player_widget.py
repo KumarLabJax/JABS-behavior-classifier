@@ -8,8 +8,7 @@ from jabs.video_reader import VideoReader
 
 
 class _FrameWidget(QtWidgets.QLabel):
-    """
-    widget that implements a resizable pixmap label, will initialize to the
+    """widget that implements a resizable pixmap label, will initialize to the
     full size of the video frame, but then will be resizable after that
     """
 
@@ -35,8 +34,7 @@ class _FrameWidget(QtWidgets.QLabel):
         QtWidgets.QLabel.mousePressEvent(self, event)
 
     def _frame_xy_to_pixmap_xy(self, x, y):
-        """
-        Convert the given x, y coordinates from _FrameWidget coordinates
+        """Convert the given x, y coordinates from _FrameWidget coordinates
         to pixmap coordinates. Ie which pixel did the user click on?
         We account for image scaling and translation
         """
@@ -59,21 +57,18 @@ class _FrameWidget(QtWidgets.QLabel):
         return x, y
 
     def sizeHint(self):
-        """
-        Override QLabel.sizeHint to give an initial starting size.
-        """
+        """Override QLabel.sizeHint to give an initial starting size."""
         return QtCore.QSize(800, 800)
 
     def reset(self):
-        """ reset state of frame widget  """
+        """reset state of frame widget"""
         self.clear()
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                            QtWidgets.QSizePolicy.Expanding)
         self.firstFrame = True
 
     def paintEvent(self, event: QPaintEvent):
-        """
-        override the paintEvent() handler to scale the image if the widget is
+        """override the paintEvent() handler to scale the image if the widget is
         resized.
         Don't enable resizing until after  the first frame has been drawn so
         that the widget will be expanded to fit the actual size of the frame.
@@ -123,8 +118,7 @@ class _FrameWidget(QtWidgets.QLabel):
 
 
 class PlayerWidget(QtWidgets.QWidget):
-    """
-    Video Player Widget. Consists of a QLabel to display a frame image, and
+    """Video Player Widget. Consists of a QLabel to display a frame image, and
     basic player controls below the frame (play/pause button, position slider,
     previous/next frame buttons.
 
@@ -252,26 +246,24 @@ class PlayerWidget(QtWidgets.QWidget):
         self.setLayout(player_layout)
 
     def cleanup(self):
-        """
-        cleanup function to stop the player thread if it is running
-        """
+        """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
             self._player_thread.stop_playback()
             self._player_thread.wait()
             self._player_thread = None
 
     def current_frame(self):
-        """ return the current frame """
+        """return the current frame"""
         assert self._video_stream is not None
         return self._position_slider.value()
 
     def num_frames(self):
-        """ get total number of frames in the loaded video  """
+        """get total number of frames in the loaded video"""
         assert self._video_stream is not None
         return self._video_stream.num_frames
 
     def reset(self):
-        """ reset video player """
+        """reset video player"""
         self._video_stream = None
         self._identities = None
         self._pose_est = None
@@ -285,14 +277,12 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.reset()
 
     def stream_fps(self):
-        """ get frames per second from loaded video """
+        """get frames per second from loaded video"""
         assert self._video_stream is not None
         return self._video_stream.fps
 
     def show_closest(self, enabled: bool | None = None):
-        """
-        change "show closest" state. Accepts a new boolean value, or toggles
-        """
+        """change "show closest" state. Accepts a new boolean value, or toggles"""
         if enabled is None:
             self._label_closest = not self._label_closest
         else:
@@ -306,8 +296,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def show_track(self, enabled: bool | None = None):
-        """
-        change "show track" state. Accepts a new boolean value, or toggles
+        """change "show track" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
         if enabled is None:
@@ -323,8 +312,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_pose(self, enabled: bool | None = None):
-        """
-        change "overlay pose" state. Accepts a new boolean value, or toggles
+        """change "overlay pose" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
         if enabled is None:
@@ -340,8 +328,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_segmentation(self, enabled: bool | None = None):
-        """
-        change "overlay segmentation" state. Accepts a new boolean value, or toggles
+        """change "overlay segmentation" state. Accepts a new boolean value, or toggles
         current state if no value given.
         """
         if enabled is None:
@@ -357,8 +344,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_landmarks(self, enabled: bool | None = None):
-        """
-        change "overlay landmarks" state. Accepts a new boolean value, or
+        """change "overlay landmarks" state. Accepts a new boolean value, or
         toggles current state if no value given.
         """
         if enabled is None:
@@ -379,10 +365,11 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.set_identities(self._identities)
 
     def load_video(self, path: Path, pose_est):
-        """
-        load a new video source
-        :param path: path to video file
-        :param pose_est: pose file for this video
+        """load a new video source
+
+        Args:
+            path: path to video file
+            pose_est: pose file for this video
         """
 
         # if we already have a video loaded make sure it is stopped
@@ -420,9 +407,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._enable_frame_buttons()
 
     def stop(self):
-        """
-        stop playing and reset the play button to its initial state
-        """
+        """stop playing and reset the play button to its initial state"""
         # if we have an active player thread, terminate
         if self._player_thread:
             self._player_thread.stop_playback()
@@ -443,8 +428,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._update_time_display(position)
 
     def _position_slider_clicked(self):
-        """
-        Click event for position slider.
+        """Click event for position slider.
         Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
         playback will resume when slider is released.
         New frame is displayed with the updated position.
@@ -462,14 +446,11 @@ class PlayerWidget(QtWidgets.QWidget):
         self._seek(pos)
 
     def _position_slider_moved(self):
-        """
-        position slider move event. seek the video to the new frame and display it
-        """
+        """position slider move event. seek the video to the new frame and display it"""
         self._seek(self._position_slider.value())
 
     def _position_slider_release(self):
-        """
-        release event for the position slider.
+        """release event for the position slider.
         The new position gets updated for the final time. If we were playing
         when we clicked the slider then we resume playing after releasing.
         """
@@ -481,8 +462,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._start_player_thread()
 
     def _next_frame_clicked(self):
-        """
-        handle "clicked" signal for the next frame button. Need to wrap
+        """handle "clicked" signal for the next frame button. Need to wrap
         self.next_frame because it takes an optional parameter and Qt always
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
@@ -490,8 +470,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self.next_frame()
 
     def _previous_frame_clicked(self):
-        """
-        handle "clicked" signal for the previous frame button. Need to wrap
+        """handle "clicked" signal for the previous frame button. Need to wrap
         self.previous_frame because it takes an optional parameter and Qt always
         passes a boolean argument to the click signal handler that is
         meaningless unless the button is "checkable"
@@ -499,8 +478,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self.previous_frame()
 
     def toggle_play(self):
-        """
-        handle clicking on the play/pause button
+        """handle clicking on the play/pause button
 
         don't do anything if a video hasn't been loaded, or if we are seeking
         (user clicks space bar while dagging slider)
@@ -521,9 +499,10 @@ class PlayerWidget(QtWidgets.QWidget):
             self._start_player_thread()
 
     def next_frame(self, frames=1):
-        """
-        advance to the next frame and display it
-        :param frames: optional, number of frames to advance
+        """advance to the next frame and display it
+
+        Args:
+            frames: optional, number of frames to advance
         """
 
         # don't do anything if a video hasn't been loaded or if the video is playing
@@ -541,9 +520,10 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.seek(new_frame)
 
     def previous_frame(self, frames=1):
-        """
-        go back to the previous frame and display it
-        :param frames: optional number of frames to move back
+        """go back to the previous frame and display it
+
+        Args:
+            frames: optional number of frames to move back
         """
 
         # don't do anything if a video hasn't been loaded or if the video is playing
@@ -560,7 +540,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.seek(new_frame)
 
     def set_active_identity(self, identity):
-        """ set an active identity, which will be labeled in the video """
+        """set an active identity, which will be labeled in the video"""
 
         # don't do anything if a video isn't loaded
         if self._player_thread is None:
@@ -576,31 +556,29 @@ class PlayerWidget(QtWidgets.QWidget):
         return self._frame_widget.pixmap_clicked
 
     def get_identity_mask(self):
-        """
-        get an array that indicates if an identity is present in a given
+        """get an array that indicates if an identity is present in a given
         frame or not for the currently selected identity
-        :return: numpy uint8 array of length num_frames
+
+        Returns:
+            numpy uint8 array of length num_frames
         """
         return self._pose_est.identity_mask(self._active_identity)
 
     def _enable_frame_buttons(self):
-        """
-        enable the previous/next frame buttons
-        """
+        """enable the previous/next frame buttons"""
         self._next_frame_button.setEnabled(True)
         self._previous_frame_button.setEnabled(True)
 
     def _disable_frame_buttons(self):
-        """
-        disable the previous/next frame buttons
-        """
+        """disable the previous/next frame buttons"""
         self._next_frame_button.setEnabled(False)
         self._previous_frame_button.setEnabled(False)
 
     def _update_time_display(self, frame_number):
-        """
-        update the time and current frame labels with current frame
-        :param frame_number: current frame number
+        """update the time and current frame labels with current frame
+
+        Args:
+            frame_number: current frame number
         """
 
         self._frame_label.setText(
@@ -610,9 +588,10 @@ class PlayerWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(dict)
     def _display_image(self, data: dict):
-        """
-        display a new QImage sent from the player thread
-        :param data: dict emitted by player thread
+        """display a new QImage sent from the player thread
+
+        Args:
+            data: dict emitted by player thread
 
         data dict includes QImage to display as next frame as well as the source video
         """
@@ -626,10 +605,11 @@ class PlayerWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _set_position(self, data: dict):
-        """
-        update the value of the position slider to the frame number sent from
+        """update the value of the position slider to the frame number sent from
         the player thread
-        :param frame_number: new value for the progress slider
+
+        Args:
+            frame_number: new value for the progress slider
         """
 
         # ignore events from previous videos that haven't been processed yet
@@ -647,8 +627,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._update_time_display(frame_number)
 
     def _start_player_thread(self):
-        """
-        start video playback in player thread
-        """
+        """start video playback in player thread"""
         self._player_thread.start()
         self._playing = True

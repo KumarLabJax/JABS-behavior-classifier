@@ -20,10 +20,13 @@ class SegmentationFeatureGroup(FeatureGroup):
         self._moments_cache = None
 
     def _init_feature_mods(self, identity: int):
-        """
-        initialize all of the feature modules specified in the current config
-        :param identity: subject identity to use when computing segmentation features
-        :return: dictionary of initialized feature modules for this group
+        """initialize all of the feature modules specified in the current config
+
+        Args:
+            identity: subject identity to use when computing segmentation features
+
+        Returns:
+            dictionary of initialized feature modules for this group
         """
         self._moments_cache = MomentInfo(
             self._poses, identity, self._pixel_scale)

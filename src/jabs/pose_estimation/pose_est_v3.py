@@ -13,9 +13,7 @@ class _CacheFileVersion(Exception):
 
 
 class PoseEstimationV3(PoseEstimation):
-    """
-    class for opening and parsing version 3 of the pose estimation HDF5 file
-    """
+    """class for opening and parsing version 3 of the pose estimation HDF5 file"""
 
     __CACHE_FILE_VERSION = 2
 
@@ -23,11 +21,13 @@ class PoseEstimationV3(PoseEstimation):
                  cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
         """
-        :param file_path: Path object representing the location of the pose file
-        :param cache_dir: optional cache directory, used to cache convex hulls
-        for faster loading
-        :param fps: frames per second, used for scaling time series features
-        from "per frame" to "per second"
+        Args:
+            file_path: Path object representing the location of the pose
+                file
+            cache_dir: optional cache directory, used to cache convex
+                hulls for faster loading
+            fps: frames per second, used for scaling time series
+                features from "per frame" to "per second"
         """
         super().__init__(file_path, cache_dir, fps)
 
@@ -162,13 +162,16 @@ class PoseEstimationV3(PoseEstimation):
 
     def get_points(self, frame_index: int, identity: int,
                    scale: typing.Optional[float] = None):
-        """
-        get points and mask for an identity for a given frame
-        :param frame_index: index of frame
-        :param identity: identity that we want the points for
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: points, mask if identity has data for this frame
+        """get points and mask for an identity for a given frame
+
+        Args:
+            frame_index: index of frame
+            identity: identity that we want the points for
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            points, mask if identity has data for this frame
         """
 
         if not self._identity_mask[identity, frame_index]:
@@ -187,14 +190,15 @@ class PoseEstimationV3(PoseEstimation):
 
     def get_identity_poses(self, identity: int,
                            scale: typing.Optional[float] = None):
-        """
-        return all points and point masks
-        :param identity: included for compatibility with pose_est_v3. Should
-        always be zero.
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (#frames, 12, 2), numpy array of point
-        masks (#frames, 12)
+        """return all points and point masks
+
+        Args:
+            identity: identity that we want the points for
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
         """
 
         if scale is not None:
@@ -209,16 +213,19 @@ class PoseEstimationV3(PoseEstimation):
         return self._identity_mask[identity, :]
 
     def get_identity_point_mask(self, identity):
-        """
-        get the point mask array for a given identity
-        :param identity: identity to return point mask for
-        :return: array of point masks (#frames, 12)
+        """get the point mask array for a given identity
+
+        Args:
+            identity: identity to return point mask for
+
+        Returns:
+            array of point masks (#frames, 12)
         """
         return self._point_mask[identity, :]
 
     def _build_track_dict(self, all_points, all_confidence, all_instance_count,
                           all_track_id):
-        """ iterate through frames and build track dict """
+        """iterate through frames and build track dict"""
         all_points_mask = all_confidence > MINIMUM_CONFIDENCE
         track_dict = {}
 
@@ -255,7 +262,7 @@ class PoseEstimationV3(PoseEstimation):
         return track_dict
 
     def _build_identity_map(self, all_instance_count, all_track_id):
-        """ map individual tracks to identities """
+        """map individual tracks to identities"""
         free_identities = []
         identity_track_count = {}
         identity_map = {}

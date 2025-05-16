@@ -23,10 +23,13 @@ class BaseFeatureGroup(FeatureGroup):
     }
 
     def _init_feature_mods(self, identity: int):
-        """
-        initialize all of the feature modules specified in the current config
-        :param identity: unused, specified by abstract base class
-        :return: dictionary of initialized feature modules for this group
+        """initialize all of the feature modules specified in the current config
+
+        Args:
+            identity: unused, specified by abstract base class
+
+        Returns:
+            dictionary of initialized feature modules for this group
         """
         return {
             feature: self._features[feature](self._poses, self._pixel_scale)

@@ -3,8 +3,7 @@ from PySide6.QtCore import Qt, Signal
 
 
 class KFoldSliderWidget(QtWidgets.QWidget):
-    """
-    widget to allow user to select k parameter for k-fold cross validation
+    """widget to allow user to select k parameter for k-fold cross validation
 
     basically consists of a QSlider and three QLabel widgets with
     no spacing/margins
@@ -44,5 +43,5 @@ class KFoldSliderWidget(QtWidgets.QWidget):
         self.setLayout(slider_vbox)
 
     def value(self):
-        """ return the slider value """
+        """return the slider value"""
         return self._slider.value()

@@ -6,18 +6,21 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 class AngularVelocity(Feature):
 
-    """ compute angular velocity of animal bearing """
+    """compute angular velocity of animal bearing"""
 
     _name = 'angular_velocity'
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
 
-    def per_frame(self, identity: int) -> np.ndarray:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: dict with feature values
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict with feature values
         """
         fps = self._poses.fps
 

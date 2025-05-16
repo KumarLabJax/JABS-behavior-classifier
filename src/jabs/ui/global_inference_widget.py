@@ -7,8 +7,7 @@ from .timeline_label_widget import TimelineLabelWidget
 
 
 class GlobalInferenceWidget(TimelineLabelWidget):
-    """
-    subclass of TimelineLabeWidget with one primary modification:
+    """subclass of TimelineLabeWidget with one primary modification:
     self._labels will be a numpy array and not a TrackLabels object
     """
 
@@ -16,8 +15,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         super().__init__()
 
     def _update_bar(self):
-        """
-        Updates the bar pixmap. Downsamples with the current size and updates
+        """Updates the bar pixmap. Downsamples with the current size and updates
         self._pixmap
         """
         width = self.size().width()
@@ -51,8 +49,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         qp.end()
 
     def set_num_frames(self, num_frames):
-        """
-        sets the number of frames in the current video, and resets the display
+        """sets the number of frames in the current video, and resets the display
         with a blank track
         """
         self._labels = np.full(num_frames, TrackLabels.Label.NONE.value,

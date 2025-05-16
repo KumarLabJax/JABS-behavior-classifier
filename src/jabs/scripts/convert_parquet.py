@@ -1,5 +1,4 @@
-"""
-Convert Apache Parquet pose file with identity to HDF5 pose file that can be read by JABS
+"""Convert Apache Parquet pose file with identity to HDF5 pose file that can be read by JABS
 
 Example:
     $ python convert_parquet.py --lixit-csv lixit.csv input1.parquet
@@ -101,8 +100,7 @@ def convert(
     lixit_predictions: dict[str, tuple[float, float]] | None,
     num_frames: int,
 ) -> None:
-    """
-    Convert a parquet file to JABS Pose format.
+    """Convert a parquet file to JABS Pose format.
     Args:
         parquet_path: path to input parquet file
         output_path: output path for the converted h5 file
@@ -124,8 +122,7 @@ def convert_data_frame(
     lixit_predictions: dict[str, tuple[float, float]] | None,
     num_frames: int,
 ) -> None:
-    """
-    Convert a pandas dataframe to JABS Pose format.
+    """Convert a pandas dataframe to JABS Pose format.
     Args:
         df: pandas dataframe with required columns
         output_path: output path for the converted h5 file
@@ -205,8 +202,7 @@ def convert_data_frame(
 
 
 def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
-    """
-    Read the csv file with the lixit predictions and return the average x and y coordinates of the three key
+    """Read the csv file with the lixit predictions and return the average x and y coordinates of the three key
     points (tip, left side, and right side).
     Args:
         path (Path): Path to the csv file

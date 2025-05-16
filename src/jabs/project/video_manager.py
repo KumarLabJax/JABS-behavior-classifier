@@ -11,19 +11,17 @@ from .video_labels import VideoLabels
 
 
 class VideoManager:
-    """
-    Class to manage list of video files in a project.
-    """
+    """Class to manage list of video files in a project."""
     def __init__(
         self,
         paths: ProjectPaths,
         settings_manager: SettingsManager,
         enable_video_check: bool = True,
     ):
-        """
-        Initialize the VideoManager with paths.
+        """Initialize the VideoManager with paths.
 
-        :param paths: ProjectPaths object containing project directory paths
+        Args:
+            paths: ProjectPaths object containing project directory paths
         """
         self._paths = paths
         self._settings_manager = settings_manager
@@ -53,11 +51,15 @@ class VideoManager:
         return self._total_project_identities
 
     def load_video_labels(self, video_name) -> VideoLabels | None:
-        """
-        load labels for a video from the project directory or from a cached of
+        """load labels for a video from the project directory or from a cached of
         annotations that have previously been opened and not yet saved
-        :param video_name: filename of the video: string or pathlib.Path
-        :return: initialized VideoLabels object if annotations exist, otherwise None
+
+        Args:
+            video_name: filename of the video: string or pathlib.Path
+
+        Returns:
+            initialized VideoLabels object if annotations exist,
+            otherwise None
         """
 
         video_filename = Path(video_name).name
@@ -74,13 +76,15 @@ class VideoManager:
             return None
 
     def check_video_name(self, video_filename):
-        """
-        make sure the video name actually matches one in the project, this
+        """make sure the video name actually matches one in the project, this
         function will raise a ValueError if the video name is not valid,
         otherwise the function has no effect
-        :param video_filename:
-        :return: None
-        :raises: ValueError if the filename is not a valid video in this project
+
+        Args:
+            video_filename
+
+        Returns:
+            None
         """
         if video_filename not in self._videos:
             raise ValueError(f"{video_filename} not in project")
@@ -91,11 +95,13 @@ class VideoManager:
         return [f.name for f in dir_path.glob("*") if f.suffix in [".avi", ".mp4"]]
 
     def get_video_identity_count(self, video_name: str) -> int:
-        """
-        Get the number of identity count for a specific video.
+        """Get the number of identity count for a specific video.
 
-        :param video_name: Name of the video file
-        :return: Number of identities in the video
+        Args:
+            video_name: Name of the video file
+
+        Returns:
+            Number of identities in the video
         """
         return self._video_identity_count.get(video_name, 0)
 
@@ -145,7 +151,7 @@ class VideoManager:
             raise ValueError("Project missing pose file for one or more video")
 
     def _has_pose(self, vid: str) -> bool:
-        """ check to see if a video has a corresponding pose file """
+        """check to see if a video has a corresponding pose file"""
         path = self._paths.project_dir / vid
 
         try:

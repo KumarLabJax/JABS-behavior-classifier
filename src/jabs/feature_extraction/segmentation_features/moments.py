@@ -10,8 +10,7 @@ if typing.TYPE_CHECKING:
 
 
 class Moments(Feature):
-    """feature for the image moments of the contours.
-    """
+    """feature for the image moments of the contours."""
 
     _name = 'moments'
     # These are all the opencv moments

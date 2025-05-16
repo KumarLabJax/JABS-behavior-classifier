@@ -236,20 +236,19 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def behaviors(self):
-        """ return a copy of the current list of behaviors """
+        """return a copy of the current list of behaviors"""
         return list(self._behaviors)
 
     @property
     def current_identity(self) -> str:
-        """
-        this will be the external identity
+        """this will be the external identity
         if the pose file doesn't have external identities this will be the string representation of the jabs identity
         """
         return self.identity_selection.currentText()
 
     @property
     def current_identity_index(self) -> int:
-        """ identity index is the same as the JABS identity """
+        """identity index is the same as the JABS identity"""
         return self.identity_selection.currentIndex()
 
     @property
@@ -299,7 +298,7 @@ class MainControlWidget(QtWidgets.QWidget):
         return self._all_kfold_checkbox.isChecked()
 
     def disable_label_buttons(self):
-        """ disable labeling buttons that require a selected range of frames """
+        """disable labeling buttons that require a selected range of frames"""
         self._label_behavior_button.setEnabled(False)
         self._label_not_behavior_button.setEnabled(False)
         self._clear_label_button.setEnabled(False)
@@ -365,10 +364,13 @@ class MainControlWidget(QtWidgets.QWidget):
         self.identity_selection.setCurrentIndex(i)
 
     def update_project_settings(self, project_settings: dict):
-        """
-        update controls from project settings
-        :param project_settings: dict containing project settings
-        :return: None
+        """update controls from project settings
+
+        Args:
+            project_settings: dict containing project settings
+
+        Returns:
+            None
         """
 
         # TODO: This is one of the major locations where project settings
@@ -408,7 +410,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self._behavior_changed()
 
     def set_identities(self, identities):
-        """ populate the identity_selection combobox """
+        """populate the identity_selection combobox"""
         self.identity_selection.currentIndexChanged.disconnect()
         self.identity_selection.clear()
         self.identity_selection.currentIndexChanged.connect(
@@ -416,7 +418,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self.identity_selection.addItems([str(i) for i in identities])
 
     def set_window_size(self, size: int):
-        """ set the current window size """
+        """set the current window size"""
         if self._window_size.findData(size) == -1:
             self._add_window_size(size)
         self._window_size.setCurrentText(str(size))
@@ -431,14 +433,13 @@ class MainControlWidget(QtWidgets.QWidget):
             self._get_first_label()
 
     def _set_window_sizes(self, sizes: List[int]):
-        """ set the list of available window sizes """
+        """set the list of available window sizes"""
         self._window_size.clear()
         for w in sizes:
             self._window_size.addItem(str(w), userData=w)
 
     def _new_label(self):
-        """
-        callback for the "new behavior" button
+        """callback for the "new behavior" button
         opens a modal dialog to allow the user to enter a new behavior label,
         if user clicks ok, add that behavior to the combo box, and select it
         """
@@ -454,8 +455,7 @@ class MainControlWidget(QtWidgets.QWidget):
             self.behavior_selection.setCurrentText(text)
 
     def _get_first_label(self):
-        """
-        show the new label dialog.
+        """show the new label dialog.
         Used when opening a new project for the fist time or if a user archives all behaviors in a project.
 
         dialog is customized to hide the window close button. The only way to close the dialog is to create a new
@@ -480,8 +480,7 @@ class MainControlWidget(QtWidgets.QWidget):
             sys.exit(0)
 
     def _new_window_size(self):
-        """
-        callback for the "new window size" button
+        """callback for the "new window size" button
         opens a modal dialog to allow the user to enter a new window size,
         if user clicks ok, add that window size and select it
         """

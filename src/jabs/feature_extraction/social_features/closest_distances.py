@@ -19,10 +19,13 @@ class ClosestDistances(Feature):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
 
-    def per_frame(self, identity: int) -> np.ndarray:
-        """
-        compute the value of the per frame features for a specific identity
-        :param identity: identity to compute features for
-        :return: dict with feature values
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity
+
+        Args:
+            identity: identity to compute features for
+
+        Returns:
+            dict with feature values
         """
         return {'closest social distance': self._social_distance_info.compute_distances(self._social_distance_info.closest_identities)}

@@ -23,9 +23,7 @@ from .main_control_widget import MainControlWidget
 _CLICK_THRESHOLD = 20
 
 class CentralWidget(QtWidgets.QWidget):
-    """
-    QT Widget implementing our main window contents
-    """
+    """QT Widget implementing our main window contents"""
 
     export_training_status_change = QtCore.Signal(bool)
 
@@ -116,17 +114,17 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def behavior(self):
-        """ get the currently selected behavior """
+        """get the currently selected behavior"""
         return self._controls.current_behavior
 
     @property
     def classifier_type(self):
-        """ get the current classifier type """
+        """get the current classifier type"""
         return self._classifier.classifier_type
 
     @property
     def window_size(self):
-        """ get current window size """
+        """get current window size"""
         return self._window_size
 
     @property
@@ -143,9 +141,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def classify_button_enabled(self):
-        """
-        return true if the classify button is currently enabled, false otherwise
-        """
+        """return true if the classify button is currently enabled, false otherwise"""
         return self._controls.classify_button_enabled
 
     @property
@@ -153,7 +149,7 @@ class CentralWidget(QtWidgets.QWidget):
         return self._controls.behaviors
 
     def set_project(self, project):
-        """ set the currently opened project """
+        """set the currently opened project"""
         self._project = project
 
         # This will get set when the first video in the project is loaded, but
@@ -166,11 +162,13 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.update_project_settings(project.settings)
 
     def load_video(self, path):
-        """
-        load a new video file into self._player_widget
-        :param path: path to video file
-        :return: None
-        :raises: OSError if unable to open video
+        """load a new video file into self._player_widget
+
+        Args:
+            path: path to video file
+
+        Returns:
+            None
         """
 
         if self._labels is not None:
@@ -236,7 +234,7 @@ class CentralWidget(QtWidgets.QWidget):
             raise e
 
     def keyPressEvent(self, event):
-        """ handle key press events """
+        """handle key press events"""
 
         def begin_select_mode():
             if not self._controls.select_button_is_checked:
@@ -298,9 +296,7 @@ class CentralWidget(QtWidgets.QWidget):
         return self._controls
 
     def _change_behavior(self, new_behavior):
-        """
-        make UI changes to reflect the currently selected behavior
-        """
+        """make UI changes to reflect the currently selected behavior"""
         if self._project is None:
             return
 
@@ -324,8 +320,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._project.settings_manager.save_project_file({'selected_behavior': self.behavior})
 
     def _start_selection(self, pressed):
-        """
-        handle click on "select" button. If button was previously "unchecked"
+        """handle click on "select" button. If button was previously "unchecked"
         then grab the current frame to begin selecting a range. If the
         button was in the checked state, clicking cancels the current selection.
 
@@ -341,7 +336,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.manual_labels.update()
 
     def _label_behavior(self):
-        """ Apply behavior label to currently selected range of frames """
+        """Apply behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start,
                              self._player_widget.current_frame()])
         mask = self._player_widget.get_identity_mask()
@@ -349,7 +344,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._label_button_common()
 
     def _label_not_behavior(self):
-        """ apply _not_ behavior label to currently selected range of frames """
+        """apply _not_ behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start,
                              self._player_widget.current_frame()])
         mask = self._player_widget.get_identity_mask()
@@ -358,15 +353,14 @@ class CentralWidget(QtWidgets.QWidget):
         self._label_button_common()
 
     def _clear_behavior_label(self):
-        """ clear all behavior/not behavior labels from current selection """
+        """clear all behavior/not behavior labels from current selection"""
         label_range = sorted([self._selection_start,
                               self._player_widget.current_frame()])
         self._get_label_track().clear_labels(*label_range)
         self._label_button_common()
 
     def _label_button_common(self):
-        """
-        functionality shared between _label_behavior(), _label_not_behavior(),
+        """functionality shared between _label_behavior(), _label_not_behavior(),
         and _clear_behavior_label(). to be called after the labels are changed
         for the current selection
         """
@@ -379,20 +373,18 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
 
     def _set_identities(self, identities):
-        """ populate the identity_selection combobox """
+        """populate the identity_selection combobox"""
         self._controls.set_identities(identities)
 
     def _change_identity(self):
-        """ handle changing value of identity_selection """
+        """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(
             self._controls.current_identity_index)
         self._set_label_track()
         self._update_label_counts()
 
     def _frame_change(self, new_frame):
-        """
-        called when the video player widget emits its updateFrameNumber signal
-        """
+        """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
         self.manual_labels.set_current_frame(new_frame)
         self.prediction_vis.set_current_frame(new_frame)
@@ -401,8 +393,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
-        """
-        loads new set of labels in self.manual_labels when the selected
+        """loads new set of labels in self.manual_labels when the selected
         behavior or identity is changed
         """
         behavior = self._controls.current_behavior
@@ -417,8 +408,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_prediction_vis()
 
     def _get_label_track(self):
-        """
-        get the current label track for the currently selected identity and
+        """get the current label track for the currently selected identity and
         behavior
         """
         return self._labels.get_track_labels(
@@ -427,9 +417,7 @@ class CentralWidget(QtWidgets.QWidget):
         )
 
     def _update_classifier_controls(self):
-        """
-        Called when settings related to a loaded classifier should be updated
-        """
+        """Called when settings related to a loaded classifier should be updated"""
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
         # does the classifier match the current settings?
@@ -448,7 +436,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.classify_button_set_enabled(False)
 
     def _train_button_clicked(self):
-        """ handle user click on "Train" button """
+        """handle user click on "Train" button"""
         # make sure video playback is stopped
         self._player_widget.stop()
 
@@ -484,17 +472,17 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.start()
 
     def _training_thread_complete(self):
-        """ enable classify button once the training is complete """
+        """enable classify button once the training is complete"""
         self._progress_dialog.reset()
         self.parent().display_status_message("Training Complete", 3000)
         self._controls.classify_button_set_enabled(True)
 
     def _update_training_progress(self, step):
-        """ update progress bar with the number of completed tasks """
+        """update progress bar with the number of completed tasks"""
         self._progress_dialog.setValue(step)
 
     def _classify_button_clicked(self):
-        """ handle user click on "Classify" button """
+        """handle user click on "Classify" button"""
         # make sure video playback is stopped
         self._player_widget.stop()
 
@@ -521,7 +509,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.start()
 
     def _classify_thread_complete(self, output: dict):
-        """ update the gui when the classification is complete """
+        """update the gui when the classification is complete"""
         # display the new predictions
         self._predictions = output['predictions']
         self._probabilities = output['probabilities']
@@ -530,13 +518,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step):
-        """ update progress bar with the number of completed tasks """
+        """update progress bar with the number of completed tasks"""
         self._progress_dialog.setValue(step)
 
     def _set_prediction_vis(self):
-        """
-        update data being displayed by the prediction visualization widget
-        """
+        """update data being displayed by the prediction visualization widget"""
 
         if self._loaded_video is None:
             return
@@ -566,13 +552,14 @@ class CentralWidget(QtWidgets.QWidget):
         self.inference_timeline_widget.update_labels()
 
     def _set_train_button_enabled_state(self):
-        """
-        set the enabled property of the train button to True or False depending
+        """set the enabled property of the train button to True or False depending
         whether the labeling meets some threshold set by the classifier module
 
         NOTE: must be called after _update_label_counts() so that it has the
         correct counts for the current video
-        :return: None
+
+        Returns:
+            None
         """
 
         if Classifier.label_threshold_met(self._counts,
@@ -584,10 +571,10 @@ class CentralWidget(QtWidgets.QWidget):
             self.export_training_status_change.emit(False)
 
     def _update_label_counts(self):
-        """
-        update the widget with the labeled frame / bout counts
+        """update the widget with the labeled frame / bout counts
 
-        :return: None
+        Returns:
+            None
         """
 
         if self._loaded_video is None:
@@ -631,15 +618,14 @@ class CentralWidget(QtWidgets.QWidget):
                                         bout_not_behavior_project)
 
     def _classifier_changed(self):
-        """ handle classifier selection change """
+        """handle classifier selection change"""
         if self._classifier.classifier_type != self._controls.classifier_type:
             # changing classifier type, disable until retrained
             self._controls.classify_button_set_enabled(False)
             self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event):
-        """
-        handle event where user clicked on the video -- if they click
+        """handle event where user clicked on the video -- if they click
         on one of the mice, make that one active
         """
         clicked_identity = None
@@ -674,18 +660,18 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.set_identity_index(clicked_identity)
 
     def _window_feature_size_changed(self, new_size):
-        """ handle window feature size change """
+        """handle window feature size change"""
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
             self.update_behavior_settings('window_size', new_size)
             self._update_classifier_controls()
 
     def _save_window_sizes(self, window_sizes):
-        """ save the window sizes to the project settings """
+        """save the window sizes to the project settings"""
         self._project.settings_manager.save_project_file({'window_sizes': window_sizes})
 
     def update_behavior_settings(self, key, val):
-        """ propagates an updated setting to the project """
+        """propagates an updated setting to the project"""
         # early exit if no behavior selected
         if self.behavior == '':
             return

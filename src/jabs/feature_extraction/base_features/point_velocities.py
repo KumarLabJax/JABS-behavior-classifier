@@ -11,7 +11,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 # since they both use keypoint gradients
 
 class PointVelocityDirs(Feature, abc.ABC):
-    """ feature for the direction of the point velocity """
+    """feature for the direction of the point velocity"""
 
     # subclass must override this
     _name = 'point_velocity_dirs'

@@ -10,8 +10,7 @@ from jabs.video_reader import VideoReader, label_all_identities, label_identity,
 
 
 class PlayerThread(QtCore.QThread):
-    """
-    thread used to grab frames (numpy arrays) from a video stream and convert
+    """thread used to grab frames (numpy arrays) from a video stream and convert
     them to a QImage for display by the frame widget
 
     handles timing to get correct playback speed
@@ -40,16 +39,17 @@ class PlayerThread(QtCore.QThread):
         self._identities = identities if identities is not None else []
 
     def stop_playback(self):
-        """
-        tell run thread to stop playback
-        """
+        """tell run thread to stop playback"""
         self.requestInterruption()
 
     def set_identity(self, identity):
-        """
-        set the active identity
-        :param identity: new selected identity
-        :return: None
+        """set the active identity
+
+        Args:
+            identity: new selected identity
+
+        Returns:
+            None
         """
         self._identity = identity
 
@@ -140,8 +140,7 @@ class PlayerThread(QtCore.QThread):
             self._identities = identities
 
     def run(self):
-        """
-        method to be run as a thread during playback
+        """method to be run as a thread during playback
         handles grabbing the next frame from the buffer, converting to a QImage,
         and sending to the UI component for display.
         """

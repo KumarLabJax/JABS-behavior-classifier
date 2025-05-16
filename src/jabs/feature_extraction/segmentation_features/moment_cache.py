@@ -5,8 +5,7 @@ from jabs.pose_estimation import PoseEstimation
 
 
 class MomentInfo:
-    """
-    this info is needed to compute a number of different image moment features.
+    """this info is needed to compute a number of different image moment features.
     It can be done once for a given identity, and then an instance of this
     object can be passed into all the features that need it
 
@@ -44,54 +43,74 @@ class MomentInfo:
                 self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])
     
     def get_pixel_power(self, key):
-        """
-        get the degree that pixels influence this image moment
-        :param key: key of the image moment
-        :return: power that should be used for converting from pixels to cm space
+        """get the degree that pixels influence this image moment
+
+        Args:
+            key: key of the image moment
+
+        Returns:
+            power that should be used for converting from pixels to cm
+            space
         """
         # Only works for image moments 0-9 on either dimension
         # opencv only does the first 3 moments (0-2)
         return int(key[-1]) + int(key[-2]) + 2
 
     def get_moment(self, frame, key):
-        """
-        retrieve a single moment value
-        :param frame: frame to retrieve moment data
-        :param key: key of moment data to retrieve
-        :return: moment value
+        """retrieve a single moment value
+
+        Args:
+            frame: frame to retrieve moment data
+            key: key of moment data to retrieve
+
+        Returns:
+            moment value
         """
         key_idx = self._moment_keys.index(key)
         return self._moments[frame, key_idx]
 
     def get_all_moments(self, frame):
-        """
-        retrieve moments for a frame
-        :param frame: frame to retrieve moment data
-        :return: dict of moment data
+        """retrieve moments for a frame
+
+        Args:
+            frame: frame to retrieve moment data
+
+        Returns:
+            dict of moment data
         """
         return {key:value for key,value in zip(self._moment_keys,self._moments[frame])}
 
     def get_trimmed_contours(self, frame):
-        """
-        retrieves a contour for a specific frame
-        :param frame: frame to retrieve contour data
-        :return: an opencv-complaint list of contours
+        """retrieves a contour for a specific frame
+
+        Args:
+            frame: frame to retrieve contour data
+
+        Returns:
+            an opencv-complaint list of contours
         """
         return self._seg_data[frame]
 
     def get_flags(self, frame):
-        """
-        retrieves the internal/external flags for a specific frame
-        :param frame: frame to retrieve flags
-        :return: a binary vector of whether the segmentation contours are external (1) or internal (0)
+        """retrieves the internal/external flags for a specific frame
+
+        Args:
+            frame: frame to retrieve flags
+
+        Returns:
+            a binary vector of whether the segmentation contours are
+            external (1) or internal (0)
         """
         return self._seg_flags[frame]
 
     def trim_contour(self, arr):
-        """
-        removes -1s from contour data
-        :param arr: contour, padded with -1s
-        :return: opencv-complaint contour
+        """removes -1s from contour data
+
+        Args:
+            arr: contour, padded with -1s
+
+        Returns:
+            opencv-complaint contour
         """
         assert arr.ndim == 2
         return_arr = arr[np.all(arr!=-1, axis=1),:]
@@ -99,20 +118,27 @@ class MomentInfo:
             return return_arr.astype(np.int32)
 
     def trim_contour_list(self, arr):
-        """
-        trims a fully padded 3D matrix into opencv-compliant contour list
-        :param arr: a full matrix of contours, padded with -1s
-        :return: opencv-complaint contour list
+        """trims a fully padded 3D matrix into opencv-compliant contour list
+
+        Args:
+            arr: a full matrix of contours, padded with -1s
+
+        Returns:
+            opencv-complaint contour list
         """
         assert arr.ndim == 3
         return [self.trim_contour(x) for x in arr if np.any(x!=-1)]
 
     @staticmethod
     def calculate_moments(contour_list):
-        """
-        Renders the contour data onto a frame to calculate the moments
-        :param contour_list: list of polygons, the format opencv returns from cv2.findContours
-        :return: dict of cv2.moments image moments
+        """Renders the contour data onto a frame to calculate the moments
+
+        Args:
+            contour_list: list of polygons, the format opencv returns
+                from cv2.findContours
+
+        Returns:
+            dict of cv2.moments image moments
         """
         frame_size = np.max(np.concatenate(contour_list)) + 1
         # Render the contours on a frame

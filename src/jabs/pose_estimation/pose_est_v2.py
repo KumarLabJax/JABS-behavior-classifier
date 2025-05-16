@@ -8,20 +8,19 @@ from .pose_est import PoseEstimation, MINIMUM_CONFIDENCE
 
 
 class PoseEstimationV2(PoseEstimation):
-    """
-    read in pose_est_v2.h5 file
-    """
+    """read in pose_est_v2.h5 file"""
 
     def __init__(self, file_path: Path,
                  cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
-        """
-        initialize new object from h5 file
-        :param file_path: path to pose_est_v2.h5 file
-        :param cache_dir: optional cache directory, used to cache convex hulls
-        for faster loading
-        :param fps: frames per second, used for scaling time series features
-        from "per frame" to "per second"
+        """initialize new object from h5 file
+
+        Args:
+            file_path: path to pose_est_v2.h5 file
+            cache_dir: optional cache directory, used to cache convex
+                hulls for faster loading
+            fps: frames per second, used for scaling time series
+                featuresfrom "per frame" to "per second"
         """
 
         super().__init__(file_path, cache_dir, fps)
@@ -67,14 +66,17 @@ class PoseEstimationV2(PoseEstimation):
 
     def get_points(self, frame_index: int, identity: int,
                    scale: typing.Optional[float] = None):
-        """
-        return points and point masks for an individual frame
-        :param frame_index: frame index of points and masks to be returned
-        :param identity: included for compatibility with pose_est_v3. Should
-        always be zero.
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (12,2), numpy array of point masks (12,)
+        """return points and point masks for an individual frame
+
+        Args:
+            frame_index: frame index of points and masks to be returned
+            identity: included for compatibility with pose_est_v3.
+                Should always be zero.
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            numpy array of points (12,2), numpy array of point masks (12,)
         """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
@@ -89,14 +91,16 @@ class PoseEstimationV2(PoseEstimation):
 
     def get_identity_poses(self, identity: int,
                            scale: typing.Optional[float] = None):
-        """
-        return all points and point masks
-        :param identity: included for compatibility with pose_est_v3. Should
-        always be zero.
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (#frames, 12, 2), numpy array of point
-        masks (#frames, 12)
+        """return all points and point masks
+
+        Args:
+            identity: included for compatibility with pose_est_v3.
+                Should always be zero.
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
         """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
@@ -107,21 +111,27 @@ class PoseEstimationV2(PoseEstimation):
             return self._points, self._point_mask
 
     def identity_mask(self, identity):
-        """
-        get the identity mask (indicates if specified identity is present in
+        """get the identity mask (indicates if specified identity is present in
         each frame)
-        :param identity: included for compatibility with pose_est_v3. Should
-        always be zero.
-        :return: numpy array of size (#frames,)
+
+        Args:
+            identity: included for compatibility with pose_est_v3.
+                Shouldalways be zero.
+
+        Returns:
+            numpy array of size (#frames,)
         """
         if identity not in self.identities:
             raise ValueError("Invalid identity")
         return self._identity_mask
 
     def get_identity_point_mask(self, identity):
-        """
-        get the point mask array for a given identity
-        :param identity: identity to return point mask for
-        :return: array of point masks (#frames, 12)
+        """get the point mask array for a given identity
+
+        Args:
+            identity: identity to return point mask for
+
+        Returns:
+            array of point masks (#frames, 12)
         """
         return self._point_mask

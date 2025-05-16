@@ -18,12 +18,11 @@ class PoseHashException(Exception):
 
 
 class PoseEstimation(ABC):
-    """
-    abstract base class for PoseEstimation objects. Used as the base class for
+    """abstract base class for PoseEstimation objects. Used as the base class for
     PoseEstimationV2 and PoseEstimationV3
     """
     class KeypointIndex(enum.IntEnum):
-        """ enum defining the 12 keypoint indexes """
+        """enum defining the 12 keypoint indexes"""
         NOSE = 0
         LEFT_EAR = 1
         RIGHT_EAR = 2
@@ -39,12 +38,15 @@ class PoseEstimation(ABC):
 
     def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None,
                  fps: int = 30):
-        """
-        initialize new object from h5 file
-        :param file_path: path to pose_est_v2.h5 file
-        :param cache_dir: optional cache directory, used to cache convex hulls
+        """initialize new object from h5 file
+
+        Args:
+            file_path: path to pose_est_v2.h5 file
+            cache_dir: optional cache directory, used to cache convex
+                hulls
+            fps: frames per second, used for scaling time series
+                features
         for faster loading
-        :param fps: frames per second, used for scaling time series features
         from "per frame" to "per second"
         """
         super().__init__()
@@ -62,12 +64,12 @@ class PoseEstimation(ABC):
 
     @property
     def num_frames(self) -> int:
-        """ return the number of frames in the pose_est file """
+        """return the number of frames in the pose_est file"""
         return self._num_frames
 
     @property
     def identities(self):
-        """ return list of integer identities generated from file """
+        """return list of integer identities generated from file"""
         return self._identities
 
     @property
@@ -93,45 +95,56 @@ class PoseEstimation(ABC):
     @abstractmethod
     def get_points(self, frame_index: int, identity: int,
                    scale: typing.Optional[float] = None):
-        """
-        return points and point masks for an individual frame
-        :param frame_index: frame index of points and masks to be returned
-        :param identity: identity to return points for
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (12,2), numpy array of point masks (12,)
+        """return points and point masks for an individual frame
+
+        Args:
+            frame_index: frame index of points and masks to be returned
+            identity: identity to return points for
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            numpy array of points (12,2), numpy array of point masks (12,)
         """
         pass
 
     @abstractmethod
     def get_identity_poses(self, identity: int,
                            scale: typing.Optional[float] = None):
-        """
-        return all points and point masks
-        :param identity: identity to return points for
-        :param scale: optional scale factor, set to cm_per_pixel to convert
-        poses from pixel coordinates to cm coordinates
-        :return: numpy array of points (#frames, 12, 2), numpy array of point
-        masks (#frames, 12)
+        """return all points and point masks
+
+        Args:
+            identity: identity to return points for
+            scale: optional scale factor, set to cm_per_pixel to convert
+                poses from pixel coordinates to cm coordinates
+
+        Returns:
+            numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
         """
         pass
 
     @abstractmethod
     def get_identity_point_mask(self, identity):
-        """
-        get the point mask array for a given identity
-        :param identity: identity to return point mask for
-        :return: array of point masks (#frames, 12)
+        """get the point mask array for a given identity
+
+        Args:
+            identity: identity to return point mask for
+
+        Returns:
+            array of point masks (#frames, 12)
         """
         pass
 
     @abstractmethod
     def identity_mask(self, identity):
-        """
-        get the identity mask (indicates if specified identity is present in
+        """get the identity mask (indicates if specified identity is present in
         each frame)
-        :param identity: identity to get masks for
-        :return: numpy array of size (#frames,)
+
+        Args:
+            identity: identity to get masks for
+
+        Returns:
+            numpy array of size (#frames,)
         """
         pass
 
@@ -143,9 +156,7 @@ class PoseEstimation(ABC):
     @property
     @abstractmethod
     def format_major_version(self):
-        """
-        an integer giving the major version of the format
-        """
+        """an integer giving the major version of the format"""
         pass
 
     @property
@@ -153,13 +164,16 @@ class PoseEstimation(ABC):
         return self._static_objects
 
     def get_identity_convex_hulls(self, identity):
-        """
-        A list of length #frames containing convex hulls for the given identity.
+        """A list of length #frames containing convex hulls for the given identity.
         The convex hulls are calculated using all valid points except for the
         middle of tail and tip of tail points.
-        :param identity: identity to return points for
-        :return: the convex hulls in pixel units (array elements will be None
-        if there is no valid convex hull for that frame)
+
+        Args:
+            identity: identity to return points for
+
+        Returns:
+            the convex hulls in pixel units (array elements will be None
+            if there is no valid convex hull for that frame)
         """
 
         if identity in self._convex_hull_cache:

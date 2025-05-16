@@ -2,12 +2,14 @@ import cv2
 
 
 def get_frame_count(video_path: str):
-    """
-    Get the number of frames in a video file. Raises an IOError if unable to
+    """Get the number of frames in a video file. Raises an IOError if unable to
     open the video specified
-    :param video_path: string containing path to video file
-    :return: Integer number of frames in video.
-    :raises: IOError if unable to open video file
+
+    Args:
+        video_path: string containing path to video file
+
+    Returns:
+        Integer number of frames in video.
     """
     # open video file
     stream = cv2.VideoCapture(video_path)

@@ -3,9 +3,7 @@ from PySide6 import QtCore
 
 
 class ArchiveBehaviorDialog(QDialog):
-    """
-    dialog to allow a user to select a behavior to archive from the project
-    """
+    """dialog to allow a user to select a behavior to archive from the project"""
 
     behavior_archived = QtCore.Signal(str)
 

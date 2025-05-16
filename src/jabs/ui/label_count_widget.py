@@ -6,8 +6,7 @@ from PySide6.QtCore import Qt
 
 
 class FrameLabelCountWidget(QtWidgets.QWidget):
-    """
-    widget to show the number of frames and bouts for behavior, not behavior
+    """widget to show the number of frames and bouts for behavior, not behavior
     label classes for the currently selected identity/video as well as
     project-wide totals
     """
@@ -86,23 +85,23 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
                    frame_behavior_project, frame_not_behavior_project,
                    bout_behavior_current, bout_not_behavior_current,
                    bout_behavior_project, bout_not_behavior_project):
-        """
-        update counts and redraw widget
+        """update counts and redraw widget
 
-        :param frame_behavior_current: #frames labeled behavior for current
+        Args:
+            frame_behavior_current: #frames labeled behavior for current
+            frame_not_behavior_current: #frames labeled not behavior for
+            frame_behavior_project: #frames labeled behavior for project
+            frame_not_behavior_project: #frames labeled not behavior for
+            bout_behavior_current: #bouts of behavior for current
+                identity
+            bout_not_behavior_current: #bouts not behavior for current
+            bout_behavior_project: #bouts behavior for project
+            bout_not_behavior_project: #bouts not behavior for project
         identity (in current video)
-        :param frame_not_behavior_current: #frames labeled not behavior for
         current identity (in current video)
-        :param frame_behavior_project:  #frames labeled behavior for project
-        :param frame_not_behavior_project: #frames labeled not behavior for
         project
-        :param bout_behavior_current: #bouts of behavior for current identity
         (in current video)
-        :param bout_not_behavior_current: #bouts not behavior for current
         identity (in current video)
-        :param bout_behavior_project: #bouts behavior for project
-        :param bout_not_behavior_project: #bouts not behavior for project
-        :return:
         """
         self._frame_labels['behavior_current'].setText(
             f"{frame_behavior_current}")

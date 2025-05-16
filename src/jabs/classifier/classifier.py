@@ -56,10 +56,9 @@ class Classifier:
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         """
-        :param classifier: type of classifier to use. Must be ClassifierType
-        :param n_jobs: number of jobs to use for classifiers that support
-        this parameter for parallelism
-        enum value. Defaults to ClassifierType.RANDOM_FOREST
+        Args:
+            classifier: type of classifier to use. Must be ClassifierType enum value. Defaults to ClassifierType.RANDOM_FOREST
+            n_jobs: number of jobs to use for classifiers that support this parameter for parallelism
         """
 
         self._classifier_type = classifier
@@ -81,8 +80,11 @@ class Classifier:
     @classmethod
     def from_training_file(cls, path: Path):
         """
-        :param path: exported training data file
-        :return: trained classifier object
+        Args:
+            path: exported training data file
+
+        Returns:
+            trained classifier object
         """
         loaded_training_data, _ = load_training_data(path)
         behavior = loaded_training_data['behavior']
@@ -112,12 +114,12 @@ class Classifier:
 
     @property
     def classifier_name(self) -> str:
-        """ return the name of the classifier used as a string """
+        """return the name of the classifier used as a string"""
         return self._classifier_names[self._classifier_type]
 
     @property
     def classifier_type(self) -> ClassifierType:
-        """ return classifier type """
+        """return classifier type"""
         return self._classifier_type
 
     @property
@@ -134,7 +136,7 @@ class Classifier:
 
     @property
     def project_settings(self) -> dict:
-        """ return a copy of dictionary of project settings for this classifier """
+        """return a copy of dictionary of project settings for this classifier"""
         if self._project_settings is not None:
             return dict(self._project_settings)
         return {}
@@ -153,22 +155,20 @@ class Classifier:
 
     @property
     def feature_names(self) -> list:
-        """
-        returns the list of feature names used when training this classifier
-        """
+        """returns the list of feature names used when training this classifier"""
         return self._feature_names
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
-        """
-        split features and labels into training and test datasets
+        """split features and labels into training and test datasets
 
-        :param per_frame_features: per frame features as returned from
-        IdentityFeatures object, filtered to only include labeled frames
-        :param window_features: window features as returned from
-        IdentityFeatures object, filtered to only include labeled frames
-        :param label_data: labels that correspond to the features
-        :return: dictionary of training and test data and labels:
+        Args:
+            per_frame_features: per frame features as returned from IdentityFeatures object, filtered to only include labeled frames
+            window_features: window features as returned from IdentityFeatures object, filtered to only include labeled frames
+            label_data: labels that correspond to the features
+
+        Returns:
+            dictionary of training and test data and labels:
 
         {
             'training_data': list of numpy arrays,
@@ -193,11 +193,14 @@ class Classifier:
 
     @staticmethod
     def get_leave_one_group_out_max(labels, groups):
-        """
-        counts the number of possible leave one out groups for k-fold cross validation
-        :param labels: labels to check if they were above the threshold
-        :param groups: group id corrosponding to the labels
-        :return: int of the maximum number of cross validation to use
+        """counts the number of possible leave one out groups for k-fold cross validation
+
+        Args:
+            labels: labels to check if they were above the threshold
+            groups: group id corresponding to the labels
+
+        Returns:
+            int of the maximum number of cross validation to use
         """
         unique_groups = np.unique(groups)
         count_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.BEHAVIOR) for x in unique_groups]
@@ -208,13 +211,16 @@ class Classifier:
     @staticmethod
     def leave_one_group_out(per_frame_features, window_features, labels,
                             groups):
-        """
-        implements "leave one group out" data splitting strategy
-        :param per_frame_features: per frame features for all labeled data
-        :param window_features: window features for all labeled data
-        :param labels: labels corresponding to each feature row
-        :param groups: group id corresponding to each feature row
-        :return: dictionary of training and test data and labels:
+        """implements "leave one group out" data splitting strategy
+
+        Args:
+            per_frame_features: per frame features for all labeled data
+            window_features: window features for all labeled data
+            labels: labels corresponding to each feature row
+            groups: group id corresponding to each feature row
+
+        Returns:
+            dictionary of training and test data and labels:
         {
             'training_data': list of numpy arrays,
             'test_data': list of numpy arrays,
@@ -259,11 +265,15 @@ class Classifier:
 
     @staticmethod
     def downsample_balance(features, labels, random_seed=None):
-        """
-        downsamples features and labels such that labels are equally distributed
-        :param features: features to downsample
-        :param labels: labels to downsample
-        :return: tuple of downsampled features, labels
+        """downsamples features and labels such that labels are equally distributed
+
+        Args:
+            features: features to downsample
+            labels: labels to downsample
+            random_seed: optional random seed
+
+        Returns:
+            tuple of downsampled features, labels
         """
         label_states, label_counts = np.unique(labels, return_counts=True)
         max_examples_per_class = np.min(label_counts)
@@ -281,15 +291,18 @@ class Classifier:
 
     @staticmethod
     def augment_symmetric(features, labels, random_str='ASygRQDZJD'):
-        """
-        augments the features to include L-R and R-L duplicates
+        """augments the features to include L-R and R-L duplicates
         This requires 'left' or 'right' to be in the feature name to be swapped
         Features that don't include these terms will not be swapped
-        :param features: features to augment
-        :param labels: labels to augment
-        :param feature_names: feature names to detect LR exchanges
-        :param random_str: a random string to use as a temporary replacement when swapping left/right
-        :return: tuple of augmented features, labels
+
+        Args:
+            features: features to augment
+            labels: labels to augment
+            random_str: a random string to use as a temporary
+                replacement when swapping left/right
+
+        Returns:
+            tuple of augmented features, labels
         """
 
         # Figure out the L-R swapping of features
@@ -312,14 +325,13 @@ class Classifier:
         return features, labels
 
     def set_classifier(self, classifier):
-        """ change the type of the classifier being used """
+        """change the type of the classifier being used"""
         if classifier not in _classifier_choices:
             raise ValueError("Invalid Classifier Type")
         self._classifier_type = classifier
 
     def set_project_settings(self, project: Project):
-        """
-        assign project settings to the classifier
+        """assign project settings to the classifier
         :project: project to copy classifier-relevant settings from for the current behavior
 
         if no behavior is currently set, will simply use project defaults
@@ -330,8 +342,7 @@ class Classifier:
             self._project_settings = project.settings_manager.get_behavior(self._behavior)
 
     def set_dict_settings(self, settings: dict):
-        """
-        assign project settings via a dict to the classifier
+        """assign project settings via a dict to the classifier
         :settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
@@ -339,9 +350,10 @@ class Classifier:
         self._project_settings = dict(settings)
 
     def classifier_choices(self):
-        """
-        get the available classifier types
-        :return: dict where keys are ClassifierType enum values, and the
+        """get the available classifier types
+
+        Returns:
+            dict where keys are ClassifierType enum values, and the
         values are string names for the classifiers. example:
 
         {
@@ -355,12 +367,15 @@ class Classifier:
         }
 
     def train(self, data, random_seed: typing.Optional[int] = None):
-        """
-        train the classifier
-        :param data: dict returned from train_test_split()
-        :param random_seed: optional random seed (used when we want reproducible
-        results between trainings)
-        :return: None
+        """train the classifier
+
+        Args:
+            data: dict returned from train_test_split()
+            random_seed: optional random seed (used when we want
+                reproducible results between trainings)
+
+        Returns:
+            None
 
         raises ValueError for having either unset project settings or an unset classifier
         """
@@ -402,9 +417,7 @@ class Classifier:
         self._classifier_source = None
 
     def sort_features_to_classify(self, features):
-        """
-        sorts features to match the current classifier
-        """
+        """sorts features to match the current classifier"""
         if self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
         # sklearn places feature names in the same spot
@@ -414,9 +427,7 @@ class Classifier:
         return features_sorted
 
     def predict(self, features):
-        """
-        predict classes for a given set of features
-        """
+        """predict classes for a given set of features"""
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
@@ -430,9 +441,7 @@ class Classifier:
         )
 
     def predict_proba(self, features):
-        """
-        predict probabilities for a given set of features
-        """
+        """predict probabilities for a given set of features"""
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
@@ -516,11 +525,14 @@ class Classifier:
 
     @staticmethod
     def combine_data(per_frame, window):
-        """
-        combine feature sets together
-        :param per_frame: per frame features dataframe
-        :param window: window feature dataframe
-        :return: merged dataframe
+        """combine feature sets together
+
+        Args:
+            per_frame: per frame features dataframe
+            window: window feature dataframe
+
+        Returns:
+            merged dataframe
         """
         return pd.concat([per_frame, window], axis=1)
 
@@ -550,11 +562,11 @@ class Classifier:
         return classifier
 
     def print_feature_importance(self, feature_list, limit=20):
-        """
-        print the most important features and their importance
-        :param feature_list:
-        :param limit:
-        :return:
+        """print the most important features and their importance
+
+        Args:
+            feature_list
+            limit
         """
         # Get numerical feature importance
         importances = list(self._classifier.feature_importances_)
@@ -573,10 +585,17 @@ class Classifier:
 
     @staticmethod
     def count_label_threshold(all_counts: dict):
-        """
-        counts the number of groups that meet label threshold criteria
-        :param all_counts: labeled frame and bout counts for the entire project
-        parameter is a dict with the following form
+        """counts the number of groups that meet label threshold criteria
+
+        Args:
+            all_counts: labeled frame and bout counts for the entire
+                project
+
+        Returns:
+            number of groups that meet label criteria
+
+
+        all_counts is a dict with the following form
         {
             '<video name>': [
                 (
@@ -586,7 +605,6 @@ class Classifier:
                 ),
             ]
         }
-        :return: number of groups that meet label criteria
         """
         group_count = 0
         for video, counts in all_counts.items():
@@ -598,13 +616,17 @@ class Classifier:
 
     @staticmethod
     def label_threshold_met(all_counts: dict, min_groups: int):
-        """
-        determine if the labeling threshold is met
-        :param all_counts: labeled frame and bout counts for the entire project
-        :param min_groups: minimum number of groups required (more than one
-        group is always required for the "leave one group out" train/test split,
-        but may be more than 2 for k-fold cross validation if k > 2)
-        :return: bool if requested valid groups is > valid group
+        """determine if the labeling threshold is met
+
+        Args:
+            all_counts: labeled frame and bout counts for the entire
+                project
+            min_groups: minimum number of groups required (more than one
+                group is always required for the "leave one group out" train/test split,
+                but may be more than 2 for k-fold cross validation if k > 2)
+
+        Returns:
+            bool if requested valid groups is > valid group
         """
         group_count = Classifier.count_label_threshold(all_counts)
         return True if 1 < group_count >= min_groups else False

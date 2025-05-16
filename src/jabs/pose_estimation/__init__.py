@@ -13,8 +13,7 @@ from .pose_est_v6 import PoseEstimationV6
 
 
 def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
-    """
-    open a pose file using the correct PoseEstimation subclass based on
+    """open a pose file using the correct PoseEstimation subclass based on
     the version implied by the filename
     """
     if path.name.endswith('v2.h5'):
@@ -32,12 +31,17 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path]=None):
 
 
 def get_pose_path(video_path: Path):
-    """
-    take a path to a video file and return the path to the corresponding
+    """take a path to a video file and return the path to the corresponding
     pose_est h5 file
-    :param video_path: Path to video file in project
-    :return: Path object representing location of corresponding pose_est h5 file
-    :raises ValueError: if video_path does not have corresponding pose_est file
+
+    Args:
+        video_path: Path to video file in project
+
+    Returns:
+        Path object representing location of corresponding pose_est h5 file
+
+    Raises:
+        ValueError: if video_path does not have corresponding pose_est file
     """
 
     file_base = video_path.with_suffix('')
@@ -58,29 +62,35 @@ def get_pose_path(video_path: Path):
 
 
 def get_pose_file_major_version(path: Path):
-    """
-    get the major version of a pose file from the _filename_
+    """get the major version of a pose file from the _filename_
     (does not inspect contents of file), assumes file name matches
     video_name_v[version number].h5
-    :param path: path of pose file
-    :return: integer major version number
+
+    Args:
+        path: path of pose file
+
+    Returns:
+        integer major version number
     """
     v = re.search(r'_v([0-9])+\.h5', str(path)).group(1)
     return int(v)
 
 
 def get_frames_from_file(path: Path):
-    """ peek into a pose_est file to count number of frames """
+    """peek into a pose_est file to count number of frames"""
     with h5py.File(path, 'r') as pose_h5:
         vid_grp = pose_h5['poseest']
         return vid_grp['points'].shape[0]
 
 
 def get_static_objects_in_file(path: Path):
-    """
-    peek into a pose file to get a list of the static objects it contains
-    :param path: path of pose file
-    :return: list of static object names contained in pose file
+    """peek into a pose file to get a list of the static objects it contains
+
+    Args:
+        path: path of pose file
+
+    Returns:
+        list of static object names contained in pose file
     """
 
     if get_pose_file_major_version(path) >= 5:
@@ -90,8 +100,7 @@ def get_static_objects_in_file(path: Path):
     return []
 
 def get_points_per_lixit(path: Path) -> int:
-    """
-    inspect a pose file to get the number of keypoints per lixit
+    """inspect a pose file to get the number of keypoints per lixit
     returns zero if the pose file does not have any lixit keypoints.
     """
     points_per_lixit = 0

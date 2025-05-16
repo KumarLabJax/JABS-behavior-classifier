@@ -7,9 +7,7 @@ from jabs.video_reader.utilities import get_fps
 
 
 class ClassifyThread(QtCore.QThread):
-    """
-    thread to run the classification to keep the main GUI thread responsive
-    """
+    """thread to run the classification to keep the main GUI thread responsive"""
 
     done = QtCore.Signal(dict)
     update_progress = QtCore.Signal(int)
@@ -24,8 +22,7 @@ class ClassifyThread(QtCore.QThread):
         self._current_video = current_video
 
     def run(self):
-        """
-        thread's main function. runs the classifier for each identity in each
+        """thread's main function. runs the classifier for each identity in each
         video
         """
         self._tasks_complete = 0

@@ -193,8 +193,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._export_training.setEnabled)
 
     def keyPressEvent(self, event: QKeyEvent):
-        """
-        override keyPressEvent so we can pass some key press events on
+        """override keyPressEvent so we can pass some key press events on
         to the centralWidget
         """
         key = event.key()
@@ -224,7 +223,7 @@ class MainWindow(QtWidgets.QMainWindow):
             super(MainWindow, self).keyPressEvent(event)
 
     def open_project(self, project_path: str):
-        """ open a new project directory """
+        """open a new project directory"""
         self._progress_dialog = QtWidgets.QProgressDialog(
             "Loading project...", None, 0, 0, self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
@@ -235,7 +234,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread.start()
 
     def behavior_changed_event(self, new_behavior: str):
-        """ menu items to change when a new behavior is selected. """
+        """menu items to change when a new behavior is selected."""
         # skip if no behavior assigned (only should occur during new project)
         if new_behavior is None or new_behavior == '':
             return
@@ -252,7 +251,7 @@ class MainWindow(QtWidgets.QMainWindow):
             menu_item.setChecked(static_settings.get(static_object, False))
 
     def behavior_label_add_event(self, behaviors: list[str]):
-        """ handle project updates required when user adds new behavior labels """
+        """handle project updates required when user adds new behavior labels"""
 
         # check for new behaviors
         for behavior in behaviors:
@@ -261,26 +260,30 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._project.settings_manager.save_behavior(behavior, {})
 
     def display_status_message(self, message: str, duration: int = 3000):
-        """
-        display a message in the main window status bar
-        :param message: message to display
-        :param duration: duration of the message in milliseconds. Use 0 to
-        display the message until clear_status_bar() is called
-        :return: None
+        """display a message in the main window status bar
+
+        Args:
+            message: message to display
+            duration: duration of the message in milliseconds. Use 0 to
+                display the message until clear_status_bar() is called
+
+        Returns:
+            None
         """
         if duration < 0:
             raise ValueError("duration must be >= 0")
         self._status_bar.showMessage(message, duration)
 
     def clear_status_bar(self):
-        """
-        clear the status bar message
-        :return: None
+        """clear the status bar message
+
+        Returns:
+            None
         """
         self._status_bar.clearMessage()
 
     def _show_project_open_dialog(self):
-        """ prompt the user to select a project directory and open it """
+        """prompt the user to select a project directory and open it"""
         options = QtWidgets.QFileDialog.Options()
         if not USE_NATIVE_FILE_DIALOG:
             options |= QtWidgets.QFileDialog.DontUseNativeDialog
@@ -300,7 +303,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _open_user_guide(self):
-        """ show the user guide document in a separate window """
+        """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
                 f"{self._app_name_long} ({self._app_name})")
@@ -329,7 +332,7 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
     def _toggle_video_list(self, checked: bool):
-        """ show/hide video list """
+        """show/hide video list"""
         if not checked:
             # user unchecked
             self.video_list.hide()
@@ -338,44 +341,44 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_list.show()
 
     def _toggle_track(self, checked: bool):
-        """ show/hide track overlay for subject. """
+        """show/hide track overlay for subject."""
         self._central_widget.show_track(checked)
 
     def _toggle_pose_overlay(self, checked: bool):
-        """ show/hide pose overlay for subject. """
+        """show/hide pose overlay for subject."""
         self._central_widget.overlay_pose(checked)
 
     def _toggle_landmark_overlay(self, checked: bool):
-        """ show/hide landmark features. """
+        """show/hide landmark features."""
         self._central_widget.overlay_landmarks(checked)
 
     def _toggle_segmentation_overlay(self, checked: bool):
-        """ show/hide segmentation overlay for subject. """
+        """show/hide segmentation overlay for subject."""
         self._central_widget.overlay_segmentation(checked)
 
     def _toggle_cm_units(self, checked: bool):
-        """ toggle project to use pixel units. """
+        """toggle project to use pixel units."""
         # TODO: Warn the user that features may need to be re-calculated
         self._project.save_behavior(self._central_widget.behavior, {'cm_units': checked})
 
     def _toggle_social_features(self, checked: bool):
-        """ toggle project to use social features. """
+        """toggle project to use social features."""
         self._project.save_behavior(self._central_widget.behavior, {'social': checked})
 
     def _toggle_window_features(self, checked: bool):
-        """ toggle project to use window features. """
+        """toggle project to use window features."""
         self._project.save_behavior(self._central_widget.behavior, {'window': checked})
 
     def _toggle_fft_features(self, checked: bool):
-        """ toggle project to use fft features. """
+        """toggle project to use fft features."""
         self._project.save_behavior(self._central_widget.behavior, {'fft': checked})
 
     def _toggle_segmentation_features(self, checked: bool):
-        """ toggle project to use segmentation features. """
+        """toggle project to use segmentation features."""
         self._project.save_behavior(self._central_widget.behavior, {'segmentation': checked})
 
     def _toggle_static_object_feature(self, checked: bool):
-        """ toggle project to use a specific static object feature set. """
+        """toggle project to use a specific static object feature set."""
         # get the key from the caller
         key = self.sender().text().split(' ')[1].lower()
         all_object_settings = self._project.get_behavior(self._central_widget.behavior).get('static_objects', {})
@@ -383,8 +386,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project.save_behavior(self._central_widget.behavior, {'static_objects': all_object_settings})
 
     def _video_list_selection(self, filename: str):
-        """
-        handle a click on a new video in the list loaded into the main
+        """handle a click on a new video in the list loaded into the main
         window dock
         """
         try:
@@ -403,9 +405,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.remove_behavior(behavior)
 
     def _project_loaded_callback(self):
-        """
-        Callback function to be called when the project is loaded.
-        """
+        """Callback function to be called when the project is loaded."""
         self._project = self._project_loader_thread.project
         self._project_loader_thread = None
 
@@ -430,16 +430,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
 
     def _project_load_error_callback(self, error: Exception):
-        """
-        Callback function to be called when the project fails to load.
-        """
+        """Callback function to be called when the project fails to load."""
         self._project_loader_thread = None
         self._progress_dialog.close()
         QtWidgets.QMessageBox.critical(
             self, "Error loading project", str(error))
 
     def show_license_dialog(self):
-        """ prompt the user to accept the license agreement if they haven't already """
+        """prompt the user to accept the license agreement if they haven't already"""
 
         # check to see if user already accepted the license
         if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
@@ -458,7 +456,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return result
 
     def _update_recent_projects(self):
-        """ update the contents of the Recent Projects menu """
+        """update the contents of the Recent Projects menu"""
         self._open_recent_menu.clear()
         recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
 
@@ -469,7 +467,7 @@ class MainWindow(QtWidgets.QMainWindow):
             action.triggered.connect(self._open_recent_project)
 
     def _add_recent_project(self, project_path: Path):
-        """ add a project to the recent projects list """
+        """add a project to the recent projects list"""
 
         # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
         path_str = str(project_path)
@@ -493,7 +491,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_recent_projects()
 
     def _open_recent_project(self):
-        """ open a recent project """
+        """open a recent project"""
         action  = self.sender()
         if action:
             project_path = action.data()

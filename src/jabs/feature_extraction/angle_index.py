@@ -3,7 +3,7 @@ from jabs.pose_estimation import PoseEstimation
 
 
 class AngleIndex(enum.IntEnum):
-    """ enum defining the indexes of the angle features """
+    """enum defining the indexes of the angle features"""
     NOSE_BASE_NECK_RIGHT_FRONT_PAW = 0
     NOSE_BASE_NECK_LEFT_FRONT_PAW = 1
     RIGHT_FRONT_PAW_BASE_NECK_CENTER_SPINE = 2

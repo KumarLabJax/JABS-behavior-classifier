@@ -24,10 +24,14 @@ class SocialFeatureGroup(FeatureGroup):
         self._closest_identities_cache = None
 
     def _init_feature_mods(self, identity: int):
-        """
-        initialize all of the feature modules specified in the current config
-        :param identity: subject identity to use when computing social features
-        :return: dictionary of initialized feature modules for this group
+        """initialize all of the feature modules specified in the current config
+
+        Args:
+            identity: subject identity to use when computing social
+                features
+
+        Returns:
+            dictionary of initialized feature modules for this group
         """
 
         # cache the most recent ClosestIdentityInfo, it's needed by
@@ -45,8 +49,7 @@ class SocialFeatureGroup(FeatureGroup):
 
     @property
     def closest_identities(self):
-        """
-        return the closest identities computed during the last call to
+        """return the closest identities computed during the last call to
         per_frame() (per_frame inherited from super class)
         """
         return self._closest_identities_cache

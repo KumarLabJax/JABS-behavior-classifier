@@ -15,11 +15,15 @@ class FoodHopper(Feature):
     _static_objects = ['food_hopper']
 
     def per_frame(self, identity: int) -> dict:
-        """
-        get the per frame feature values for the food hopper landmark
-        :param identity: identity to get feature values for
-        :return: numpy ndarray of values with shape (nframes, 10)
-        for each frame, the 10 values are the signed distance from the key point
+        """get the per frame feature values for the food hopper landmark
+
+        Args:
+            identity: identity to get feature values for
+
+        Returns:
+            numpy ndarray of values with shape (nframes, 10)
+
+        for each frame, the 10 feature values are the signed distance from the key point
         to the polygon defined by the food hopper key points (10 points
         because the mid tail and tail tip are excluded)
         """

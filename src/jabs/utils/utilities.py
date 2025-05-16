@@ -52,18 +52,21 @@ def smooth(vec, smoothing_window):
 
 
 def n_choose_r(n, r):
-    """
-    compute number of unique selections (disregarding order) of r items from
+    """compute number of unique selections (disregarding order) of r items from
     a set of n items
-    :param n: number of elements to select from
-    :param r: number of elements to select
-    :return: total number of combinations disregarding order
+
+    Args:
+        n: number of elements to select from
+        r: number of elements to select
+
+    Returns:
+        total number of combinations disregarding order
     """
     return math.factorial(n) // (math.factorial(r) * math.factorial(n - r))
 
 
 def hash_file(file: Path):
-    """ return hash """
+    """return hash"""
     chunk_size = 8192
     with file.open('rb') as f:
         h = hashlib.blake2b(digest_size=20)
@@ -75,13 +78,15 @@ def hash_file(file: Path):
 
 
 def get_bool_env_var(var_name, default_value=False) -> bool:
-    """
-    Gets a boolean value from an environment variable.
+    """Gets a boolean value from an environment variable.
 
-    :param var_name: The name of the environment variable.
-    :param default_value: The default value to return if the variable is not set or invalid.
+    Args:
+        var_name: The name of the environment variable.
+        default_value: The default value to return if the variable is
+            not set or invalid.
 
-    :return: A boolean value.
+    Returns:
+        A boolean value.
     """
 
     value = os.getenv(var_name)

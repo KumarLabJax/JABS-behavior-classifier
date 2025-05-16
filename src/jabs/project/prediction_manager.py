@@ -18,17 +18,15 @@ class MissingBehaviorError(Exception):
 
 
 class PredictionManager:
-    """
-    Class to manage the loading and saving of predictions.
-    """
+    """Class to manage the loading and saving of predictions."""
 
     _PREDICTION_FILE_VERSION = 2
 
     def __init__(self, project: "Project"):
-        """
-        Initialize the PredictionManager with a project.
+        """Initialize the PredictionManager with a project.
 
-        :param project: JABS Project object
+        Args:
+            project: JABS Project object
         """
         self._project = project
 
@@ -43,15 +41,20 @@ class PredictionManager:
         classifier,
         external_identities: list[int] | None = None,
     ):
-        """
-        write predictions out to a file
-        :param behavior: string describing the behavior
-        :param output_path: name of file to write predictions to
-        :param predictions: matrix of prediction class data of shape [n_animals, n_frames]
-        :param probabilities: matrix of probability for the predicted class of shape [n_animals, n_frames]
-        :param poses: PoseEstimation object for which predictions were made
-        :param classifier: Classifier object for which was used to make predictions
-        :param external_identities: list of external identities that correspond to the jabs identities
+        """write predictions out to a file
+
+        Args:
+            behavior: string describing the behavior
+            output_path: name of file to write predictions to
+            predictions: matrix of prediction class data of shape
+                [n_animals, n_frames]
+            probabilities: matrix of probability for the predicted class
+                of shape [n_animals, n_frames]
+            poses: PoseEstimation object for which predictions were made
+            classifier: Classifier object for which was used to make
+                predictions
+            external_identities: list of external identities that
+                correspond to the jabs identities
         """
         # TODO catch exceptions
         with h5py.File(output_path, "a") as h5:
@@ -85,11 +88,15 @@ class PredictionManager:
                 del behavior_group["identity_to_track"]
 
     def load_predictions(self, video: str, behavior: str):
-        """
-        load predictions for a given video and behavior
-        :param video: name of video to load predictions for
-        :param behavior: behavior to load predictions for
-        :return: tuple of three dicts: (predictions, probabilities, frame_indexes)
+        """load predictions for a given video and behavior
+
+        Args:
+            video: name of video to load predictions for
+            behavior: behavior to load predictions for
+
+        Returns:
+            tuple of three dicts: (predictions, probabilities,
+            frame_indexes)
         each dict has identities present in the video for keys
         """
 

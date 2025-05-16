@@ -50,9 +50,7 @@ class DistanceScaleException(Exception):
 
 
 class IdentityFeatures:
-    """
-    per frame and window features for a single identity
-    """
+    """per frame and window features for a single identity"""
 
     _version = FEATURE_VERSION
 
@@ -61,23 +59,28 @@ class IdentityFeatures:
                  op_settings: dict | None = None, cache_window: bool = True, 
                  compression_opts: int = COMPRESSION_OPTS_DEFAULT):
         """
-        :param source_file: name of the source video or pose file, used for
+        Args:
+            source_file: name of the source video or pose file, used for
+            identity: identity to extract features for
+            directory: path of the project directory. A value of None
+                can
+            pose_est: PoseEstimation object corresponding to this video
+            force: force regeneration of per frame features even if the
+            fps: frames per second. Used for converting angular velocity
+                from
+            op_settings: dict of optional settings to enable/disable
+            cache_window: bool to indicate saving the window features in
+                the cache directory
+            compression_opts: int to indicate the compression level for
+                saving features
         generating filenames for saving extracted features into the project
         directory. You can use None for this argument if directory is also set
         to None
-        :param identity: identity to extract features for
-        :param directory: path of the project directory. A value of None can
         be given to prevent saving to and loading from a project dir.
-        :param pose_est: PoseEstimation object corresponding to this video
-        :param force: force regeneration of per frame features even if the
         per frame feature .h5 file exists for this video/identity
-        :param fps: frames per second. Used for converting angular velocity from
         degrees per frame to degrees per second
-        :param op_settings: dict of optional settings to enable/disable
         when returning features. This will modify the contents returned by
         get_window_features, get_per_frame, and get_features
-        :param cache_window: bool to indicate saving the window features in the cache directory
-        :param compression_opts: int to indicate the compression level for saving features
         """
 
         self._pose_version = pose_est.format_major_version
@@ -143,11 +146,13 @@ class IdentityFeatures:
                 self.__initialize_from_pose_estimation(pose_est)
 
     def __initialize_from_pose_estimation(self, pose_est):
-        """
-        Initialize from a PoseEstimation object and save them in an h5 file
+        """Initialize from a PoseEstimation object and save them in an h5 file
 
-        :param pose_est: PoseEstimation object used to initialize self
-        :return: None
+        Args:
+            pose_est: PoseEstimation object used to initialize self
+
+        Returns:
+            None
         """
 
         # indicate this identity exists in this frame
@@ -162,17 +167,23 @@ class IdentityFeatures:
             self.__save_per_frame()
 
     def __load_from_file(self):
-        """
-        initialize from state previously saved in a h5 file on disk
+        """initialize from state previously saved in a h5 file on disk
         This method will throw an exception if this object
         was constructed with a value of None for directory
-        :raises OSError: if unable to open h5 file
-        :raises TypeError: if this object was constructed with a value of None
+
+        Raises:
+            OSError: if unable to open h5 file
+            TypeError: if this object was constructed with a value of
+                None
+            FeatureVersionException: if file version differs from
+                current
+            AssertionError: if metadata shape doesn't match feature
+                shape
         for directory
-        :raises FeatureVersionException: if file version differs from current
         feature version
-        :raises AssertionError: if metadata shape doesn't match feature shape
-        :return: None
+
+        Returns:
+            None
         """
 
         path = self._identity_feature_dir / 'features.h5'
@@ -228,8 +239,7 @@ class IdentityFeatures:
                 self._per_frame[module_name] = cur_module
 
     def __save_per_frame(self):
-        """
-        save per frame features to a h5 file
+        """save per frame features to a h5 file
         This method will throw an exception if this object
         was constructed with a value of None for directory
         """
@@ -315,14 +325,17 @@ class IdentityFeatures:
                 )
 
     def __save_window_features(self, features, window_size):
-        """
-        save window features to an h5 file
+        """save window features to an h5 file
         This method will throw an exception if this object
         was constructed with a value of None for directory
-        :param features: window features returned from
-        `get_window_features()` to save
-        :param window_size: window size used
-        :return: None
+
+        Args:
+            features: window features returned from `get_window_features()` to save
+            window_size: window size used
+
+
+        Returns:
+            None
         """
         path = self._identity_feature_dir / 'features.h5'
 
@@ -347,20 +360,21 @@ class IdentityFeatures:
                 )
 
     def __load_window_features(self, window_size):
-        """
-        load window features from an h5 file
-        :param window_size: window size specified as the number of frames on
-        each side of current frame, in addition to the current frame, to
-        include in the window
-        (so if size=5, the total number of frames in the window is actually 11)
-        :raises OSError: if unable to open h5 file
-        :raises AttributeError: if h5 file exists but doesn't contain cached window features
-        :raises TypeError: if this object was constructed with a value of None
-        for directory
-        :raises FeatureVersionException: if file version differs from current
-        feature version
+        """load window features from an h5 file
 
-        :return: window feature dict
+        Args:
+            window_size: window size specified as the number of frames
+                on each side of current frame, in addition to the current frame, to
+                include in the window (so if size=5, the total number of frames in the window is actually 11)
+
+        Raises:
+            OSError: if unable to open h5 file
+            AttributeError: if h5 file exists but doesn't contain cached window features
+            TypeError: if this object was constructed with a value of Nonefor directory
+            FeatureVersionException: if file version differs from current feature version
+
+        Returns:
+            window feature dict
         """
         path = self._identity_feature_dir / 'features.h5'
 
@@ -404,21 +418,26 @@ class IdentityFeatures:
 
     def get_window_features(self, window_size: int,
                             labels=None, force: bool = False):
-        """
-        get window features for a given window size, computing if not previously
+        """get window features for a given window size, computing if not previously
         computed and saved as h5 file
-        :param window_size: number of frames on each side of the current frame to
-        include in the window
-        :param labels: optional frame labels, if present then only features for
-        labeled frames will be returned
-        NOTE: if labels is None, this will also include values for frames where
-        the identity does not exist. These get filtered out when filtering out
-        unlabeled frames, since those frames are always unlabeled.
-        :param force: force regeneration of the window features even if the
-        h5 file already exists
-        :return: window features for given window size. the format is documented
-        in the docstring for _compute_window_features
-        features are filtered by self.op_settings
+
+        Args:
+            window_size: number of frames on each side of the current
+                frame to include in the window
+            labels: optional frame labels, if present then only features
+                for labeled frames will be returned
+            force: force regeneration of the window features even if the
+               features are filtered by self.op_settings
+
+        NOTE:
+            if labels is None, this will also include values for frames where
+            the identity does not exist. These get filtered out when filtering out
+            unlabeled frames, since those frames are always unlabeled.
+            h5 file already exists
+
+        Returns:
+            window features for given window size. the format is
+            documented in the docstring for _compute_window_features
         """
 
         if force or self._identity_feature_dir is None:
@@ -465,25 +484,30 @@ class IdentityFeatures:
         return final_features
 
     def get_per_frame(self, labels=None):
-        """
-        get per frame features
-        :param labels: if present, only return features for labeled frames
-        NOTE: if labels is None, this will include also values for frames where
-        the identity does not exist. These get filtered out when filtering out
-        unlabeled frames, since those frames are always unlabeled.
-        :return: returns per frame features in dictionary with this form
+        """get per frame features
 
-        {
-            'pairwise_distances': {
-                'distance1': 1d numpy array,
-                'distance2': 1d numpy array,
+        Args:
+            labels: if present, only return features for labeled frames
+
+        NOTE: if labels is None, this will include also values for frames where
+            the identity does not exist. These get filtered out when filtering out
+            unlabeled frames, since those frames are always unlabeled.
+
+        Returns:
+            returns per frame features in dictionary with this form
+
+            {
+                'pairwise_distances': {
+                    'distance1': 1d numpy array,
+                    'distance2': 1d numpy array,
+                    ...
+                },
+                'angles': {...},
+                'point_speeds': {...},
                 ...
-            },
-            'angles': {...},
-            'point_speeds': {...},
-            ...
-        }
-        features are filtered by self.op_settings
+            }
+
+            features are filtered by self.op_settings
         """
 
         if labels is None:
@@ -505,18 +529,22 @@ class IdentityFeatures:
         return features
 
     def get_features(self, window_size: int):
-        """
-        get features and corresponding frame indexes for classification
+        """get features and corresponding frame indexes for classification
         omits frames where the identity is not valid, so 'frame_indexes' array
         may not be consecutive
-        :param window_size: window size to use
-        :return: dictionary with the following keys:
 
-          'per_frame': dict with feature name as keys, numpy array as values
-          'window': dict, see _compute_window_features
-          'frame_indexes': 1D np array, maps elements of per frame and window
-             feature arrays back to global frame indexes
-        features are filtered by self.op_settings
+        Args:
+            window_size: window size to use
+
+        Returns:
+            dictionary with the following keys:
+
+            'per_frame': dict with feature name as keys, numpy array as values
+            'window': dict, see _compute_window_features
+            'frame_indexes': 1D np array, maps elements of per frame and window
+               feature arrays back to global frame indexes
+
+            features are filtered by self.op_settings
         """
         per_frame_features = self.get_per_frame()
         window_features = self.get_window_features(window_size)
@@ -530,10 +558,13 @@ class IdentityFeatures:
         }
 
     def _filter_base_features_by_op(self, features):
-        """
-        filter either per_frame or window features by the self._op_settings
-        :param features: dict of feature data
-        :return: filtered features
+        """filter either per_frame or window features by the self._op_settings
+
+        Args:
+            features: dict of feature data
+
+        Returns:
+            filtered features
         """
         names_to_remove = []
         for setting_name, setting_val in self._op_settings.items():
@@ -550,10 +581,13 @@ class IdentityFeatures:
         return {k: v for k, v in features.items() if k not in names_to_remove}
 
     def _filter_window_features_by_op(self, features):
-        """
-        filter window features by the self._op_settings
-        :param features: dict of window feature data (must be dict of dict of dict)
-        :return: filtered features
+        """filter window features by the self._op_settings
+
+        Args:
+            features: dict of window feature data (must be dict of dict of dict)
+
+        Returns:
+            filtered features
         """
         names_to_remove = []
         for setting_name, setting_val in self._op_settings.items():
@@ -577,13 +611,15 @@ class IdentityFeatures:
 
 
     def __compute_window_features(self, window_size: int):
-        """
-        compute all window features using a given window size
-        :param window_size: number of frames on each side of the current frame
-        to include in the window
-        (so, for example, if window_size = 5, then the total number of frames
-        in the window is 11)
-        :return: dictionary of the form:
+        """compute all window features using a given window size
+
+        Args:
+            window_size: number of frames on each side of the current frame to include in the window
+                (so, for example, if window_size = 5, then the total number of frames
+                in the window is 11)
+
+        Returns:
+            dictionary of the form:
         {
             'angles' {
                 'mean': {
@@ -620,12 +656,14 @@ class IdentityFeatures:
 
     @classmethod
     def merge_per_frame_features(cls, features: dict) -> dict:
-        """
-        merge a dict of per-frame features where each element in the dict is
+        """merge a dict of per-frame features where each element in the dict is
         a set of per-frame features computed for an individual animal
-        :param features: list of per-frame feature instances
 
-        :return: dict of the form
+        Args:
+            features: list of per-frame feature instances
+
+        Returns:
+            dict of the form
         {
             'feature_1_name': feature_1_vector,
             'feature_2_name': feature_2_vector,
@@ -645,11 +683,14 @@ class IdentityFeatures:
 
     @classmethod
     def merge_window_features(cls, features: dict) -> dict:
-        """
-        merge a dict of window features where each element in the dict is the
+        """merge a dict of window features where each element in the dict is the
         set of window features computed for an individual animal
-        :param features: dict of window feature dicts
-        :return: dictionary of the form:
+
+        Args:
+            features: dict of window feature dicts
+
+        Returns:
+            dictionary of the form:
         {
             'mod1 feature_1_name': mod1_feature_1_vector,
             'mod2 feature_2_name': mod2_feature_2_vector,
@@ -674,19 +715,24 @@ class IdentityFeatures:
             static_objects: set[str],
             **kwargs,
     ) -> dict[str, list[str]]:
-        """
-        get all the extended features that can be used given a minimum pose
+        """get all the extended features that can be used given a minimum pose
         version and list of available static objects
-        :param pose_version: integer pose version
-        :param static_objects: list of static object names
-        :param kwargs: additional keyword arguments that might be used to determine
-          if a feature is supported for a given pose file
-        :return: dictionary of supported extended features, where the keys
-        are "feature group" name(s) and values are feature names that can
-        be used from that group
 
-        TODO social features probably should get moved into the 'extended'
-          features, but they are still handled as a special case
+        Args:
+            pose_version: integer pose version
+            static_objects: list of static object names
+            **kwargs: additional keyword arguments that might be used to
+                determine if a feature is supported for a given pose
+                file
+
+        Returns:
+            dictionary of supported extended features, where the keys
+            are "feature group" name(s) and values are feature names that can
+            be used from that group
+
+        TODO:
+            social features probably should get moved into the 'extended'
+            features, but they are still handled as a special case
         """
 
         return {

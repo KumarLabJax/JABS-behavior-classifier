@@ -2,8 +2,7 @@ from PySide6 import QtWidgets, QtCore
 
 
 class IdentityComboBox(QtWidgets.QComboBox):
-    """
-    Subclass the combo box to emit a signal that indicates if it has been
+    """Subclass the combo box to emit a signal that indicates if it has been
     opened or closed. This is used to tell the PlayerWidget to switch to the
     "label identities mode".
     """
@@ -19,8 +18,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
         self._signal_handler_connected = False
 
     def showPopup(self):
-        """
-        showPopup is overridden so that we can emit a signal every time
+        """showPopup is overridden so that we can emit a signal every time
         it is shown
         """
         self.pop_up_visible.emit(True)
@@ -47,8 +45,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
     #     super(IdentityComboBox, self).hidePopup()
 
     def cancel_popup(self):
-        """
-        Part of the work around described in showPopup. This is connected to
+        """Part of the work around described in showPopup. This is connected to
         the resetButton signal for the QComboBoxPrivateContainer. This lets us
         emit the signal when the user dismisses the popup by clicking outside
         the QComboBox drop down. This can be removed if the behavior of

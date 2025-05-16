@@ -23,8 +23,7 @@ __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
 def get_pose_stem(pose_path: Path):
-    """
-    takes a pose path as input and returns the name component
+    """takes a pose path as input and returns the name component
     with the '_pose_est_v#.h5' suffix removed
     """
     m = re.match(r'^(.+)(_pose_est_v[0-9]+\.h5)$', pose_path.name)

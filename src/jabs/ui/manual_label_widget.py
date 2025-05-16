@@ -9,9 +9,7 @@ from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
 
 
 class ManualLabelWidget(QWidget):
-    """
-    widget used to show labels for a range of frames around the current frame
-    """
+    """widget used to show labels for a range of frames around the current frame"""
 
     _BORDER_COLOR = QColor(212, 212, 212)
     _SELECTION_COLOR = QColor(*SELECTION_COLOR)
@@ -58,8 +56,7 @@ class ManualLabelWidget(QWidget):
         self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.Dense6Pattern)
 
     def sizeHint(self):
-        """
-        Override QWidget.sizeHint to give an initial starting size.
+        """Override QWidget.sizeHint to give an initial starting size.
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -72,8 +69,7 @@ class ManualLabelWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) // 2
 
     def paintEvent(self, event):
-        """
-        override QWidget paintEvent
+        """override QWidget paintEvent
 
         This draws the widget.
         TODO: this could could be broken up into a few logical steps
@@ -189,11 +185,12 @@ class ManualLabelWidget(QWidget):
         qp.end()
 
     def _draw_second_ticks(self, painter, start, end):
-        """
-        draw ticks at one second intervals
-        :param painter: active QPainter
-        :param start: starting frame number
-        :param end: ending frame number
+        """draw ticks at one second intervals
+
+        Args:
+            painter: active QPainter
+            start: starting frame number
+            end: ending frame number
         """
 
         # can't draw if we don't know the frame rate yet
@@ -209,41 +206,40 @@ class ManualLabelWidget(QWidget):
                 painter.drawRect(offset, 0, self._frame_width - 1, 4)
 
     def set_labels(self, labels, mask=None):
-        """ load label track to display """
+        """load label track to display"""
         self._labels = labels
         self._identity_mask = mask
         self.update()
 
     def set_current_frame(self, current_frame):
-        """ called to reposition the view around new current frame """
+        """called to reposition the view around new current frame"""
         self._current_frame = current_frame
         # force redraw
         self.repaint()
 
     def set_num_frames(self, num_frames):
-        """ set number of frames in current video, needed to properly render """
+        """set number of frames in current video, needed to properly render"""
         self._num_frames = num_frames
 
     def set_framerate(self, fps):
-        """
-        set the frame rate for the currently loaded video, needed to draw the
+        """set the frame rate for the currently loaded video, needed to draw the
         ticks at one second intervals
-        :param fps: frame rate in frames per second
+
+        Args:
+            fps: frame rate in frames per second
         """
         self._framerate = fps
 
     def start_selection(self, start_frame):
-        """
-        start highlighting selection from start_frame to self._current_frame
-        """
+        """start highlighting selection from start_frame to self._current_frame"""
         self._selection_start = start_frame
 
     def clear_selection(self):
-        """ stop highlighting selection """
+        """stop highlighting selection"""
         self._selection_start = None
 
     def _get_gap_blocks(self, start, end):
-        """ generate blocks for gaps in the current identity track """
+        """generate blocks for gaps in the current identity track"""
         block_start = 0
         blocks = []
 

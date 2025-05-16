@@ -5,8 +5,7 @@ import cv2
 
 
 class VideoReader:
-    """
-    VideoReader.
+    """VideoReader.
 
     Uses OpenCV to open a video file and read frames.
     """
@@ -15,9 +14,8 @@ class VideoReader:
 
     def __init__(self, path: Path):
         """
-
-        :param path: path to video file
-        :raises: IOError if unable to open video file
+        Args:
+            path: path to video file
         """
         # open video file
         self.stream = cv2.VideoCapture(str(path))
@@ -41,32 +39,31 @@ class VideoReader:
 
     @property
     def num_frames(self):
-        """ get total number of frames in the video """
+        """get total number of frames in the video"""
         return self._num_frames
 
     @property
     def fps(self):
-        """ get frames per second from video """
+        """get frames per second from video"""
         return self._fps
 
     @property
     def dimensions(self):
-        """ return width, height of video frames """
+        """return width, height of video frames"""
         return self._width, self._height
 
     @property
     def filename(self):
-        """ return the name of the video file """
+        """return the name of the video file"""
         return self._filename
 
     def get_frame_time(self, frame_number):
-        """ return a formatted string of the time of a given frame """
+        """return a formatted string of the time of a given frame"""
         return time.strftime('%H:%M:%S',
                              time.gmtime(frame_number * self._duration))
 
     def seek(self, index):
-        """
-        Seek to a specific frame.
+        """Seek to a specific frame.
         This will clear the buffer and insert the frame at the new position.
 
         NOTE:
@@ -78,7 +75,7 @@ class VideoReader:
             self._frame_index = index
 
     def load_next_frame(self) -> dict:
-        """ grab the next frame from the file """
+        """grab the next frame from the file"""
         (grabbed, frame) = self.stream.read()
         if grabbed:
 
@@ -94,17 +91,19 @@ class VideoReader:
 
     @staticmethod
     def _resize_image(image, width=None, height=None, interpolation=None):
-        """
-        resize an image, allow passing only desired width or height to
+        """resize an image, allow passing only desired width or height to
         maintain current aspect ratio
 
-        :param image: image to resize
-        :param width: new width, if None compute to maintain aspect ratio
-        :param height: new height, if None compute to maintain aspect ratio
-        :param interpolation: type of interpolation to use for resize. If None,
-        we will default to cv2.INTER_AREA for shrinking cv2.INTER_CUBIC when
-        expanding
-        :return: resized image
+        Args:
+            image: image to resize
+            width: new width, if None compute to maintain aspect ratio
+            height: new height, if None compute to maintain aspect ratio
+            interpolation: type of interpolation to use for resize. If
+                None, we will default to cv2.INTER_AREA for shrinking cv2.INTER_CUBIC when
+                expanding
+
+        Returns:
+            resized image
         """
         # current size
         (h, w) = image.shape[:2]

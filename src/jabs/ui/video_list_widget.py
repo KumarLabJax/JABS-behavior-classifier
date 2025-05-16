@@ -2,8 +2,7 @@ from PySide6 import QtWidgets, QtCore
 
 
 class _VideoListWidget(QtWidgets.QListWidget):
-    """
-    QListView that has been modified to not allow deselecting current selection
+    """QListView that has been modified to not allow deselecting current selection
     without selecting a new row
     """
     def __init__(self):
@@ -21,7 +20,7 @@ class _VideoListWidget(QtWidgets.QListWidget):
             QtWidgets.QAbstractItemView.NoEditTriggers)
 
     def selectionCommand(self, index, event=None):
-        """ override QListView """
+        """override QListView"""
         selected = self.selectedIndexes()
         if len(selected) == 1 and selected[0].row() == index.row():
             # don't allow "no selection", so ignore clicks on the already
@@ -32,8 +31,7 @@ class _VideoListWidget(QtWidgets.QListWidget):
 
 
 class VideoListDockWidget(QtWidgets.QDockWidget):
-    """
-    dock for listing video files associated with the project.
+    """dock for listing video files associated with the project.
     dock is floating and can
     """
 
@@ -51,13 +49,12 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self.file_list.currentItemChanged.connect(self._selection_changed)
 
     def _selection_changed(self, current, previous):
-        """ signal main window that use changed selected video """
+        """signal main window that use changed selected video"""
         if current:
             self.selectionChanged.emit(current.text())
 
     def set_project(self, project):
-        """
-        set currently active project and update list contents with videos
+        """set currently active project and update list contents with videos
         from new active project
         """
         self._project = project
