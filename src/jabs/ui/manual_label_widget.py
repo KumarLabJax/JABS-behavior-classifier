@@ -101,13 +101,9 @@ class ManualLabelWidget(QWidget):
         # Calculate padding in pixels
         start_padding = max(0, -start) * self._frame_width
 
-        # Step 1: Create a QImage filled with the padding pattern
-        img = QImage(self._nframes * self._frame_width, self._bar_height, QImage.Format_ARGB32)
-        img.fill(Qt.transparent)
-
-        # Use QPainter to fill with the padding pattern
+        # Use QPainter to fill drawing area with the padding pattern
         qp.setBrush(self._padding_brush)
-        qp.drawRect(self._offset, 0, img.width(), img.height())
+        qp.drawRect(self._offset, 0, self._adjusted_width, self._bar_height)
 
         # Draw the main bar image
         if self._labels is not None:
@@ -121,7 +117,7 @@ class ManualLabelWidget(QWidget):
             # set color index to gap index (transparent) for any gaps in the identity
             color_indices[mask == 0] = self.GAP_INDEX
 
-            # Map indicies to RGBA colors
+            # Map indices to RGBA colors
             colors = self.color_lut[color_indices]
 
             # expand color array to bar height
