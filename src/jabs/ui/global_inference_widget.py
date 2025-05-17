@@ -32,7 +32,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
 
         # use downsampled labels to generate RGBA colors
         # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
-        colors = self.color_lut[downsampled + 1] # shape (width, 4)
+        colors = self.COLOR_LUT[downsampled + 1] # shape (width, 4)
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
 
         img = QImage(color_bar.data, color_bar.shape[1], color_bar.shape[0], QImage.Format_RGBA8888)

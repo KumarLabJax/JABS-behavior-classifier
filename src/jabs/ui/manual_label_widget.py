@@ -20,7 +20,7 @@ class ManualLabelWidget(QWidget):
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
-    color_lut = np.array([
+    COLOR_LUT = np.array([
         BACKGROUND_COLOR,
         NOT_BEHAVIOR_COLOR,
         BEHAVIOR_COLOR,
@@ -118,7 +118,7 @@ class ManualLabelWidget(QWidget):
             color_indices[mask == 0] = self.GAP_INDEX
 
             # Map indices to RGBA colors
-            colors = self.color_lut[color_indices]
+            colors = self.COLOR_LUT[color_indices]
 
             # expand color array to bar height
             # shape (bar_height, frames in view, 4)

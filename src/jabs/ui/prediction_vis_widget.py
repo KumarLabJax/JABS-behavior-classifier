@@ -61,7 +61,7 @@ class PredictionVisWidget(ManualLabelWidget):
             color_indices = self._predictions[slice_start:slice_end + 1] + 1
 
             # Map to RGBA colors
-            colors = self.color_lut[color_indices]
+            colors = self.COLOR_LUT[color_indices]
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:

@@ -19,7 +19,7 @@ class TimelineLabelWidget(QWidget):
     """
 
     # Define color LUT (RGBA)
-    color_lut = np.array([
+    COLOR_LUT = np.array([
         BACKGROUND_COLOR,
         NOT_BEHAVIOR_COLOR,
         BEHAVIOR_COLOR,
@@ -151,7 +151,7 @@ class TimelineLabelWidget(QWidget):
 
         # use downsampled labels to generate RGBA colors
         # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
-        colors = self.color_lut[downsampled + 1]  # shape (width, 4)
+        colors = self.COLOR_LUT[downsampled + 1]  # shape (width, 4)
 
         # resize colors to bar height: shape = (height, width, 4)
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
