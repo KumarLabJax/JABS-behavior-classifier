@@ -1,6 +1,6 @@
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPixmap, QColor
+from PySide6.QtGui import QPainter, QPixmap, QImage
 
 from jabs.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
@@ -28,25 +28,12 @@ class GlobalInferenceWidget(TimelineLabelWidget):
 
         downsampled = TrackLabels.downsample(self._labels, width)
 
-        # draw the bar, each pixel along the width corresponds to a value in the
-        # down sampled label array
-        qp = QPainter(self._pixmap)
-        for x in range(width):
-            if downsampled[x] == TrackLabels.Label.NONE.value:
-                qp.setPen(QColor(212, 212, 212))
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
-                qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
-                qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX.value:
-                # bin contains mix of behavior/not behavior labels
-                qp.setPen(self._MIX_COLOR)
-            else:
-                continue
-
-            # draw a vertical bar of pixels
-            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
-        qp.end()
+        colors = self.color_lut[downsampled + 1] # shape (width, 4)
+        colors = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
+        img = QImage(colors.data, colors.shape[1], colors.shape[0], QImage.Format_RGBA8888)
+        painter = QPainter(self._pixmap)
+        painter.drawImage(0, self._bar_padding, img)
+        painter.end()
 
     def set_num_frames(self, num_frames):
         """sets the number of frames in the current video, and resets the display

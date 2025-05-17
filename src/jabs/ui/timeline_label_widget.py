@@ -3,12 +3,15 @@ import math
 import numpy as np
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
+from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush, QImage
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from jabs.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR)
+
+
+
 
 
 class TimelineLabelWidget(QWidget):
@@ -19,11 +22,16 @@ class TimelineLabelWidget(QWidget):
     labeling.
     """
 
-    _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
-    _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
-    _MIX_COLOR = QColor(144, 102, 132)
-    _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
+    # Define color LUT (RGBA)
+    color_lut = np.array([
+        BACKGROUND_COLOR,
+        NOT_BEHAVIOR_COLOR,
+        BEHAVIOR_COLOR,
+        [144, 102, 132, 255],  # MIX
+        [0, 0, 0, 0]  # PAD
+    ], dtype=np.uint8)
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -148,24 +156,12 @@ class TimelineLabelWidget(QWidget):
             downsampled = TrackLabels.downsample(
                 np.full(self._num_frames, TrackLabels.Label.NONE), pixmap_width)
 
-        # draw the bar, each pixel along the width corresponds to a value in the
-        # down sampled label array
-        qp = QPainter(self._pixmap)
-        for x in range(pixmap_width):
-            if downsampled[x] == TrackLabels.Label.NONE.value:
-                qp.setPen(self._BACKGROUND_COLOR)
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
-                qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
-                qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX.value:
-                # bin contains mix of behavior/not behavior labels
-                qp.setPen(self._MIX_COLOR)
-            else:
-                continue
-
-            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
-        qp.end()
+        colors = self.color_lut[downsampled + 1] # shape (width, 4)
+        colors = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
+        img = QImage(colors.data, colors.shape[1], colors.shape[0], QImage.Format_RGBA8888)
+        painter = QPainter(self._pixmap)
+        painter.drawImage(0, self._bar_padding, img)
+        painter.end()
 
     def _update_scale(self):
         """update scale factor and bin size"""
