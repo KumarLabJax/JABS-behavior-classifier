@@ -102,6 +102,7 @@ class TimelineLabelWidget(QWidget):
         qp.drawRect(start, 0, self._frames_in_view // self._bin_size,
                     self.size().height() - 1)
 
+        # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
 
     def set_labels(self, labels):
@@ -156,9 +157,15 @@ class TimelineLabelWidget(QWidget):
             downsampled = TrackLabels.downsample(
                 np.full(self._num_frames, TrackLabels.Label.NONE), pixmap_width)
 
+        # use downsampled labels to generate RGBA colors
+        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
         colors = self.color_lut[downsampled + 1] # shape (width, 4)
-        colors = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
-        img = QImage(colors.data, colors.shape[1], colors.shape[0], QImage.Format_RGBA8888)
+
+        # resize colors to bar height
+        color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (width, bar height, 4)
+
+        # convert bar to QImage and draw it to the pixmap
+        img = QImage(color_bar.data, color_bar.shape[1], color_bar.shape[0], QImage.Format_RGBA8888)
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
