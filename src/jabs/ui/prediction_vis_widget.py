@@ -68,10 +68,10 @@ class PredictionVisWidget(ManualLabelWidget):
                 alphas = (self._probabilities[slice_start:slice_end + 1] * 255).astype(np.uint8)
                 colors[:, 3] = alphas
 
-            # Expand to bar height
+            # Expand to bar height: shape = (bar_height, frames in view, 4)
             colors_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
-            # Expand each frame horizontally
+            # Expand each frame horizontally: shape = (bar_height, frames in view * frame pixel width, 4)
             colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
 
             # Draw the bar
