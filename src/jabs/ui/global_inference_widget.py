@@ -1,6 +1,7 @@
 import numpy as np
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPixmap, QColor
+from PySide6.QtGui import QPainter, QPixmap, QImage
 
 from jabs.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
@@ -18,40 +19,37 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         """Updates the bar pixmap. Downsamples with the current size and updates
         self._pixmap
         """
+
+        if self._labels is None:
+            return
+
         width = self.size().width()
         height = self.size().height()
         self._pixmap = QPixmap(width, height)
         self._pixmap.fill(Qt.transparent)
 
-        if self._labels is None:
-            return
-
         downsampled = TrackLabels.downsample(self._labels, width)
 
-        # draw the bar, each pixel along the width corresponds to a value in the
-        # down sampled label array
-        qp = QPainter(self._pixmap)
-        for x in range(width):
-            if downsampled[x] == TrackLabels.Label.NONE.value:
-                qp.setPen(QColor(212, 212, 212))
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
-                qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
-                qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX.value:
-                # bin contains mix of behavior/not behavior labels
-                qp.setPen(self._MIX_COLOR)
-            else:
-                continue
+        # use downsampled labels to generate RGBA colors
+        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
+        colors = self.COLOR_LUT[downsampled + 1]  # shape (width, 4)
+        color_bar = np.repeat(
+            colors[np.newaxis, :, :], self._bar_height, axis=0
+        )  # shape (bar_height, width, 4)
 
-            # draw a vertical bar of pixels
-            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
-        qp.end()
+        img = QImage(
+            color_bar.data,
+            color_bar.shape[1],
+            color_bar.shape[0],
+            QImage.Format_RGBA8888,
+        )
+        painter = QPainter(self._pixmap)
+        painter.drawImage(0, self._bar_padding, img)
+        painter.end()
 
     def set_num_frames(self, num_frames):
         """sets the number of frames in the current video, and resets the display
         with a blank track
         """
-        self._labels = np.full(num_frames, TrackLabels.Label.NONE.value,
-                               dtype=np.byte)
+        self._labels = np.full(num_frames, TrackLabels.Label.NONE.value, dtype=np.byte)
         super().set_num_frames(num_frames)

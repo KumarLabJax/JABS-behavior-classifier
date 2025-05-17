@@ -3,12 +3,15 @@ import math
 import numpy as np
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush
+from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush, QImage
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from jabs.project.track_labels import TrackLabels
-from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
-                     POSITION_MARKER_COLOR)
+from .colors import (
+    BEHAVIOR_COLOR,
+    NOT_BEHAVIOR_COLOR,
+    BACKGROUND_COLOR,
+    POSITION_MARKER_COLOR,
+)
 
 
 class TimelineLabelWidget(QWidget):
@@ -19,10 +22,17 @@ class TimelineLabelWidget(QWidget):
     labeling.
     """
 
-    _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
-    _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
-    _MIX_COLOR = QColor(144, 102, 132)
-    _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
+    # Define color LUT (RGBA)
+    COLOR_LUT = np.array(
+        [
+            BACKGROUND_COLOR,
+            NOT_BEHAVIOR_COLOR,
+            BEHAVIOR_COLOR,
+            [144, 102, 132, 255],  # MIX
+            [0, 0, 0, 0],  # PAD
+        ],
+        dtype=np.uint8,
+    )
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
 
     def __init__(self, *args, **kwargs):
@@ -81,19 +91,24 @@ class TimelineLabelWidget(QWidget):
         if self._pixmap is None or self._bin_size == 0:
             return
 
-        # get the current position
-        mapped_position = self._current_frame // self._bin_size
-
         qp = QPainter(self)
 
-        # draw a box around what is currently being displayed in the
-        # ManualLabelWidget
-        start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
+        # get the current position
+        mapped_position = self._current_frame // self._bin_size
+        start = (
+            mapped_position
+            - (self._window_size // self._bin_size)
+            + self._pixmap_offset
+        )
+
+        # highlight the current position
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
-        qp.drawRect(start, 0, self._frames_in_view // self._bin_size,
-                    self.size().height() - 1)
+        qp.drawRect(
+            start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1
+        )
 
+        # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
 
     def set_labels(self, labels):
@@ -126,6 +141,9 @@ class TimelineLabelWidget(QWidget):
         and updates self._pixmap
         """
 
+        if self._labels is None:
+            return
+
         width = self.size().width()
         height = self.size().height()
 
@@ -139,40 +157,31 @@ class TimelineLabelWidget(QWidget):
         self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.transparent)
 
-        if self._labels is not None:
-            downsampled = self._labels.downsample(self._labels.get_labels(),
-                                                  pixmap_width)
-        else:
-            # if we don't have labels loaded yet, create a dummy array of
-            # unlabeled frames to display
-            downsampled = TrackLabels.downsample(
-                np.full(self._num_frames, TrackLabels.Label.NONE), pixmap_width)
+        downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
 
-        # draw the bar, each pixel along the width corresponds to a value in the
-        # down sampled label array
-        qp = QPainter(self._pixmap)
-        for x in range(pixmap_width):
-            if downsampled[x] == TrackLabels.Label.NONE.value:
-                qp.setPen(self._BACKGROUND_COLOR)
-            elif downsampled[x] == TrackLabels.Label.BEHAVIOR.value:
-                qp.setPen(self._BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.NOT_BEHAVIOR.value:
-                qp.setPen(self._NOT_BEHAVIOR_COLOR)
-            elif downsampled[x] == TrackLabels.Label.MIX.value:
-                # bin contains mix of behavior/not behavior labels
-                qp.setPen(self._MIX_COLOR)
-            else:
-                continue
+        # use downsampled labels to generate RGBA colors
+        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
+        colors = self.COLOR_LUT[downsampled + 1]  # shape (width, 4)
 
-            qp.drawLine(x, self._bar_padding, x, self._bar_padding + self._bar_height - 1)
-        qp.end()
+        # resize colors to bar height: shape = (height, width, 4)
+        color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
+
+        # convert bar to QImage and draw it to the pixmap
+        img = QImage(
+            color_bar.data,
+            color_bar.shape[1],
+            color_bar.shape[0],
+            QImage.Format_RGBA8888,
+        )
+        painter = QPainter(self._pixmap)
+        painter.drawImage(0, self._bar_padding, img)
+        painter.end()
 
     def _update_scale(self):
         """update scale factor and bin size"""
         width = self.size().width()
 
-        pad_size = math.ceil(
-            float(self._num_frames) / width) * width - self._num_frames
+        pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
         self._bin_size = int(self._num_frames + pad_size) // width
 
         padding = (self._bin_size * width - self._num_frames) // self._bin_size

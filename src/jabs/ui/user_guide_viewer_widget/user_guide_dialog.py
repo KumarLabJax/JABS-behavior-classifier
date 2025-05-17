@@ -39,7 +39,7 @@ class UserGuideDialog(QDialog):
 
         try:
             html = markdown2.markdown_path(str(user_guide_path),  extras=['fenced-code-blocks'])
-        except:
+        except: # noqa: E722
             # if there is any error rendering the markdown as html, display
             # an error message instead
             html = '<b>Error Loading User Guide</b>'
