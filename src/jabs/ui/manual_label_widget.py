@@ -49,7 +49,7 @@ class ManualLabelWidget(QWidget):
         self._current_frame = 0
         self._selection_start = None
 
-        # information about the video needed to properly render widdget
+        # information about the video needed to properly render widget
         self._num_frames = 0
         self._framerate = 0
 
