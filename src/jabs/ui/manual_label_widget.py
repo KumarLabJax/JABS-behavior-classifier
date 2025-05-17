@@ -1,5 +1,3 @@
-from itertools import groupby
-
 import numpy as np
 
 from PySide6.QtCore import QSize, Qt
@@ -81,8 +79,6 @@ class ManualLabelWidget(QWidget):
 
         This draws the widget.
         """
-
-        width = self._adjusted_width
 
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
