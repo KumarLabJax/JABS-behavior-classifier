@@ -1,7 +1,7 @@
 import numpy as np
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter,QImage
+from PySide6.QtGui import QPainter, QImage
 
 from .manual_label_widget import ManualLabelWidget
 
@@ -51,21 +51,28 @@ class PredictionVisWidget(ManualLabelWidget):
         # Draw end padding
         if end_padding_width > 0:
             qp.setBrush(self._padding_brush)
-            qp.drawRect(self._offset + start_padding + in_bounds_width, 0, end_padding_width, self._bar_height)
+            qp.drawRect(
+                self._offset + start_padding + in_bounds_width,
+                0,
+                end_padding_width,
+                self._bar_height,
+            )
 
         # Draw predictions using color_lut
         # will be overlayed on top of the white background, lower probability will be more transparent
         if self._predictions is not None:
             # Convert predictions to color_lut indices (assume -1, 0, 1 corresponds to no prediction, not behavior, behavior)
             # add 1 to the predictions to convert to indices in color_lut
-            color_indices = self._predictions[slice_start:slice_end + 1] + 1
+            color_indices = self._predictions[slice_start : slice_end + 1] + 1
 
             # Map to RGBA colors
             colors = self.COLOR_LUT[color_indices]
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:
-                alphas = (self._probabilities[slice_start:slice_end + 1] * 255).astype(np.uint8)
+                alphas = (
+                    self._probabilities[slice_start : slice_end + 1] * 255
+                ).astype(np.uint8)
                 colors[:, 3] = alphas
 
             # Expand to bar height: shape = (bar_height, frames in view, 4)
@@ -75,7 +82,12 @@ class PredictionVisWidget(ManualLabelWidget):
             colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
 
             # Draw the bar
-            img = QImage(colors_bar.data, colors_bar.shape[1], colors_bar.shape[0], QImage.Format_RGBA8888)
+            img = QImage(
+                colors_bar.data,
+                colors_bar.shape[1],
+                colors_bar.shape[0],
+                QImage.Format_RGBA8888,
+            )
             qp.drawImage(self._offset + start_padding, 0, img)
 
         self._draw_position_marker(qp)
