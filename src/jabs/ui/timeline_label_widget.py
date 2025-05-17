@@ -6,8 +6,12 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush, QImage
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
-                     POSITION_MARKER_COLOR)
+from .colors import (
+    BEHAVIOR_COLOR,
+    NOT_BEHAVIOR_COLOR,
+    BACKGROUND_COLOR,
+    POSITION_MARKER_COLOR,
+)
 
 
 class TimelineLabelWidget(QWidget):
@@ -19,15 +23,17 @@ class TimelineLabelWidget(QWidget):
     """
 
     # Define color LUT (RGBA)
-    COLOR_LUT = np.array([
-        BACKGROUND_COLOR,
-        NOT_BEHAVIOR_COLOR,
-        BEHAVIOR_COLOR,
-        [144, 102, 132, 255],  # MIX
-        [0, 0, 0, 0]  # PAD
-    ], dtype=np.uint8)
+    COLOR_LUT = np.array(
+        [
+            BACKGROUND_COLOR,
+            NOT_BEHAVIOR_COLOR,
+            BEHAVIOR_COLOR,
+            [144, 102, 132, 255],  # MIX
+            [0, 0, 0, 0],  # PAD
+        ],
+        dtype=np.uint8,
+    )
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
-
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,13 +95,18 @@ class TimelineLabelWidget(QWidget):
 
         # get the current position
         mapped_position = self._current_frame // self._bin_size
-        start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
+        start = (
+            mapped_position
+            - (self._window_size // self._bin_size)
+            + self._pixmap_offset
+        )
 
         # highlight the current position
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
-        qp.drawRect(start, 0, self._frames_in_view // self._bin_size,
-                    self.size().height() - 1)
+        qp.drawRect(
+            start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1
+        )
 
         # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
@@ -146,8 +157,7 @@ class TimelineLabelWidget(QWidget):
         self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.transparent)
 
-        downsampled = self._labels.downsample(self._labels.get_labels(),
-                                              pixmap_width)
+        downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
 
         # use downsampled labels to generate RGBA colors
         # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
@@ -157,7 +167,12 @@ class TimelineLabelWidget(QWidget):
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
         # convert bar to QImage and draw it to the pixmap
-        img = QImage(color_bar.data, color_bar.shape[1], color_bar.shape[0], QImage.Format_RGBA8888)
+        img = QImage(
+            color_bar.data,
+            color_bar.shape[1],
+            color_bar.shape[0],
+            QImage.Format_RGBA8888,
+        )
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
@@ -166,8 +181,7 @@ class TimelineLabelWidget(QWidget):
         """update scale factor and bin size"""
         width = self.size().width()
 
-        pad_size = math.ceil(
-            float(self._num_frames) / width) * width - self._num_frames
+        pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
         self._bin_size = int(self._num_frames + pad_size) // width
 
         padding = (self._bin_size * width - self._num_frames) // self._bin_size
