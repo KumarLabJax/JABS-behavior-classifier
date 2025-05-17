@@ -93,12 +93,12 @@ class PredictionVisWidget(ManualLabelWidget):
 
     def start_selection(self, start_frame):
         """unlike the ManualLabelWidget, this widget does not support selection"""
-        raise NotImplemented
+        raise NotImplementedError
 
     def clear_selection(self):
         """unlike the ManualLabelWidget, this widget does not support selection"""
-        raise NotImplemented
+        raise NotImplementedError
 
     def set_labels(self, labels, mask=None):
         """unlike the ManualLabelWidget, this widget does not support selection"""
-        raise NotImplemented
+        raise NotImplementedError
