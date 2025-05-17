@@ -6,12 +6,8 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush, QImage
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from jabs.project.track_labels import TrackLabels
 from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
                      POSITION_MARKER_COLOR)
-
-
-
 
 
 class TimelineLabelWidget(QWidget):
@@ -89,14 +85,13 @@ class TimelineLabelWidget(QWidget):
         if self._pixmap is None or self._bin_size == 0:
             return
 
-        # get the current position
-        mapped_position = self._current_frame // self._bin_size
-
         qp = QPainter(self)
 
-        # draw a box around what is currently being displayed in the
-        # ManualLabelWidget
+        # get the current position
+        mapped_position = self._current_frame // self._bin_size
         start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
+
+        # highlight the current position
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
         qp.drawRect(start, 0, self._frames_in_view // self._bin_size,
@@ -135,6 +130,9 @@ class TimelineLabelWidget(QWidget):
         and updates self._pixmap
         """
 
+        if self._labels is None:
+            return
+
         width = self.size().width()
         height = self.size().height()
 
@@ -148,18 +146,12 @@ class TimelineLabelWidget(QWidget):
         self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.transparent)
 
-        if self._labels is not None:
-            downsampled = self._labels.downsample(self._labels.get_labels(),
-                                                  pixmap_width)
-        else:
-            # if we don't have labels loaded yet, create a dummy array of
-            # unlabeled frames to display
-            downsampled = TrackLabels.downsample(
-                np.full(self._num_frames, TrackLabels.Label.NONE), pixmap_width)
+        downsampled = self._labels.downsample(self._labels.get_labels(),
+                                              pixmap_width)
 
         # use downsampled labels to generate RGBA colors
         # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
-        colors = self.color_lut[downsampled + 1] # shape (width, 4)
+        colors = self.color_lut[downsampled + 1]  # shape (width, 4)
 
         # resize colors to bar height: shape = (height, width, 4)
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)

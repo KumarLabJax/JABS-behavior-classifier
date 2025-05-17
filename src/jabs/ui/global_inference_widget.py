@@ -1,4 +1,5 @@
 import numpy as np
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPixmap, QImage
 
@@ -18,19 +19,23 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         """Updates the bar pixmap. Downsamples with the current size and updates
         self._pixmap
         """
+
+        if self._labels is None:
+            return
+
         width = self.size().width()
         height = self.size().height()
         self._pixmap = QPixmap(width, height)
         self._pixmap.fill(Qt.transparent)
 
-        if self._labels is None:
-            return
-
         downsampled = TrackLabels.downsample(self._labels, width)
 
+        # use downsampled labels to generate RGBA colors
+        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
         colors = self.color_lut[downsampled + 1] # shape (width, 4)
-        colors = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
-        img = QImage(colors.data, colors.shape[1], colors.shape[0], QImage.Format_RGBA8888)
+        color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)  # shape (bar_height, width, 4)
+
+        img = QImage(color_bar.data, color_bar.shape[1], color_bar.shape[0], QImage.Format_RGBA8888)
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
