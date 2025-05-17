@@ -4,8 +4,13 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QImage
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from .colors import (BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR, BACKGROUND_COLOR,
-                     POSITION_MARKER_COLOR, SELECTION_COLOR)
+from .colors import (
+    BEHAVIOR_COLOR,
+    NOT_BEHAVIOR_COLOR,
+    BACKGROUND_COLOR,
+    POSITION_MARKER_COLOR,
+    SELECTION_COLOR,
+)
 
 
 class ManualLabelWidget(QWidget):
@@ -18,12 +23,15 @@ class ManualLabelWidget(QWidget):
     _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
     _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
-    COLOR_LUT = np.array([
-        BACKGROUND_COLOR,
-        NOT_BEHAVIOR_COLOR,
-        BEHAVIOR_COLOR,
-        (0,0,0,0), # transparent color used for identity gaps
-    ], dtype=np.uint8)
+    COLOR_LUT = np.array(
+        [
+            BACKGROUND_COLOR,
+            NOT_BEHAVIOR_COLOR,
+            BEHAVIOR_COLOR,
+            (0, 0, 0, 0),  # transparent color used for identity gaps
+        ],
+        dtype=np.uint8,
+    )
     GAP_INDEX = 3
 
     def __init__(self, *args, **kwargs):
@@ -90,7 +98,6 @@ class ManualLabelWidget(QWidget):
         slice_start = max(start, 0)
         slice_end = min(end, self._num_frames - 1)
 
-        # initialize QPainter
         qp = QPainter(self)
         qp.setPen(Qt.NoPen)
 
@@ -103,12 +110,12 @@ class ManualLabelWidget(QWidget):
 
         # Draw the main bar image
         if self._labels is not None:
-            labels = self._labels.get_labels()[slice_start:slice_end + 1]
+            labels = self._labels.get_labels()[slice_start : slice_end + 1]
 
             # turn labels into indices into color LUT, labels are -1, 0, 1 for no label, not behavior, behavior
             # add 1 to the labels to convert to indexes in color_lut
             color_indices = labels + 1
-            mask = self._identity_mask[slice_start:slice_end + 1]
+            mask = self._identity_mask[slice_start : slice_end + 1]
 
             # set color index to gap index (transparent) for any gaps in the identity
             color_indices[mask == 0] = self.GAP_INDEX
@@ -125,7 +132,12 @@ class ManualLabelWidget(QWidget):
             colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
 
             # Draw the main bar image accounting for start padding
-            img = QImage(colors_bar.data, colors_bar.shape[1], colors_bar.shape[0], QImage.Format_RGBA8888)
+            img = QImage(
+                colors_bar.data,
+                colors_bar.shape[1],
+                colors_bar.shape[0],
+                QImage.Format_RGBA8888,
+            )
             qp.drawImage(self._offset + start_padding, 0, img)
 
         # Draw selection overlay if in select mode
@@ -157,7 +169,9 @@ class ManualLabelWidget(QWidget):
         """
         painter.setPen(self._BORDER_COLOR)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(self._offset, 0, self._adjusted_width - 1, self._bar_height - 1)
+        painter.drawRect(
+            self._offset, 0, self._adjusted_width - 1, self._bar_height - 1
+        )
 
     def _draw_selection_overlay(self, painter: QPainter):
         """draws the selection overlay
@@ -177,20 +191,29 @@ class ManualLabelWidget(QWidget):
         if self._selection_start < self._current_frame:
             # normal selection, start is lower than current frame
             selection_start = max(self._selection_start - start, 0)
-            selection_width = (self._current_frame - max(start, self._selection_start) + 1) * self._frame_width
+            selection_width = (
+                self._current_frame - max(start, self._selection_start) + 1
+            ) * self._frame_width
         elif self._selection_start > self._current_frame:
             # user started selecting and then scanned backwards, start is greater than current frame
             selection_start = self._current_frame - start
-            selection_width = (min(end, self._selection_start) - self._current_frame + 1) * self._frame_width
+            selection_width = (
+                min(end, self._selection_start) - self._current_frame + 1
+            ) * self._frame_width
         else:
             # single frame selected
             selection_start = self._current_frame - start
             selection_width = self._frame_width
 
         # draw the selection overlay rectangle
-        painter.drawRect(self._offset + (selection_start * self._frame_width), 0, selection_width, self._bar_height)
+        painter.drawRect(
+            self._offset + (selection_start * self._frame_width),
+            0,
+            selection_width,
+            self._bar_height,
+        )
 
-    def _draw_second_ticks(self, painter: QPainter, start: int, end:int ):
+    def _draw_second_ticks(self, painter: QPainter, start: int, end: int):
         """draw ticks at one second intervals
 
         Args:
