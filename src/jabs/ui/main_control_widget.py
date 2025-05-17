@@ -1,10 +1,11 @@
-"""Project-level controls for classifiers."""
+"""Project-level controls for classifiers.
 
-# TODO:
-# While this file was initially designed for controlling project settings
-# This is now the primary location where project-level settings are managed
-# The project class simply exposes its settings here which are modified
-# The project class should be the management location of these features
+TODO:
+    While this file was initially designed for controlling project settings
+    This is now the primary location where project-level settings are managed
+    The project class simply exposes its settings here which are modified
+    The project class should be the management location of these features
+"""
 
 import sys
 
@@ -20,7 +21,6 @@ from .label_count_widget import FrameLabelCountWidget
 
 
 class MainControlWidget(QtWidgets.QWidget):
-
     label_behavior_clicked = QtCore.Signal()
     label_not_behavior_clicked = QtCore.Signal()
     clear_label_clicked = QtCore.Signal()
@@ -46,12 +46,10 @@ class MainControlWidget(QtWidgets.QWidget):
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
         self.behavior_selection.addItems(self._behaviors)
-        self.behavior_selection.currentIndexChanged.connect(
-            self._behavior_changed)
+        self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
 
         self.identity_selection = IdentityComboBox()
-        self.identity_selection.currentIndexChanged.connect(
-            self.identity_changed)
+        self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
 
@@ -87,9 +85,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # drop down to select which window size to use
         self._window_size = QtWidgets.QComboBox()
-        self._window_size.currentIndexChanged.connect(
-            self._window_size_changed
-        )
+        self._window_size.currentIndexChanged.connect(self._window_size_changed)
         self._window_size.setToolTip(
             "Number of frames before and after current frame to include in "
             "sliding window used to compute window features.\n"
@@ -108,8 +104,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         #  drop down to select type of classifier to use
         self._classifier_selection = QtWidgets.QComboBox()
-        self._classifier_selection.currentIndexChanged.connect(
-            self.classifier_changed)
+        self._classifier_selection.currentIndexChanged.connect(self.classifier_changed)
 
         classifier_types = Classifier().classifier_choices()
         for classifier, name in classifier_types.items():
@@ -121,11 +116,17 @@ class MainControlWidget(QtWidgets.QWidget):
         #   disabled until project loaded
         self._kslider.setEnabled(False)
 
-        self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
-        self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
+        self._use_balace_labels_checkbox = QtWidgets.QCheckBox(
+            "Balance Training Labels"
+        )
+        self._use_balace_labels_checkbox.stateChanged.connect(
+            self.use_balace_labels_changed
+        )
 
         self._symmetric_behavior_checkbox = QtWidgets.QCheckBox("Symmetric Behavior")
-        self._symmetric_behavior_checkbox.stateChanged.connect(self.use_symmetric_changed)
+        self._symmetric_behavior_checkbox.stateChanged.connect(
+            self.use_symmetric_changed
+        )
 
         self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
 
@@ -148,7 +149,7 @@ class MainControlWidget(QtWidgets.QWidget):
         label_layout = QtWidgets.QGridLayout()
 
         self._label_behavior_button = QtWidgets.QPushButton()
-        self._label_behavior_button.setToolTip('[z]')
+        self._label_behavior_button.setToolTip("[z]")
         self._label_behavior_button.clicked.connect(self.label_behavior_clicked)
         self._label_behavior_button.setStyleSheet(f"""
                     QPushButton {{
@@ -169,9 +170,8 @@ class MainControlWidget(QtWidgets.QWidget):
                 """)
 
         self._label_not_behavior_button = QtWidgets.QPushButton()
-        self._label_not_behavior_button.setToolTip('[c]')
-        self._label_not_behavior_button.clicked.connect(
-            self.label_not_behavior_clicked)
+        self._label_not_behavior_button.setToolTip("[c]")
+        self._label_not_behavior_button.clicked.connect(self.label_not_behavior_clicked)
         self._label_not_behavior_button.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -191,7 +191,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 """)
 
         self._clear_label_button = QtWidgets.QPushButton("Clear Label")
-        self._clear_label_button.setToolTip('[x]')
+        self._clear_label_button.setToolTip("[x]")
         self._clear_label_button.clicked.connect(self.clear_label_clicked)
 
         self._select_button = QtWidgets.QPushButton("Select Frames")
@@ -220,7 +220,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # control layout
         control_layout = QtWidgets.QVBoxLayout()
-        if sys.platform == 'darwin':
+        if sys.platform == "darwin":
             control_layout.setSpacing(20)
         else:
             control_layout.setSpacing(10)
@@ -331,22 +331,27 @@ class MainControlWidget(QtWidgets.QWidget):
             # unable to use the classifier
             pass
 
-    def set_frame_counts(self, label_behavior_current,
-                         label_not_behavior_current,
-                         label_behavior_project,
-                         label_not_behavior_project,
-                         bout_behavior_current,
-                         bout_not_behavior_current,
-                         bout_behavior_project,
-                         bout_not_behavior_project):
-        self._frame_counts.set_counts(label_behavior_current,
-                                      label_not_behavior_current,
-                                      label_behavior_project,
-                                      label_not_behavior_project,
-                                      bout_behavior_current,
-                                      bout_not_behavior_current,
-                                      bout_behavior_project,
-                                      bout_not_behavior_project)
+    def set_frame_counts(
+        self,
+        label_behavior_current,
+        label_not_behavior_current,
+        label_behavior_project,
+        label_not_behavior_project,
+        bout_behavior_current,
+        bout_not_behavior_current,
+        bout_behavior_project,
+        bout_not_behavior_project,
+    ):
+        self._frame_counts.set_counts(
+            label_behavior_current,
+            label_not_behavior_current,
+            label_behavior_project,
+            label_not_behavior_project,
+            bout_behavior_current,
+            bout_not_behavior_current,
+            bout_behavior_project,
+            bout_not_behavior_project,
+        )
 
     def classify_button_set_enabled(self, enabled: bool):
         self._classify_button.setEnabled(enabled)
@@ -377,7 +382,7 @@ class MainControlWidget(QtWidgets.QWidget):
         """
 
         # TODO: This is one of the major locations where project settings
-        # are owned by this widget, instead of the project class
+        #   are owned by this widget, instead of the project class
 
         # update behavior list
         # reset list of behaviors, then add any from the project metadata
@@ -387,28 +392,31 @@ class MainControlWidget(QtWidgets.QWidget):
         # project (otherwise it gets unnecessarily called multiple times)
         self.behavior_selection.currentIndexChanged.disconnect()
 
-        self._set_window_sizes(project_settings['window_sizes'])
+        self._set_window_sizes(project_settings["window_sizes"])
 
         # select the behavior
         behavior_index = 0
-        if 'behavior' in project_settings:
-            self._behaviors = sorted(list(project_settings['behavior'].keys()))
+        if "behavior" in project_settings:
+            self._behaviors = sorted(list(project_settings["behavior"].keys()))
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
-        if 'selected_behavior' in project_settings and project_settings['selected_behavior']:
-            if project_settings['selected_behavior'] in self._behaviors:
+        if (
+            "selected_behavior" in project_settings
+            and project_settings["selected_behavior"]
+        ):
+            if project_settings["selected_behavior"] in self._behaviors:
                 behavior_index = self._behaviors.index(
-                    project_settings['selected_behavior'])
+                    project_settings["selected_behavior"]
+                )
 
         if len(self._behaviors) == 0:
-            self._get_first_label() 
+            self._get_first_label()
 
         # set the index to either the first behavior, or if available, the one
         # that was saved in the project metadata
         self.behavior_selection.setCurrentIndex(behavior_index)
         # re-enable the behavior_selection change signal handler
-        self.behavior_selection.currentIndexChanged.connect(
-            self._behavior_changed)
+        self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
         # run all the updates for when a behavior changes
         self._behavior_changed()
 
@@ -416,8 +424,7 @@ class MainControlWidget(QtWidgets.QWidget):
         """populate the identity_selection combobox"""
         self.identity_selection.currentIndexChanged.disconnect()
         self.identity_selection.clear()
-        self.identity_selection.currentIndexChanged.connect(
-            self.identity_changed)
+        self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.addItems([str(i) for i in identities])
 
     def set_window_size(self, size: int):
@@ -446,10 +453,9 @@ class MainControlWidget(QtWidgets.QWidget):
         opens a modal dialog to allow the user to enter a new behavior label,
         if user clicks ok, add that behavior to the combo box, and select it
         """
-        text, ok = QtWidgets.QInputDialog.getText(self, 'New Behavior',
-                                                  'New Behavior Name:',
-                                                  QtWidgets.QLineEdit.Normal
-                                                  )
+        text, ok = QtWidgets.QInputDialog.getText(
+            self, "New Behavior", "New Behavior Name:", QtWidgets.QLineEdit.Normal
+        )
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
             self._behaviors.sort()
@@ -469,7 +475,10 @@ class MainControlWidget(QtWidgets.QWidget):
         dialog.setLabelText("Please enter a behavior name to continue:")
         dialog.setOkButtonText("OK")
         dialog.setCancelButtonText("Quit JABS")
-        dialog.setWindowFlags(dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint)
+        dialog.setWindowFlags(
+            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint
+            | QtCore.Qt.CustomizeWindowHint
+        )
 
         if dialog.exec():
             text, ok = dialog.textValue(), dialog.result()
@@ -488,8 +497,8 @@ class MainControlWidget(QtWidgets.QWidget):
         if user clicks ok, add that window size and select it
         """
         val, ok = QtWidgets.QInputDialog.getInt(
-            self, 'New Window Size', 'Enter a new window size:', value=1,
-            minValue=1)
+            self, "New Window Size", "Enter a new window size:", value=1, minValue=1
+        )
         if ok:
             # if this window size is not already in the drop-down, add it.
             if self._window_size.findData(val) == -1:
@@ -498,15 +507,16 @@ class MainControlWidget(QtWidgets.QWidget):
             # select new window size
             self.set_window_size(val)
             QtWidgets.QMessageBox.warning(
-                self, "Window Size Added",
+                self,
+                "Window Size Added",
                 "Window Size Added.\n"
                 "If features have not been computed for "
                 "this window size, they will be computed the first time a "
                 "classifier is trained using this window size.\n"
-                "This may be slow.")
+                "This may be slow.",
+            )
 
     def _add_window_size(self, new_size: int):
-
         if new_size is None:
             return
 
@@ -515,8 +525,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # grab the old sizes, grabbing the data (int) instead of the
         # text
-        sizes = [self._window_size.itemData(i) for i in
-                 range(self._window_size.count())]
+        sizes = [
+            self._window_size.itemData(i) for i in range(self._window_size.count())
+        ]
 
         # add our new value and sort
         sizes.append(new_size)
@@ -533,11 +544,12 @@ class MainControlWidget(QtWidgets.QWidget):
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
         self._label_behavior_button.setToolTip(
-            f"Label frames {self.current_behavior} [z]")
-        self._label_not_behavior_button.setText(
-            f"Not {self.current_behavior}")
+            f"Label frames {self.current_behavior} [z]"
+        )
+        self._label_not_behavior_button.setText(f"Not {self.current_behavior}")
         self._label_not_behavior_button.setToolTip(
-            f"Label frames Not {self.current_behavior} [c]")
+            f"Label frames Not {self.current_behavior} [c]"
+        )
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):
