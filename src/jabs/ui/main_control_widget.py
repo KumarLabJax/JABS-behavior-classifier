@@ -34,7 +34,7 @@ class MainControlWidget(QtWidgets.QWidget):
     new_behavior_label = QtCore.Signal(list)
     window_size_changed = QtCore.Signal(int)
     new_window_sizes = QtCore.Signal(list)
-    use_balace_labels_changed = QtCore.Signal(int)
+    use_balance_labels_changed = QtCore.Signal(int)
     use_symmetric_changed = QtCore.Signal(int)
 
     def __init__(self, *args, **kwargs):
@@ -120,7 +120,7 @@ class MainControlWidget(QtWidgets.QWidget):
             "Balance Training Labels"
         )
         self._use_balace_labels_checkbox.stateChanged.connect(
-            self.use_balace_labels_changed
+            self.use_balance_labels_changed
         )
 
         self._symmetric_behavior_checkbox = QtWidgets.QCheckBox("Symmetric Behavior")
