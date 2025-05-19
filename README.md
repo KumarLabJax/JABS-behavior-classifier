@@ -33,8 +33,7 @@ JABS was initially developed and tested on Python 3.10. See the `pyproject.toml`
 for a list of required Python packages. These packages are available from the 
 Python Package Index (PyPI).
 
-Currently, the `pyproject.toml` file supports Python 3.10, 3.11, and 3.12, but we hope to validate 
-for Python 3.13 soon.
+Currently, JABS supports Python 3.10, 3.11, 3.12, and 3.13.
 
 ## Python Env Setup
 
