@@ -1,5 +1,7 @@
 # JAX Animal Behavior System (JABS)
 
+![JABS Screen Shot](img/jabs_screenshot.png)
+
 ## ReadTheDocs Tutorial
 
 https://jabs-tutorial.readthedocs.io/en/latest/index.html
