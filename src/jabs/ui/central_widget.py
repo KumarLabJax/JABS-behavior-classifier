@@ -71,7 +71,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
         self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_balace_labels_changed.connect(self._use_balance_labels_changed)
+        self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
         # label & prediction vis widgets
