@@ -563,6 +563,11 @@ class CentralWidget(QtWidgets.QWidget):
             None
         """
 
+        # kfold slider is enabled before a project is loaded and moving it will trigger this function
+        # in that case we don't want to do anything
+        if self._project is None:
+            return
+
         if Classifier.label_threshold_met(self._counts,
                                           self._controls.kfold_value):
             self._controls.train_button_enabled = True
