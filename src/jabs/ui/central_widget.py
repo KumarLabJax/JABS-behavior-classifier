@@ -160,6 +160,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.settings)
+        self._controls.kslider_set_enabled(True)
 
     def load_video(self, path):
         """load a new video file into self._player_widget
