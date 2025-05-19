@@ -118,8 +118,7 @@ class MainControlWidget(QtWidgets.QWidget):
         #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
         self._kslider.valueChanged.connect(self.kfold_changed)
-        #   disabled until project loaded
-        self._kslider.setEnabled(False)
+        self._kslider.setEnabled(True)
 
         self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
         self._use_balace_labels_checkbox.stateChanged.connect(self.use_balace_labels_changed)
@@ -128,6 +127,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self._symmetric_behavior_checkbox.stateChanged.connect(self.use_symmetric_changed)
 
         self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
+        self._all_kfold_checkbox.stateChanged.connect(self._all_kfold_changed)
 
         #  classifier control layout
         classifier_layout = QtWidgets.QGridLayout()
@@ -542,3 +542,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _window_size_changed(self):
         self.window_size_changed.emit(self._window_size.currentData())
+
+    def _all_kfold_changed(self):
+        if self._all_kfold_checkbox.isChecked():
+            self._kslider.setEnabled(False)
+        else:
+            self._kslider.setEnabled(True)
