@@ -64,7 +64,7 @@ With the jabs.venv virtualenv activated, run the following command to install JA
 git repository. This will install the latest commit from the main branch:
 `pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git`
 
-you can also specify a branch:
+you can also specify a branch or tag:
 
 `pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name`
 
@@ -97,7 +97,7 @@ then install JABS as a Python package.
 
 ### Running JABS
 
-After installing JABS, four commands will be added to the bin directory of your 
+After installing JABS, five commands will be added to the bin directory of your 
 Python virtualenv:
 
 * jabs: launch the JABS GUI
@@ -113,7 +113,7 @@ minutes to launch. Subsequent startup times should be significantly reduced.**
 
 ### Developer Setup
 
-The following instructions are for Linux or MacOS Developers. Commands for JABS 
+The following instructions are for Linux or macOS Developers. Commands for JABS 
 developers using Windows might be slightly different.
 
 This project uses Poetry for packaging and dependency management. JABS developers 
@@ -140,8 +140,8 @@ immediately in the Python environment.
 ### Enabling XGBoost Classifier
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does
-not ship with MacOS. XGBoost should work "out of the box" on other platforms. 
-On MacOS, you can install libomp with Homebrew (preferred) with the following 
+not ship with macOS. XGBoost should work "out of the box" on other platforms. 
+On macOS, you can install libomp with Homebrew (preferred) with the following 
 command `brew install libomp`. You can also install libomp from source if you 
 can't use Homebrew, but this is beyond the scope of this Readme.
 
@@ -149,7 +149,7 @@ can't use Homebrew, but this is beyond the scope of this Readme.
 ### Singularity/Linux
 
 We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is 
-indended for command-line use on compute clusters when scaling inferences. 
+intended for command-line use on compute clusters when scaling inferences. 
 The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable 
 environment. Please inspect the definition files for related linux packages 
 to run the software.
