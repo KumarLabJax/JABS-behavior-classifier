@@ -43,3 +43,7 @@ def main():
 
     # user rejected license terms
     sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
