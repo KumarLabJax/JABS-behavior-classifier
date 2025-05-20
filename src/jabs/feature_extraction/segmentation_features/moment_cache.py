@@ -14,14 +14,17 @@ class MomentInfo:
     get_moment(frame, key) retrieves the calculated image moment
     """
 
-    def __init__(self, poses: PoseEstimation, identity: int,
-                 pixel_scale: float):
+    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float):
         # These keys are necessary because opencv returns a dict which may not always be sorted
         self._moment_keys = [feature_name for feature_name in cv2.moments(np.empty(0))]
-        self._moment_conversion_powers = [self.get_pixel_power(feature_name) for feature_name in self._moment_keys]
+        self._moment_conversion_powers = [
+            self.get_pixel_power(feature_name) for feature_name in self._moment_keys
+        ]
         self._poses = poses
         self._pixel_scale = pixel_scale
-        self._moments = np.zeros((self._poses.num_frames, len(self._moment_keys)), dtype=np.float32)
+        self._moments = np.zeros(
+            (self._poses.num_frames, len(self._moment_keys)), dtype=np.float32
+        )
         self._seg_data = self._poses.get_segmentation_data(identity)
         self._seg_flags = self._poses.get_segmentation_flags(identity)
 
@@ -40,8 +43,10 @@ class MomentInfo:
                 moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
             for j in range(len(self._moment_keys)):
-                self._moments[frame, j] = moments[self._moment_keys[j]]*np.power(self._pixel_scale, self._moment_conversion_powers[j])
-    
+                self._moments[frame, j] = moments[self._moment_keys[j]] * np.power(
+                    self._pixel_scale, self._moment_conversion_powers[j]
+                )
+
     def get_pixel_power(self, key):
         """get the degree that pixels influence this image moment
 
@@ -78,7 +83,9 @@ class MomentInfo:
         Returns:
             dict of moment data
         """
-        return {key:value for key,value in zip(self._moment_keys,self._moments[frame])}
+        return {
+            key: value for key, value in zip(self._moment_keys, self._moments[frame])
+        }
 
     def get_trimmed_contours(self, frame):
         """retrieves a contour for a specific frame
@@ -113,8 +120,8 @@ class MomentInfo:
             opencv-complaint contour
         """
         assert arr.ndim == 2
-        return_arr = arr[np.all(arr!=-1, axis=1),:]
-        if len(return_arr)>0:
+        return_arr = arr[np.all(arr != -1, axis=1), :]
+        if len(return_arr) > 0:
             return return_arr.astype(np.int32)
 
     def trim_contour_list(self, arr):
@@ -127,7 +134,7 @@ class MomentInfo:
             opencv-complaint contour list
         """
         assert arr.ndim == 3
-        return [self.trim_contour(x) for x in arr if np.any(x!=-1)]
+        return [self.trim_contour(x) for x in arr if np.any(x != -1)]
 
     @staticmethod
     def calculate_moments(contour_list):

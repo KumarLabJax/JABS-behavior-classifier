@@ -78,9 +78,7 @@ class Project:
 
     @property
     def settings(self):
-        """get the project metadata and preferences.
-
-        """
+        """get the project metadata and preferences."""
         return self._settings_manager.project_settings
 
     @property
@@ -283,15 +281,14 @@ class Project:
 
             # populate numpy arrays
             for identity in predictions[video]:
-
                 inferred_indexes = frame_indexes[video][identity]
 
-                prediction_labels[identity, inferred_indexes] = predictions[
-                    video
-                ][identity][inferred_indexes]
-                prediction_prob[identity, inferred_indexes] = probabilities[
-                    video
-                ][identity][inferred_indexes]
+                prediction_labels[identity, inferred_indexes] = predictions[video][
+                    identity
+                ][inferred_indexes]
+                prediction_prob[identity, inferred_indexes] = probabilities[video][
+                    identity
+                ][inferred_indexes]
 
             # write to h5 file
             self._prediction_manager.write_predictions(
@@ -334,7 +331,6 @@ class Project:
         # archive labels
         archived_labels = {}
         for video in self._video_manager.videos:
-
             labels = self._video_manager.load_video_labels(video)
 
             # if no labels for video skip it
@@ -427,7 +423,6 @@ class Project:
 
         group_id = 0
         for video in self._video_manager.videos:
-
             video_labels = self._video_manager.load_video_labels(video)
 
             # if there are no labels for this video, skip it
@@ -447,12 +442,18 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {"video": video, "identity": identity}
 
-                labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
+                labels = video_labels.get_track_labels(
+                    str(identity), behavior
+                ).get_labels()
 
                 # if there are no labels for this identity, skip it
-                if np.count_nonzero(
-                    (labels == TrackLabels.Label.BEHAVIOR) | (labels == TrackLabels.Label.NOT_BEHAVIOR)
-                ) == 0:
+                if (
+                    np.count_nonzero(
+                        (labels == TrackLabels.Label.BEHAVIOR)
+                        | (labels == TrackLabels.Label.NOT_BEHAVIOR)
+                    )
+                    == 0
+                ):
                     if progress_callable is not None:
                         progress_callable()
                     continue

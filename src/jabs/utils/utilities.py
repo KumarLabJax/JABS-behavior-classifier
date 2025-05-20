@@ -13,11 +13,11 @@ def hide_stderr():
     fd = sys.stderr.fileno()
 
     # copy fd before it is overwritten
-    with os.fdopen(os.dup(fd), 'wb') as copied:
+    with os.fdopen(os.dup(fd), "wb") as copied:
         sys.stderr.flush()
 
         # open destination
-        with open(os.devnull, 'wb') as fout:
+        with open(os.devnull, "wb") as fout:
             os.dup2(fout.fileno(), fd)
         try:
             yield fd
@@ -37,18 +37,20 @@ def smooth(vec, smoothing_window):
     if smoothing_window <= 1 or len(vec) == 0:
         return vec.astype(np.float)
     else:
-        assert smoothing_window % 2 == 1, 'expected smoothing_window to be odd'
+        assert smoothing_window % 2 == 1, "expected smoothing_window to be odd"
         half_conv_len = smoothing_window // 2
-        smooth_tgt = np.concatenate([
-            np.full(half_conv_len, vec[0], dtype=vec.dtype),
-            vec,
-            np.full(half_conv_len, vec[-1], dtype=vec.dtype),
-        ])
+        smooth_tgt = np.concatenate(
+            [
+                np.full(half_conv_len, vec[0], dtype=vec.dtype),
+                vec,
+                np.full(half_conv_len, vec[-1], dtype=vec.dtype),
+            ]
+        )
 
         smoothing_val = 1 / smoothing_window
         conv_arr = np.full(smoothing_window, smoothing_val)
 
-        return np.convolve(smooth_tgt, conv_arr, mode='valid')
+        return np.convolve(smooth_tgt, conv_arr, mode="valid")
 
 
 def n_choose_r(n, r):
@@ -68,7 +70,7 @@ def n_choose_r(n, r):
 def hash_file(file: Path):
     """return hash"""
     chunk_size = 8192
-    with file.open('rb') as f:
+    with file.open("rb") as f:
         h = hashlib.blake2b(digest_size=20)
         c = f.read(chunk_size)
         while c:

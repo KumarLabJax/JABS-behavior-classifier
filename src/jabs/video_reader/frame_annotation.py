@@ -89,7 +89,12 @@ def label_identity(
 
         # draw a marker at this location.
         cv2.circle(
-            img, (int(center.x), int(center.y)), __scale_annotation_size(img, 4), color, -1, lineType=cv2.LINE_AA
+            img,
+            (int(center.x), int(center.y)),
+            __scale_annotation_size(img, 4),
+            color,
+            -1,
+            lineType=cv2.LINE_AA,
         )
 
 
@@ -123,7 +128,11 @@ def label_all_identities(
             else:
                 color = _ID_COLOR
 
-            label = str(identity) if not pose_est.external_identities else str(pose_est.external_identities[identity])
+            label = (
+                str(identity)
+                if not pose_est.external_identities
+                else str(pose_est.external_identities[identity])
+            )
 
             # write the identity at that location
             cv2.putText(

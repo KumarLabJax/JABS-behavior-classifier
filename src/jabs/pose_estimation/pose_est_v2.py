@@ -10,9 +10,9 @@ from .pose_est import PoseEstimation, MINIMUM_CONFIDENCE
 class PoseEstimationV2(PoseEstimation):
     """read in pose_est_v2.h5 file"""
 
-    def __init__(self, file_path: Path,
-                 cache_dir: typing.Optional[Path] = None,
-                 fps: int = 30):
+    def __init__(
+        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
+    ):
         """initialize new object from h5 file
 
         Args:
@@ -33,18 +33,18 @@ class PoseEstimationV2(PoseEstimation):
         self._path = file_path
 
         # open the hdf5 pose file
-        with h5py.File(self._path, 'r') as pose_h5:
+        with h5py.File(self._path, "r") as pose_h5:
             # extract data from the HDF5 file
-            pose_grp = pose_h5['poseest']
+            pose_grp = pose_h5["poseest"]
 
             # load contents
             # keypoints are stored as (y,x)
-            self._points = np.flip(pose_grp['points'][:].astype(np.float64), axis=-1)
+            self._points = np.flip(pose_grp["points"][:].astype(np.float64), axis=-1)
             self._point_mask = np.zeros(self._points.shape[:-1], dtype=np.uint16)
-            self._point_mask[:] = pose_grp['confidence'][:] > MINIMUM_CONFIDENCE
+            self._point_mask[:] = pose_grp["confidence"][:] > MINIMUM_CONFIDENCE
 
             # get pixel size
-            self._cm_per_pixel = pose_grp.attrs.get('cm_per_pixel', None)
+            self._cm_per_pixel = pose_grp.attrs.get("cm_per_pixel", None)
 
         self._num_frames = self._points.shape[0]
 
@@ -52,9 +52,11 @@ class PoseEstimationV2(PoseEstimation):
         # require at least 3 body points, not just tail
         init_func = np.vectorize(
             lambda x: 0 if np.sum(self._point_mask[x][:-2]) < 3 else 1,
-            otypes=[np.uint8])
-        self._identity_mask = np.fromfunction(init_func, (self._num_frames,),
-                                              dtype=np.int_)
+            otypes=[np.uint8],
+        )
+        self._identity_mask = np.fromfunction(
+            init_func, (self._num_frames,), dtype=np.int_
+        )
 
     @property
     def identity_to_track(self):
@@ -64,8 +66,9 @@ class PoseEstimationV2(PoseEstimation):
     def format_major_version(self):
         return 2
 
-    def get_points(self, frame_index: int, identity: int,
-                   scale: typing.Optional[float] = None):
+    def get_points(
+        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
+    ):
         """return points and point masks for an individual frame
 
         Args:
@@ -89,8 +92,7 @@ class PoseEstimationV2(PoseEstimation):
         else:
             return self._points[frame_index], self._point_mask[frame_index]
 
-    def get_identity_poses(self, identity: int,
-                           scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
         """return all points and point masks
 
         Args:

@@ -12,6 +12,7 @@ class TrackLabels:
 
     class Label(enum.IntEnum):
         """label values"""
+
         NONE = -1
         NOT_BEHAVIOR = 0
         BEHAVIOR = 1
@@ -34,7 +35,7 @@ class TrackLabels:
 
     def clear_labels(self, start, end):
         """clear labels for a range of frames [start, end]"""
-        self._labels[start:end+1] = self.Label.NONE
+        self._labels[start : end + 1] = self.Label.NONE
 
     def _set_labels(self, start, end, label, mask=None):
         """set label value for a range of frames
@@ -50,9 +51,9 @@ class TrackLabels:
             None
         """
         if mask is not None:
-            self._labels[start:end + 1][mask != 0] = label
+            self._labels[start : end + 1][mask != 0] = label
         else:
-            self._labels[start:end + 1] = label
+            self._labels[start : end + 1] = label
 
     def get_labels(self):
         return self._labels
@@ -70,8 +71,10 @@ class TrackLabels:
             (count of frames labeled as showing behavior, count of
             frames labeled as not showing behavior)
         """
-        return (np.count_nonzero(self._labels == self.Label.BEHAVIOR),
-                np.count_nonzero(self._labels == self.Label.NOT_BEHAVIOR))
+        return (
+            np.count_nonzero(self._labels == self.Label.BEHAVIOR),
+            np.count_nonzero(self._labels == self.Label.NOT_BEHAVIOR),
+        )
 
     @property
     def bout_count(self):
@@ -87,7 +90,7 @@ class TrackLabels:
         bouts_not_behavior = 0
 
         for b in blocks:
-            if b['present']:
+            if b["present"]:
                 bouts_behavior += 1
             else:
                 bouts_not_behavior += 1
@@ -108,7 +111,7 @@ class TrackLabels:
         """get label blocks for a slice of frames
         block start and end frame numbers will be relative to the slice start
         """
-        return self._array_to_blocks(self._labels[start:end+1])
+        return self._array_to_blocks(self._labels[start : end + 1])
 
     @classmethod
     def downsample(cls, labels, size):
@@ -134,7 +137,9 @@ class TrackLabels:
             return {
                 cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE.value),
                 cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR.value),
-                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR.value)
+                cls.Label.NOT_BEHAVIOR: np.count_nonzero(
+                    array == cls.Label.NOT_BEHAVIOR.value
+                ),
             }
 
         # we may need to pad the label array if it is not evenly divisible by
@@ -157,11 +162,17 @@ class TrackLabels:
 
             if counts[cls.Label.NONE] == len(binned[i]):
                 downsampled[i] = cls.Label.NONE.value
-            elif counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0:
+            elif (
+                counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0
+            ):
                 downsampled[i] = cls.Label.BEHAVIOR.value
-            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0:
+            elif (
+                counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0
+            ):
                 downsampled[i] = cls.Label.NOT_BEHAVIOR.value
-            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0:
+            elif (
+                counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0
+            ):
                 downsampled[i] = cls.Label.MIX.value
             else:
                 downsampled[i] = cls.Label.PAD.value
@@ -178,10 +189,10 @@ class TrackLabels:
         """
         labels = cls(num_frames)
         for block in blocks:
-            if block['present']:
-                labels.label_behavior(block['start'], block['end'])
+            if block["present"]:
+                labels.label_behavior(block["start"], block["end"])
             else:
-                labels.label_not_behavior(block['start'], block['end'])
+                labels.label_not_behavior(block["start"], block["end"])
         return labels
 
     @classmethod
@@ -212,10 +223,12 @@ class TrackLabels:
         for val, group in groupby(array):
             count = len([*group])
             if val != cls.Label.NONE:
-                blocks.append({
-                    'start': block_start,
-                    'end': block_start + count - 1,
-                    'present': True if val == cls.Label.BEHAVIOR else False
-                })
+                blocks.append(
+                    {
+                        "start": block_start,
+                        "end": block_start + count - 1,
+                        "present": True if val == cls.Label.BEHAVIOR else False,
+                    }
+                )
             block_start += count
         return blocks

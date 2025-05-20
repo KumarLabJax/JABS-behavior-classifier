@@ -15,18 +15,15 @@ class ClosestIdentityInfo:
     # view is 240 degrees. Do we want this to be configurable?
     HALF_FOV_DEGREE = 120
 
-    def __init__(self, poses: PoseEstimation, identity: int,
-                 pixel_scale: float):
+    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float):
         idx = PoseEstimation.KeypointIndex
 
         self._poses = poses
         self._identity = identity
         self._pixel_scale = pixel_scale
 
-        self._closest_identities = np.full(poses.num_frames, -1,
-                                           dtype=np.int16)
-        self._closest_fov_identities = np.full(poses.num_frames, -1,
-                                               dtype=np.int16)
+        self._closest_identities = np.full(poses.num_frames, -1, dtype=np.int16)
+        self._closest_fov_identities = np.full(poses.num_frames, -1, dtype=np.int16)
         self._fov_angles = np.full(poses.num_frames, np.nan, dtype=np.float32)
 
         for frame in range(poses.num_frames):
@@ -43,7 +40,11 @@ class ClosestIdentityInfo:
             # identity has a valid nose point and base neck point (which is
             # used to calculate FoV).
             self_shape = poses.get_identity_convex_hulls(identity)[frame]
-            if self_shape is not None and mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
+            if (
+                self_shape is not None
+                and mask[idx.NOSE] == 1
+                and mask[idx.BASE_NECK] == 1
+            ):
                 closest_dist = None
                 closest_fov_dist = None
                 for curr_id in poses.identities:
@@ -58,16 +59,21 @@ class ClosestIdentityInfo:
 
                             self_base_neck_point = points[idx.BASE_NECK, :]
                             self_nose_point = points[idx.NOSE, :]
-                            other_centroid = np.array(other_shape.centroid.xy).squeeze() * self._pixel_scale
+                            other_centroid = (
+                                np.array(other_shape.centroid.xy).squeeze()
+                                * self._pixel_scale
+                            )
 
                             view_angle = self.compute_angle(
-                                self_nose_point,
-                                self_base_neck_point,
-                                other_centroid)
+                                self_nose_point, self_base_neck_point, other_centroid
+                            )
 
                             if abs(view_angle) <= self.HALF_FOV_DEGREE:
                                 # other animal is in FoV
-                                if closest_fov_dist is None or curr_dist < closest_fov_dist:
+                                if (
+                                    closest_fov_dist is None
+                                    or curr_dist < closest_fov_dist
+                                ):
                                     self._closest_fov_identities[frame] = curr_id
                                     self._fov_angles[frame] = view_angle
                                     closest_fov_dist = curr_dist
@@ -98,8 +104,7 @@ class ClosestIdentityInfo:
         """
 
         angle = np.degrees(
-            np.arctan2(c[1] - b[1], c[0] - b[0]) -
-            np.arctan2(a[1] - b[1], a[0] - b[0])
+            np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 
@@ -108,8 +113,9 @@ class ClosestIdentityInfo:
         self_convex_hulls = self._poses.get_identity_convex_hulls(self._identity)
 
         for frame in range(self._poses.num_frames):
-
-            points, mask = self._poses.get_points(frame, self._identity, self._pixel_scale)
+            points, mask = self._poses.get_points(
+                frame, self._identity, self._pixel_scale
+            )
 
             if points is None:
                 continue
@@ -117,36 +123,40 @@ class ClosestIdentityInfo:
             closest_id = closest_identities[frame]
             if closest_id != -1:
                 self_shape = self_convex_hulls[frame]
-                other_shape = self._poses.get_identity_convex_hulls(closest_id)[
-                    frame]
+                other_shape = self._poses.get_identity_convex_hulls(closest_id)[frame]
                 values[frame] = self_shape.distance(other_shape)
 
         return values
 
     def compute_pairwise_social_distances(
-            self, social_points: [PoseEstimation.KeypointIndex],
-            closest_identities: np.ndarray
+        self,
+        social_points: [PoseEstimation.KeypointIndex],
+        closest_identities: np.ndarray,
     ):
-        values = np.full((self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32)
+        values = np.full(
+            (self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32
+        )
 
         # get indexes of the subset of points used for pairwise social
         # distances
         social_pt_indexes = [idx.value for idx in social_points]
 
         for frame in range(self._poses.num_frames):
-            points, mask = self._poses.get_points(frame, self._identity,
-                                                  self._pixel_scale)
+            points, mask = self._poses.get_points(
+                frame, self._identity, self._pixel_scale
+            )
 
             if points is None or closest_identities[frame] == -1:
                 continue
 
             closest_points, _ = self._poses.get_points(
-                frame, closest_identities[frame], self._pixel_scale)
+                frame, closest_identities[frame], self._pixel_scale
+            )
 
             values[frame] = self._compute_social_pairwise_distance(
-                points[social_pt_indexes, ...],
-                closest_points[social_pt_indexes, ...])
-        
+                points[social_pt_indexes, ...], closest_points[social_pt_indexes, ...]
+            )
+
         return_dict = {}
         # Transform the full matrix into the expected dict of 1D arrays
         for i in range(len(social_points)):

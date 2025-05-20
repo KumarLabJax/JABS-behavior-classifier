@@ -10,12 +10,15 @@ if typing.TYPE_CHECKING:
 
 
 class ClosestDistances(Feature):
-
-    _name = 'closest_distances'
+    _name = "closest_distances"
     _min_pose = 3
 
-    def __init__(self, poses: 'PoseEstimation', pixel_scale: float,
-                 social_distance_info: 'ClosestIdentityInfo'):
+    def __init__(
+        self,
+        poses: "PoseEstimation",
+        pixel_scale: float,
+        social_distance_info: "ClosestIdentityInfo",
+    ):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
 
@@ -28,4 +31,8 @@ class ClosestDistances(Feature):
         Returns:
             dict with feature values
         """
-        return {'closest social distance': self._social_distance_info.compute_distances(self._social_distance_info.closest_identities)}
+        return {
+            "closest social distance": self._social_distance_info.compute_distances(
+                self._social_distance_info.closest_identities
+            )
+        }

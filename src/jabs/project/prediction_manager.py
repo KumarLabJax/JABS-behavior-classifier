@@ -63,7 +63,10 @@ class PredictionManager:
             h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
             prediction_group = h5.require_group("predictions")
             if external_identities is not None:
-                prediction_group.create_dataset("external_identity_map", data=np.array(external_identities, dtype=np.uint32))
+                prediction_group.create_dataset(
+                    "external_identity_map",
+                    data=np.array(external_identities, dtype=np.uint32),
+                )
             behavior_group = prediction_group.require_group(to_safe_name(behavior))
             behavior_group.attrs["classifier_file"] = classifier.classifier_file
             behavior_group.attrs["classifier_hash"] = classifier.classifier_hash

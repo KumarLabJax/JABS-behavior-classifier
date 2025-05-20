@@ -11,15 +11,20 @@ from jabs.feature_extraction.feature_base_class import Feature
 # separate here for ease of implementation, but this results in duplicated
 # work computing each feature. Fix at next update to feature h5 file format.
 
+
 class CentroidVelocityDir(Feature):
     """feature for the direction of the center of mass velocity"""
 
-    _name = 'centroid_velocity_dir'
+    _name = "centroid_velocity_dir"
 
     # override for circular values
     _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180, nan_policy='omit'),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180, nan_policy='omit'),
+        "mean": lambda x: scipy.stats.circmean(
+            x, low=-180, high=180, nan_policy="omit"
+        ),
+        "std_dev": lambda x: scipy.stats.circstd(
+            x, low=-180, high=180, nan_policy="omit"
+        ),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -37,7 +42,9 @@ class CentroidVelocityDir(Feature):
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
 
         # get centroids for all frames where this identity is present
-        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
+        centroid_centers = np.full(
+            [self._poses.num_frames, 2], np.nan, dtype=np.float32
+        )
         for i in indexes:
             centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
@@ -50,10 +57,9 @@ class CentroidVelocityDir(Feature):
         # convert angle to range -180 to 180
         values = (((d - bearings) + 180) % 360) - 180
 
-        return {'centroid_velocity_dir': values}
+        return {"centroid_velocity_dir": values}
 
-    def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> dict:
+    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)
@@ -62,7 +68,7 @@ class CentroidVelocityDir(Feature):
 class CentroidVelocityMag(Feature):
     """feature for the magnitude of the center of mass velocity"""
 
-    _name = 'centroid_velocity_mag'
+    _name = "centroid_velocity_mag"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -88,7 +94,9 @@ class CentroidVelocityMag(Feature):
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
 
         # get centroids for all frames where this identity is present
-        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
+        centroid_centers = np.full(
+            [self._poses.num_frames, 2], np.nan, dtype=np.float32
+        )
         for i in indexes:
             centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
@@ -96,4 +104,4 @@ class CentroidVelocityMag(Feature):
         v = np.gradient(centroid_centers, axis=0)
         values = np.linalg.norm(v, axis=-1) * fps * self._pixel_scale
 
-        return {'centroid_velocity_mag': values}
+        return {"centroid_velocity_mag": values}

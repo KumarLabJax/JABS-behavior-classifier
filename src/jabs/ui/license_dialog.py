@@ -1,6 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 
 from ..constants import APP_NAME, APP_NAME_LONG
 
@@ -15,7 +14,7 @@ class LicenseAgreementDialog(QDialog):
 
         layout.addWidget(
             QLabel(f"I have read and I agree to the {APP_NAME} license terms."),
-            alignment=Qt.AlignCenter
+            alignment=Qt.AlignCenter,
         )
 
         button_layout = QHBoxLayout()

@@ -286,14 +286,10 @@ class MouseLixitAngle(Feature):
             centroids[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
         # Compute the vector from the nose to the center of the spine for the mouse
-        mouse_vectors = (
-                points[:, PoseEstimation.KeypointIndex.NOSE, :]
-                - centroids
-        )
+        mouse_vectors = points[:, PoseEstimation.KeypointIndex.NOSE, :] - centroids
 
         mouse_back_vectors = (
-                centroids
-                - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
+            centroids - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
         )
 
         # Get the lixit points for the closest lixit to the given identity
@@ -321,6 +317,8 @@ class MouseLixitAngle(Feature):
                 dot_product / (norm_mouse_vectors * norm_lixit_vectors), -1.0, 1.0
             ),
             f"base-tail - centroid": np.clip(
-                dot_product_back / (norm_mouse_back_vectors * norm_lixit_vectors), -1.0, 1.0
+                dot_product_back / (norm_mouse_back_vectors * norm_lixit_vectors),
+                -1.0,
+                1.0,
             ),
         }

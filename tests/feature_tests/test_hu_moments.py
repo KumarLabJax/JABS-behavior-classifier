@@ -6,14 +6,14 @@ from src.jabs.feature_extraction.segmentation_features import HuMoments
 
 
 class Test(SBC, unittest.TestCase):
-    """ This test will provide testing coverage for the HuMoments Feature class. """
+    """This test will provide testing coverage for the HuMoments Feature class."""
 
     def testHuMomentFeatureName(self) -> None:
-        """ Test HuMoment class. """
+        """Test HuMoment class."""
 
         # test that data was read and setup correctly
-        huMomentsFeature = self.feature_mods['hu_moments']
-        
+        huMomentsFeature = self.feature_mods["hu_moments"]
+
         assert huMomentsFeature._feature_names[-2] == "hu6"
 
         i = 0
@@ -21,6 +21,3 @@ class Test(SBC, unittest.TestCase):
         huMoments_by_frame = huMomentsFeature.per_frame(i)
 
         assert len(huMoments_by_frame) == 7
-
-        
-

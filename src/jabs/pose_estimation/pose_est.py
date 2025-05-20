@@ -21,8 +21,10 @@ class PoseEstimation(ABC):
     """abstract base class for PoseEstimation objects. Used as the base class for
     PoseEstimationV2 and PoseEstimationV3
     """
+
     class KeypointIndex(enum.IntEnum):
         """enum defining the 12 keypoint indexes"""
+
         NOSE = 0
         LEFT_EAR = 1
         RIGHT_EAR = 2
@@ -36,8 +38,9 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(self, file_path: Path, cache_dir: typing.Optional[Path] = None,
-                 fps: int = 30):
+    def __init__(
+        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
+    ):
         """initialize new object from h5 file
 
         Args:
@@ -93,8 +96,9 @@ class PoseEstimation(ABC):
         return self._hash
 
     @abstractmethod
-    def get_points(self, frame_index: int, identity: int,
-                   scale: typing.Optional[float] = None):
+    def get_points(
+        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
+    ):
         """return points and point masks for an individual frame
 
         Args:
@@ -109,8 +113,7 @@ class PoseEstimation(ABC):
         pass
 
     @abstractmethod
-    def get_identity_poses(self, identity: int,
-                           scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
         """return all points and point masks
 
         Args:
@@ -182,14 +185,16 @@ class PoseEstimation(ABC):
             convex_hulls = None
             path = None
             if self._cache_dir is not None:
-                path = (self._cache_dir /
-                        "convex_hulls" /
-                        self._path.with_suffix('').name /
-                        f"convex_hulls_{identity}.pickle")
+                path = (
+                    self._cache_dir
+                    / "convex_hulls"
+                    / self._path.with_suffix("").name
+                    / f"convex_hulls_{identity}.pickle"
+                )
                 path.parents[0].mkdir(mode=0o775, parents=True, exist_ok=True)
 
                 try:
-                    with path.open('rb') as f:
+                    with path.open("rb") as f:
                         convex_hulls = pickle.load(f)
                 except:
                     # we weren't able to read in the cached convex hulls,
@@ -205,13 +210,15 @@ class PoseEstimation(ABC):
 
                 for frame_index in range(self.num_frames):
                     if sum(body_point_masks[frame_index, :]) >= 3:
-                        filtered_points = body_points[frame_index, body_point_masks[frame_index, :] == 1, :]
+                        filtered_points = body_points[
+                            frame_index, body_point_masks[frame_index, :] == 1, :
+                        ]
                         convex_hulls.append(MultiPoint(filtered_points).convex_hull)
                     else:
                         convex_hulls.append(None)
 
                 if path:
-                    with path.open('wb') as f:
+                    with path.open("wb") as f:
                         pickle.dump(convex_hulls, f)
 
             self._convex_hull_cache[identity] = convex_hulls
@@ -222,8 +229,7 @@ class PoseEstimation(ABC):
         base_neck_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
         base_neck_offset_xy = base_neck_xy - base_tail_xy
 
-        angle_rad = np.arctan2(base_neck_offset_xy[1],
-                               base_neck_offset_xy[0])
+        angle_rad = np.arctan2(base_neck_offset_xy[1], base_neck_offset_xy[0])
 
         return np.degrees(angle_rad)
 
@@ -237,9 +243,9 @@ class PoseEstimation(ABC):
 
     @staticmethod
     def get_pose_file_attributes(path: Path) -> dict:
-        with h5py.File(path, 'r') as pose_h5:
+        with h5py.File(path, "r") as pose_h5:
             attrs = dict(pose_h5.attrs)
-            attrs['poseest'] = dict(pose_h5['poseest'].attrs)
+            attrs["poseest"] = dict(pose_h5["poseest"].attrs)
             return attrs
 
     @property

@@ -85,4 +85,3 @@ def test_load_video_labels(video_manager, project_paths):
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
-

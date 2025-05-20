@@ -5,7 +5,6 @@ from .feature_base_class import Feature
 
 
 class FeatureGroup(abc.ABC):
-
     # to be defined in subclass
     _features: dict[str, Feature] = {}
     _name = None
@@ -16,8 +15,7 @@ class FeatureGroup(abc.ABC):
         self._poses = poses
         self._pixel_scale = pixel_scale
         if self._name is None:
-            raise NotImplementedError(
-                "Base class must override _name class member")
+            raise NotImplementedError("Base class must override _name class member")
 
         # _features above defines all features that are part of this group,
         # but self._enabled_features lists which features are currently enabled.
@@ -34,13 +32,9 @@ class FeatureGroup(abc.ABC):
             dict where each key is the name of a feature module included in this FeatureGroup
         """
         feature_modules = self._init_feature_mods(identity)
-        return {
-            name: mod.per_frame(identity) for name, mod in
-            feature_modules.items()
-        }
+        return {name: mod.per_frame(identity) for name, mod in feature_modules.items()}
 
-    def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> dict:
+    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """compute window feature values for a given identities per frame values
 
         Args:
@@ -56,8 +50,8 @@ class FeatureGroup(abc.ABC):
         """
         feature_modules = self._init_feature_mods(identity)
         return {
-            name: mod.window(identity, window_size, per_frame_values[name]) for name, mod in
-            feature_modules.items()
+            name: mod.window(identity, window_size, per_frame_values[name])
+            for name, mod in feature_modules.items()
         }
 
     @property
@@ -78,10 +72,10 @@ class FeatureGroup(abc.ABC):
 
     @classmethod
     def get_supported_feature_modules(
-            cls,
-            pose_version: int,
-            static_objects: set[str],
-            **kwargs,
+        cls,
+        pose_version: int,
+        static_objects: set[str],
+        **kwargs,
     ) -> list[str]:
         """Get the features supported by this group based on the pose version,
           static objects, and optional additional attributes

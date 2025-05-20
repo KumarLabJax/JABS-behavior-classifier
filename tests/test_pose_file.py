@@ -9,21 +9,21 @@ import numpy as np
 import src.jabs.pose_estimation
 
 _TEST_FILES = [
-    'sample_pose_est_v3.h5.gz',
-    'sample_pose_est_v4.h5.gz',
-    'sample_pose_est_v5.h5.gz'
+    "sample_pose_est_v3.h5.gz",
+    "sample_pose_est_v4.h5.gz",
+    "sample_pose_est_v5.h5.gz",
 ]
 
 
 class TestOpenPose(unittest.TestCase):
     _tmpdir = None
-    _test_data_dir = Path(__file__).parent / 'data'
+    _test_data_dir = Path(__file__).parent / "data"
 
     @classmethod
     def setUpClass(cls) -> None:
         """
         11/14/2022 - This method throws an error: gzip.BadGzipFile: Not a gzipped file (x89H).  Noticed this when
-        I tried to create my own base feature tests.  Is gzip.open() necessary, simply reading the file without gzip 
+        I tried to create my own base feature tests.  Is gzip.open() necessary, simply reading the file without gzip
         appears to work.  Please see my file test_pose_ancillary.py
 
         12/08/2023 -- works as expected for me on MacOS:
@@ -53,49 +53,54 @@ class TestOpenPose(unittest.TestCase):
         # decompress pose file into tempdir
 
         for f in _TEST_FILES:
-            with gzip.open(cls._test_data_dir / f, 'rb') as f_in:
-                with open(cls._tmpdir_path / f.replace('.h5.gz', '.h5'),
-                          'wb') as f_out:
+            with gzip.open(cls._test_data_dir / f, "rb") as f_in:
+                with open(cls._tmpdir_path / f.replace(".h5.gz", ".h5"), "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
         cls._pose_est_v3 = src.jabs.pose_estimation.open_pose_file(
-            cls._tmpdir_path / 'sample_pose_est_v3.h5')
+            cls._tmpdir_path / "sample_pose_est_v3.h5"
+        )
 
         cls._pose_est_v4 = src.jabs.pose_estimation.open_pose_file(
-            cls._tmpdir_path / 'sample_pose_est_v4.h5')
+            cls._tmpdir_path / "sample_pose_est_v4.h5"
+        )
 
         cls._pose_est_v5 = src.jabs.pose_estimation.open_pose_file(
-            cls._tmpdir_path / 'sample_pose_est_v5.h5')
+            cls._tmpdir_path / "sample_pose_est_v5.h5"
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls._tmpdir.cleanup()
 
     def test_open_pose_est_v3(self) -> None:
-        """ test that open_pose_file can open a V3 pose file """
-        self.assertIsInstance(self._pose_est_v3,
-                              src.jabs.pose_estimation.PoseEstimationV3)
+        """test that open_pose_file can open a V3 pose file"""
+        self.assertIsInstance(
+            self._pose_est_v3, src.jabs.pose_estimation.PoseEstimationV3
+        )
         self.assertEqual(self._pose_est_v3.format_major_version, 3)
 
     def test_open_pose_est_v4(self) -> None:
-        """ test that open_pose_file can open a V4 pose file """
-        self.assertIsInstance(self._pose_est_v4,
-                              src.jabs.pose_estimation.PoseEstimationV4)
+        """test that open_pose_file can open a V4 pose file"""
+        self.assertIsInstance(
+            self._pose_est_v4, src.jabs.pose_estimation.PoseEstimationV4
+        )
         self.assertEqual(self._pose_est_v4.format_major_version, 4)
 
     def test_open_pose_est_v5(self) -> None:
-        """ test that open_pose_file can open a V5 pose file """
-        self.assertIsInstance(self._pose_est_v5,
-                              src.jabs.pose_estimation.PoseEstimationV5)
+        """test that open_pose_file can open a V5 pose file"""
+        self.assertIsInstance(
+            self._pose_est_v5, src.jabs.pose_estimation.PoseEstimationV5
+        )
         self.assertEqual(self._pose_est_v5.format_major_version, 5)
 
         # the test v5 pose file has 'corners' in static objects dataset
         static_objs = self._pose_est_v5.static_objects
-        self.assertTrue('corners' in static_objs)
-        self.assertEqual(static_objs['corners'].shape, (4, 2))
+        self.assertTrue("corners" in static_objs)
+        self.assertEqual(static_objs["corners"].shape, (4, 2))
 
     def test_get_points(self) -> None:
-        """ test getting pose points from PoseEstimation instance """
+        """test getting pose points from PoseEstimation instance"""
         points, point_mask = self._pose_est_v4.get_identity_poses(0)
         nframes = self._pose_est_v4.num_frames
 
@@ -113,8 +118,9 @@ class TestOpenPose(unittest.TestCase):
         self.assertEqual(point_mask.shape, (12,))
 
         # compare to getting all points
-        points_all_frame, point_mask_all_frames = \
-            self._pose_est_v4.get_identity_poses(0)
+        points_all_frame, point_mask_all_frames = self._pose_est_v4.get_identity_poses(
+            0
+        )
         # May contain NaNs which assert_equal handles
         np.testing.assert_equal(points, points_all_frame[10, :])
         self.assertTrue((point_mask == point_mask_all_frames[10, :]).all())
@@ -124,7 +130,7 @@ class TestOpenPose(unittest.TestCase):
             _, _ = self._pose_est_v4.get_points(1000000, 0)
 
     def test_scaling_points(self) -> None:
-        """ test scaling points """
+        """test scaling points"""
         points, _ = self._pose_est_v4.get_points(10, 0)
         scaled_points, _ = self._pose_est_v4.get_points(10, 0, 0.03)
         np.testing.assert_equal(points * 0.03, scaled_points)
@@ -146,22 +152,20 @@ class TestOpenPose(unittest.TestCase):
             # and manipulate it to generate data in the form we need, and then
             # will write it back out to the cache directory
             pose_v4 = src.jabs.pose_estimation.open_pose_file(
-                self._tmpdir_path / 'sample_pose_est_v4.h5',
-                cache_dir=cache_dir_path)
+                self._tmpdir_path / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
+            )
 
             # open it again, this time it should be read from the cached
             # file
             pose_v4_from_cache = src.jabs.pose_estimation.open_pose_file(
-                self._tmpdir_path / 'sample_pose_est_v4.h5',
-                cache_dir=cache_dir_path)
+                self._tmpdir_path / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
+            )
 
         # make sure the list of identities is the same
-        self.assertListEqual(pose_v4.identities,
-                             pose_v4_from_cache.identities)
+        self.assertListEqual(pose_v4.identities, pose_v4_from_cache.identities)
 
         # they should have the same number of frames
-        self.assertEqual(pose_v4.num_frames,
-                         pose_v4_from_cache.num_frames)
+        self.assertEqual(pose_v4.num_frames, pose_v4_from_cache.num_frames)
 
         # make sure the points and point masks are equal for all identities
         # nans need to be handled differently

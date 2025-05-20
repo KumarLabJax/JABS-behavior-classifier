@@ -10,7 +10,7 @@ class VideoReader:
     Uses OpenCV to open a video file and read frames.
     """
 
-    _EOF = {'data': None, 'index': -1}
+    _EOF = {"data": None, "index": -1}
 
     def __init__(self, path: Path):
         """
@@ -59,8 +59,7 @@ class VideoReader:
 
     def get_frame_time(self, frame_number):
         """return a formatted string of the time of a given frame"""
-        return time.strftime('%H:%M:%S',
-                             time.gmtime(frame_number * self._duration))
+        return time.strftime("%H:%M:%S", time.gmtime(frame_number * self._duration))
 
     def seek(self, index):
         """Seek to a specific frame.
@@ -78,11 +77,10 @@ class VideoReader:
         """grab the next frame from the file"""
         (grabbed, frame) = self.stream.read()
         if grabbed:
-
             data = {
-                'data': frame,
-                'index': self._frame_index,
-                'duration': self._duration
+                "data": frame,
+                "index": self._frame_index,
+                "duration": self._duration,
             }
             self._frame_index += 1
         else:

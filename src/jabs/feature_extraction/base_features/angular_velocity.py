@@ -5,10 +5,9 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 
 class AngularVelocity(Feature):
-
     """compute angular velocity of animal bearing"""
 
-    _name = 'angular_velocity'
+    _name = "angular_velocity"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -28,7 +27,6 @@ class AngularVelocity(Feature):
         velocities = np.full(bearings.shape, np.nan, bearings.dtype)
 
         for i in range(len(bearings) - 1):
-
             angle1 = bearings[i]
             angle2 = bearings[i + 1]
 
@@ -58,4 +56,4 @@ class AngularVelocity(Feature):
                 velocities[i] = diff3
         velocities = velocities * fps
 
-        return {'angular_velocity': velocities}
+        return {"angular_velocity": velocities}

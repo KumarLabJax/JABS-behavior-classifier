@@ -162,7 +162,7 @@ def convert_data_frame(
         # we only iterate over keypoints 1-5, since keypoint 6 is computed and
         # doesn't map to a jabs keypoint. It's similar to our computed
         # centroids
-        for keypoint in range(1,6):
+        for keypoint in range(1, 6):
             jabs_keypoint = KEYPOINT_MAP[keypoint]
             x = row[f"kpt_{keypoint}_x"]
             y = row[f"kpt_{keypoint}_y"]
@@ -179,11 +179,15 @@ def convert_data_frame(
         pose_group.create_dataset("points", data=jabs_points, dtype=np.uint16)
         pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
         pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
-        pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
+        pose_group.create_dataset(
+            "instance_embed_id", data=jabs_embed_id, dtype=np.uint32
+        )
 
         # the parquet file uses global identities for the animal ids, while JABS always uses 0..(num_identities-1)
         # save the original animal ids in the pose file so we can map back to the original ids downstream
-        pose_group.create_dataset("external_identity_mapping", data=identities, dtype=np.uint32)
+        pose_group.create_dataset(
+            "external_identity_mapping", data=identities, dtype=np.uint32
+        )
 
         static_objects_group = pose_out.create_group("static_objects")
         if lixit_predictions is not None:
@@ -252,7 +256,6 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
 
 
 def main():
-
     parser = argparse.ArgumentParser(
         description="""
         Convert parquet pose file to JABS Pose format.
@@ -315,9 +318,13 @@ def main():
             continue
 
         if args.out_dir is None:
-            output_file = parquet_file.with_name(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
+            output_file = parquet_file.with_name(
+                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+            )
         else:
-            output_file = args.out_dir / Path(parquet_file.name.replace(".parquet", "_pose_est_v5.h5"))
+            output_file = args.out_dir / Path(
+                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+            )
         convert(parquet_file, output_file, lixit_predictions, args.num_frames)
 
 

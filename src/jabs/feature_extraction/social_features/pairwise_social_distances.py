@@ -19,17 +19,19 @@ _social_point_subset = [
 
 
 class PairwiseSocialDistances(Feature):
-
-    _name = 'social_pairwise_distances'
+    _name = "social_pairwise_distances"
     _min_pose = 3
-
 
     # total number of values created by pairwise distances between the
     # subject and closest other identity for this subset of points
     _num_social_distances = len(_social_point_subset) ** 2
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float,
-                 social_distance_info: 'ClosestIdentityInfo'):
+    def __init__(
+        self,
+        poses: PoseEstimation,
+        pixel_scale: float,
+        social_distance_info: "ClosestIdentityInfo",
+    ):
         super().__init__(poses, pixel_scale)
         self._social_distance_info = social_distance_info
         self._poses = poses
@@ -45,19 +47,17 @@ class PairwiseSocialDistances(Feature):
         """
 
         return self._social_distance_info.compute_pairwise_social_distances(
-            _social_point_subset,
-            self._social_distance_info.closest_identities
+            _social_point_subset, self._social_distance_info.closest_identities
         )
 
 
 class PairwiseSocialFovDistances(PairwiseSocialDistances):
-
     """PairwiseSocialFovDistances, nearly the same as the PairwiseSocialDistances,
     except closest_fov_identities is passed to compute_pairwise_social_distances
     rather than closest_identities
     """
 
-    _name = 'social_pairwise_fov_distances'
+    _name = "social_pairwise_fov_distances"
 
     def per_frame(self, identity: int) -> np.ndarray:
         """compute the value of the per frame features for a specific identity
@@ -69,6 +69,5 @@ class PairwiseSocialFovDistances(PairwiseSocialDistances):
             np.ndarray with feature values
         """
         return self._social_distance_info.compute_pairwise_social_distances(
-            _social_point_subset,
-            self._social_distance_info.closest_fov_identities
+            _social_point_subset, self._social_distance_info.closest_fov_identities
         )

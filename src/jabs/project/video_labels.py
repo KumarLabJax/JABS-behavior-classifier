@@ -12,7 +12,10 @@ class VideoLabels:
 
     TODO stop using str for identities in method parameters, switch to int
     """
-    def __init__(self, filename, num_frames, external_identities: list[int] | None = None):
+
+    def __init__(
+        self, filename, num_frames, external_identities: list[int] | None = None
+    ):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
@@ -56,8 +59,7 @@ class VideoLabels:
         # identity doesn't have annotations for this behavior, create a new
         # TrackLabels object
         if track_labels is None:
-            self._identity_labels[identity][behavior] = \
-                TrackLabels(self._num_frames)
+            self._identity_labels[identity][behavior] = TrackLabels(self._num_frames)
 
         # return TrackLabels object for this identity & behavior
         return self._identity_labels[identity][behavior]
@@ -112,8 +114,8 @@ class VideoLabels:
         """
 
         label_dict = {
-            'file': self._filename,
-            'num_frames': self._num_frames,
+            "file": self._filename,
+            "num_frames": self._num_frames,
             "labels": {},
         }
 
@@ -124,11 +126,10 @@ class VideoLabels:
                 if len(blocks):
                     label_dict["labels"][identity][behavior] = blocks
 
-
         if self._external_identities is not None:
-            label_dict['external_identities'] = {}
+            label_dict["external_identities"] = {}
             for i, identity in enumerate(self._external_identities):
-                label_dict['external_identities'][str(i)] = identity
+                label_dict["external_identities"][str(i)] = identity
 
         return label_dict
 
@@ -137,12 +138,13 @@ class VideoLabels:
         """return a VideoLabels object initialized with data from a dict previously
         exported using the export() method
         """
-        labels = cls(video_label_dict['file'], video_label_dict['num_frames'])
-        for identity in video_label_dict['labels']:
+        labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
+        for identity in video_label_dict["labels"]:
             labels._identity_labels[identity] = {}
-            for behavior in video_label_dict['labels'][identity]:
+            for behavior in video_label_dict["labels"][identity]:
                 labels._identity_labels[identity][behavior] = TrackLabels.load(
-                    video_label_dict['num_frames'],
-                    video_label_dict['labels'][identity][behavior])
+                    video_label_dict["num_frames"],
+                    video_label_dict["labels"][identity][behavior],
+                )
 
         return labels

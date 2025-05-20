@@ -1,12 +1,12 @@
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from jabs.pose_estimation import PoseEstimation
+
 # import all feature modules for this group
 from . import Moments, HuMoments, ShapeDescriptors, MomentInfo
 
 
 class SegmentationFeatureGroup(FeatureGroup):
-
-    _name = 'segmentation'
+    _name = "segmentation"
 
     # build dictionary mapping feature name to class that implements it
     _features = {
@@ -28,11 +28,11 @@ class SegmentationFeatureGroup(FeatureGroup):
         Returns:
             dictionary of initialized feature modules for this group
         """
-        self._moments_cache = MomentInfo(
-            self._poses, identity, self._pixel_scale)
-
+        self._moments_cache = MomentInfo(self._poses, identity, self._pixel_scale)
 
         return {
-            feature: self._features[feature](self._poses, self._pixel_scale, self._moments_cache)
+            feature: self._features[feature](
+                self._poses, self._pixel_scale, self._moments_cache
+            )
             for feature in self._enabled_features
         }

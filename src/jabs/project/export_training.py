@@ -1,6 +1,6 @@
 """TODO: change exported training data from a single h5 file with pre-computed
- features to a bundle of pose files, labels, and list of features used for
- the classifier
+features to a bundle of pose files, labels, and list of features used for
+the classifier
 """
 
 import h5py
