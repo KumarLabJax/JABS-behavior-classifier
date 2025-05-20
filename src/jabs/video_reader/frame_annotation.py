@@ -264,7 +264,7 @@ def overlay_pose(
         )
 
     # draw points at each keypoint of the pose (if it exists at this frame)
-    for point, point_mask in zip(points, mask):
+    for point, point_mask in zip(points, mask, strict=True):
         if point_mask:
             cv2.circle(
                 img,
