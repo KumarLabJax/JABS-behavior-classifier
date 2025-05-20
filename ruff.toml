@@ -1,4 +1,4 @@
-select = [
+lint.select = [
     "E",    # pycodestyle errors
     "F",    # pyflakes
     "D",    # pydocstyle
@@ -9,7 +9,7 @@ select = [
     "SIM",  # flake8-simplify
     "RUF",  # Ruff-specific rules
 ]
-ignore = [
+lint.ignore = [
     "D203",  # one-blank-line-before-class (conflicts with D211)
     "D212",  # multi-line-summary-first-line (conflicts with D213)
     "D107",  # missing docstring in __init__
@@ -20,8 +20,8 @@ ignore = [
     "D415",  # ignore doc punctuation
 ]
 
-[pydocstyle]
+[lint.pydocstyle]
 convention = "google"
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports in __init__ files
