@@ -1,8 +1,9 @@
 import argparse
-import cv2
-import h5py
 import os
 import random
+
+import cv2
+import h5py
 
 # Command line example of using this script:
 #
@@ -67,6 +68,7 @@ import random
 
 
 def main():
+    """sample pose intervals"""
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -151,10 +153,7 @@ def main():
                     last_candidate_frame = frame_count - args.out_frame_count
                     if last_candidate_frame <= 0:
                         print(
-                            "WARNING: {} skipped because it only contains {} frames".format(
-                                vid_filename,
-                                frame_count,
-                            )
+                            f"WARNING: {vid_filename} skipped because it only contains {frame_count} frames"
                         )
                         continue
 
@@ -243,15 +242,13 @@ def main():
                         try:
                             cap = cv2.VideoCapture(vid_path)
                             if not cap.isOpened():
-                                print("WARNING: failed to open {}".format(vid_filename))
+                                print(f"WARNING: failed to open {vid_filename}")
                                 continue
 
                             cap.set(cv2.CAP_PROP_POS_FRAMES, out_start_frame_index)
                             if not cap.isOpened():
                                 print(
-                                    "WARNING: failed to seek to start frame {}".format(
-                                        vid_filename
-                                    )
+                                    f"WARNING: failed to seek to start frame {vid_filename}"
                                 )
                                 continue
 
@@ -266,22 +263,14 @@ def main():
                             )
                             for _ in range(args.out_frame_count):
                                 if not cap.isOpened():
-                                    print(
-                                        "WARNING: {} ended prematurely".format(
-                                            vid_filename
-                                        )
-                                    )
+                                    print(f"WARNING: {vid_filename} ended prematurely")
                                     break
 
                                 ret, frame = cap.read()
                                 if ret:
                                     writer.write(frame)
                                 else:
-                                    print(
-                                        "WARNING: {} ended prematurely".format(
-                                            vid_filename
-                                        )
-                                    )
+                                    print(f"WARNING: {vid_filename} ended prematurely")
                                     break
 
                         finally:

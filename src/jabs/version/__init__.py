@@ -1,6 +1,9 @@
+"""jabs version"""
+
 import importlib.metadata
-import toml
 from pathlib import Path
+
+import toml
 
 
 def version_str():

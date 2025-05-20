@@ -1,4 +1,5 @@
 import time
+import typing
 from pathlib import Path
 
 import cv2
@@ -10,17 +11,18 @@ class VideoReader:
     Uses OpenCV to open a video file and read frames.
     """
 
-    _EOF = {"data": None, "index": -1}
+    _EOF: typing.ClassVar[dict] = {"data": None, "index": -1}
 
     def __init__(self, path: Path):
-        """
+        """Initialize a VideoReader object.
+
         Args:
             path: path to video file
         """
         # open video file
         self.stream = cv2.VideoCapture(str(path))
         if not self.stream.isOpened():
-            raise IOError(f"unable to open {path}")
+            raise OSError(f"unable to open {path}")
 
         self._frame_index = 0
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -63,9 +65,10 @@ class VideoReader:
 
     def seek(self, index):
         """Seek to a specific frame.
+
         This will clear the buffer and insert the frame at the new position.
 
-        NOTE:
+        Note:
             some video formats might not be able to seek to an exact frame
             position so this could be slow in those cases. Our avi files have
             reasonable seek times.
@@ -89,8 +92,7 @@ class VideoReader:
 
     @staticmethod
     def _resize_image(image, width=None, height=None, interpolation=None):
-        """resize an image, allow passing only desired width or height to
-        maintain current aspect ratio
+        """resize an image, allow passing only desired width or height to maintain current aspect ratio
 
         Args:
             image: image to resize
@@ -127,12 +129,7 @@ class VideoReader:
             dim = (width, height)
 
         if interpolation is None:
-            if dim[0] * dim[1] < w * h:
-                # new image size is larger than the original, default to
-                # INTER_AREA
-                inter = cv2.INTER_AREA
-            else:
-                inter = cv2.INTER_CUBIC
+            inter = cv2.INTER_AREA if dim[0] * dim[1] < w * h else cv2.INTER_CUBIC
         else:
             inter = interpolation
 
@@ -144,9 +141,10 @@ class VideoReader:
 
     @classmethod
     def get_nframes_from_file(cls, path: Path):
+        """get the number of frames by inspecting the video file"""
         # open video file
         stream = cv2.VideoCapture(str(path))
         if not stream.isOpened():
-            raise IOError(f"unable to open {path}")
+            raise OSError(f"unable to open {path}")
 
         return int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
