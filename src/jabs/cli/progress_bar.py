@@ -1,8 +1,14 @@
-
-
-def cli_progress_bar(completed: int, total_iterations: int, length=40,
-                     fill_char='█', padding_char='░', prefix='', suffix='',
-                     precision=1, complete_as_percent=True):
+def cli_progress_bar(
+    completed: int,
+    total_iterations: int,
+    length=40,
+    fill_char="█",
+    padding_char="░",
+    prefix="",
+    suffix="",
+    precision=1,
+    complete_as_percent=True,
+):
     """Call in a loop to create terminal progress bar. The loop can't print
     any other output to stdout.
 
@@ -47,7 +53,7 @@ def cli_progress_bar(completed: int, total_iterations: int, length=40,
         complete = f"{completed:{width}} of {total_iterations}"
 
     # print progress bar, overwriting the current line
-    print(f'\r{prefix}{bar} {complete} {suffix}', end='\r')
+    print(f"\r{prefix}{bar} {complete} {suffix}", end="\r")
 
     # print newline once the progress bar is filled
     if completed == total_iterations:

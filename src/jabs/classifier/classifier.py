@@ -8,15 +8,12 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import (
-    RandomForestClassifier,
-    GradientBoostingClassifier
-)
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
-    confusion_matrix
+    confusion_matrix,
 )
 from sklearn.model_selection import train_test_split, LeaveOneGroupOut
 
@@ -26,10 +23,7 @@ from jabs.utils import hash_file
 
 _VERSION = 9
 
-_classifier_choices = [
-    ClassifierType.RANDOM_FOREST,
-    ClassifierType.GRADIENT_BOOSTING
-]
+_classifier_choices = [ClassifierType.RANDOM_FOREST, ClassifierType.GRADIENT_BOOSTING]
 
 try:
     _xgboost = import_module("xgboost")
@@ -50,9 +44,8 @@ class Classifier:
     _classifier_names = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
         ClassifierType.GRADIENT_BOOSTING: "Gradient Boosting",
-        ClassifierType.XGBOOST: "XGBoost"
+        ClassifierType.XGBOOST: "XGBoost",
     }
-
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         """
@@ -87,28 +80,32 @@ class Classifier:
             trained classifier object
         """
         loaded_training_data, _ = load_training_data(path)
-        behavior = loaded_training_data['behavior']
+        behavior = loaded_training_data["behavior"]
 
         classifier = cls()
         classifier.behavior_name = behavior
-        classifier.set_dict_settings(loaded_training_data['settings'])
-        classifier_type = ClassifierType(loaded_training_data['classifier_type'])
+        classifier.set_dict_settings(loaded_training_data["settings"])
+        classifier_type = ClassifierType(loaded_training_data["classifier_type"])
         if classifier_type in classifier.classifier_choices():
             classifier.set_classifier(classifier_type)
         else:
-            print(f'Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}')
-        training_features = classifier.combine_data(loaded_training_data['per_frame'], loaded_training_data['window'])
+            print(
+                f"Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}"
+            )
+        training_features = classifier.combine_data(
+            loaded_training_data["per_frame"], loaded_training_data["window"]
+        )
         classifier.train(
             {
-                'training_data': training_features,
-                'training_labels': loaded_training_data['labels']
+                "training_data": training_features,
+                "training_labels": loaded_training_data["labels"],
             },
-            random_seed=loaded_training_data['training_seed']
+            random_seed=loaded_training_data["training_seed"],
         )
 
         classifier._classifier_file = Path(path).name
         classifier._classifier_hash = hash_file(Path(path))
-        classifier._classifier_source = 'training_file'
+        classifier._classifier_source = "training_file"
 
         return classifier
 
@@ -126,13 +123,13 @@ class Classifier:
     def classifier_file(self) -> str:
         if self._classifier_file is not None:
             return self._classifier_file
-        return 'NO SAVED CLASSIFIER'
+        return "NO SAVED CLASSIFIER"
 
     @property
     def classifier_hash(self) -> str:
         if self._classifier_hash is not None:
             return self._classifier_hash
-        return 'NO HASH'
+        return "NO HASH"
 
     @property
     def project_settings(self) -> dict:
@@ -184,11 +181,11 @@ class Classifier:
         x_train, x_test, y_train, y_test = train_test_split(all_features, label_data)
 
         return {
-            'training_data': x_train,
-            'training_labels': y_train,
-            'test_data': x_test,
-            'test_labels': y_test,
-            'feature_names': all_features.columns.to_list()
+            "training_data": x_train,
+            "training_labels": y_train,
+            "test_data": x_test,
+            "test_labels": y_test,
+            "feature_names": all_features.columns.to_list(),
         }
 
     @staticmethod
@@ -203,14 +200,28 @@ class Classifier:
             int of the maximum number of cross validation to use
         """
         unique_groups = np.unique(groups)
-        count_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.BEHAVIOR) for x in unique_groups]
-        count_not_behavior = [np.sum(np.asarray(labels)[np.asarray(groups)==x] == TrackLabels.Label.NOT_BEHAVIOR) for x in unique_groups]
-        can_kfold = np.logical_and(np.asarray(count_behavior)>Classifier.LABEL_THRESHOLD, np.asarray(count_not_behavior)>Classifier.LABEL_THRESHOLD)
+        count_behavior = [
+            np.sum(
+                np.asarray(labels)[np.asarray(groups) == x]
+                == TrackLabels.Label.BEHAVIOR
+            )
+            for x in unique_groups
+        ]
+        count_not_behavior = [
+            np.sum(
+                np.asarray(labels)[np.asarray(groups) == x]
+                == TrackLabels.Label.NOT_BEHAVIOR
+            )
+            for x in unique_groups
+        ]
+        can_kfold = np.logical_and(
+            np.asarray(count_behavior) > Classifier.LABEL_THRESHOLD,
+            np.asarray(count_not_behavior) > Classifier.LABEL_THRESHOLD,
+        )
         return np.sum(can_kfold)
 
     @staticmethod
-    def leave_one_group_out(per_frame_features, window_features, labels,
-                            groups):
+    def leave_one_group_out(per_frame_features, window_features, labels, groups):
         """implements "leave one group out" data splitting strategy
 
         Args:
@@ -238,22 +249,25 @@ class Classifier:
         random.shuffle(splits)
         count = 0
         for split in splits:
-
             behavior_count = np.count_nonzero(
-                labels[split[1]] == TrackLabels.Label.BEHAVIOR)
+                labels[split[1]] == TrackLabels.Label.BEHAVIOR
+            )
             not_behavior_count = np.count_nonzero(
-                labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR)
+                labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR
+            )
 
-            if (behavior_count >= Classifier.LABEL_THRESHOLD and
-                    not_behavior_count >= Classifier.LABEL_THRESHOLD):
+            if (
+                behavior_count >= Classifier.LABEL_THRESHOLD
+                and not_behavior_count >= Classifier.LABEL_THRESHOLD
+            ):
                 count += 1
                 yield {
-                    'training_data': x.iloc[split[0]],
-                    'training_labels': labels[split[0]],
-                    'test_data': x.iloc[split[1]],
-                    'test_labels': labels[split[1]],
-                    'test_group': groups[split[1]][0],
-                    'feature_names': x.columns.to_list()
+                    "training_data": x.iloc[split[0]],
+                    "training_labels": labels[split[0]],
+                    "test_data": x.iloc[split[1]],
+                    "test_labels": labels[split[1]],
+                    "test_group": groups[split[1]][0],
+                    "feature_names": x.columns.to_list(),
                 }
 
         # number of splits exhausted without finding at least one that meets
@@ -279,7 +293,7 @@ class Classifier:
         max_examples_per_class = np.min(label_counts)
         selected_samples = []
         for cur_label in label_states:
-            idxs = np.where(labels==cur_label)[0]
+            idxs = np.where(labels == cur_label)[0]
             if random_seed is not None:
                 np.random.seed(random_seed)
             sampled_idxs = np.random.choice(idxs, max_examples_per_class, replace=False)
@@ -290,7 +304,7 @@ class Classifier:
         return features, labels
 
     @staticmethod
-    def augment_symmetric(features, labels, random_str='ASygRQDZJD'):
+    def augment_symmetric(features, labels, random_str="ASygRQDZJD"):
         """augments the features to include L-R and R-L duplicates
         This requires 'left' or 'right' to be in the feature name to be swapped
         Features that don't include these terms will not be swapped
@@ -307,13 +321,24 @@ class Classifier:
 
         # Figure out the L-R swapping of features
         lowercase_features = np.array([x.lower() for x in features.columns.to_list()])
-        reflected_feature_names = [re.sub(r'left', random_str, x) for x in lowercase_features]
-        reflected_feature_names = [re.sub(r'right', 'left', x) for x in reflected_feature_names]
-        reflected_feature_names = [re.sub(random_str, 'right', x) for x in reflected_feature_names]
-        reflected_idxs = [np.where(lowercase_features == x)[0][0] if x in lowercase_features else i for i, x in enumerate(reflected_feature_names)]
+        reflected_feature_names = [
+            re.sub(r"left", random_str, x) for x in lowercase_features
+        ]
+        reflected_feature_names = [
+            re.sub(r"right", "left", x) for x in reflected_feature_names
+        ]
+        reflected_feature_names = [
+            re.sub(random_str, "right", x) for x in reflected_feature_names
+        ]
+        reflected_idxs = [
+            np.where(lowercase_features == x)[0][0] if x in lowercase_features else i
+            for i, x in enumerate(reflected_feature_names)
+        ]
         # expand the features with reflections
         features_duplicate = features.copy()
-        features_duplicate.columns = features.columns.to_numpy()[np.asarray(reflected_idxs)]
+        features_duplicate.columns = features.columns.to_numpy()[
+            np.asarray(reflected_idxs)
+        ]
         features = pd.concat([features, features_duplicate])
         labels = np.concatenate([labels, labels])
         # TODO: Add this as a test-case that these features are the complete list that should be swapped.
@@ -339,7 +364,9 @@ class Classifier:
         if self._behavior is None:
             self._project_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.settings_manager.get_behavior(self._behavior)
+            self._project_settings = project.settings_manager.get_behavior(
+                self._behavior
+            )
 
     def set_dict_settings(self, settings: dict):
         """assign project settings via a dict to the classifier
@@ -362,9 +389,7 @@ class Classifier:
             <ClassifierType.XGBOOST: 3>: 'XGBoost'
         }
         """
-        return {
-            d: self._classifier_names[d] for d in _classifier_choices
-        }
+        return {d: self._classifier_names[d] for d in _classifier_choices}
 
     def train(self, data, random_seed: typing.Optional[int] = None):
         """train the classifier
@@ -380,34 +405,39 @@ class Classifier:
         raises ValueError for having either unset project settings or an unset classifier
         """
         if self._project_settings is None:
-            raise ValueError('Project settings for classifier unset, cannot train classifier.')
+            raise ValueError(
+                "Project settings for classifier unset, cannot train classifier."
+            )
 
         # Assume that feature names is provided, otherwise extract it from the dataframe
-        if 'feature_names' in data.keys():
-            self._feature_names = data['feature_names']
+        if "feature_names" in data.keys():
+            self._feature_names = data["feature_names"]
         else:
-            self._feature_names = data['training_data'].columns.to_list()
+            self._feature_names = data["training_data"].columns.to_list()
 
         # Obtain the feature and label matrices
-        features = data['training_data']
-        labels = data['training_labels']
+        features = data["training_data"]
+        labels = data["training_labels"]
         # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
-        if self._project_settings.get('symmetric_behavior', False):
+        if self._project_settings.get("symmetric_behavior", False):
             features, labels = self.augment_symmetric(features, labels)
-        if self._project_settings.get('balance_labels', False):
+        if self._project_settings.get("balance_labels", False):
             features, labels = self.downsample_balance(features, labels, random_seed)
 
         if self._classifier_type == ClassifierType.RANDOM_FOREST:
-            self._classifier = self._fit_random_forest(features, labels,
-                                                       random_seed=random_seed)
+            self._classifier = self._fit_random_forest(
+                features, labels, random_seed=random_seed
+            )
         elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
-            self._classifier = self._fit_gradient_boost(features, labels,
-                                                        random_seed=random_seed)
+            self._classifier = self._fit_gradient_boost(
+                features, labels, random_seed=random_seed
+            )
         elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                self._classifier = self._fit_xgboost(features, labels,
-                                                     random_seed=random_seed)
+                self._classifier = self._fit_xgboost(
+                    features, labels, random_seed=random_seed
+                )
         else:
             raise ValueError("Unsupported classifier")
 
@@ -431,7 +461,9 @@ class Classifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                result = self._classifier.predict(self.sort_features_to_classify(features))
+                result = self._classifier.predict(
+                    self.sort_features_to_classify(features)
+                )
             return result
         # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
         return self._classifier.predict(
@@ -445,7 +477,9 @@ class Classifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                result = self._classifier.predict_proba(self.sort_features_to_classify(features))
+                result = self._classifier.predict_proba(
+                    self.sort_features_to_classify(features)
+                )
             return result
         # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
         return self._classifier.predict_proba(
@@ -464,7 +498,7 @@ class Classifier:
         if self._classifier_file is None:
             self._classifier_file = Path(path).name
             self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = 'serialized'
+            self._classifier_source = "serialized"
 
     def load(self, path: Path):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -472,17 +506,20 @@ class Classifier:
             c = joblib.load(path)
             for warning in caught_warnings:
                 if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
+                    raise ValueError(
+                        "Classifier trained with different version of sklearn."
+                    )
                 else:
                     warnings.warn(warning.message, warning.category)
 
         if not isinstance(c, Classifier):
-            raise ValueError(
-                f"{path} is not instance of Classifier")
+            raise ValueError(f"{path} is not instance of Classifier")
 
         if c.version != _VERSION:
-            raise ValueError(f"Error deserializing classifier. "
-                             f"File version {c.version}, expected {_VERSION}.")
+            raise ValueError(
+                f"Error deserializing classifier. "
+                f"File version {c.version}, expected {_VERSION}."
+            )
 
             # make sure the value passed for the classifier parameter is valid
         if c._classifier_type not in _classifier_choices:
@@ -499,7 +536,7 @@ class Classifier:
         else:
             self._classifier_file = Path(path).name
             self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = 'pickle'
+            self._classifier_source = "pickle"
 
     def _update_classifier_type(self):
         # we may need to update the classifier type based
@@ -536,26 +573,31 @@ class Classifier:
         """
         return pd.concat([per_frame, window], axis=1)
 
-    def _fit_random_forest(self, features, labels,
-                           random_seed: typing.Optional[int] = None):
+    def _fit_random_forest(
+        self, features, labels, random_seed: typing.Optional[int] = None
+    ):
         if random_seed is not None:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+            classifier = RandomForestClassifier(
+                n_jobs=self._n_jobs, random_state=random_seed
+            )
         else:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs)
         return classifier.fit(features.fillna(0), labels)
 
-    def _fit_gradient_boost(self, features, labels,
-                            random_seed: typing.Optional[int] = None):
+    def _fit_gradient_boost(
+        self, features, labels, random_seed: typing.Optional[int] = None
+    ):
         if random_seed is not None:
             classifier = GradientBoostingClassifier(random_state=random_seed)
         else:
             classifier = GradientBoostingClassifier()
         return classifier.fit(features.fillna(0), labels)
 
-    def _fit_xgboost(self, features, labels,
-                     random_seed: typing.Optional[int] = None):
+    def _fit_xgboost(self, features, labels, random_seed: typing.Optional[int] = None):
         if random_seed is not None:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+            classifier = _xgboost.XGBClassifier(
+                n_jobs=self._n_jobs, random_state=random_seed
+            )
         else:
             classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
         classifier.fit(features, labels)
@@ -571,15 +613,17 @@ class Classifier:
         # Get numerical feature importance
         importances = list(self._classifier.feature_importances_)
         # List of tuples with variable and importance
-        feature_importance = [(feature, round(importance, 2)) for
-                              feature, importance in
-                              zip(feature_list, importances)]
+        feature_importance = [
+            (feature, round(importance, 2))
+            for feature, importance in zip(feature_list, importances)
+        ]
         # Sort the feature importance by most important first
-        feature_importance = sorted(feature_importance, key=lambda x: x[1],
-                                    reverse=True)
+        feature_importance = sorted(
+            feature_importance, key=lambda x: x[1], reverse=True
+        )
         # Print out the feature and importance
         print(f"{'Feature Name':55} Importance")
-        print('-' * 70)
+        print("-" * 70)
         for feature, importance in feature_importance[:limit]:
             print(f"{feature:55} {importance:0.2f}")
 
@@ -609,8 +653,10 @@ class Classifier:
         group_count = 0
         for video, counts in all_counts.items():
             for count in counts:
-                if (count[1][0] >= Classifier.LABEL_THRESHOLD and
-                        count[1][1] >= Classifier.LABEL_THRESHOLD):
+                if (
+                    count[1][0] >= Classifier.LABEL_THRESHOLD
+                    and count[1][1] >= Classifier.LABEL_THRESHOLD
+                ):
                     group_count += 1
         return group_count
 

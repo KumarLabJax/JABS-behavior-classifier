@@ -6,7 +6,7 @@ from src.jabs.project.track_labels import TrackLabels
 
 
 class TestTrackLabels(unittest.TestCase):
-    """ test project.track_labels.TrackLabels """
+    """test project.track_labels.TrackLabels"""
 
     def test_create(self):
         """
@@ -18,7 +18,7 @@ class TestTrackLabels(unittest.TestCase):
             self.assertEqual(labels.get_frame_label(i), labels.Label.NONE)
 
     def test_add_behavior_label(self):
-        """ test adding a label for a positive observation of the behavior """
+        """test adding a label for a positive observation of the behavior"""
         labels = TrackLabels(1000)
         labels.label_behavior(50, 100)
 
@@ -31,16 +31,15 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(labels.get_frame_label(101), labels.Label.NONE)
 
     def test_add_not_behavior_label(self):
-        """ test adding a label for a confirmed absence of the behavior """
+        """test adding a label for a confirmed absence of the behavior"""
         labels = TrackLabels(1000)
         labels.label_not_behavior(50, 100)
 
         for i in range(50, 100):
-            self.assertEqual(labels.get_frame_label(i),
-                             labels.Label.NOT_BEHAVIOR)
+            self.assertEqual(labels.get_frame_label(i), labels.Label.NOT_BEHAVIOR)
 
     def test_clear_labels(self):
-        """ test clearing labels """
+        """test clearing labels"""
         labels = TrackLabels(100)
 
         # apply some labels so we can clear them
@@ -51,11 +50,10 @@ class TestTrackLabels(unittest.TestCase):
 
         # make sure frames no longer have labels
         for i in range(15, 30):
-            self.assertEqual(labels.get_frame_label(i),
-                             labels.Label.NONE)
+            self.assertEqual(labels.get_frame_label(i), labels.Label.NONE)
 
     def test_downsample_basic(self):
-        """ testing downsampling of label array """
+        """testing downsampling of label array"""
 
         # downsample into an array of length 3
         # will result in three bins of uniform value
@@ -128,7 +126,7 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(len(ds), 33)
 
     def test_export_behavior_blocks(self):
-        """ test exporting to list of label block dicts """
+        """test exporting to list of label block dicts"""
         labels = TrackLabels(1000)
         labels.label_behavior(50, 100)
         labels.label_behavior(195, 205)
@@ -136,30 +134,28 @@ class TestTrackLabels(unittest.TestCase):
         labels.label_behavior(300, 325)
 
         expected_blocks = [
-            {'start': 50, 'end': 100, 'present': True},
-            {'start': 195, 'end': 205, 'present': True},
-            {'start': 215, 'end': 250, 'present': False},
-            {'start': 300, 'end': 325, 'present': True}
+            {"start": 50, "end": 100, "present": True},
+            {"start": 195, "end": 205, "present": True},
+            {"start": 215, "end": 250, "present": False},
+            {"start": 300, "end": 325, "present": True},
         ]
 
         for exported, expected in zip(labels.get_blocks(), expected_blocks):
             self.assertDictEqual(exported, expected)
 
     def test_export_behavior_block_slice(self):
-        """ test exporting to list of label block dicts """
+        """test exporting to list of label block dicts"""
         labels = TrackLabels(1000)
         labels.label_behavior(0, 100)
         labels.label_behavior(250, 500)
 
-        expected_blocks = [
-            {'start': 0, 'end': 25, 'present': True}
-        ]
+        expected_blocks = [{"start": 0, "end": 25, "present": True}]
 
         for exported, expected in zip(labels.get_slice_blocks(0, 25), expected_blocks):
             self.assertDictEqual(exported, expected)
 
     def test_labeling_single_frame(self):
-        """ test labeling a single frame """
+        """test labeling a single frame"""
         labels = TrackLabels(100)
         labels.label_behavior(25, 25)
 
@@ -171,21 +167,22 @@ class TestTrackLabels(unittest.TestCase):
         # make sure the block is exported properly
         exported_blocks = labels.get_blocks()
         self.assertEqual(len(exported_blocks), 1)
-        self.assertDictEqual({'start': 25, 'end': 25, 'present': True},
-                             exported_blocks[0])
+        self.assertDictEqual(
+            {"start": 25, "end": 25, "present": True}, exported_blocks[0]
+        )
 
     def test_label_with_mask(self):
-        """ test labeling with a mask """
+        """test labeling with a mask"""
         labels = TrackLabels(10)
         # labels should only get applied where mask value is 1
         mask = np.asarray([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
         labels.label_behavior(0, 9, mask=mask)
 
         # make sure locations with mask 0 were not labeled
-        expected_val = np.full(10, labels.Label.NONE.value, dtype='int')
+        expected_val = np.full(10, labels.Label.NONE.value, dtype="int")
         expected_val[5:10] = labels.Label.BEHAVIOR
         self.assertListEqual(list(expected_val), list(labels.get_labels()))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

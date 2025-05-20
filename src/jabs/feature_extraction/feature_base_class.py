@@ -54,16 +54,15 @@ class Feature(abc.ABC):
         self._pixel_scale = pixel_scale
         self._fps = poses.fps
         self._signal_bands = [
-            {'band_low': 0.1, 'band_high': 1.0},
-            {'band_low': 1.0, 'band_high': 3.0},
-            {'band_low': 3.0, 'band_high': 5.0},
-            {'band_low': 5.0, 'band_high': 8.0},
-            {'band_low': 8.0, 'band_high': 15.0},
+            {"band_low": 0.1, "band_high": 1.0},
+            {"band_low": 1.0, "band_high": 3.0},
+            {"band_low": 3.0, "band_high": 5.0},
+            {"band_low": 5.0, "band_high": 8.0},
+            {"band_low": 8.0, "band_high": 15.0},
         ]
 
         if self._name is None:
-            raise NotImplementedError(
-                "Base class must override _name class member")
+            raise NotImplementedError("Base class must override _name class member")
 
     @staticmethod
     def window_width(window_size: int) -> int:
@@ -83,7 +82,8 @@ class Feature(abc.ABC):
 
     @classmethod
     def is_supported(
-            cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
+        cls, pose_version: int, static_objects: set[str], **kwargs
+    ) -> bool:
         """check that a feature is supported by a pose file
 
         Args:
@@ -124,8 +124,7 @@ class Feature(abc.ABC):
         """
         pass
 
-    def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> dict:
+    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """standard method for computing window feature values
 
         NOTE: some features may need to override this (for example, those with
@@ -134,8 +133,10 @@ class Feature(abc.ABC):
         values = {}
         for op in self._window_operations:
             values[op] = self._compute_window_feature(
-                per_frame_values, self._poses.identity_mask(identity),
-                window_size, self._window_operations[op]
+                per_frame_values,
+                self._poses.identity_mask(identity),
+                window_size,
+                self._window_operations[op],
             )
         # Also include signal features
         signal_features = self.window_signal(identity, window_size, per_frame_values)
@@ -143,10 +144,7 @@ class Feature(abc.ABC):
         return values
 
     def window_signal(
-        self,
-        identity: int,
-        window_size: int,
-        per_frame_values: dict
+        self, identity: int, window_size: int, per_frame_values: dict
     ) -> dict:
         """The standard method for computing signal processing window features.
 
@@ -165,7 +163,9 @@ class Feature(abc.ABC):
         for per_frame_key, per_frame in per_frame_values.items():
             adjusted_feature = np.nan_to_num(per_frame, nan=0)
             if len(adjusted_feature) < 2 * window_size + 1:
-                adjusted_feature = np.pad(adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature)))
+                adjusted_feature = np.pad(
+                    adjusted_feature, (0, (2 * window_size + 1) - len(adjusted_feature))
+                )
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 freqs, ts, Zxx = signal.stft(
@@ -173,25 +173,36 @@ class Feature(abc.ABC):
                     fs=self._fps,
                     nperseg=window_size * 2 + 1,
                     noverlap=window_size * 2,
-                    window='hann',
-                    scaling='psd',
-                    detrend='linear'
+                    window="hann",
+                    scaling="psd",
+                    detrend="linear",
                 )
             psd = np.abs(Zxx)
             psd_data[per_frame_key] = psd
 
         # Summarize the signal features
         for op_name, op in self._signal_operations.items():
-            if op_name == 'fft_band':
+            if op_name == "fft_band":
                 for i, band in enumerate(self._signal_bands):
-                    values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op, **band)
+                    values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = (
+                        self._compute_signal_features(
+                            freqs,
+                            psd_data,
+                            self._poses.identity_mask(identity),
+                            op,
+                            **band,
+                        )
+                    )
             else:
-                values[op_name] = self._compute_signal_features(freqs, psd_data, self._poses.identity_mask(identity), op)
+                values[op_name] = self._compute_signal_features(
+                    freqs, psd_data, self._poses.identity_mask(identity), op
+                )
 
         return values
 
-    def _window_circular(self, identity: int, window_size: int,
-                         per_frame_values: dict) -> dict:
+    def _window_circular(
+        self, identity: int, window_size: int, per_frame_values: dict
+    ) -> dict:
         """helper function for overriding window features to be circular
 
         Args:
@@ -205,13 +216,17 @@ class Feature(abc.ABC):
         values = {}
         for op_name, op in self._window_operations.items():
             values[op_name] = self._compute_window_features_circular(
-                per_frame_values, self._poses.identity_mask(identity),
-                window_size, op)
+                per_frame_values, self._poses.identity_mask(identity), window_size, op
+            )
         return values
 
-    def _compute_window_feature(self, feature_values: dict,
-                                frame_mask: np.ndarray, window_size: int,
-                                op: typing.Callable) -> dict:
+    def _compute_window_feature(
+        self,
+        feature_values: dict,
+        frame_mask: np.ndarray,
+        window_size: int,
+        op: typing.Callable,
+    ) -> dict:
         """helper function to compute window feature values
 
         Args:
@@ -230,8 +245,13 @@ class Feature(abc.ABC):
         return values
 
     def _compute_signal_features(
-            self, freqs: np.ndarray, psd: dict,
-            frame_mask: np.ndarray, op: typing.Callable, **kwargs) -> dict:
+        self,
+        freqs: np.ndarray,
+        psd: dict,
+        frame_mask: np.ndarray,
+        op: typing.Callable,
+        **kwargs,
+    ) -> dict:
         """helper function to compute signal window feature values.
 
         Args:
@@ -253,8 +273,11 @@ class Feature(abc.ABC):
         return values
 
     def _compute_window_features_circular(
-            self, feature_values: dict, frame_mask: np.ndarray,
-            window_size: int, op: typing.Callable
+        self,
+        feature_values: dict,
+        frame_mask: np.ndarray,
+        window_size: int,
+        op: typing.Callable,
     ) -> dict:
         """special case compute_window_features for circular measurements
 
@@ -271,7 +294,6 @@ class Feature(abc.ABC):
         values = {}
 
         for key, val in feature_values.items():
-
             op_result = np.full(val.shape, np.nan)
 
             # unfortunately the scipy.stats.circmean/circstd functions don't work
@@ -279,7 +301,6 @@ class Feature(abc.ABC):
             # create a view with only the valid values
 
             for i in range(nframes):
-
                 # identity doesn't exist for this frame don't bother to compute
                 if not frame_mask[i]:
                     continue
@@ -289,11 +310,10 @@ class Feature(abc.ABC):
 
                 slice_frames_valid = frame_mask[slice_start:slice_end]
 
-                window_values = val[slice_start:slice_end][
-                    slice_frames_valid == 1]
+                window_values = val[slice_start:slice_end][slice_frames_valid == 1]
 
                 with warnings.catch_warnings():
-                    warnings.simplefilter('ignore', category=RuntimeWarning)
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
                     op_result[i] = op(window_values)
 
             values[f"{key}"] = op_result

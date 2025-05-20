@@ -32,8 +32,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
         # signal
         self._need_to_emit = True
         if not self._signal_handler_connected:
-            self.findChild(QtWidgets.QFrame).resetButton.connect(
-                self.cancel_popup)
+            self.findChild(QtWidgets.QFrame).resetButton.connect(self.cancel_popup)
             self._signal_handler_connected = True
 
     # the following is commented out because it is unnecessary due to the work-

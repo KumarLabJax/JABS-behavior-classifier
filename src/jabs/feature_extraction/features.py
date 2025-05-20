@@ -18,26 +18,20 @@ from .segmentation_features import SegmentationFeatureGroup
 
 FEATURE_VERSION = 12
 
-_FEATURE_MODULES = [
-    BaseFeatureGroup,
-    SocialFeatureGroup,
-    SegmentationFeatureGroup
-]
+_FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
-_EXTENDED_FEATURE_MODULES = [
-    LandmarkFeatureGroup
-]
+_EXTENDED_FEATURE_MODULES = [LandmarkFeatureGroup]
 
 _BASE_FILTERS = {
-    'social': SocialFeatureGroup.module_names(),
-    'segmentation': SegmentationFeatureGroup.module_names(),
-    'static_objects': LandmarkFeatureGroup.feature_map,
+    "social": SocialFeatureGroup.module_names(),
+    "segmentation": SegmentationFeatureGroup.module_names(),
+    "static_objects": LandmarkFeatureGroup.feature_map,
 }
 
 _WINDOW_FILTERS = {
-    'window': list(Feature._window_operations.keys()),
+    "window": list(Feature._window_operations.keys()),
     # note that fft_band features will contain a suffix for the band
-    'fft': list(Feature._signal_operations.keys()),
+    "fft": list(Feature._signal_operations.keys()),
 }
 
 
@@ -54,10 +48,18 @@ class IdentityFeatures:
 
     _version = FEATURE_VERSION
 
-    def __init__(self, source_file, identity, directory, pose_est,
-                 force: bool = False, fps: int = 30,
-                 op_settings: dict | None = None, cache_window: bool = True, 
-                 compression_opts: int = COMPRESSION_OPTS_DEFAULT):
+    def __init__(
+        self,
+        source_file,
+        identity,
+        directory,
+        pose_est,
+        force: bool = False,
+        fps: int = 30,
+        op_settings: dict | None = None,
+        cache_window: bool = True,
+        compression_opts: int = COMPRESSION_OPTS_DEFAULT,
+    ):
         """
         Args:
             source_file:
@@ -96,19 +98,24 @@ class IdentityFeatures:
         self._pose_hash = pose_est.hash
         self._identity = identity
         self._op_settings = dict(op_settings) if op_settings else None
-        self._distance_scale_factor = pose_est.cm_per_pixel if op_settings.get('cm_units', False) else None
+        self._distance_scale_factor = (
+            pose_est.cm_per_pixel if op_settings.get("cm_units", False) else None
+        )
         self._compression_opts = compression_opts
 
-        self._identity_feature_dir = None if directory is None else (
-                Path(directory) /
-                Path(source_file).stem /
-                str(self._identity)
+        self._identity_feature_dir = (
+            None
+            if directory is None
+            else (Path(directory) / Path(source_file).stem / str(self._identity))
         )
         self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
         self._compute_segmentation_features = pose_est.format_major_version >= 6
-        distance_scale = self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
-
+        distance_scale = (
+            self._distance_scale_factor
+            if self._distance_scale_factor is not None
+            else 1.0
+        )
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
@@ -118,15 +125,16 @@ class IdentityFeatures:
                 continue
             # don't include segmentation features if it is not supported by
             # the pose file
-            if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
+            if (
+                not self._compute_segmentation_features
+                and m is SegmentationFeatureGroup
+            ):
                 continue
-            self._feature_modules[m.name()] = m(pose_est,
-                                                distance_scale)
+            self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
         # load extended feature modules
         for m in _EXTENDED_FEATURE_MODULES:
-            self._feature_modules[m.name()] = m(pose_est,
-                                                distance_scale)
+            self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
         # will hold an array that indicates if each frame is valid for this
         # identity or not
@@ -134,9 +142,10 @@ class IdentityFeatures:
 
         # per frame features
         identity_mask = pose_est.get_identity_point_mask(identity)
-        self._keypoint_mask = {'point_mask': 
-            {
-                f"point_mask {keypoint.name}": identity_mask[:, keypoint.value] for keypoint in PoseEstimation.KeypointIndex
+        self._keypoint_mask = {
+            "point_mask": {
+                f"point_mask {keypoint.name}": identity_mask[:, keypoint.value]
+                for keypoint in PoseEstimation.KeypointIndex
             }
         }
 
@@ -147,8 +156,12 @@ class IdentityFeatures:
             try:
                 # try to load from an h5 file if it exists
                 self.__load_from_file()
-            except (OSError, FeatureVersionException, DistanceScaleException,
-                    PoseHashException):
+            except (
+                OSError,
+                FeatureVersionException,
+                DistanceScaleException,
+                PoseHashException,
+            ):
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
 
@@ -167,8 +180,7 @@ class IdentityFeatures:
 
         self._per_frame = self._keypoint_mask
         for key in self._feature_modules:
-            self._per_frame.update(
-                self._feature_modules[key].per_frame(self._identity))
+            self._per_frame.update(self._feature_modules[key].per_frame(self._identity))
 
         if self._identity_feature_dir is not None:
             self.__save_per_frame()
@@ -193,55 +205,58 @@ class IdentityFeatures:
             None
         """
 
-        path = self._identity_feature_dir / 'features.h5'
+        path = self._identity_feature_dir / "features.h5"
         self._per_frame = {}
 
-        with h5py.File(path, 'r') as features_h5:
-
+        with h5py.File(path, "r") as features_h5:
             # if the version of the pose file is not the expected pose file,
             # then bail and it will get recomputed
-            if features_h5.attrs['version'] != FEATURE_VERSION:
+            if features_h5.attrs["version"] != FEATURE_VERSION:
                 raise FeatureVersionException
 
             # if the contents of the pose file changed since these features
             # were computed, then we will raise an exception and recompute
-            if features_h5.attrs['pose_hash'] != self._pose_hash:
+            if features_h5.attrs["pose_hash"] != self._pose_hash:
                 raise PoseHashException
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get('distance_scale_factor', None):
+            if self._distance_scale_factor != features_h5.attrs.get(
+                "distance_scale_factor", None
+            ):
                 raise DistanceScaleException
 
-            self._frame_valid = features_h5['frame_valid'][:]
+            self._frame_valid = features_h5["frame_valid"][:]
             assert len(self._frame_valid) == self._num_frames
 
             # TODO
             # These class variables only exist here and are not provided elsewhere
             if self._compute_social_features:
-                self._closest_identities = features_h5['closest_identities'][:]
-                self._closest_fov_identities = features_h5['closest_fov_identities'][:]
+                self._closest_identities = features_h5["closest_identities"][:]
+                self._closest_fov_identities = features_h5["closest_fov_identities"][:]
 
-            if 'closest_corners' in features_h5:
-                self._closest_corner = features_h5['closest_corners'][:]
+            if "closest_corners" in features_h5:
+                self._closest_corner = features_h5["closest_corners"][:]
 
-            if 'wall_distances' in features_h5:
+            if "wall_distances" in features_h5:
                 wall_distances = {}
-                for key in features_h5['wall_distances'].keys():
-                    wall_distances[key] = features_h5['wall_distances'][key][:]
+                for key in features_h5["wall_distances"].keys():
+                    wall_distances[key] = features_h5["wall_distances"][key][:]
                 self._wall_distances = wall_distances
 
-            if 'avg_wall_length' in features_h5:
-                self._avg_wall_length = features_h5['avg_wall_length'][...]
+            if "avg_wall_length" in features_h5:
+                self._avg_wall_length = features_h5["avg_wall_length"][...]
 
-            if 'closest_lixit' in features_h5:
-                self._closest_lixit = features_h5['closest_lixit'][:]
+            if "closest_lixit" in features_h5:
+                self._closest_lixit = features_h5["closest_lixit"][:]
 
             # Cache uses a space to distinguish module_name from feature_name
-            for feature_key in features_h5['features/per_frame'].keys():
-                module_name, feature_name = feature_key.split(' ', 1)
+            for feature_key in features_h5["features/per_frame"].keys():
+                module_name, feature_name = feature_key.split(" ", 1)
                 cur_module = self._per_frame.get(module_name, {})
-                cur_module[feature_name] = features_h5[f'features/per_frame/{feature_key}'][:]
+                cur_module[feature_name] = features_h5[
+                    f"features/per_frame/{feature_key}"
+                ][:]
                 assert len(cur_module[feature_name]) == self._num_frames
                 self._per_frame[module_name] = cur_module
 
@@ -251,43 +266,46 @@ class IdentityFeatures:
         was constructed with a value of None for directory
         """
 
-        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True,
-                                         parents=True)
+        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True, parents=True)
 
-        file_path = self._identity_feature_dir / 'features.h5'
+        file_path = self._identity_feature_dir / "features.h5"
 
-        with h5py.File(file_path, 'w') as features_h5:
-            features_h5.attrs['num_frames'] = self._num_frames
-            features_h5.attrs['identity'] = self._identity
-            features_h5.attrs['version'] = self._version
+        with h5py.File(file_path, "w") as features_h5:
+            features_h5.attrs["num_frames"] = self._num_frames
+            features_h5.attrs["identity"] = self._identity
+            features_h5.attrs["version"] = self._version
             if self._distance_scale_factor is not None:
-                features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
-            features_h5.attrs['pose_hash'] = self._pose_hash
+                features_h5.attrs["distance_scale_factor"] = self._distance_scale_factor
+            features_h5.attrs["pose_hash"] = self._pose_hash
             features_h5.create_dataset(
-                'frame_valid',
+                "frame_valid",
                 data=self._frame_valid,
                 compression=COMPRESSION,
-                compression_opts=self._compression_opts
+                compression_opts=self._compression_opts,
             )
 
             if self._compute_social_features:
-                closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
+                closest_data = self._feature_modules[
+                    SocialFeatureGroup.name()
+                ].closest_identities
 
                 features_h5.create_dataset(
                     "closest_identities",
                     data=closest_data.closest_identities,
                     compression=COMPRESSION,
-                    compression_opts=self._compression_opts
+                    compression_opts=self._compression_opts,
                 )
                 features_h5.create_dataset(
                     "closest_fov_identities",
                     data=closest_data.closest_fov_identities,
                     compression=COMPRESSION,
-                    compression_opts=self._compression_opts
+                    compression_opts=self._compression_opts,
                 )
 
             if LandmarkFeatureGroup.name() in self._feature_modules:
-                corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(self._identity)
+                corner_info = self._feature_modules[
+                    LandmarkFeatureGroup.name()
+                ].get_corner_info(self._identity)
                 corner_data = corner_info.get_closest_corner(self._identity)
                 wall_distances = corner_info.get_wall_distances(self._identity)
                 avg_wall_length = corner_info.get_avg_wall_length(self._identity)
@@ -296,30 +314,32 @@ class IdentityFeatures:
                         "closest_corners",
                         data=corner_data,
                         compression=COMPRESSION,
-                        compression_opts=self._compression_opts
+                        compression_opts=self._compression_opts,
                     )
                     features_h5.create_dataset("avg_wall_length", data=avg_wall_length)
-                    wall_dist_grp = features_h5.require_group('wall_distances')
+                    wall_dist_grp = features_h5.require_group("wall_distances")
                     for key, value in wall_distances.items():
                         wall_dist_grp.create_dataset(
                             key,
                             data=value,
                             compression=COMPRESSION,
-                            compression_opts=self._compression_opts
+                            compression_opts=self._compression_opts,
                         )
 
-                lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(self._identity)
+                lixit_info = self._feature_modules[
+                    LandmarkFeatureGroup.name()
+                ].get_lixit_info(self._identity)
                 lixit_data = lixit_info.get_closest_lixit(self._identity)
                 if lixit_data is not None:
                     features_h5.create_dataset(
                         "closest_lixit",
                         data=lixit_data,
                         compression=COMPRESSION,
-                        compression_opts=self._compression_opts
+                        compression_opts=self._compression_opts,
                     )
 
-            feature_group = features_h5.require_group('features')
-            per_frame_group = feature_group.require_group('per_frame')
+            feature_group = features_h5.require_group("features")
+            per_frame_group = feature_group.require_group("per_frame")
 
             per_frame_as_pd = self.merge_per_frame_features(self._per_frame)
             per_frame_as_pd = pd.DataFrame(per_frame_as_pd)
@@ -328,7 +348,7 @@ class IdentityFeatures:
                     feature,
                     data=data,
                     compression=COMPRESSION,
-                    compression_opts=self._compression_opts
+                    compression_opts=self._compression_opts,
                 )
 
     def __save_window_features(self, features, window_size):
@@ -344,18 +364,18 @@ class IdentityFeatures:
         Returns:
             None
         """
-        path = self._identity_feature_dir / 'features.h5'
+        path = self._identity_feature_dir / "features.h5"
 
-        with h5py.File(path, 'a') as features_h5:
-            features_h5.attrs['num_frames'] = self._num_frames
-            features_h5.attrs['identity'] = self._identity
-            features_h5.attrs['version'] = self._version
+        with h5py.File(path, "a") as features_h5:
+            features_h5.attrs["num_frames"] = self._num_frames
+            features_h5.attrs["identity"] = self._identity
+            features_h5.attrs["version"] = self._version
             if self._distance_scale_factor is not None:
-                features_h5.attrs['distance_scale_factor'] = self._distance_scale_factor
-            features_h5.attrs['pose_hash'] = self._pose_hash
+                features_h5.attrs["distance_scale_factor"] = self._distance_scale_factor
+            features_h5.attrs["pose_hash"] = self._pose_hash
 
-            feature_group = features_h5.require_group('features')
-            window_group = feature_group.require_group(f'window_features_{window_size}')
+            feature_group = features_h5.require_group("features")
+            window_group = feature_group.require_group(f"window_features_{window_size}")
             window_as_pd = self.merge_window_features(features)
             window_as_pd = pd.DataFrame(window_as_pd)
             for feature, data in window_as_pd.items():
@@ -363,7 +383,7 @@ class IdentityFeatures:
                     feature,
                     data=data,
                     compression=COMPRESSION,
-                    compression_opts=self._compression_opts
+                    compression_opts=self._compression_opts,
                 )
 
     def __load_window_features(self, window_size):
@@ -383,48 +403,56 @@ class IdentityFeatures:
         Returns:
             window feature dict
         """
-        path = self._identity_feature_dir / 'features.h5'
+        path = self._identity_feature_dir / "features.h5"
 
         window_features = {}
-        with h5py.File(path, 'r') as features_h5:
-
+        with h5py.File(path, "r") as features_h5:
             # if the version of the feature file is not what we expect for
             # this version of JABS raise an exception and it will be
             # regenerated
-            if features_h5.attrs['version'] != FEATURE_VERSION:
+            if features_h5.attrs["version"] != FEATURE_VERSION:
                 raise FeatureVersionException
 
             # if the contents of the pose file changed since these features
             # were computed, then we will raise an exception and recompute
-            if features_h5.attrs['pose_hash'] != self._pose_hash:
+            if features_h5.attrs["pose_hash"] != self._pose_hash:
                 raise PoseHashException
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get('distance_scale_factor', None):
+            if self._distance_scale_factor != features_h5.attrs.get(
+                "distance_scale_factor", None
+            ):
                 raise DistanceScaleException
 
-            assert features_h5.attrs['num_frames'] == self._num_frames
-            assert features_h5.attrs['identity'] == self._identity
-            available_window_sizes = [int(x[len('window_features_'):]) for x in features_h5['features'].keys() if x.startswith('window_features_')]
+            assert features_h5.attrs["num_frames"] == self._num_frames
+            assert features_h5.attrs["identity"] == self._identity
+            available_window_sizes = [
+                int(x[len("window_features_") :])
+                for x in features_h5["features"].keys()
+                if x.startswith("window_features_")
+            ]
             if window_size not in available_window_sizes:
                 raise AttributeError
 
             window_features = {}
             # Cache uses a space to distinguish module_name, window_name, and feature_name
-            for feature_key in features_h5[f'features/window_features_{window_size}'].keys():
-                module_name, window_name, feature_name = feature_key.split(' ', 2)
+            for feature_key in features_h5[
+                f"features/window_features_{window_size}"
+            ].keys():
+                module_name, window_name, feature_name = feature_key.split(" ", 2)
                 cur_module = window_features.get(module_name, {})
                 cur_window = cur_module.get(window_name, {})
-                cur_window[feature_name] = features_h5[f'features/window_features_{window_size}/{feature_key}'][:]
+                cur_window[feature_name] = features_h5[
+                    f"features/window_features_{window_size}/{feature_key}"
+                ][:]
                 assert len(cur_window[feature_name]) == self._num_frames
                 cur_module[window_name] = cur_window
                 window_features[module_name] = cur_module
 
         return window_features
 
-    def get_window_features(self, window_size: int,
-                            labels=None, force: bool = False):
+    def get_window_features(self, window_size: int, labels=None, force: bool = False):
         """get window features for a given window size, computing if not previously
         computed and saved as h5 file
 
@@ -456,8 +484,13 @@ class IdentityFeatures:
             try:
                 # h5 file exists for this window size, load it
                 features = self.__load_window_features(window_size)
-            except (OSError, AttributeError, FeatureVersionException, DistanceScaleException,
-                    PoseHashException):
+            except (
+                OSError,
+                AttributeError,
+                FeatureVersionException,
+                DistanceScaleException,
+                PoseHashException,
+            ):
                 # h5 file does not exist for this window size, the version
                 # is not compatible, or the pose file changes.
                 # compute the features and return after saving
@@ -474,7 +507,9 @@ class IdentityFeatures:
             final_features = {
                 feature_module_name: {
                     window_module_name: {
-                        feature_name: feature_vector[labels != jabs.project.track_labels.TrackLabels.Label.NONE]
+                        feature_name: feature_vector[
+                            labels != jabs.project.track_labels.TrackLabels.Label.NONE
+                        ]
                         for feature_name, feature_vector in window_module.items()
                     }
                     for window_module_name, window_module in feature_module.items()
@@ -524,7 +559,9 @@ class IdentityFeatures:
             # return only features for labeled frames
             features = {
                 feature_module_name: {
-                    feature_name: feature_vector[labels != jabs.project.track_labels.TrackLabels.Label.NONE]
+                    feature_name: feature_vector[
+                        labels != jabs.project.track_labels.TrackLabels.Label.NONE
+                    ]
                     for feature_name, feature_vector in feature_module.items()
                 }
                 for feature_module_name, feature_module in self._per_frame.items()
@@ -559,9 +596,9 @@ class IdentityFeatures:
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
         return {
-            'per_frame': per_frame_features,
-            'window': window_features,
-            'frame_indexes': indexes
+            "per_frame": per_frame_features,
+            "window": window_features,
+            "frame_indexes": indexes,
         }
 
     def _filter_base_features_by_op(self, features):
@@ -582,7 +619,9 @@ class IdentityFeatures:
             if isinstance(setting_val, dict):
                 for sub_setting, sub_val in setting_val.items():
                     if not sub_val:
-                        names_to_remove = names_to_remove + _BASE_FILTERS[setting_name].get(sub_setting, [])
+                        names_to_remove = names_to_remove + _BASE_FILTERS[
+                            setting_name
+                        ].get(sub_setting, [])
             else:
                 names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
         return {k: v for k, v in features.items() if k not in names_to_remove}
@@ -608,14 +647,13 @@ class IdentityFeatures:
             filtered_module_data = {}
             for k, v in module_data.items():
                 # Handle the special case where fft_band is a prefix
-                if k.startswith('fft_band') and 'fft_band' in names_to_remove:
+                if k.startswith("fft_band") and "fft_band" in names_to_remove:
                     continue
                 if k not in names_to_remove:
                     filtered_module_data[k] = v
             filtered_features[module_name] = filtered_module_data
 
         return filtered_features
-
 
     def __compute_window_features(self, window_size: int):
         """compute all window features using a given window size
@@ -656,8 +694,10 @@ class IdentityFeatures:
 
         for key in self._feature_modules:
             window_features.update(
-                self._feature_modules[key].window(self._identity, window_size,
-                                                  self._per_frame))
+                self._feature_modules[key].window(
+                    self._identity, window_size, self._per_frame
+                )
+            )
 
         return window_features
 
@@ -681,10 +721,12 @@ class IdentityFeatures:
 
         for feature_module_name, feature_module in features.items():
             if feature_module is None:
-                print(f'Feature module: {feature_module_name} contains no features...')
+                print(f"Feature module: {feature_module_name} contains no features...")
                 continue
             for feature_name, feature_vector in feature_module.items():
-                merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
+                merged_features[f"{feature_module_name} {feature_name}"] = (
+                    feature_vector
+                )
 
         return merged_features
 
@@ -707,20 +749,22 @@ class IdentityFeatures:
         }
         """
         merged_features = {}
-        
+
         for feature_module_name, feature_module in features.items():
             for window_name, window_group in feature_module.items():
                 for feature_name, feature_vector in window_group.items():
-                    merged_features[f"{feature_module_name} {window_name} {feature_name}"] = feature_vector
+                    merged_features[
+                        f"{feature_module_name} {window_name} {feature_name}"
+                    ] = feature_vector
 
         return merged_features
 
     @classmethod
     def get_available_extended_features(
-            cls,
-            pose_version: int,
-            static_objects: set[str],
-            **kwargs,
+        cls,
+        pose_version: int,
+        static_objects: set[str],
+        **kwargs,
     ) -> dict[str, list[str]]:
         """get all the extended features that can be used given a minimum pose
         version and list of available static objects
@@ -744,6 +788,7 @@ class IdentityFeatures:
 
         return {
             feature_group.name(): feature_group.get_supported_feature_modules(
-                pose_version, static_objects, **kwargs) for feature_group in
-            _EXTENDED_FEATURE_MODULES
+                pose_version, static_objects, **kwargs
+            )
+            for feature_group in _EXTENDED_FEATURE_MODULES
         }

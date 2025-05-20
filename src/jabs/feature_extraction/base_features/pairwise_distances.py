@@ -6,8 +6,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 
 class PairwisePointDistances(Feature):
-
-    _name = 'pairwise_distances'
+    _name = "pairwise_distances"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -33,8 +32,8 @@ class PairwisePointDistances(Feature):
                 p2_name = point_names[j]
                 # compute euclidean distance between ith and jth points
                 euclidean_dist = np.sqrt(
-                    np.square(points[:, i, 0] - points[:, j, 0]) +
-                    np.square(points[:, i, 1] - points[:, j, 1])
+                    np.square(points[:, i, 0] - points[:, j, 0])
+                    + np.square(points[:, i, 1] - points[:, j, 1])
                 )
                 values[f"{p1_name}-{p2_name}"] = euclidean_dist
 

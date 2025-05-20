@@ -27,7 +27,7 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('project_dir', nargs='?')
+    parser.add_argument("project_dir", nargs="?")
     args = parser.parse_args()
 
     if args.project_dir is not None:

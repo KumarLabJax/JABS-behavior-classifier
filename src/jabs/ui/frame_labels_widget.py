@@ -83,15 +83,16 @@ class FrameLabelsWidget(QWidget):
 
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
-                offset = self._offset + ((i - start + .5) * self._frame_width) - 1
+                offset = self._offset + ((i - start + 0.5) * self._frame_width) - 1
                 painter.setPen(Qt.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
                 label_text = f"{i}"
                 label_width = self._font_metrics.horizontalAdvance(label_text)
                 painter.setPen(QApplication.palette().text().color())
-                painter.drawText(offset - label_width/2 + 1,
-                                 self._font_height + 8, label_text)
+                painter.drawText(
+                    offset - label_width / 2 + 1, self._font_height + 8, label_text
+                )
 
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""

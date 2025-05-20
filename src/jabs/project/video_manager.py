@@ -12,6 +12,7 @@ from .video_labels import VideoLabels
 
 class VideoManager:
     """Class to manage list of video files in a project."""
+
     def __init__(
         self,
         paths: ProjectPaths,

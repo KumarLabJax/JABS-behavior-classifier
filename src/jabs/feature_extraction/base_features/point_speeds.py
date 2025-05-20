@@ -5,8 +5,7 @@ from jabs.feature_extraction.feature_base_class import Feature
 
 
 class PointSpeeds(Feature):
-
-    _name = 'point_speeds'
+    _name = "point_speeds"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)

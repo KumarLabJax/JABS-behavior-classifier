@@ -49,21 +49,34 @@ class ClassifyThread(QtCore.QThread):
             frame_indexes[video] = {}
 
             for identity in pose_est.identities:
-                self.current_status.emit(
-                    f"Classifying {video},  Identity {identity}")
+                self.current_status.emit(f"Classifying {video},  Identity {identity}")
 
                 # get the features for this identity
                 features = IdentityFeatures(
-                    video, identity, self._project.feature_dir,
-                    pose_est, fps=fps, op_settings=project_settings,
+                    video,
+                    identity,
+                    self._project.feature_dir,
+                    pose_est,
+                    fps=fps,
+                    op_settings=project_settings,
                 )
-                feature_values = features.get_features(project_settings.get('window_size', DEFAULT_WINDOW_SIZE))
+                feature_values = features.get_features(
+                    project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
+                )
 
                 # reformat the data in a single 2D numpy array to pass
                 # to the classifier
-                per_frame_features = pd.DataFrame(IdentityFeatures.merge_per_frame_features(feature_values['per_frame']))
-                window_features = pd.DataFrame(IdentityFeatures.merge_window_features(feature_values['window']))
-                data = self._classifier.combine_data(per_frame_features, window_features)
+                per_frame_features = pd.DataFrame(
+                    IdentityFeatures.merge_per_frame_features(
+                        feature_values["per_frame"]
+                    )
+                )
+                window_features = pd.DataFrame(
+                    IdentityFeatures.merge_window_features(feature_values["window"])
+                )
+                data = self._classifier.combine_data(
+                    per_frame_features, window_features
+                )
 
                 if data.shape[0] > 0:
                     # make predictions
@@ -76,13 +89,11 @@ class ClassifyThread(QtCore.QThread):
                     # numpy magic to use the _predictions array as column indexes
                     # for each row of the 'prob' array we just computed.
                     probabilities[video][identity] = prob[
-                        np.arange(len(prob)),
-                        predictions[video][identity]
+                        np.arange(len(prob)), predictions[video][identity]
                     ]
 
                     # save the indexes for the predicted frames
-                    frame_indexes[video][identity] = feature_values[
-                        'frame_indexes']
+                    frame_indexes[video][identity] = feature_values["frame_indexes"]
                 else:
                     predictions[video][identity] = np.array(0)
                     probabilities[video][identity] = np.array(0)
@@ -92,16 +103,16 @@ class ClassifyThread(QtCore.QThread):
 
         # save predictions
         self.current_status.emit("Saving Predictions")
-        self._project.save_predictions(predictions,
-                                       probabilities,
-                                       frame_indexes,
-                                       self._behavior,
-                                       self._classifier)
+        self._project.save_predictions(
+            predictions, probabilities, frame_indexes, self._behavior, self._classifier
+        )
 
         self._tasks_complete += 1
         self.update_progress.emit(self._tasks_complete)
-        self.done.emit({
-            'predictions': predictions[self._current_video],
-            'probabilities': probabilities[self._current_video],
-            'frame_indexes': frame_indexes[self._current_video]
-        })
+        self.done.emit(
+            {
+                "predictions": predictions[self._current_video],
+                "probabilities": probabilities[self._current_video],
+                "frame_indexes": frame_indexes[self._current_video],
+            }
+        )

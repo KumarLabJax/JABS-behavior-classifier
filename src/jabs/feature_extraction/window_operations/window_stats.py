@@ -2,7 +2,9 @@ import numpy as np
 import warnings
 
 
-def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float = None) -> np.ndarray:
+def pad_sliding_window(
+    arr: np.ndarray, window: int, pad_const: float = None
+) -> np.ndarray:
     """Generates a sliding window view of an input array with nan-padding.
 
     Args:
@@ -14,10 +16,17 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float = None) ->
         an unmodifiable 2d view of the input array where the first axis is time and the second axis is the window. Note that typical usage will use summary stats with axis=1.
     """
     if pad_const:
-        arr_ext = np.concatenate([np.full(window, pad_const), arr, np.full(window, pad_const)])
+        arr_ext = np.concatenate(
+            [np.full(window, pad_const), arr, np.full(window, pad_const)]
+        )
     else:
-        arr_ext = np.concatenate([np.full(window, arr[0]), arr, np.full(window, arr[-1])])
-    return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1)
+        arr_ext = np.concatenate(
+            [np.full(window, arr[0]), arr, np.full(window, arr[-1])]
+        )
+    return np.lib.stride_tricks.sliding_window_view(
+        arr_ext, window_shape=window * 2 + 1
+    )
+
 
 def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarray:
     """Creates a mask for invalid values in a sliding window matrix.
@@ -38,6 +47,7 @@ def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarra
 
     return window_masks
 
+
 def window_mean(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked mean of a window
 
@@ -54,6 +64,7 @@ def window_mean(values: np.ndarray, window: int) -> np.ndarray:
         return_values = np.nanmean(window_values, axis=1)
     return return_values
 
+
 def window_median(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked median of a window
 
@@ -67,6 +78,7 @@ def window_median(values: np.ndarray, window: int) -> np.ndarray:
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     window_masks = get_window_masks(window_values, np.nan)
     return np.ma.median(np.ma.array(window_values, mask=~window_masks), axis=1).filled()
+
 
 def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked standard deviation of a window
@@ -84,6 +96,7 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
         return_values = np.nanstd(window_values, axis=1)
     return return_values
 
+
 def np_kurtosis(values: np.ndarray) -> np.ndarray:
     """Calculates kurtosis in a rolling window faster than scipy
 
@@ -99,7 +112,10 @@ def np_kurtosis(values: np.ndarray) -> np.ndarray:
     mean = np.nanmean(values, axis=1)
     std = np.nanstd(values, axis=1)
     counts = np.sum(~np.isnan(values), axis=1)
-    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T)**4, axis=1) / (counts * std**4)
+    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T) ** 4, axis=1) / (
+        counts * std**4
+    )
+
 
 def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked kurtosis of a window
@@ -117,6 +133,7 @@ def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
         return_values = np_kurtosis(window_values)
     return return_values
 
+
 def np_skew(values: np.ndarray) -> np.ndarray:
     """Calculates skew in a rolling window faster than scipy
 
@@ -132,7 +149,10 @@ def np_skew(values: np.ndarray) -> np.ndarray:
     mean = np.nanmean(values, axis=1)
     std = np.nanstd(values, axis=1)
     counts = np.sum(~np.isnan(values), axis=1)
-    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T)**3, axis=1) / (counts * std**3)
+    return np.nansum((values - np.tile(mean, [values.shape[1], 1]).T) ** 3, axis=1) / (
+        counts * std**3
+    )
+
 
 def window_skew(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked skew of a window
@@ -150,6 +170,7 @@ def window_skew(values: np.ndarray, window: int) -> np.ndarray:
         return_values = np_skew(window_values)
     return return_values
 
+
 def window_min(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked maximum of a window
 
@@ -165,6 +186,7 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
     if np.all(np.isnan(values)):
         return np.full(values.shape, np.nan)
     return np.min(window_values, axis=1, initial=np.nanmax(values), where=window_masks)
+
 
 def window_max(values: np.ndarray, window: int) -> np.ndarray:
     """Calculates a masked maximum of a window

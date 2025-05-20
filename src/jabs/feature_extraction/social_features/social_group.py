@@ -1,14 +1,19 @@
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from jabs.pose_estimation import PoseEstimation
+
 # import all feature modules for this group
-from . import ClosestDistances, ClosestFovDistances, ClosestFovAngles, \
-    PairwiseSocialDistances, PairwiseSocialFovDistances
+from . import (
+    ClosestDistances,
+    ClosestFovDistances,
+    ClosestFovAngles,
+    PairwiseSocialDistances,
+    PairwiseSocialFovDistances,
+)
 from .social_distance import ClosestIdentityInfo
 
 
 class SocialFeatureGroup(FeatureGroup):
-
-    _name = 'social'
+    _name = "social"
 
     # build dictionary mapping feature name to class that implements it
     _features = {
@@ -16,7 +21,7 @@ class SocialFeatureGroup(FeatureGroup):
         ClosestFovAngles.name(): ClosestFovAngles,
         ClosestFovDistances.name(): ClosestFovDistances,
         PairwiseSocialDistances.name(): PairwiseSocialDistances,
-        PairwiseSocialFovDistances.name(): PairwiseSocialFovDistances
+        PairwiseSocialFovDistances.name(): PairwiseSocialFovDistances,
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -38,12 +43,14 @@ class SocialFeatureGroup(FeatureGroup):
         # the IdentityFeatures class when saving the social features to the
         # h5 file
         self._closest_identities_cache = ClosestIdentityInfo(
-            self._poses, identity, self._pixel_scale)
+            self._poses, identity, self._pixel_scale
+        )
 
         # initialize all the feature modules specified in the current config
         return {
-            feature: self._features[feature](self._poses, self._pixel_scale,
-                                             self._closest_identities_cache)
+            feature: self._features[feature](
+                self._poses, self._pixel_scale, self._closest_identities_cache
+            )
             for feature in self._enabled_features
         }
 

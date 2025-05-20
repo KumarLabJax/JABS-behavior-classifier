@@ -3,7 +3,7 @@ from PySide6.QtCore import QThread, Signal, SignalInstance
 from jabs.project import Project
 
 
-class ProjectLoaderThread (QThread):
+class ProjectLoaderThread(QThread):
     """JABS Project Loader Thread
 
     This thread is used to load a JABS project in the background so that the main

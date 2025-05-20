@@ -19,8 +19,8 @@ class CornerDistanceInfo:
     does not, so it can't easily be implemented as one multi-column Feature
     class
     """
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
 
+    def __init__(self, poses: PoseEstimation, pixel_scale: float):
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._closest_corner_idx = {}
@@ -41,7 +41,9 @@ class CornerDistanceInfo:
         corner_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         center_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         wall_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        all_wall_distances = np.full([self._poses.num_frames, 4], np.nan, dtype=np.float32)
+        all_wall_distances = np.full(
+            [self._poses.num_frames, 4], np.nan, dtype=np.float32
+        )
         center_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         corner_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         closest_corners = None
@@ -49,17 +51,21 @@ class CornerDistanceInfo:
         idx = PoseEstimation.KeypointIndex
         avg_wall_length = np.nan
 
-        if 'corners' in self._poses.static_objects:
+        if "corners" in self._poses.static_objects:
             closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
-            corners = self.sort_points_clockwise(self._poses.static_objects['corners'])
-            wall_vectors = corners.astype(np.float32) - np.roll(corners.astype(np.float32), 1, axis=0)
-            avg_wall_length = np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
+            corners = self.sort_points_clockwise(self._poses.static_objects["corners"])
+            wall_vectors = corners.astype(np.float32) - np.roll(
+                corners.astype(np.float32), 1, axis=0
+            )
+            avg_wall_length = (
+                np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1]))
+                * self._pixel_scale
+            )
 
             arena_center_np = np.mean(corners, axis=0)
             arena_center = Point(arena_center_np[0], arena_center_np[1])
 
             for frame in range(self._poses.num_frames):
-
                 # don't scale the point coordinates by the pixel_scale value,
                 # since the corners are in pixel space. we'll adjust the
                 # distance units later
@@ -70,7 +76,7 @@ class CornerDistanceInfo:
 
                 # find distance to closest corner
                 self_shape = self_convex_hulls[frame]
-                distance = float('inf')
+                distance = float("inf")
                 corner_coordinates = (0, 0)
                 closest_idx = -1
                 for i in range(4):
@@ -83,9 +89,13 @@ class CornerDistanceInfo:
                 self_base_neck_point = points[idx.BASE_NECK, :]
                 self_nose_point = points[idx.NOSE, :]
 
-                corner_bearing = self.compute_angle(self_nose_point, self_base_neck_point, corner_coordinates)
+                corner_bearing = self.compute_angle(
+                    self_nose_point, self_base_neck_point, corner_coordinates
+                )
 
-                center_bearing = self.compute_angle(self_nose_point, self_base_neck_point, arena_center_np)
+                center_bearing = self.compute_angle(
+                    self_nose_point, self_base_neck_point, arena_center_np
+                )
 
                 center_dist = self_shape.distance(arena_center)
 
@@ -100,11 +110,15 @@ class CornerDistanceInfo:
                 p2_3d = np.hstack([p2, np.zeros((p2.shape[0], 1), dtype=np.float32)])
 
                 # Note that we can skip dividing by the norm of p2-p1 because we re-scale it anyway
-                wall_dist = np.abs(np.cross(centroid_point_3d - p1_3d, p2_3d - p1_3d))  # shape (N, 3)
+                wall_dist = np.abs(
+                    np.cross(centroid_point_3d - p1_3d, p2_3d - p1_3d)
+                )  # shape (N, 3)
                 wall_dist = wall_dist[:, 2]  # Take the z-component
 
                 shortest_wall_dist = np.min(wall_dist)
-                wall_dist_cv2 = cv2.pointPolygonTest(corners.astype(np.float32), centroid_point, True)
+                wall_dist_cv2 = cv2.pointPolygonTest(
+                    corners.astype(np.float32), centroid_point, True
+                )
                 correction_scale = wall_dist_cv2 / shortest_wall_dist
                 wall_dist *= correction_scale
                 wall_dist = np.abs(wall_dist)
@@ -118,18 +132,21 @@ class CornerDistanceInfo:
                 closest_corners[frame] = closest_idx
 
         self._cached_distances[identity] = {
-            'distance to corner': corner_distances,
-            'distance to center': center_distances,
-            'distance to wall': wall_distances,
+            "distance to corner": corner_distances,
+            "distance to center": center_distances,
+            "distance to wall": wall_distances,
         }
-        
+
         self._cached_bearings[identity] = {
-            'bearing to corner': corner_bearings,
-            'bearing to center': center_bearings,
+            "bearing to corner": corner_bearings,
+            "bearing to center": center_bearings,
         }
 
         self._closest_corner_idx[identity] = closest_corners
-        self._all_wall_distances[identity] = {f'wall_{i}': all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])}
+        self._all_wall_distances[identity] = {
+            f"wall_{i}": all_wall_distances[:, i]
+            for i in np.arange(all_wall_distances.shape[1])
+        }
         self._avg_wall_length = avg_wall_length
 
     def get_distances(self, identity: int) -> typing.Dict:
@@ -231,19 +248,19 @@ class CornerDistanceInfo:
         # most of the point types are unsigned short integers
         # cast to signed types to avoid underflow issues during subtraction
         angle = np.degrees(
-            np.arctan2(c[1] - b[1], c[0] - b[0]) -
-            np.arctan2(a[1] - b[1], a[0] - b[0])
+            np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 
 
 class DistanceToCorner(Feature):
-    _name = 'corner_distances'
+    _name = "corner_distances"
     _min_pose = 5
-    _static_objects = ['corners']
+    _static_objects = ["corners"]
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float,
-                 distances: CornerDistanceInfo):
+    def __init__(
+        self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo
+    ):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -263,18 +280,23 @@ class DistanceToCorner(Feature):
 
 
 class BearingToCorner(Feature):
-    _name = 'corner_bearings'
+    _name = "corner_bearings"
     _min_pose = 5
-    _static_objects = ['corners']
+    _static_objects = ["corners"]
 
     # override for circular values
     _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180, nan_policy='omit'),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180, nan_policy='omit'),
+        "mean": lambda x: scipy.stats.circmean(
+            x, low=-180, high=180, nan_policy="omit"
+        ),
+        "std_dev": lambda x: scipy.stats.circstd(
+            x, low=-180, high=180, nan_policy="omit"
+        ),
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float,
-                 distances: CornerDistanceInfo):
+    def __init__(
+        self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo
+    ):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -292,8 +314,9 @@ class BearingToCorner(Feature):
         bearings = self._cached_distances.get_bearings(identity)
         return bearings
 
-    def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> typing.Dict:
+    def window(
+        self, identity: int, window_size: int, per_frame_values: dict
+    ) -> typing.Dict:
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)

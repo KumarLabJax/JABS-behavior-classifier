@@ -6,7 +6,10 @@ import tempfile
 import shutil
 
 # project imports
-from src.jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup, Moments
+from src.jabs.feature_extraction.segmentation_features import (
+    SegmentationFeatureGroup,
+    Moments,
+)
 from .seg_test_utils import SegDataBaseClass as SBC
 import src.jabs.pose_estimation as pose_est
 
@@ -15,7 +18,7 @@ class TestImportSrc(unittest.TestCase):
     @unittest.skip("")
     def test(self):
         """
-        # error: FileNotFoundError: Could not find module '<path>\geos_c.dll' (or one of its dependencies). 
+        # error: FileNotFoundError: Could not find module '<path>\geos_c.dll' (or one of its dependencies).
         # Try using the full path with constructor syntax.
         # description: A bug in my shapely distro resulted in a nested import failure.
         # fix: pip unistall shapely; pip install shapely
@@ -27,13 +30,16 @@ class TestImportSrc(unittest.TestCase):
 
 class TestFeatureNameLength(unittest.TestCase):
     """Simple validation of the length of the feature_names list."""
+
     @unittest.skip("")
     def test(self):
         from src.jabs.utils.utilities import n_choose_r
         import src.jabs.pose_estimation as P
         import src.jabs.feature_extraction.base_features.pairwise_distances as pd
 
-        assert len(pd._init_feature_names()) == n_choose_r(len(P.PoseEstimation.KeypointIndex), 2)
+        assert len(pd._init_feature_names()) == n_choose_r(
+            len(P.PoseEstimation.KeypointIndex), 2
+        )
 
         print("...test 2 complete")
 
@@ -66,22 +72,42 @@ class TestClassInstantiation(SBC, unittest.TestCase):
 
         # test get_segmentation data for each identity
         for i in range(seg_data.shape[1]):
-            assert np.array_equal(seg_data[:, i, ...], self._pose_est_v6.get_segmentation_data(i))
+            assert np.array_equal(
+                seg_data[:, i, ...], self._pose_est_v6.get_segmentation_data(i)
+            )
 
     def test_create_moment(self):
         """The moments can be initialized properly."""
 
-        momentsFeature = Moments(self._pose_est_v6, self.pixel_scale, self._moment_cache)
+        momentsFeature = Moments(
+            self._pose_est_v6, self.pixel_scale, self._moment_cache
+        )
 
         assert momentsFeature._name == "moments"
 
-        moment_keys = {'m00', 'mu20', 'mu11', 'mu02', 'mu30', 'mu21', 'mu12', 'mu03', 'nu20', 'nu11', 'nu02', 'nu30', 'nu21', 'nu12', 'nu03'}
+        moment_keys = {
+            "m00",
+            "mu20",
+            "mu11",
+            "mu02",
+            "mu30",
+            "mu21",
+            "mu12",
+            "mu03",
+            "nu20",
+            "nu11",
+            "nu02",
+            "nu30",
+            "nu21",
+            "nu12",
+            "nu03",
+        }
 
         assert moment_keys - set(momentsFeature._moments_to_use) == set()
 
     def test_moments_per_frame(self):
         # initialize moments Feature for first identity
-        momentsFeature = self.feature_mods['moments']
+        momentsFeature = self.feature_mods["moments"]
         momentValues = momentsFeature.per_frame(1)
         # check that number of moments generated is same as number of frames in pose file
-        assert len(momentValues['m00']) == self._pose_est_v6.num_frames
+        assert len(momentValues["m00"]) == self._pose_est_v6.num_frames

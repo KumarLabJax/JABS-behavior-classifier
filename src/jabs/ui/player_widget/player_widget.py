@@ -19,8 +19,9 @@ class _FrameWidget(QtWidgets.QLabel):
 
         # initially we want the _FrameWidget to expand to the true size of the
         # image
-        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
-                           QtWidgets.QSizePolicy.Expanding)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         self.firstFrame = True
         self._scaled_pix_x = 0
         self._scaled_pix_y = 0
@@ -29,7 +30,7 @@ class _FrameWidget(QtWidgets.QLabel):
 
     def mousePressEvent(self, event):
         pix_x, pix_y = self._frame_xy_to_pixmap_xy(event.x(), event.y())
-        self.pixmap_clicked.emit({'x': pix_x, 'y': pix_y})
+        self.pixmap_clicked.emit({"x": pix_x, "y": pix_y})
 
         QtWidgets.QLabel.mousePressEvent(self, event)
 
@@ -40,12 +41,12 @@ class _FrameWidget(QtWidgets.QLabel):
         """
         pixmap = self.pixmap()
         if pixmap is not None:
-
-            if (self._scaled_pix_height != pixmap.height()
-                    or self._scaled_pix_width != pixmap.width()
-                    or self._scaled_pix_x != 0
-                    or self._scaled_pix_y != 0):
-
+            if (
+                self._scaled_pix_height != pixmap.height()
+                or self._scaled_pix_width != pixmap.width()
+                or self._scaled_pix_x != 0
+                or self._scaled_pix_y != 0
+            ):
                 if self._scaled_pix_width >= 1 and self._scaled_pix_height >= 1:
                     # we've done all the checks and it's safe to transform
                     # the x, y point
@@ -63,8 +64,9 @@ class _FrameWidget(QtWidgets.QLabel):
     def reset(self):
         """reset state of frame widget"""
         self.clear()
-        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
-                           QtWidgets.QSizePolicy.Expanding)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         self.firstFrame = True
 
     def paintEvent(self, event: QPaintEvent):
@@ -85,9 +87,7 @@ class _FrameWidget(QtWidgets.QLabel):
             # scale the image to the current size of the widget. First frame,
             # the widget will be expanded to fit the full size image.
             pix = self.pixmap().scaled(
-                size,
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
+                size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
             )
 
             # because we are maintaining aspect ratio, the scaled frame might
@@ -108,8 +108,9 @@ class _FrameWidget(QtWidgets.QLabel):
             # switch to the Ignored size policy and we will resize the image to
             # fit the widget
             if self.firstFrame:
-                self.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
-                                   QtWidgets.QSizePolicy.Ignored)
+                self.setSizePolicy(
+                    QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored
+                )
                 self.firstFrame = False
         else:
             # if we don't have a pixmap to display just call the original QLabel
@@ -174,10 +175,12 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label = QtWidgets.QLabel("0")
         self._frame_label.setFont(font)
         self._time_label.setFont(font)
-        self._time_label.setSizePolicy(QtWidgets.QSizePolicy.Fixed,
-                                       QtWidgets.QSizePolicy.Fixed)
-        self._frame_label.setSizePolicy(QtWidgets.QSizePolicy.Fixed,
-                                        QtWidgets.QSizePolicy.Fixed)
+        self._time_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+        )
+        self._frame_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+        )
         time_layout = QtWidgets.QHBoxLayout()
         time_layout.addWidget(self._time_label)
         time_layout.addStretch()
@@ -189,7 +192,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self._play_button.setCheckable(True)
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
+            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
+        )
         self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
@@ -198,8 +202,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._previous_frame_button.setText("◀")
         self._previous_frame_button.setMaximumWidth(20)
         self._previous_frame_button.setMaximumHeight(20)
-        self._previous_frame_button.clicked.connect(
-            self._previous_frame_clicked)
+        self._previous_frame_button.clicked.connect(self._previous_frame_clicked)
         self._previous_frame_button.setAutoRepeat(True)
 
         # next frame button
@@ -222,8 +225,9 @@ class PlayerWidget(QtWidgets.QWidget):
         # position slider
         self._position_slider = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
         self._position_slider.setFocusPolicy(QtCore.Qt.NoFocus)
-        self._position_slider.sliderMoved.connect(self._position_slider_moved,
-                                                  QtCore.Qt.QueuedConnection)
+        self._position_slider.sliderMoved.connect(
+            self._position_slider_moved, QtCore.Qt.QueuedConnection
+        )
         self._position_slider.sliderPressed.connect(self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(self._position_slider_release)
         self._position_slider.setEnabled(False)
@@ -272,8 +276,8 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.setEnabled(False)
         self._play_button.setEnabled(False)
         self._disable_frame_buttons()
-        self._frame_label.setText('')
-        self._time_label.setText('')
+        self._frame_label.setText("")
+        self._time_label.setText("")
         self._frame_widget.reset()
 
     def stream_fps(self):
@@ -390,15 +394,26 @@ class PlayerWidget(QtWidgets.QWidget):
 
         if self._player_thread is None:
             self._player_thread = PlayerThread(
-                self._video_stream, self._pose_est, self._active_identity,
-                self._show_track, self._overlay_pose, self._identities,
-                self._overlay_landmarks, self._overlay_segmentation)
+                self._video_stream,
+                self._pose_est,
+                self._active_identity,
+                self._show_track,
+                self._overlay_pose,
+                self._identities,
+                self._overlay_landmarks,
+                self._overlay_segmentation,
+            )
             self._player_thread.newImage.connect(self._display_image)
             self._player_thread.updatePosition.connect(self._set_position)
             self._player_thread.endOfFile.connect(self.stop)
             self._player_thread.label_closest(self._label_closest)
         else:
-            self._player_thread.load_new_video(self._video_stream, self._pose_est, self._active_identity, self._identities)
+            self._player_thread.load_new_video(
+                self._video_stream,
+                self._pose_est,
+                self._active_identity,
+                self._identities,
+            )
 
         self._seek(0)
 
@@ -414,7 +429,8 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # change the icon to play
         self._play_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
+            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
+        )
 
         # switch the button state to off
         self._play_button.setChecked(False)
@@ -494,7 +510,8 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             # we weren't already playing so start
             self._play_button.setIcon(
-                self.style().standardIcon(QtWidgets.QStyle.SP_MediaPause))
+                self.style().standardIcon(QtWidgets.QStyle.SP_MediaPause)
+            )
             self._disable_frame_buttons()
             self._start_player_thread()
 
@@ -509,8 +526,9 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._playing:
             return
 
-        new_frame = min(self._position_slider.value() + frames,
-                        self._position_slider.maximum())
+        new_frame = min(
+            self._position_slider.value() + frames, self._position_slider.maximum()
+        )
 
         # if new_frame == the current value of the position slider we are at
         # the end of the video, don't do anything. Otherwise, show the next
@@ -581,10 +599,8 @@ class PlayerWidget(QtWidgets.QWidget):
             frame_number: current frame number
         """
 
-        self._frame_label.setText(
-            f"{frame_number}:{self._video_stream.num_frames - 1}")
-        self._time_label.setText(
-            self._video_stream.get_frame_time(frame_number))
+        self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
+        self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
     @QtCore.Slot(dict)
     def _display_image(self, data: dict):
@@ -598,10 +614,10 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # When switching videos, it's possible us to receive frames emitted by the player thread for the
         # previous video. We need to ignore those frames.
-        if data['source'] != self._video_stream.filename:
+        if data["source"] != self._video_stream.filename:
             return
 
-        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(data['image']))
+        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(data["image"]))
 
     @QtCore.Slot(int)
     def _set_position(self, data: dict):

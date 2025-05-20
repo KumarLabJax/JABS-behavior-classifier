@@ -1,14 +1,18 @@
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 
-from . import Angles, PairwisePointDistances, \
-    PointSpeeds, PointVelocityDirs, \
-    CentroidVelocityMag, CentroidVelocityDir, \
-    AngularVelocity
+from . import (
+    Angles,
+    PairwisePointDistances,
+    PointSpeeds,
+    PointVelocityDirs,
+    CentroidVelocityMag,
+    CentroidVelocityDir,
+    AngularVelocity,
+)
 
 
 class BaseFeatureGroup(FeatureGroup):
-
-    _name = 'base'
+    _name = "base"
 
     # build a dictionary that maps a feature name to the class that
     # implements it
