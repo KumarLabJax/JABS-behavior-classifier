@@ -3,6 +3,7 @@
 dist
 
 .idea
+.vscode
 
 .coverage
 test-reports
