@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from jabs import APP_NAME
+from jabs.constants import APP_NAME
 from jabs.classifier import Classifier
 from jabs.cli import cli_progress_bar
 from jabs.feature_extraction import IdentityFeatures
