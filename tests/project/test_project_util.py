@@ -1,6 +1,7 @@
 # tests/project/test_project_util.py
 
 import pytest
+
 from src.jabs.project.project_utils import to_safe_name
 
 
