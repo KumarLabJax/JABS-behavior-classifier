@@ -139,6 +139,19 @@ meaning that the JABS Python modules installed in the virtualenv will be links
 to the files in the cloned git repository. JABS code changes will be reflected 
 immediately in the Python environment.
 
+To install pre-commit hooks for linting and formatting run:
+
+```commandline
+pre-commit install
+```
+
+You can also run [ruff](https://docs.astral.sh/ruff/) directly from command line:
+
+```commandline
+ruff format src/packagepath/modulename.py
+ruff check src/packagepath/modulename.py
+```
+
 ### Enabling XGBoost Classifier
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does
