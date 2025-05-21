@@ -1,19 +1,25 @@
+"""video reader
+
+This package handles reading frames from a video file as well as applying various
+annotations (such as idenity or pose overlay)
+"""
+
 from .frame_annotation import (
-    label_identity,
-    label_all_identities,
     draw_track,
-    overlay_pose,
+    label_all_identities,
+    label_identity,
     overlay_landmarks,
+    overlay_pose,
     overlay_segmentation,
 )
 from .video_reader import VideoReader
 
 __all__ = [
     "VideoReader",
-    "label_identity",
-    "label_all_identities",
     "draw_track",
-    "overlay_pose",
+    "label_all_identities",
+    "label_identity",
     "overlay_landmarks",
+    "overlay_pose",
     "overlay_segmentation",
 ]

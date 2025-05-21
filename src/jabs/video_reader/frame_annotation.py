@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Tuple, List
+
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 
 _ID_COLOR = (215, 222, 0)
@@ -37,9 +37,10 @@ __CONNECTED_SEGMENTS = [
 
 
 def __gen_line_fragments(exclude_points: np.ndarray):
-    """generate line fragments from the connected segments. will break up
-    segments if a point within the segment is excluded, or will remove the
-    segment completely if it does not have at least two points
+    """generate line fragments from the connected segments.
+
+    This will break up segments if a point within the segment is excluded,
+    or will remove the segment completely if it does not have at least two points
 
     Args:
         exclude_points: list of points to exclude when generating
@@ -81,7 +82,6 @@ def label_identity(
     Returns:
         None
     """
-
     shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
 
     if shape is not None:
@@ -117,17 +117,12 @@ def label_all_identities(
     Returns:
         None
     """
-
     for identity in identities:
         shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
         if shape is not None:
             center = shape.centroid
 
-            if identity == subject:
-                color = _ACTIVE_COLOR
-            else:
-                color = _ID_COLOR
-
+            color = _ACTIVE_COLOR if identity == subject else _ID_COLOR
             label = (
                 str(identity)
                 if not pose_est.external_identities
@@ -168,7 +163,6 @@ def draw_track(
         point_index: index of pose key point to use for drawing track,
             if None use center of mass rather than a point. default to nose
     """
-
     slice_start = max(frame_index - past_points, 0)
 
     if point_index is None:
@@ -236,14 +230,14 @@ def draw_track(
 def overlay_pose(
     img: np.ndarray, points: np.ndarray, mask: np.ndarray, color=(255, 255, 255)
 ):
-    """
-    Args:
-        img
-        points
-        mask
-        color
-    """
+    """Overlay pose on a frame.
 
+    Args:
+        img: frame image
+        points: pose points to overlay
+        mask: points mask to indicate which points are valid
+        color: color for overlay, defaults to white
+    """
     if points is None:
         return
 
@@ -270,7 +264,7 @@ def overlay_pose(
         )
 
     # draw points at each keypoint of the pose (if it exists at this frame)
-    for point, point_mask in zip(points, mask):
+    for point, point_mask in zip(points, mask, strict=True):
         if point_mask:
             cv2.circle(
                 img,
@@ -298,21 +292,21 @@ def trim_seg(arr: np.ndarray) -> np.ndarray | None:
     return None
 
 
-def trim_seg_list(arr: np.ndarray) -> List:
+def trim_seg_list(arr: np.ndarray) -> list:
     """Trims all contours for an individual.
 
     Args:
         arr: A numpy array with contour data.
 
     Returns:
-        List
+        list
     """
     assert arr.ndim == 3
     return [trim_seg(x) for x in arr if np.any(x != -1)]
 
 
 def draw_all_contours(
-    img: np.ndarray, seg_data: np.ndarray, color: Tuple[int, int, int]
+    img: np.ndarray, seg_data: np.ndarray, color: tuple[int, int, int]
 ):
     """Draw all contours given data for a particular mouse in a particular video frame.
 
@@ -332,7 +326,8 @@ def draw_all_contours(
 def overlay_segmentation(
     img: np.ndarray, pose_est: PoseEstimationV6, identity: int, frame_index: int
 ):
-    """
+    """overlay the segmentation on a frame fo ra given identity
+
     Args:
         img: The current video frame.
         pose_est: This will be a pose estimation object >= v6.
@@ -358,6 +353,7 @@ def overlay_segmentation(
 
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
+    """overlay landmarks on a frame"""
     static_objects = pose_est.static_objects
 
     # label arena corners if they were included in the pose file
@@ -415,13 +411,18 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
 
 
 def __scale_annotation_size(img: np.ndarray, size: int | float) -> int | float:
-    """Scale the size of the landmark markers based on the size of the image. 800x800 is the video size
-    jabs was developed with, so we use that as a reference.
+    """Scale the size of the landmark markers based on the size of the image.
+
+    800x800 is the video size jabs was developed with, so we use that as a reference
+
+    Args:
+        img: image
+        size: unscaled size
     """
-    if type(size) == int:
+    if type(size) is int:
         # scale an integer size, add half of the baseline image size so it effectively rounds up
         return (img.shape[0] + 400) // 800 * size
-    elif type(size) == float:
+    elif type(size) is float:
         return img.shape[0] / 800.0 * size
     else:
         raise ValueError("size must be int or float")

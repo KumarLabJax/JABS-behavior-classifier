@@ -9,7 +9,15 @@ import numpy as np
 
 
 @contextmanager
-def hide_stderr():
+def hide_stderr() -> int:
+    """Context manager to temporarily suppress output to standard error (stderr).
+
+    Redirects all output sent to stderr to os.devnull while the context is active,
+    restoring stderr to its original state upon exit.
+
+    Yields:
+        int: The file descriptor for stderr.
+    """
     fd = sys.stderr.fileno()
 
     # copy fd before it is overwritten
@@ -28,12 +36,43 @@ def hide_stderr():
 
 
 def rolling_window(a, window, step_size=1):
+    """Creates a rolling window view of a 1D numpy array.
+
+    Generates a view of the input array with overlapping windows of the specified size,
+    optionally with a custom step size between windows.
+
+    Args:
+        a (np.ndarray): Input 1D array.
+        window (int): Size of each rolling window.
+        step_size (int, optional): Step size between windows. Defaults to 1.
+
+    Returns:
+        np.ndarray: A 2D array where each row is a windowed view of the input.
+
+    Raises:
+        ValueError: If the window size is larger than the input array.
+    """
     shape = a.shape[:-1] + (a.shape[-1] - window + 1 - step_size + 1, window)
-    strides = a.strides + (a.strides[-1] * step_size,)
+    strides = (*a.strides, a.strides[-1] * step_size)
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 
 
 def smooth(vec, smoothing_window):
+    """Smooths a 1D numpy array using a moving average with edge padding.
+
+    Pads the input vector at both ends with its edge values, then applies a moving average
+    of the specified window size. The window size must be odd.
+
+    Args:
+        vec (np.ndarray): Input 1D array to smooth.
+        smoothing_window (int): Size of the moving average window (must be odd).
+
+    Returns:
+        np.ndarray: Smoothed array as float values.
+
+    Raises:
+        AssertionError: If `smoothing_window` is not odd.
+    """
     if smoothing_window <= 1 or len(vec) == 0:
         return vec.astype(np.float)
     else:
@@ -54,8 +93,7 @@ def smooth(vec, smoothing_window):
 
 
 def n_choose_r(n, r):
-    """compute number of unique selections (disregarding order) of r items from
-    a set of n items
+    """compute number of unique selections (disregarding order) of r items from a set of n items
 
     Args:
         n: number of elements to select from
@@ -90,7 +128,6 @@ def get_bool_env_var(var_name, default_value=False) -> bool:
     Returns:
         A boolean value.
     """
-
     value = os.getenv(var_name)
     if value is None:
         return default_value

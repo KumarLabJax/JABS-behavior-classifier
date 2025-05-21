@@ -20,6 +20,8 @@ lint.ignore = [
     "D415",  # ignore doc punctuation
 ]
 
+target-version = "py310"
+
 [lint.pydocstyle]
 convention = "google"
 
