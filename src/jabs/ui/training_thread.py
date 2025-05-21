@@ -30,12 +30,12 @@ class TrainingThread(QtCore.QThread):
         self._k = k
 
     def run(self):
-        """thread's main function. Will get the feature set for all labeled frames,
-        do the leave one group out train/test split, run the training, run the
-        trained classifier on the test data, print some performance metrics,
+        """thread's main function
+
+        Will get the feature set for all labeled frames, do the leave one group out train/test split,
+        run the training, run the trained classifier on the test data, print some performance metrics,
         and print the most important features
         """
-
         self._tasks_complete = 0
 
         def id_processed():

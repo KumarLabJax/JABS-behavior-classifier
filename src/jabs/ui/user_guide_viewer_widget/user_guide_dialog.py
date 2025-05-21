@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 
 import markdown2
-from PySide6.QtWidgets import QVBoxLayout, QDialog, QPushButton
-from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import Qt, QUrl
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QDialog, QPushButton, QVBoxLayout
 
 
 class UserGuideDialog(QDialog):
@@ -25,7 +25,7 @@ class UserGuideDialog(QDialog):
 
         close_button = QPushButton("CLOSE")
         close_button.clicked.connect(self.close)
-        layout.addWidget(close_button, alignment=Qt.AlignLeft)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.setLayout(layout)
 

@@ -1,4 +1,4 @@
-from PySide6 import QtWidgets, QtCore
+from PySide6 import QtCore, QtWidgets
 
 
 class _VideoListWidget(QtWidgets.QListWidget):

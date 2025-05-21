@@ -1,18 +1,25 @@
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QFont, QFontMetrics
-from PySide6.QtWidgets import QWidget, QSizePolicy, QApplication
+from PySide6.QtGui import QFont, QFontMetrics, QPainter
+from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 
 class FrameLabelsWidget(QWidget):
-    """draws ticks and frame labels, intended to be used under one or more
-    ManualLabelsWidget
+    """Widget for drawing frame ticks and labels below a ManualLabelsWidget.
+
+    Displays tick marks and frame numbers for a sliding window of frames centered
+    around the current frame. Intended to visually indicate frame positions and
+    intervals in a video labeling interface.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # number of frames on each side of current frame to include in
         # sliding window
@@ -42,7 +49,8 @@ class FrameLabelsWidget(QWidget):
         self._font_height = self._font_metrics.height()
 
     def sizeHint(self):
-        """Override QWidget.sizeHint to give an initial starting size.
+        """Give an initial starting size.
+
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -50,6 +58,7 @@ class FrameLabelsWidget(QWidget):
         return QSize(400, self._font_height + 10)
 
     def resizeEvent(self, event):
+        """handle resize events"""
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
         self._offset = (self.size().width() - self._adjusted_width) / 2
@@ -59,7 +68,6 @@ class FrameLabelsWidget(QWidget):
 
         This draws the widget.
         """
-
         # starting and ending frames of the current view
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
@@ -72,19 +80,17 @@ class FrameLabelsWidget(QWidget):
         qp.end()
 
     def _draw_ticks(self, painter, start, end):
-        """draw ticks draw ticks at the proper interval and draw the frame
-        number under the tick
+        """draw ticks draw ticks at the proper interval and draw the frame number under the tick
 
         Args:
             painter: active QPainter
             start: starting frame number
             end: ending frame number
         """
-
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
                 offset = self._offset + ((i - start + 0.5) * self._frame_width) - 1
-                painter.setPen(Qt.NoPen)
+                painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
                 label_text = f"{i}"
@@ -101,8 +107,8 @@ class FrameLabelsWidget(QWidget):
         self.update()
 
     def set_num_frames(self, num_frames):
-        """set number of frames in current video, needed to keep from drawing
-        ticks past the end of the video (pace that is drawn as padding by
-        ManualLabelsWidget
+        """set number of frames in current video
+
+        this is used to keep from drawing ticks past the end of the video
         """
         self._num_frames = num_frames

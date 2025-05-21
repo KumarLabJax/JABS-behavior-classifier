@@ -1,16 +1,18 @@
 """Project-level controls for classifiers.
 
-TODO:
+Todo:
     While this file was initially designed for controlling project settings
     This is now the primary location where project-level settings are managed
     The project class simply exposes its settings here which are modified
     The project class should be the management location of these features
+
+Todo:
+    convert many of the getter/setter methods to properties
 """
 
 import sys
 
-from typing import List
-from PySide6 import QtWidgets, QtCore
+from PySide6 import QtCore, QtWidgets
 
 from jabs.classifier import Classifier
 
@@ -21,6 +23,34 @@ from .label_count_widget import FrameLabelCountWidget
 
 
 class MainControlWidget(QtWidgets.QWidget):
+    """Controls for classifier training, labeling, and settings.
+
+    Provides UI components and logic for managing behaviors, subject identities, classifier selection,
+    window sizes, label assignment, and related project-level settings. Emits signals for user actions
+    and updates, and synchronizes UI state with project metadata.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
+
+    Signals:
+        label_behavior_clicked (Signal): Emitted when the behavior label button is clicked.
+        label_not_behavior_clicked (Signal): Emitted when the not-behavior label button is clicked.
+        clear_label_clicked (Signal): Emitted when the clear label button is clicked.
+        start_selection (Signal): Emitted when the select frames button is toggled.
+        identity_changed (Signal): Emitted when the selected identity changes.
+        train_clicked (Signal): Emitted when the train button is clicked.
+        classify_clicked (Signal): Emitted when the classify button is clicked.
+        classifier_changed (Signal): Emitted when the classifier selection changes.
+        behavior_changed (Signal): Emitted when the selected behavior changes.
+        kfold_changed (Signal): Emitted when the k-fold value changes.
+        new_behavior_label (Signal): Emitted when a new behavior label is added.
+        window_size_changed (Signal): Emitted when the window size changes.
+        new_window_sizes (Signal): Emitted when the list of window sizes changes.
+        use_balance_labels_changed (Signal): Emitted when the balance labels option changes.
+        use_symmetric_changed (Signal): Emitted when the symmetric behavior option changes.
+    """
+
     label_behavior_clicked = QtCore.Signal()
     label_not_behavior_clicked = QtCore.Signal()
     clear_label_clicked = QtCore.Signal()
@@ -235,6 +265,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def current_behavior(self):
+        """return the current behavior name"""
         return self.behavior_selection.currentText()
 
     @property
@@ -244,7 +275,8 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def current_identity(self) -> str:
-        """this will be the external identity
+        """get the external identity
+
         if the pose file doesn't have external identities this will be the string representation of the jabs identity
         """
         return self.identity_selection.currentText()
@@ -256,73 +288,88 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @property
     def select_button_is_checked(self):
+        """return true if the select button is checked"""
         return self._select_button.isChecked()
 
     @property
     def kfold_value(self):
+        """return the current value of the k-fold slider"""
         return self._kslider.value()
 
     @property
     def train_button_enabled(self):
+        """return true if the train button is enabled"""
         return self._train_button.isEnabled()
 
     @property
     def classify_button_enabled(self):
+        """set the classify button to enabled or disabled"""
         return self._classify_button.isEnabled()
 
     @train_button_enabled.setter
     def train_button_enabled(self, enabled: bool):
+        """set the train button to enabled or disabled"""
         self._train_button.setEnabled(enabled)
 
     @property
     def classifier_type(self):
+        """return the selected classifier type"""
         return self._classifier_selection.currentData()
 
     @property
     def use_balance_labels(self):
+        """return true if the balance labels checkbox is checked"""
         return self._use_balace_labels_checkbox.isChecked()
 
     @use_balance_labels.setter
     def use_balance_labels(self, val: bool):
+        """set the balance labels checkbox to the given value (only if it is enabled)"""
         if self._use_balace_labels_checkbox.isEnabled():
             self._use_balace_labels_checkbox.setChecked(val)
 
     @property
     def use_symmetric(self):
+        """return true if the symmetric behavior checkbox is checked"""
         return self._symmetric_behavior_checkbox.isChecked()
 
     @use_symmetric.setter
     def use_symmetric(self, val: bool):
+        """set the symmetric behavior checkbox to the given value"""
         if self._symmetric_behavior_checkbox.isEnabled():
             self._symmetric_behavior_checkbox.setChecked(val)
 
     @property
     def all_kfold(self):
+        """return true if the all k-fold checkbox is checked"""
         return self._all_kfold_checkbox.isChecked()
 
     def disable_label_buttons(self):
-        """disable labeling buttons that require a selected range of frames"""
+        """disable labeling buttons"""
         self._label_behavior_button.setEnabled(False)
         self._label_not_behavior_button.setEnabled(False)
         self._clear_label_button.setEnabled(False)
         self._select_button.setChecked(False)
 
     def enable_label_buttons(self):
+        """enable labeling buttons"""
         self._label_behavior_button.setEnabled(True)
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
 
     def set_use_balance_labels_checkbox_enabled(self, val: bool):
+        """enable or disable the balance labels checkbox"""
         self._use_balace_labels_checkbox.setEnabled(val)
         if not val:
             self._use_balace_labels_checkbox.setChecked(False)
 
     def set_use_symmetric_checkbox_enabled(self, val: bool):
+        """enable or disable the symmetric behavior checkbox"""
         self._symmetric_behavior_checkbox.setEnabled(val)
         if not val:
             self._symmetric_behavior_checkbox.setChecked(False)
 
     def set_classifier_selection(self, classifier_type):
+        """set the classifier selection combobox to the given classifier type"""
         try:
             index = self._classifier_selection.findData(classifier_type)
             if index != -1:
@@ -342,6 +389,7 @@ class MainControlWidget(QtWidgets.QWidget):
         bout_behavior_project,
         bout_not_behavior_project,
     ):
+        """set the frame counts displayed by the label count widget"""
         self._frame_counts.set_counts(
             label_behavior_current,
             label_not_behavior_current,
@@ -354,21 +402,27 @@ class MainControlWidget(QtWidgets.QWidget):
         )
 
     def classify_button_set_enabled(self, enabled: bool):
+        """set the classify button to enabled or disabled"""
         self._classify_button.setEnabled(enabled)
 
     def select_button_set_enabled(self, enabled: bool):
+        """set the select button to enabled or disabled"""
         self._select_button.setEnabled(enabled)
 
     def select_button_set_checked(self, checked):
+        """set the select button to checked or unchecked"""
         self._select_button.setChecked(checked)
 
     def toggle_select_button(self):
+        """toggle the select button"""
         self._select_button.toggle()
 
     def kslider_set_enabled(self, enabled: bool):
+        """set the k-fold slider to enabled or disabled"""
         self._kslider.setEnabled(enabled)
 
     def set_identity_index(self, i: int):
+        """set which identity is selected in the identity selection combobox"""
         self.identity_selection.setCurrentIndex(i)
 
     def update_project_settings(self, project_settings: dict):
@@ -380,7 +434,6 @@ class MainControlWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-
         # TODO: This is one of the major locations where project settings
         #   are owned by this widget, instead of the project class
 
@@ -397,17 +450,13 @@ class MainControlWidget(QtWidgets.QWidget):
         # select the behavior
         behavior_index = 0
         if "behavior" in project_settings:
-            self._behaviors = sorted(list(project_settings["behavior"].keys()))
+            self._behaviors = sorted(project_settings["behavior"].keys())
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
-        if (
-            "selected_behavior" in project_settings
-            and project_settings["selected_behavior"]
-        ):
-            if project_settings["selected_behavior"] in self._behaviors:
-                behavior_index = self._behaviors.index(
-                    project_settings["selected_behavior"]
-                )
+        if project_settings.get("selected_behavior") in self._behaviors:
+            behavior_index = self._behaviors.index(
+                project_settings["selected_behavior"]
+            )
 
         if len(self._behaviors) == 0:
             self._get_first_label()
@@ -434,6 +483,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self._window_size.setCurrentText(str(size))
 
     def remove_behavior(self, behavior: str):
+        """remove a behavior from the behavior selection box"""
         idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
         if idx != -1:
             self.behavior_selection.removeItem(idx)
@@ -442,7 +492,7 @@ class MainControlWidget(QtWidgets.QWidget):
         if len(self._behaviors) == 0:
             self._get_first_label()
 
-    def _set_window_sizes(self, sizes: List[int]):
+    def _set_window_sizes(self, sizes: list[int]):
         """set the list of available window sizes"""
         self._window_size.clear()
         for w in sizes:
@@ -450,8 +500,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _new_label(self):
         """callback for the "new behavior" button
-        opens a modal dialog to allow the user to enter a new behavior label,
-        if user clicks ok, add that behavior to the combo box, and select it
+
+        opens a modal dialog to allow the user to enter a new behavior label, if user clicks ok, add that
+        behavior to the combo box, and select it
         """
         text, ok = QtWidgets.QInputDialog.getText(
             self, "New Behavior", "New Behavior Name:", QtWidgets.QLineEdit.Normal
@@ -464,7 +515,8 @@ class MainControlWidget(QtWidgets.QWidget):
             self.behavior_selection.setCurrentText(text)
 
     def _get_first_label(self):
-        """show the new label dialog.
+        """Show the new label dialog.
+
         Used when opening a new project for the fist time or if a user archives all behaviors in a project.
 
         dialog is customized to hide the window close button. The only way to close the dialog is to create a new
@@ -493,8 +545,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _new_window_size(self):
         """callback for the "new window size" button
-        opens a modal dialog to allow the user to enter a new window size,
-        if user clicks ok, add that window size and select it
+
+        opens a modal dialog to allow the user to enter a new window size, if user clicks ok,
+        add that window size and select it
         """
         val, ok = QtWidgets.QInputDialog.getInt(
             self, "New Window Size", "Enter a new window size:", value=1, minValue=1

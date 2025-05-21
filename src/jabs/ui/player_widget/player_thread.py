@@ -7,20 +7,34 @@ from jabs.feature_extraction.social_features.social_distance import ClosestIdent
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV3
 from jabs.video_reader import (
     VideoReader,
+    draw_track,
     label_all_identities,
     label_identity,
     overlay_landmarks,
-    overlay_segmentation,
     overlay_pose,
-    draw_track,
+    overlay_segmentation,
 )
 
 
 class PlayerThread(QtCore.QThread):
-    """thread used to grab frames (numpy arrays) from a video stream and convert
-    them to a QImage for display by the frame widget
+    """Thread for grabbing frames from a video stream and converting them to QImage.
 
-    handles timing to get correct playback speed
+    Handles timing to achieve correct playback speed and emits signals to update UI components.
+
+    Args:
+        video_reader: The video reader instance.
+        pose_est: The pose estimation object.
+        identity: The active identity to track.
+        show_track (bool, optional): Whether to show the track overlay. Defaults to False.
+        overlay_pose_flag (bool, optional): Whether to overlay pose. Defaults to False.
+        identities (list, optional): List of all identities. Defaults to None.
+        overlay_landmarks_flag (bool, optional): Whether to overlay landmarks. Defaults to False.
+        overlay_segmentation_flag (bool, optional): Whether to overlay segmentation. Defaults to False.
+
+    Signals:
+        newImage (dict): Emitted with a new QImage and source filename.
+        updatePosition (dict): Emitted with the current frame index and source filename.
+        endOfFile: Emitted when the end of the video is reached.
     """
 
     _CLOSEST_LABEL_COLOR = (255, 0, 0)
@@ -69,21 +83,27 @@ class PlayerThread(QtCore.QThread):
         self._identity = identity
 
     def set_identities(self, identities):
+        """set the list of identities"""
         self._identities = identities
 
     def label_closest(self, new_val: bool):
+        """set the label closest property"""
         self._label_closest = new_val
 
     def set_show_track(self, new_val: bool):
+        """set the show track property"""
         self._show_track = new_val
 
     def set_overlay_pose(self, new_val: bool):
+        """set overlay pose property"""
         self._overlay_pose = new_val
 
     def set_overlay_segmentation(self, new_val: bool):
+        """set the overlay segmentation property"""
         self._overlay_segmentation = new_val
 
     def set_overlay_landmarks(self, new_val: bool):
+        """set the overlay landmarks property"""
         self._overlay_landmarks = new_val
 
     def _read_and_emit_frame(self):
@@ -162,6 +182,14 @@ class PlayerThread(QtCore.QThread):
         return image
 
     def seek(self, position: int):
+        """Seek to a specific frame position if the thread is not running.
+
+        Updates the video reader to the given frame position and emits the corresponding frame
+        and position to the UI.
+
+        Args:
+            position (int): The frame index to seek to.
+        """
         if not self.isRunning():
             self._video_reader.seek(position)
             self._read_and_emit_frame()
@@ -173,6 +201,17 @@ class PlayerThread(QtCore.QThread):
         identity: int,
         identities: list,
     ):
+        """Load a new video and update associated pose estimation and identities.
+
+        Updates the internal video reader, pose estimation object, active identity, and list of identities
+        if the thread is not currently running.
+
+        Args:
+            video_reader (VideoReader): The new video reader instance.
+            pose_est (PoseEstimation): The new pose estimation object.
+            identity (int): The active identity to track.
+            identities (list): List of all identities in the video.
+        """
         if not self.isRunning():
             self._video_reader = video_reader
             self._pose_est = pose_est
@@ -181,10 +220,10 @@ class PlayerThread(QtCore.QThread):
 
     def run(self):
         """method to be run as a thread during playback
+
         handles grabbing the next frame from the buffer, converting to a QImage,
         and sending to the UI component for display.
         """
-
         end_of_file = False
         next_timestamp = 0
         start_time = 0
@@ -269,10 +308,11 @@ class PlayerThread(QtCore.QThread):
                                 if view_angle > 180:
                                     view_angle -= 360
 
-                                if abs(view_angle) <= half_fov_deg:
+                                if abs(view_angle) <= half_fov_deg and (
+                                    closest_dist is None or curr_dist < closest_dist
+                                ):
                                     # other animal is in FoV
-                                    if closest_dist is None or curr_dist < closest_dist:
-                                        closest_id = curr_id
-                                        closest_dist = curr_dist
+                                    closest_id = curr_id
+                                    closest_dist = curr_dist
 
         return closest_id
