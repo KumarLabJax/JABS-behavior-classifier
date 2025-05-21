@@ -2,6 +2,7 @@ import sys
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
 import jabs.feature_extraction
@@ -108,17 +109,20 @@ class CentralWidget(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
     def eventFilter(self, source, event):
-        """filter events emitted by progress dialog"""
-        if source == self._progress_dialog:
-            if event.type() == QtCore.QEvent.Type.Close:
-                event.accept()
-                return True
-            elif event.type() == QtCore.QEvent.Type.KeyPress and isinstance(
-                event, QtGui.QKeyEvent
-            ):
-                if event.key() == QtCore.Qt.Key.Key_Escape:
-                    event.accept()
-                    return True
+        """filter events emitted by progress dialog
+
+        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
+        """
+        if source == self._progress_dialog and (
+            event.type() == QtCore.QEvent.Type.Close
+            or (
+                event.type() == QtCore.QEvent.Type.KeyPress
+                and isinstance(event, QtGui.QKeyEvent)
+                and event.key() == Qt.Key.Key_Escape
+            )
+        ):
+            event.accept()
+            return True
         return super().eventFilter(source, event)
 
     @property

@@ -246,18 +246,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def eventFilter(self, source, event):
         """filter events emitted by progress dialog
 
-        The main purpose of this is to prevent using the escape key to close the dialog
+        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
         """
-        if source == self._progress_dialog:
-            if event.type() == QtCore.QEvent.Type.Close:
-                event.accept()
-                return True
-            elif event.type() == QtCore.QEvent.Type.KeyPress and isinstance(
-                event, QtGui.QKeyEvent
-            ):
-                if event.key() == QtCore.Qt.Key.Key_Escape:
-                    event.accept()
-                    return True
+        if source == self._progress_dialog and (
+            event.type() == QtCore.QEvent.Type.Close
+            or (
+                event.type() == QtCore.QEvent.Type.KeyPress
+                and isinstance(event, QtGui.QKeyEvent)
+                and event.key() == Qt.Key.Key_Escape
+            )
+        ):
+            event.accept()
+            return True
         return super().eventFilter(source, event)
 
     def open_project(self, project_path: str):
@@ -265,7 +265,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog = QtWidgets.QProgressDialog(
             "Loading project...", None, 0, 0, self
         )
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.show()
         self._project_loader_thread = ProjectLoaderThread(project_path)
