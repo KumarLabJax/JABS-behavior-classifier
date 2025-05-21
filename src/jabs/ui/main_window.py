@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QKeyEvent
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.project import export_training_data
+from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from jabs.version import version_str
 
@@ -142,6 +143,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_segmentation.setCheckable(True)
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
         view_menu.addAction(self.overlay_segmentation)
+
+        # add behavior search
+        self.behavior_search = QtGui.QAction("Search Behaviors", self)
+        self.behavior_search.setShortcut(QtGui.QKeySequence.Find)
+        self.behavior_search.setStatusTip("Search for behaviors")
+        self.behavior_search.triggered.connect(self._search_behaviors)
+        view_menu.addAction(self.behavior_search)
 
         # Feature subset actions
         # All these settings should be updated whenever the behavior_changed event occurs
@@ -407,6 +415,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_segmentation_overlay(self, checked: bool):
         """show/hide segmentation overlay for subject."""
         self._central_widget.overlay_segmentation(checked)
+
+    def _search_behaviors(self):
+        """open a dialog to search for behaviors"""
+        dialog = BehaviorSearchDialog(self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            behavior_search_state = dialog.behavior_search_state
+            print(behavior_search_state)
 
     def _toggle_cm_units(self, checked: bool):
         """toggle project to use pixel units."""
