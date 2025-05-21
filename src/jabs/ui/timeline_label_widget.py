@@ -1,21 +1,21 @@
 import math
 
 import numpy as np
-
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QColor, QPen, QPixmap, QBrush, QImage
-from PySide6.QtWidgets import QWidget, QSizePolicy
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .colors import (
+    BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,
-    BACKGROUND_COLOR,
     POSITION_MARKER_COLOR,
 )
 
 
 class TimelineLabelWidget(QWidget):
     """Widget that shows a "zoomed out" overview of labels for the entire video.
+
     Because each pixel along the width ends up representing multiple frames,
     you can't see fine detail, but you can see where manual labels have been
     applied. This can be useful for seeking through the video to a location of
@@ -65,6 +65,7 @@ class TimelineLabelWidget(QWidget):
 
     def sizeHint(self):
         """Override QWidget.sizeHint to give an initial starting size.
+
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -72,10 +73,11 @@ class TimelineLabelWidget(QWidget):
         return QSize(400, self._height)
 
     def resizeEvent(self, event):
-        """handle resize event. Recalculates scaling factors and calls
-        update_bar() to downsample current label array and rerender the bar
-        """
+        """Handle resize event.
 
+        Recalculates scaling factors and calls update_bar() to downsample current label array
+        and rerender the bar
+        """
         # if no video is loaded, there is nothing to display and nothing to
         # resize
         if self._num_frames == 0:
@@ -86,7 +88,6 @@ class TimelineLabelWidget(QWidget):
 
     def paintEvent(self, event):
         """override QWidget paintEvent"""
-
         # make sure we have something to draw
         if self._pixmap is None or self._bin_size == 0:
             return
@@ -128,19 +129,21 @@ class TimelineLabelWidget(QWidget):
         self._update_bar()
 
     def update_labels(self):
+        """Update the rendered labels and redraw."""
         self._update_bar()
         self.update()
 
     def reset(self):
+        """Resets the widget state."""
         self._labels = None
         self._update_scale()
         self._update_bar()
 
     def _update_bar(self):
-        """Updates the bar pixmap. Downsamples label array with the current size
-        and updates self._pixmap
-        """
+        """Updates the bar pixmap.
 
+        Downsamples label array with the current size and updates self._pixmap
+        """
         if self._labels is None:
             return
 

@@ -1,13 +1,12 @@
 import numpy as np
-
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QImage
-from PySide6.QtWidgets import QWidget, QSizePolicy
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .colors import (
+    BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,
-    BACKGROUND_COLOR,
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
@@ -71,6 +70,7 @@ class ManualLabelWidget(QWidget):
 
     def sizeHint(self):
         """Override QWidget.sizeHint to give an initial starting size.
+
         Width hint is not so important because we allow the widget to resize
         horizontally to fill the available container. The height is fixed,
         so the value used here sets the height of the widget.
@@ -78,6 +78,7 @@ class ManualLabelWidget(QWidget):
         return QSize(400, self._bar_height)
 
     def resizeEvent(self, event):
+        """handle resize events"""
         self._frame_width = self.size().width() // self._nframes
         self._adjusted_width = self._nframes * self._frame_width
         self._offset = (self.size().width() - self._adjusted_width) // 2
@@ -87,7 +88,6 @@ class ManualLabelWidget(QWidget):
 
         This draws the widget.
         """
-
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
         # out of bounds frames will be padded with a pattern
@@ -179,7 +179,6 @@ class ManualLabelWidget(QWidget):
         Args:
             painter: active QPainter
         """
-
         # starting and ending frames of the current view
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
@@ -221,7 +220,6 @@ class ManualLabelWidget(QWidget):
             start: starting frame number
             end: ending frame number
         """
-
         # can't draw if we don't know the frame rate yet
         if self._framerate == 0:
             return
@@ -251,8 +249,7 @@ class ManualLabelWidget(QWidget):
         self._num_frames = num_frames
 
     def set_framerate(self, fps):
-        """set the frame rate for the currently loaded video, needed to draw the
-        ticks at one second intervals
+        """set the frame rate for the currently loaded video, needed to draw the ticks at one second intervals
 
         Args:
             fps: frame rate in frames per second

@@ -1,8 +1,16 @@
-from PySide6 import QtWidgets, QtCore
+"""IdentityComboBox used to let the player widget know when the combo box is displayed or hidden
+
+Todo:
+    This functionality isn't needed anymore. Remove it and switch to a standard QComboBox.
+"""
+
+from PySide6 import QtCore, QtWidgets
 
 
 class IdentityComboBox(QtWidgets.QComboBox):
-    """Subclass the combo box to emit a signal that indicates if it has been
+    """IdentityComboBox
+
+    Subclass the combo box to emit a signal that indicates if it has been
     opened or closed. This is used to tell the PlayerWidget to switch to the
     "label identities mode".
     """
@@ -18,11 +26,9 @@ class IdentityComboBox(QtWidgets.QComboBox):
         self._signal_handler_connected = False
 
     def showPopup(self):
-        """showPopup is overridden so that we can emit a signal every time
-        it is shown
-        """
+        """showPopup is overridden so that we can emit a signal every time it is shown"""
         self.pop_up_visible.emit(True)
-        super(IdentityComboBox, self).showPopup()
+        super().showPopup()
 
         # Everything else is a work-around for a bug that causes hidePopup to
         # not get called if user clicks outside of the pop up to dismiss it
@@ -44,7 +50,9 @@ class IdentityComboBox(QtWidgets.QComboBox):
     #     super(IdentityComboBox, self).hidePopup()
 
     def cancel_popup(self):
-        """Part of the work around described in showPopup. This is connected to
+        """cancel popup
+
+        Part of the work around described in showPopup. This is connected to
         the resetButton signal for the QComboBoxPrivateContainer. This lets us
         emit the signal when the user dismisses the popup by clicking outside
         the QComboBox drop down. This can be removed if the behavior of

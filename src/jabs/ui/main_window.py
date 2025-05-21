@@ -1,23 +1,23 @@
 import sys
 from pathlib import Path
 
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
-from jabs.project import export_training_data
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
-from jabs.version import version_str
+from jabs.project import export_training_data
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
-from .about_dialog import AboutDialog
-from .central_widget import CentralWidget
-from .project_loader_thread import ProjectLoaderThread
-from .video_list_widget import VideoListDockWidget
-from .archive_behavior_dialog import ArchiveBehaviorDialog
-from .license_dialog import LicenseAgreementDialog
-from .user_guide_viewer_widget import UserGuideDialog
+from jabs.version import version_str
 
+from .about_dialog import AboutDialog
+from .archive_behavior_dialog import ArchiveBehaviorDialog
+from .central_widget import CentralWidget
+from .license_dialog import LicenseAgreementDialog
+from .project_loader_thread import ProjectLoaderThread
+from .user_guide_viewer_widget import UserGuideDialog
+from .video_list_widget import VideoListDockWidget
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
 
@@ -27,6 +27,18 @@ LICENSE_VERSION_KEY = "license_version"
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    """Main application window for the JABS UI.
+
+    Handles the setup and management of the main user interface, including menus, status bar,
+    central widget, and dock widgets. Manages project loading, user actions, and feature toggles.
+
+    Args:
+        app_name (str): Short application name.
+        app_name_long (str): Full application name.
+        *args: Additional positional arguments for QMainWindow.
+        **kwargs: Additional keyword arguments for QMainWindow.
+    """
+
     def __init__(self, app_name: str, app_name_long: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -162,7 +174,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Static objects
         enable_landmark_features = {}
-        for landmark_name in LandmarkFeatureGroup.feature_map.keys():
+        for landmark_name in LandmarkFeatureGroup.feature_map:
             landmark_action = QtGui.QAction(
                 f"Enable {landmark_name.capitalize()} Features", self
             )
@@ -204,9 +216,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def keyPressEvent(self, event: QKeyEvent):
-        """override keyPressEvent so we can pass some key press events on
-        to the centralWidget
-        """
+        """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
 
         # pass along some of the key press events to the central widget
@@ -231,7 +241,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.overlay_landmark.trigger()
         else:
             # anything else pass on to the super class keyPressEvent
-            super(MainWindow, self).keyPressEvent(event)
+            super().keyPressEvent(event)
 
     def open_project(self, project_path: str):
         """open a new project directory"""
@@ -270,14 +280,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def behavior_label_add_event(self, behaviors: list[str]):
         """handle project updates required when user adds new behavior labels"""
-
         # check for new behaviors
         for behavior in behaviors:
             if (
                 behavior
-                not in self._project.settings_manager.project_settings[
-                    "behavior"
-                ].keys()
+                not in self._project.settings_manager.project_settings["behavior"]
             ):
                 # save new behavior with default settings
                 self._project.settings_manager.save_behavior(behavior, {})
@@ -421,9 +428,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _video_list_selection(self, filename: str):
-        """handle a click on a new video in the list loaded into the main
-        window dock
-        """
+        """handle a click on a new video in the list loaded into the main window dock"""
         try:
             self._central_widget.load_video(
                 self._project.video_manager.video_path(filename)
@@ -478,7 +483,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def show_license_dialog(self):
         """prompt the user to accept the license agreement if they haven't already"""
-
         # check to see if user already accepted the license
         if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
             return QtWidgets.QDialog.Accepted
@@ -508,7 +512,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _add_recent_project(self, project_path: Path):
         """add a project to the recent projects list"""
-
         # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
         path_str = str(project_path)
 

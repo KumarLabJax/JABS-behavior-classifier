@@ -1,7 +1,6 @@
 import numpy as np
-
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QImage
+from PySide6.QtGui import QImage, QPainter
 
 from .manual_label_widget import ManualLabelWidget
 
@@ -19,7 +18,6 @@ class PredictionVisWidget(ManualLabelWidget):
 
         This draws the widget.
         """
-
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
         # out of bounds frames will be padded with a pattern

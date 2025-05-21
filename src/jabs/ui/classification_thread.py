@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from PySide6 import QtCore
 
-from jabs.feature_extraction import IdentityFeatures, DEFAULT_WINDOW_SIZE
+from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.video_reader.utilities import get_fps
 
 
@@ -22,8 +22,9 @@ class ClassifyThread(QtCore.QThread):
         self._current_video = current_video
 
     def run(self):
-        """thread's main function. runs the classifier for each identity in each
-        video
+        """thread's main function.
+
+        runs the classifier for each identity in each video
         """
         self._tasks_complete = 0
 

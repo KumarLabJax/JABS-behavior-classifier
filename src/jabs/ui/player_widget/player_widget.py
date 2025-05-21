@@ -3,13 +3,16 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QPaintEvent
 
-from .player_thread import PlayerThread
 from jabs.video_reader import VideoReader
+
+from .player_thread import PlayerThread
 
 
 class _FrameWidget(QtWidgets.QLabel):
-    """widget that implements a resizable pixmap label, will initialize to the
-    full size of the video frame, but then will be resizable after that
+    """widget that implements a resizable pixmap label
+
+    Used for displaying the current frame of the video. If necessary, the pixmap size is scaled down to fit the
+    available area.
     """
 
     pixmap_clicked = QtCore.Signal(dict)
@@ -35,25 +38,28 @@ class _FrameWidget(QtWidgets.QLabel):
         QtWidgets.QLabel.mousePressEvent(self, event)
 
     def _frame_xy_to_pixmap_xy(self, x, y):
-        """Convert the given x, y coordinates from _FrameWidget coordinates
-        to pixmap coordinates. Ie which pixel did the user click on?
-        We account for image scaling and translation
+        """Convert the given x, y coordinates from FrameWidget coordinates to pixmap coordinates.
+
+        Ie which pixel did the user click on? We account for image scaling and translation
         """
         pixmap = self.pixmap()
-        if pixmap is not None:
-            if (
+        if (
+            pixmap is not None
+            and (
                 self._scaled_pix_height != pixmap.height()
                 or self._scaled_pix_width != pixmap.width()
                 or self._scaled_pix_x != 0
                 or self._scaled_pix_y != 0
-            ):
-                if self._scaled_pix_width >= 1 and self._scaled_pix_height >= 1:
-                    # we've done all the checks and it's safe to transform
-                    # the x, y point
-                    x -= self._scaled_pix_x
-                    y -= self._scaled_pix_y
-                    x *= pixmap.width() / self._scaled_pix_width
-                    y *= pixmap.height() / self._scaled_pix_height
+            )
+            and self._scaled_pix_width >= 1
+            and self._scaled_pix_height >= 1
+        ):
+            # we've done all the checks and it's safe to transform
+            # the x, y point
+            x -= self._scaled_pix_x
+            y -= self._scaled_pix_y
+            x *= pixmap.width() / self._scaled_pix_width
+            y *= pixmap.height() / self._scaled_pix_height
 
         return x, y
 
@@ -70,12 +76,11 @@ class _FrameWidget(QtWidgets.QLabel):
         self.firstFrame = True
 
     def paintEvent(self, event: QPaintEvent):
-        """override the paintEvent() handler to scale the image if the widget is
-        resized.
+        """override paintEvent handler to scale the image if the widget is resized.
+
         Don't enable resizing until after  the first frame has been drawn so
         that the widget will be expanded to fit the actual size of the frame.
         """
-
         # only draw if we have an image to show
         if self.pixmap() is not None and not self.pixmap().isNull():
             # current size of the widget
@@ -119,7 +124,9 @@ class _FrameWidget(QtWidgets.QLabel):
 
 
 class PlayerWidget(QtWidgets.QWidget):
-    """Video Player Widget. Consists of a QLabel to display a frame image, and
+    """Video Player Widget.
+
+    Consists of a QLabel to display a frame image, and
     basic player controls below the frame (play/pause button, position slider,
     previous/next frame buttons.
 
@@ -300,8 +307,9 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def show_track(self, enabled: bool | None = None):
-        """change "show track" state. Accepts a new boolean value, or toggles
-        current state if no value given.
+        """change "show track" state.
+
+        Accepts a new boolean value, or toggles current state if no value given.
         """
         if enabled is None:
             self._show_track = not self._show_track
@@ -316,8 +324,9 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_pose(self, enabled: bool | None = None):
-        """change "overlay pose" state. Accepts a new boolean value, or toggles
-        current state if no value given.
+        """change "overlay pose" state.
+
+        Accepts a new boolean value, or toggles current state if no value given.
         """
         if enabled is None:
             self._overlay_pose = not self._overlay_pose
@@ -332,8 +341,9 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_segmentation(self, enabled: bool | None = None):
-        """change "overlay segmentation" state. Accepts a new boolean value, or toggles
-        current state if no value given.
+        """change "overlay segmentation" state.
+
+        Accepts a new boolean value, or toggles current state if no value given.
         """
         if enabled is None:
             self._overlay_segmentation = not self._overlay_segmentation
@@ -348,8 +358,9 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def overlay_landmarks(self, enabled: bool | None = None):
-        """change "overlay landmarks" state. Accepts a new boolean value, or
-        toggles current state if no value given.
+        """change "overlay landmarks" state.
+
+        Accepts a new boolean value, or toggles current state if no value given.
         """
         if enabled is None:
             self._overlay_landmarks = not self._overlay_landmarks
@@ -364,6 +375,7 @@ class PlayerWidget(QtWidgets.QWidget):
                 self._seek(self._position_slider.value())
 
     def set_identities(self, identities):
+        """set the list of identities in the video"""
         self._identities = identities
         if self._player_thread:
             self._player_thread.set_identities(self._identities)
@@ -375,7 +387,6 @@ class PlayerWidget(QtWidgets.QWidget):
             path: path to video file
             pose_est: pose file for this video
         """
-
         # if we already have a video loaded make sure it is stopped
         if self._playing:
             self.stop()
@@ -445,11 +456,10 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _position_slider_clicked(self):
         """Click event for position slider.
-        Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
-        playback will resume when slider is released.
-        New frame is displayed with the updated position.
-        """
 
+        Seek to the new position of the slider. If the video is playing we will temporarily stop playback and
+        playback will resume when slider is released. New frame is displayed with the updated position.
+        """
         # this prevents the player thread from updating the position of the
         # slider after we start seeking
         self._seeking = True
@@ -462,11 +472,15 @@ class PlayerWidget(QtWidgets.QWidget):
         self._seek(pos)
 
     def _position_slider_moved(self):
-        """position slider move event. seek the video to the new frame and display it"""
+        """position slider move event.
+
+        seeks the video to the new frame and displays it
+        """
         self._seek(self._position_slider.value())
 
     def _position_slider_release(self):
         """release event for the position slider.
+
         The new position gets updated for the final time. If we were playing
         when we clicked the slider then we resume playing after releasing.
         """
@@ -478,18 +492,20 @@ class PlayerWidget(QtWidgets.QWidget):
             self._start_player_thread()
 
     def _next_frame_clicked(self):
-        """handle "clicked" signal for the next frame button. Need to wrap
-        self.next_frame because it takes an optional parameter and Qt always
-        passes a boolean argument to the click signal handler that is
-        meaningless unless the button is "checkable"
+        """handle "clicked" signal for the next frame button.
+
+        Need to wrap self.next_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that isvmeaningless unless
+        the button is "checkable"
         """
         self.next_frame()
 
     def _previous_frame_clicked(self):
-        """handle "clicked" signal for the previous frame button. Need to wrap
-        self.previous_frame because it takes an optional parameter and Qt always
-        passes a boolean argument to the click signal handler that is
-        meaningless unless the button is "checkable"
+        """handle "clicked" signal for the previous frame button.
+
+        Need to wrap self.previous_frame because it takes an optional parameter and Qt always
+        passes a boolean argument to the click signal handler that is meaningless unless the
+        button is "checkable"
         """
         self.previous_frame()
 
@@ -499,7 +515,6 @@ class PlayerWidget(QtWidgets.QWidget):
         don't do anything if a video hasn't been loaded, or if we are seeking
         (user clicks space bar while dagging slider)
         """
-
         if self._player_thread is None or self._seeking:
             return
 
@@ -521,7 +536,6 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frames: optional, number of frames to advance
         """
-
         # don't do anything if a video hasn't been loaded or if the video is playing
         if self._player_thread is None or self._playing:
             return
@@ -543,7 +557,6 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frames: optional number of frames to move back
         """
-
         # don't do anything if a video hasn't been loaded or if the video is playing
         if self._video_stream is None or self._playing:
             return
@@ -559,7 +572,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def set_active_identity(self, identity):
         """set an active identity, which will be labeled in the video"""
-
         # don't do anything if a video isn't loaded
         if self._player_thread is None:
             return
@@ -570,12 +582,12 @@ class PlayerWidget(QtWidgets.QWidget):
             self._player_thread.seek(self._position_slider.value())
 
     @property
-    def pixmap_clicked(self):
+    def pixmap_clicked(self) -> QtCore.SignalInstance:
+        """return the pixmap_clicked signal from the frame widget"""
         return self._frame_widget.pixmap_clicked
 
     def get_identity_mask(self):
-        """get an array that indicates if an identity is present in a given
-        frame or not for the currently selected identity
+        """Get the idenitty mask for the currently selected identity
 
         Returns:
             numpy uint8 array of length num_frames
@@ -598,7 +610,6 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frame_number: current frame number
         """
-
         self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
@@ -611,7 +622,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
         data dict includes QImage to display as next frame as well as the source video
         """
-
         # When switching videos, it's possible us to receive frames emitted by the player thread for the
         # previous video. We need to ignore those frames.
         if data["source"] != self._video_stream.filename:
@@ -621,13 +631,12 @@ class PlayerWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _set_position(self, data: dict):
-        """update the value of the position slider to the frame number sent from
-        the player thread
+        """update the position slider during playback
 
         Args:
             frame_number: new value for the progress slider
+            data: dict emitted by player thread
         """
-
         # ignore events from previous videos that haven't been processed yet
         if data["source"] != self._video_stream.filename:
             return

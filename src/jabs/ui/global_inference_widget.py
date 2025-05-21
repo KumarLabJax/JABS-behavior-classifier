@@ -1,25 +1,28 @@
 import numpy as np
-
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPixmap, QImage
+from PySide6.QtGui import QImage, QPainter, QPixmap
 
 from jabs.project import TrackLabels
+
 from .timeline_label_widget import TimelineLabelWidget
 
 
 class GlobalInferenceWidget(TimelineLabelWidget):
-    """subclass of TimelineLabeWidget with one primary modification:
+    """GlobalInferenceWidget
+
+    subclass of TimelineLabeWidget with some modifications:
     self._labels will be a numpy array and not a TrackLabels object
+    also uses opacity to indicate the confidence of the label
     """
 
     def __init__(self):
         super().__init__()
 
     def _update_bar(self):
-        """Updates the bar pixmap. Downsamples with the current size and updates
-        self._pixmap
-        """
+        """Updates the bar pixmap.
 
+        Downsamples with the current size and updates self._pixmap
+        """
         if self._labels is None:
             return
 
@@ -48,8 +51,6 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         painter.end()
 
     def set_num_frames(self, num_frames):
-        """sets the number of frames in the current video, and resets the display
-        with a blank track
-        """
+        """sets the number of frames in the current video, and resets the display with a blank track"""
         self._labels = np.full(num_frames, TrackLabels.Label.NONE.value, dtype=np.byte)
         super().set_num_frames(num_frames)

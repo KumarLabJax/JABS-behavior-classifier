@@ -1,12 +1,12 @@
-from PySide6.QtWidgets import (
-    QVBoxLayout,
-    QHBoxLayout,
-    QDialog,
-    QCheckBox,
-    QPushButton,
-    QComboBox,
-)
 from PySide6 import QtCore
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class ArchiveBehaviorDialog(QDialog):

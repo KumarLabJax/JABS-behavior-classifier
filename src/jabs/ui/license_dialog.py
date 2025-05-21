@@ -1,10 +1,20 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from ..constants import APP_NAME, APP_NAME_LONG
 
 
 class LicenseAgreementDialog(QDialog):
+    """Dialog for accepting the application license agreement.
+
+    Presents the user with a message to accept or reject the license terms for the application.
+    Provides YES and NO buttons to confirm or decline the agreement.
+
+    Args:
+        *args: Additional positional arguments for QDialog.
+        **kwargs: Additional keyword arguments for QDialog.
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setWindowTitle(f"Accept {APP_NAME_LONG} License")

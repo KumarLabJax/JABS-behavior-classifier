@@ -1,7 +1,7 @@
 import sys
 
 import numpy as np
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 from shapely.geometry import Point
 
 import jabs.feature_extraction
@@ -13,12 +13,12 @@ from jabs.video_reader.utilities import get_frame_count
 from .classification_thread import ClassifyThread
 from .frame_labels_widget import FrameLabelsWidget
 from .global_inference_widget import GlobalInferenceWidget
+from .main_control_widget import MainControlWidget
 from .manual_label_widget import ManualLabelWidget
 from .player_widget import PlayerWidget
 from .prediction_vis_widget import PredictionVisWidget
 from .timeline_label_widget import TimelineLabelWidget
 from .training_thread import TrainingThread
-from .main_control_widget import MainControlWidget
 
 _CLICK_THRESHOLD = 20
 
@@ -108,14 +108,13 @@ class CentralWidget(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.NoFocus)
 
     def eventFilter(self, source, event):
-        if source == self._progress_dialog:
+        """filter events to handle both close event and escape key press for the progress dialog"""
+        if source == self._progress_dialog and (
+            event.type() == QtCore.QEvent.Close or event == QtGui.QKeySequence.Cancel
+        ):
             # check for both the CloseEvent *and* the escape key press
-            if (
-                event.type() == QtCore.QEvent.Close
-                or event == QtGui.QKeySequence.Cancel
-            ):
-                event.accept()
-                return True
+            event.accept()
+            return True
         return super().eventFilter(source, event)
 
     @property
@@ -135,14 +134,17 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def uses_balance(self):
+        """return true if the controls widget is set to use balanced labels, false otherwise"""
         return self._controls.use_balance_labels
 
     @property
     def uses_symmetric(self):
+        """return true if the controls widget is set to use symmetric behavior, false otherwise"""
         return self._controls.use_symmetric
 
     @property
     def all_kfold(self):
+        """return true if all kfold is selected in the controls widget, false otherwise"""
         return self._controls.all_kfold
 
     @property
@@ -152,6 +154,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def behaviors(self):
+        """return the behaviors from the controls widget"""
         return self._controls.behaviors
 
     def set_project(self, project):
@@ -176,7 +179,6 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-
         if self._labels is not None:
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
@@ -285,23 +287,28 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.show_closest()
 
     def show_track(self, show: bool):
+        """set the show track property of the player widget"""
         self._player_widget.show_track(show)
 
-    # main window -> central_widget -> player_widget
     def overlay_pose(self, checked: bool):
+        """set the overlay pose property of the player widget"""
         self._player_widget.overlay_pose(checked)
 
     def overlay_landmarks(self, checked: bool):
+        """set the overlay landmarks property of the player widget"""
         self._player_widget.overlay_landmarks(checked)
 
     def overlay_segmentation(self, checked: bool):
+        """set the overlay segmentation property of the player widget"""
         self._player_widget.overlay_segmentation(checked)
 
     def remove_behavior(self, behavior: str):
+        """remove a behavior from the list of behaviors"""
         self._controls.remove_behavior(behavior)
 
     @property
     def controls(self):
+        """return the controls widget"""
         return self._controls
 
     def _change_behavior(self, new_behavior):
@@ -334,11 +341,10 @@ class CentralWidget(QtWidgets.QWidget):
         )
 
     def _start_selection(self, pressed):
-        """handle click on "select" button. If button was previously "unchecked"
-        then grab the current frame to begin selecting a range. If the
-        button was in the checked state, clicking cancels the current selection.
+        """Handle a click on "select" button.
 
-        While selection is in progress, the labeling buttons become active.
+        If button was previously "unchecked" then enter "select mode". If the button was in the checked state,
+        clicking cancels the current selection. While selection is in progress, the labeling buttons become active.
         """
         if pressed:
             self._controls.enable_label_buttons()
@@ -376,9 +382,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._label_button_common()
 
     def _label_button_common(self):
-        """functionality shared between _label_behavior(), _label_not_behavior(),
-        and _clear_behavior_label(). to be called after the labels are changed
-        for the current selection
+        """common label button functionality
+
+        functionality shared between _label_behavior(), _label_not_behavior(),
+        and _clear_behavior_label(). To be called after the labels are changed
+        for the current selection.
         """
         self._project.save_annotations(self._labels)
         self._controls.disable_label_buttons()
@@ -408,9 +416,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
-        """loads new set of labels in self.manual_labels when the selected
-        behavior or identity is changed
-        """
+        """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
         behavior = self._controls.current_behavior
         identity = self._controls.current_identity_index
 
@@ -424,9 +430,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_prediction_vis()
 
     def _get_label_track(self):
-        """get the current label track for the currently selected identity and
-        behavior
-        """
+        """get the current label track for the currently selected identity and behavior"""
         return self._labels.get_track_labels(
             str(self._controls.current_identity_index), self._controls.current_behavior
         )
@@ -544,7 +548,6 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _set_prediction_vis(self):
         """update data being displayed by the prediction visualization widget"""
-
         if self._loaded_video is None:
             return
 
@@ -578,7 +581,9 @@ class CentralWidget(QtWidgets.QWidget):
         self.inference_timeline_widget.update_labels()
 
     def _set_train_button_enabled_state(self):
-        """set the enabled property of the train button to True or False depending
+        """set the enabled property of the train button
+
+        Sets enabled state of the train button to True or False depending
         whether the labeling meets some threshold set by the classifier module
 
         NOTE: must be called after _update_label_counts() so that it has the
@@ -587,7 +592,6 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-
         # kfold slider is enabled before a project is loaded and moving it will trigger this function
         # in that case we don't want to do anything
         if self._project is None:
@@ -606,7 +610,6 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-
         if self._loaded_video is None:
             return
 
@@ -657,8 +660,9 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event):
-        """handle event where user clicked on the video -- if they click
-        on one of the mice, make that one active
+        """handle event where user clicked on the video
+
+        if user clicks on one of the mice, make that one active
         """
         clicked_identity = None
         if self._pose_est is not None:

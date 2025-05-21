@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
 
 from jabs.version import version_str
 

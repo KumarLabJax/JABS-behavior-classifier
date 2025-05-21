@@ -1,13 +1,17 @@
 import sys
 
-from PySide6 import QtWidgets, QtGui
+from PySide6 import QtGui, QtWidgets
 from PySide6.QtCore import Qt
 
 
 class FrameLabelCountWidget(QtWidgets.QWidget):
-    """widget to show the number of frames and bouts for behavior, not behavior
-    label classes for the currently selected identity/video as well as
-    project-wide totals
+    """Widget to display the number of frames and bouts for behavior and not-behavior label classes.
+
+    Shows counts for the currently selected identity/video as well as project-wide totals.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
     """
 
     def __init__(self, *args, **kwargs):
