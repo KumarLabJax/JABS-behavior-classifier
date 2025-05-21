@@ -20,7 +20,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
 
-        # these two properties are related to a work around for a bug described
+        # these two properties are related to a workaround for a bug described
         # in showPopup
         self._need_to_emit = False
         self._signal_handler_connected = False
@@ -31,7 +31,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
         super().showPopup()
 
         # Everything else is a work-around for a bug that causes hidePopup to
-        # not get called if user clicks outside of the pop up to dismiss it
+        # not get called if user clicks outside the pop-up to dismiss it
         # without making a selection.
         # (see https://bugreports.qt.io/browse/QTBUG-50055)
         # This sets up a connection to the QComboBoxPrivateContainer resetButton
@@ -52,7 +52,7 @@ class IdentityComboBox(QtWidgets.QComboBox):
     def cancel_popup(self):
         """cancel popup
 
-        Part of the work around described in showPopup. This is connected to
+        Part of the workaround described in showPopup. This is connected to
         the resetButton signal for the QComboBoxPrivateContainer. This lets us
         emit the signal when the user dismisses the popup by clicking outside
         the QComboBox drop down. This can be removed if the behavior of

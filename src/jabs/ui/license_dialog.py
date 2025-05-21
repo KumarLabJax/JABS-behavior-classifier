@@ -24,7 +24,7 @@ class LicenseAgreementDialog(QDialog):
 
         layout.addWidget(
             QLabel(f"I have read and I agree to the {APP_NAME} license terms."),
-            alignment=Qt.AlignCenter,
+            alignment=Qt.AlignmentFlag.AlignCenter,
         )
 
         button_layout = QHBoxLayout()
@@ -36,8 +36,8 @@ class LicenseAgreementDialog(QDialog):
         no_button.clicked.connect(self.reject)
 
         button_layout.addStretch()
-        button_layout.addWidget(yes_button, alignment=Qt.AlignRight)
-        button_layout.addWidget(no_button, alignment=Qt.AlignRight)
+        button_layout.addWidget(yes_button, alignment=Qt.AlignmentFlag.AlignRight)
+        button_layout.addWidget(no_button, alignment=Qt.AlignmentFlag.AlignRight)
 
         layout.addLayout(button_layout)
 

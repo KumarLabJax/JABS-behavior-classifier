@@ -13,7 +13,9 @@ class AboutDialog(QDialog):
 
         layout = QVBoxLayout()
 
-        layout.addWidget(QLabel(f"Version: {version_str()}"), alignment=Qt.AlignCenter)
+        layout.addWidget(
+            QLabel(f"Version: {version_str()}"), alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
         label = QLabel(
             f"{app_name} developed by the "
@@ -21,20 +23,20 @@ class AboutDialog(QDialog):
             "at The Jackson Laboratory"
         )
         label.setOpenExternalLinks(True)
-        layout.addWidget(label, alignment=Qt.AlignCenter)
+        layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addWidget(
             QLabel("Copyright 2025 The Jackson Laboratory. All Rights Reserved"),
-            alignment=Qt.AlignCenter,
+            alignment=Qt.AlignmentFlag.AlignCenter,
         )
 
         email_label = QLabel("<a href='mailto:jabs@jax.org'>jabs@jax.org</a>")
         email_label.setOpenExternalLinks(True)
-        layout.addWidget(email_label, alignment=Qt.AlignCenter)
+        layout.addWidget(email_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.close)
 
-        layout.addWidget(ok_button, alignment=Qt.AlignLeft)
+        layout.addWidget(ok_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.setLayout(layout)

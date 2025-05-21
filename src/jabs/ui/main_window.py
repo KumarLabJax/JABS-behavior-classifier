@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QAction, QKeyEvent
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
@@ -45,7 +45,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget()
         self.setCentralWidget(self._central_widget)
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
 
         self._app_name = app_name
@@ -71,7 +71,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # open action
         open_action = QtGui.QAction("&Open Project", self)
-        open_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_O))
+        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
         open_action.setStatusTip("Open Project")
         open_action.triggered.connect(self._show_project_open_dialog)
         file_menu.addAction(open_action)
@@ -90,20 +90,20 @@ class MainWindow(QtWidgets.QMainWindow):
         # user guide
         user_guide_action = QtGui.QAction(" &User Guide", self)
         user_guide_action.setStatusTip("Open User Guide")
-        user_guide_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_U))
+        user_guide_action.setShortcut(QtGui.QKeySequence("Ctrl+U"))
         user_guide_action.triggered.connect(self._open_user_guide)
         app_menu.addAction(user_guide_action)
 
         # exit action
         exit_action = QtGui.QAction(f" &Quit {self._app_name}", self)
-        exit_action.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_Q))
+        exit_action.setShortcut(QtGui.QKeySequence("Ctrl+Q"))
         exit_action.setStatusTip("Exit application")
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
         # export training data action
         self._export_training = QtGui.QAction("Export Training Data", self)
-        self._export_training.setShortcut(QtGui.QKeySequence(Qt.CTRL | Qt.Key_T))
+        self._export_training.setShortcut(QtGui.QKeySequence("Ctrl+T"))
         self._export_training.setStatusTip("Export training data for this classifier")
         self._export_training.setEnabled(False)
         self._export_training.triggered.connect(self._export_training_data)
@@ -195,12 +195,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget()
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.video_list)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
         self.video_list.setFeatures(
-            QtWidgets.QDockWidget.NoDockWidgetFeatures
-            | QtWidgets.QDockWidget.DockWidgetClosable
-            | QtWidgets.QDockWidget.DockWidgetMovable
+            QtWidgets.QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
 
         # if the playlist visibility changes, make sure the view_playlists
@@ -221,34 +221,52 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # pass along some of the key press events to the central widget
         if key in [
-            QtCore.Qt.Key_Left,
-            QtCore.Qt.Key_Right,
-            QtCore.Qt.Key_Down,
-            QtCore.Qt.Key_Up,
-            QtCore.Qt.Key_Space,
-            QtCore.Qt.Key_Z,
-            QtCore.Qt.Key_X,
-            QtCore.Qt.Key_C,
-            QtCore.Qt.Key_Escape,
-            QtCore.Qt.Key_Question,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Space,
+            Qt.Key.Key_Z,
+            Qt.Key.Key_X,
+            Qt.Key.Key_C,
+            Qt.Key.Key_Escape,
+            Qt.Key.Key_Question,
         ]:
             self.centralWidget().keyPressEvent(event)
-        elif key == QtCore.Qt.Key_T:
+        elif key == Qt.Key.Key_T:
             self.show_track.trigger()
-        elif key == QtCore.Qt.Key_P:
+        elif key == Qt.Key.Key_P:
             self.overlay_pose.trigger()
-        elif key == QtCore.Qt.Key_L:
+        elif key == Qt.Key.Key_L:
             self.overlay_landmark.trigger()
         else:
             # anything else pass on to the super class keyPressEvent
             super().keyPressEvent(event)
+
+    def eventFilter(self, source, event):
+        """filter events emitted by progress dialog
+
+        The main purpose of this is to prevent using the escape key to close the dialog
+        """
+        if source == self._progress_dialog:
+            if event.type() == QtCore.QEvent.Type.Close:
+                event.accept()
+                return True
+            elif event.type() == QtCore.QEvent.Type.KeyPress and isinstance(
+                event, QtGui.QKeyEvent
+            ):
+                if event.key() == QtCore.Qt.Key.Key_Escape:
+                    event.accept()
+                    return True
+        return super().eventFilter(source, event)
 
     def open_project(self, project_path: str):
         """open a new project directory"""
         self._progress_dialog = QtWidgets.QProgressDialog(
             "Loading project...", None, 0, 0, self
         )
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+        self._progress_dialog.installEventFilter(self)
         self._progress_dialog.show()
         self._project_loader_thread = ProjectLoaderThread(project_path)
         self._project_loader_thread.project_loaded.connect(
@@ -316,7 +334,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """prompt the user to select a project directory and open it"""
         options = QtWidgets.QFileDialog.Options()
         if not USE_NATIVE_FILE_DIALOG:
-            options |= QtWidgets.QFileDialog.DontUseNativeDialog
+            options |= QtWidgets.QFileDialog.Option.DontUseNativeDialog
 
         # on macOS QFileDialog can cause some error messages to be written to stderr but the dialog still works
         # so hide anything written to stderr while we're showing the dialog. we can use a Qt based file dialog instead
@@ -472,7 +490,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(False)
 
         # update the recent project menu
-        self._add_recent_project(str(self._project.project_paths.project_dir))
+        self._add_recent_project(self._project.project_paths.project_dir)
         self._progress_dialog.close()
 
     def _project_load_error_callback(self, error: Exception):
@@ -485,14 +503,14 @@ class MainWindow(QtWidgets.QMainWindow):
         """prompt the user to accept the license agreement if they haven't already"""
         # check to see if user already accepted the license
         if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
-            return QtWidgets.QDialog.Accepted
+            return QtWidgets.QDialog.DialogCode.Accepted
 
         # show dialog
         dialog = LicenseAgreementDialog(self)
         result = dialog.exec_()
 
         # persist the license acceptance
-        if result == QtWidgets.QDialog.Accepted:
+        if result == QtWidgets.QDialog.DialogCode.Accepted:
             self._settings.setValue(LICENSE_ACCEPTED_KEY, True)
             self._settings.setValue(LICENSE_VERSION_KEY, version_str())
             self._settings.sync()
@@ -536,7 +554,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _open_recent_project(self):
         """open a recent project"""
         action = self.sender()
-        if action:
+        if isinstance(action, QAction):
             project_path = action.data()
             if project_path:
                 self.open_project(project_path)

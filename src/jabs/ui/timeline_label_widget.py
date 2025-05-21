@@ -45,7 +45,7 @@ class TimelineLabelWidget(QWidget):
         self._frames_in_view = 2 * self._window_size + 1
 
         # allow widget to expand horizontally but maintain fixed vertical size
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # TrackLabels object containing labels for current behavior & identity
         self._labels = None
@@ -103,8 +103,8 @@ class TimelineLabelWidget(QWidget):
         )
 
         # highlight the current position
-        qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.SolidLine))
-        qp.setBrush(QBrush(self._RANGE_COLOR, Qt.Dense4Pattern))
+        qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.PenStyle.SolidLine))
+        qp.setBrush(QBrush(self._RANGE_COLOR, Qt.BrushStyle.Dense4Pattern))
         qp.drawRect(
             start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1
         )
@@ -158,7 +158,7 @@ class TimelineLabelWidget(QWidget):
         pixmap_width = width - 2 * self._pixmap_offset
 
         self._pixmap = QPixmap(pixmap_width, height)
-        self._pixmap.fill(Qt.transparent)
+        self._pixmap.fill(Qt.GlobalColor.transparent)
 
         downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
 
@@ -174,7 +174,7 @@ class TimelineLabelWidget(QWidget):
             color_bar.data,
             color_bar.shape[1],
             color_bar.shape[0],
-            QImage.Format_RGBA8888,
+            QImage.Format.Format_RGBA8888,
         )
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)

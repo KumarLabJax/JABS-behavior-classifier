@@ -105,16 +105,20 @@ class CentralWidget(QtWidgets.QWidget):
         # set focus policy of all children widgets, needed to keep controls
         # from grabbing focus on Windows (which breaks arrow key video nav)
         for child in self.findChildren(QtWidgets.QWidget):
-            child.setFocusPolicy(QtCore.Qt.NoFocus)
+            child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
     def eventFilter(self, source, event):
-        """filter events to handle both close event and escape key press for the progress dialog"""
-        if source == self._progress_dialog and (
-            event.type() == QtCore.QEvent.Close or event == QtGui.QKeySequence.Cancel
-        ):
-            # check for both the CloseEvent *and* the escape key press
-            event.accept()
-            return True
+        """filter events emitted by progress dialog"""
+        if source == self._progress_dialog:
+            if event.type() == QtCore.QEvent.Type.Close:
+                event.accept()
+                return True
+            elif event.type() == QtCore.QEvent.Type.KeyPress and isinstance(
+                event, QtGui.QKeyEvent
+            ):
+                if event.key() == QtCore.Qt.Key.Key_Escape:
+                    event.accept()
+                    return True
         return super().eventFilter(source, event)
 
     @property

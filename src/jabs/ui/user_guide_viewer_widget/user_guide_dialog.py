@@ -25,7 +25,7 @@ class UserGuideDialog(QDialog):
 
         close_button = QPushButton("CLOSE")
         close_button.clicked.connect(self.close)
-        layout.addWidget(close_button, alignment=Qt.AlignLeft)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.setLayout(layout)
 

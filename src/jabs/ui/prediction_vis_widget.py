@@ -35,7 +35,7 @@ class PredictionVisWidget(ManualLabelWidget):
         end_padding_width = end_padding_frames * self._frame_width
 
         qp = QPainter(self)
-        qp.setPen(Qt.NoPen)
+        qp.setPen(Qt.PenStyle.NoPen)
 
         # Draw start padding
         if start_padding > 0:
@@ -43,7 +43,7 @@ class PredictionVisWidget(ManualLabelWidget):
             qp.drawRect(self._offset, 0, start_padding, self._bar_height)
 
         # Draw in-bounds white background
-        qp.setBrush(Qt.white)
+        qp.setBrush(Qt.GlobalColor.white)
         qp.drawRect(self._offset + start_padding, 0, in_bounds_width, self._bar_height)
 
         # Draw end padding
@@ -84,7 +84,7 @@ class PredictionVisWidget(ManualLabelWidget):
                 colors_bar.data,
                 colors_bar.shape[1],
                 colors_bar.shape[0],
-                QImage.Format_RGBA8888,
+                QImage.Format.Format_RGBA8888,
             )
             qp.drawImage(self._offset + start_padding, 0, img)
 

@@ -64,9 +64,15 @@ class ManualLabelWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
-        self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1, Qt.SolidLine)
-        self._selection_brush = QBrush(self._SELECTION_COLOR, Qt.DiagCrossPattern)
-        self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.Dense6Pattern)
+        self._position_marker_pen = QPen(
+            self._POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine
+        )
+        self._selection_brush = QBrush(
+            self._SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern
+        )
+        self._padding_brush = QBrush(
+            self._BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern
+        )
 
     def sizeHint(self):
         """Override QWidget.sizeHint to give an initial starting size.
@@ -99,7 +105,7 @@ class ManualLabelWidget(QWidget):
         slice_end = min(end, self._num_frames - 1)
 
         qp = QPainter(self)
-        qp.setPen(Qt.NoPen)
+        qp.setPen(Qt.PenStyle.NoPen)
 
         # Calculate padding in pixels
         start_padding = max(0, -start) * self._frame_width
@@ -136,7 +142,7 @@ class ManualLabelWidget(QWidget):
                 colors_bar.data,
                 colors_bar.shape[1],
                 colors_bar.shape[0],
-                QImage.Format_RGBA8888,
+                QImage.Format.Format_RGBA8888,
             )
             qp.drawImage(self._offset + start_padding, 0, img)
 
@@ -168,7 +174,7 @@ class ManualLabelWidget(QWidget):
             painter: active QPainter
         """
         painter.setPen(self._BORDER_COLOR)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(
             self._offset, 0, self._adjusted_width - 1, self._bar_height - 1
         )
@@ -183,7 +189,7 @@ class ManualLabelWidget(QWidget):
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
 
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._selection_brush)
 
         # figure out the start and width of the selection rectangle

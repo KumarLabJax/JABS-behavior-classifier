@@ -19,7 +19,7 @@ class FrameLabelsWidget(QWidget):
         super().__init__(*args, **kwargs)
 
         # allow widget to expand horizontally but maintain fixed vertical size
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # number of frames on each side of current frame to include in
         # sliding window
@@ -90,7 +90,7 @@ class FrameLabelsWidget(QWidget):
         for i in range(start, end + 1):
             if (0 <= i <= self._num_frames) and i % self._tick_interval == 0:
                 offset = self._offset + ((i - start + 0.5) * self._frame_width) - 1
-                painter.setPen(Qt.NoPen)
+                painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRect(offset, 0, 2, 8)
 
                 label_text = f"{i}"

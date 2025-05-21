@@ -29,7 +29,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
         width = self.size().width()
         height = self.size().height()
         self._pixmap = QPixmap(width, height)
-        self._pixmap.fill(Qt.transparent)
+        self._pixmap.fill(Qt.GlobalColor.transparent)
 
         downsampled = TrackLabels.downsample(self._labels, width)
 
@@ -44,7 +44,7 @@ class GlobalInferenceWidget(TimelineLabelWidget):
             color_bar.data,
             color_bar.shape[1],
             color_bar.shape[0],
-            QImage.Format_RGBA8888,
+            QImage.Format.Format_RGBA8888,
         )
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)
