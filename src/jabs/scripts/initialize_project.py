@@ -11,12 +11,12 @@ import sys
 from multiprocessing import Pool
 from pathlib import Path
 
-import jabs.pose_estimation
 import jabs.feature_extraction
+import jabs.pose_estimation
 import jabs.project
+from jabs.cli import cli_progress_bar
 from jabs.project.video_manager import VideoManager
 from jabs.types import ProjectDistanceUnit
-from jabs.cli import cli_progress_bar
 from jabs.video_reader import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5
@@ -54,13 +54,12 @@ def generate_files_worker(params: dict):
 
 def validate_video_worker(params: dict):
     """worker function for validating project video"""
-
     vid_path = params["project_dir"] / params["video"]
 
     # make sure we can open the video
     try:
         vid_frames = VideoReader.get_nframes_from_file(vid_path)
-    except:
+    except OSError:
         return {
             "video": params["video"],
             "okay": False,
@@ -79,7 +78,7 @@ def validate_video_worker(params: dict):
     # make sure we can initialize a PoseEstimation object from this pose file
     try:
         _ = jabs.pose_estimation.open_pose_file(pose_path)
-    except:
+    except OSError:
         return {
             "video": params["video"],
             "okay": False,
@@ -101,6 +100,10 @@ def match_to_pose(video: str, project_dir: Path):
 
 
 def window_size_type(x):
+    """argparse type for window size
+
+    We use this instead of an int type because we want to argparse to validate that the window size is valid.
+    """
     x = int(x)
     if x < 1:
         raise argparse.ArgumentTypeError(
@@ -110,6 +113,7 @@ def window_size_type(x):
 
 
 def main():
+    """jabs-init"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-f",
@@ -169,12 +173,9 @@ def main():
 
     # iterate over each video and try to pair it with an h5 file
     # this test is quick, don't bother to parallelize
-    complete = 0
     results = []
-    for v in videos:
+    for complete, v in enumerate(videos, 1):
         results.append(match_to_pose(v, args.project_dir))
-        # update progress bar
-        complete += 1
         cli_progress_bar(complete, len(videos), prefix=" Checking for pose files: ")
 
     failures = [r for r in results if r["okay"] is False]
