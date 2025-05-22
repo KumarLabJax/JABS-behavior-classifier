@@ -3,15 +3,14 @@
 import argparse
 import re
 import sys
-import typing
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from jabs.constants import APP_NAME
 from jabs.classifier import Classifier
 from jabs.cli import cli_progress_bar
+from jabs.constants import APP_NAME
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import PredictionManager
@@ -23,8 +22,9 @@ __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
 def get_pose_stem(pose_path: Path):
-    """takes a pose path as input and returns the name component
-    with the '_pose_est_v#.h5' suffix removed
+    """get the stem name of a pose file
+
+    takes a pose path as input and returns the name component with the '_pose_est_v#.h5' suffix removed
     """
     m = re.match(r"^(.+)(_pose_est_v[0-9]+\.h5)$", pose_path.name)
     if m:
@@ -38,11 +38,24 @@ def train_and_classify(
     input_pose_file: Path,
     out_dir: Path,
     fps=DEFAULT_FPS,
-    feature_dir: typing.Optional[str] = None,
+    feature_dir: str | None = None,
     cache_window: bool = False,
 ):
+    """Train a classifier using the provided training file and classify behaviors in a pose file.
+
+    Loads the training data, trains a classifier, and applies it to the input pose file to predict behaviors.
+    The classification results are saved to the specified output directory.
+
+    Args:
+        training_file_path (Path): Path to the training HDF5 file.
+        input_pose_file (Path): Path to the input pose HDF5 file to classify.
+        out_dir (Path): Directory to store classification output.
+        fps (int, optional): Frames per second for feature extraction. Defaults to DEFAULT_FPS.
+        feature_dir (str or None, optional): Directory for feature cache. If provided, features are cached here.
+        cache_window (bool, optional): Whether to cache window features. Defaults to False.
+    """
     if not training_file_path.exists():
-        sys.exit(f"Unable to open training data\n")
+        sys.exit("Unable to open training data\n")
 
     classifier = train(training_file_path)
     classify_pose(
@@ -62,9 +75,23 @@ def classify_pose(
     out_dir: Path,
     behavior: str,
     fps=DEFAULT_FPS,
-    feature_dir: typing.Optional[str] = None,
+    feature_dir: str | None = None,
     cache_window: bool = False,
 ):
+    """Classify behaviors in a pose file using a trained classifier.
+
+    Loads pose data, extracts features for each identity, predicts behavior labels and probabilities,
+    and writes the results to an output HDF5 file.
+
+    Args:
+        classifier (Classifier): Trained classifier instance.
+        input_pose_file (Path): Path to the input pose HDF5 file.
+        out_dir (Path): Directory to store classification output.
+        behavior (str): Name of the behavior being classified.
+        fps (int, optional): Frames per second for feature extraction. Defaults to DEFAULT_FPS.
+        feature_dir (str or None, optional): Directory for feature cache. If provided, features are cached here.
+        cache_window (bool, optional): Whether to cache window features. Defaults to False.
+    """
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
 
@@ -149,9 +176,19 @@ def classify_pose(
     )
 
 
-def train(
-    training_file: Path,
-) -> Classifier:
+def train(training_file: Path) -> Classifier:
+    """Train a classifier using the provided training file.
+
+    Loads training data from the specified HDF5 file, initializes a classifier,
+    and prints training details such as behavior name, classifier type, window size,
+    and other relevant settings.
+
+    Args:
+        training_file (Path): Path to the training HDF5 file exported by JABS.
+
+    Returns:
+        Classifier: The trained classifier instance.
+    """
     classifier = Classifier.from_training_file(training_file)
     classifier_settings = classifier.project_settings
 
@@ -167,6 +204,7 @@ def train(
 
 
 def main():
+    """jabs-classify entrypoint. dispatch to different main functions depending on command specified"""
     if len(sys.argv) < 2:
         usage_main()
     elif sys.argv[1] == "classify":
@@ -178,6 +216,7 @@ def main():
 
 
 def usage_main():
+    """print usage information for the script"""
     print("usage: " + script_name() + " COMMAND COMMAND_ARGS\n", file=sys.stderr)
     print("commands:", file=sys.stderr)
     print(" classify   classify a pose file", file=sys.stderr)
@@ -194,6 +233,7 @@ def usage_main():
 
 
 def classify_main():
+    """implementation of the `jabs-classify classify` command"""
     # strip out the 'command' from sys.argv
     classify_args = sys.argv[2:]
 
@@ -307,6 +347,7 @@ def classify_main():
 
 
 def train_main():
+    """implementation of the `jabs-classify train` command"""
     # strip out the 'command' component from sys.argv
     train_args = sys.argv[2:]
 
@@ -323,7 +364,8 @@ def train_main():
     classifier.save(Path(args.out_file))
 
 
-def script_name():
+def script_name() -> str:
+    """return the script name"""
     return Path(sys.argv[0]).name
 
 

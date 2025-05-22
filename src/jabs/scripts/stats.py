@@ -4,13 +4,14 @@ import itertools
 import numpy as np
 from tabulate import tabulate
 
-from jabs.scripts.classify import train
 from jabs.classifier import Classifier
-from jabs.types import ProjectDistanceUnit
 from jabs.project import load_training_data
+from jabs.scripts.classify import train
+from jabs.types import ProjectDistanceUnit
 
 
 def main():
+    """jabs-stats"""
     parser = argparse.ArgumentParser(
         prog="stats",
         description="print accuracy statistics for the given classifier",
