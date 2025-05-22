@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+jabs-classify
+
+Todo:
+- use click for implementing command line interface with multiple commands
+"""
 
 import argparse
 import re
