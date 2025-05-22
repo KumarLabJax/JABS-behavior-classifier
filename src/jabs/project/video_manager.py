@@ -2,16 +2,28 @@ import json
 import sys
 from pathlib import Path
 
-from jabs.pose_estimation import get_pose_path, get_frames_from_file, open_pose_file
+from jabs.pose_estimation import get_frames_from_file, get_pose_path, open_pose_file
 from jabs.video_reader import VideoReader
-from jabs.video_reader.utilities import get_frame_count
+
 from .project_paths import ProjectPaths
 from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
 
 
 class VideoManager:
-    """Class to manage list of video files in a project."""
+    """Manages video files and their associated metadata within a project.
+
+    Handles initialization, validation, and metadata management for videos,
+    including checking for corresponding pose files, verifying frame counts,
+    and tracking the number of identities per video. Provides methods to
+    retrieve video lists, load video labels, and access video-related
+    information required for project processing.
+
+    Args:
+        paths (ProjectPaths): Object containing project directory paths.
+        settings_manager (SettingsManager): Manages project settings and metadata.
+        enable_video_check (bool, optional): Whether to validate video frame counts. Defaults to True.
+    """
 
     def __init__(
         self,
@@ -19,11 +31,6 @@ class VideoManager:
         settings_manager: SettingsManager,
         enable_video_check: bool = True,
     ):
-        """Initialize the VideoManager with paths.
-
-        Args:
-            paths: ProjectPaths object containing project directory paths
-        """
         self._paths = paths
         self._settings_manager = settings_manager
         self._videos = []
@@ -45,24 +52,26 @@ class VideoManager:
 
     @property
     def videos(self):
+        """Get the list of video filenames in the project."""
         return self._videos
 
     @property
     def total_project_identities(self) -> int:
+        """Get the total number of identities across all videos."""
         return self._total_project_identities
 
     def load_video_labels(self, video_name) -> VideoLabels | None:
-        """load labels for a video from the project directory or from a cached of
-        annotations that have previously been opened and not yet saved
+        """load labels for a video
+
+        Labels can be loaded either from the project directory or from a cache of annotations that have previously
+        been opened and not yet saved
 
         Args:
             video_name: filename of the video: string or pathlib.Path
 
         Returns:
-            initialized VideoLabels object if annotations exist,
-            otherwise None
+            initialized VideoLabels object if annotations exist, otherwise None
         """
-
         video_filename = Path(video_name).name
         self.check_video_name(video_filename)
 
@@ -76,16 +85,17 @@ class VideoManager:
         else:
             return None
 
-    def check_video_name(self, video_filename):
-        """make sure the video name actually matches one in the project, this
-        function will raise a ValueError if the video name is not valid,
-        otherwise the function has no effect
+    def check_video_name(self, video_filename: str):
+        """check that a video name matches one in the project
 
         Args:
-            video_filename
+            video_filename (str): name of the video file
 
         Returns:
             None
+
+        Raises:
+            ValueError: if the video is not in the project
         """
         if video_filename not in self._videos:
             raise ValueError(f"{video_filename} not in project")
