@@ -1,4 +1,3 @@
-import typing
 from pathlib import Path
 
 import h5py
@@ -6,7 +5,7 @@ import numpy as np
 
 from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 
-from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
+from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation, PoseHashException
 
 
 class _CacheFileVersion(Exception):
@@ -14,30 +13,33 @@ class _CacheFileVersion(Exception):
 
 
 class PoseEstimationV4(PoseEstimation):
-    """class for opening and parsing version 4 of the pose estimation HDF5 file
+    """
+    Handler for version 4 pose estimation HDF5 files.
 
-    Note, because how we need to handle reordering points based on the identity information
-    available in v4+ pose files, this does not inherit from the PoseEstimationV3 class, and
-    instead it inherits directly from the PoseEstimation class. All versions > 4 inherit
-    from this PoseEstimationV4 class because the only add additional optional information.
+    This class parses and manages pose data from v4 pose files, including reordering
+    keypoints by identity and handling identity masks. It provides access to pose
+    points, confidence masks, and identity presence per frame. All pose estimation
+    versions >= v4 inherit from this class, as it introduces long term identity.
+
+    Args:
+        file_path (Path): Path to the pose HDF5 file.
+        cache_dir (Path | None): Optional cache directory for intermediate data.
+        fps (int): Frames per second for the video.
+
+    Properties:
+        identity_to_track: Always returns None for v4+ files.
+        format_major_version: Returns the major version of the pose file format (4).
+
+    Methods:
+        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
+        get_identity_poses(identity, scale): Get all points and masks for an identity.
+        identity_mask(identity): Get the identity mask for a given identity.
+        get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
     __CACHE_FILE_VERSION = 4
 
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
-        """
-        Args:
-            file_path: Path object representing the location of the pose
-                file
-            cache_dir: optional cache directory, used to cache convex
-                hulls
-            fps: frames per second, used for scaling time series
-                features
-        for faster loading
-        from "per frame" to "per second"
-        """
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
 
         # these are not relevant for v4 pose files, but are included
@@ -49,7 +51,7 @@ class PoseEstimationV4(PoseEstimation):
             try:
                 self._load_from_cache()
                 use_cache = True
-            except (IOError, KeyError, _CacheFileVersion, PoseHashException):
+            except (OSError, KeyError, _CacheFileVersion, PoseHashException):
                 # if load_from_cache() raises an exception, we'll read from
                 # the source pose file below because use_cache will still be
                 # set to false, just ignore the exceptions here
@@ -60,14 +62,9 @@ class PoseEstimationV4(PoseEstimation):
             with h5py.File(self._path, "r") as pose_h5:
                 # extract data from the HDF5 file
                 pose_grp = pose_h5["poseest"]
-                major_version = pose_grp.attrs["version"][0]
 
                 # get pixel size
                 self._cm_per_pixel = pose_grp.attrs.get("cm_per_pixel", None)
-
-                # ensure the major version matches what we expect
-                # TODO temporarily removed while v4 files under development
-                # assert major_version == 4
 
                 # load contents
                 # keypoints are stored as (y,x)
@@ -147,15 +144,19 @@ class PoseEstimationV4(PoseEstimation):
 
     @property
     def identity_to_track(self):
+        """return identity_to_track mapping
+
+        Note: returns None for >=v4 pose files because JABS doesn't do track to identity mapping, the pose file
+        includes long term identity information
+        """
         return None
 
     @property
     def format_major_version(self):
+        """return the major version of the pose file format"""
         return 4
 
-    def get_points(
-        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
-    ):
+    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
         """get points and mask for an identity for a given frame
 
         Args:
@@ -182,7 +183,7 @@ class PoseEstimationV4(PoseEstimation):
                 self._point_mask[identity, frame_index, :],
             )
 
-    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: float | None = None):
         """return all points and point masks
 
         Args:
@@ -205,6 +206,7 @@ class PoseEstimationV4(PoseEstimation):
             return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
+        """get the identity mask for a given identity"""
         return self._identity_mask[identity, :]
 
     def get_identity_point_mask(self, identity):
@@ -219,9 +221,11 @@ class PoseEstimationV4(PoseEstimation):
         return self._point_mask[identity, :]
 
     def _load_from_cache(self):
-        """
-        Load data from a cached pose file. We do some transformation of the pose files so that, for example,
-        we can index them by identity. The cache file allows us to avoid doing this every time the pose file is loaded.
+        """Load data from a cached pose file.
+
+        We do some transformation of the pose files so that, for example, we can index them by identity. The
+        cache file allows us to avoid doing this every time the pose file is loaded.
+
         Returns:
             None
         """

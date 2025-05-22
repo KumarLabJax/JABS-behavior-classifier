@@ -373,7 +373,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     # supports lixit with 3 keypoints or older style single keypoint
     lixit = pose_est.static_objects.get("lixit")
     if lixit is not None:
-        lixit_keypoints = pose_est.lixit_keypoints
+        lixit_keypoints = pose_est.num_lixit_keypoints
 
         # lixit is either # lixit x 2 or # lixit x 3 x 2
         # iterate over each lixit

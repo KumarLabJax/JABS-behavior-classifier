@@ -1,18 +1,15 @@
 from pathlib import Path
-import typing
 
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation, MINIMUM_CONFIDENCE
+from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 
 
 class PoseEstimationV2(PoseEstimation):
     """read in pose_est_v2.h5 file"""
 
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         """initialize new object from h5 file
 
         Args:
@@ -22,7 +19,6 @@ class PoseEstimationV2(PoseEstimation):
             fps: frames per second, used for scaling time series
                 featuresfrom "per frame" to "per second"
         """
-
         super().__init__(file_path, cache_dir, fps)
 
         # we will make this look like the PoseEstimationV3 but with a single
@@ -60,15 +56,19 @@ class PoseEstimationV2(PoseEstimation):
 
     @property
     def identity_to_track(self):
+        """get the identity to track mapping
+
+        for pose_est_v2, this is always None because jabs doesn't do any track to identity mapping for the single
+        mouse pose files
+        """
         return None
 
     @property
     def format_major_version(self):
+        """get the major version of the pose file format"""
         return 2
 
-    def get_points(
-        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
-    ):
+    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
         """return points and point masks for an individual frame
 
         Args:
@@ -92,7 +92,7 @@ class PoseEstimationV2(PoseEstimation):
         else:
             return self._points[frame_index], self._point_mask[frame_index]
 
-    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: float | None = None):
         """return all points and point masks
 
         Args:
@@ -113,12 +113,10 @@ class PoseEstimationV2(PoseEstimation):
             return self._points, self._point_mask
 
     def identity_mask(self, identity):
-        """get the identity mask (indicates if specified identity is present in
-        each frame)
+        """get the identity mask (indicates if specified identity is present in each frame)
 
         Args:
-            identity: included for compatibility with pose_est_v3.
-                Shouldalways be zero.
+            identity: included for compatibility with pose_est_v3 interface. Should always be zero.
 
         Returns:
             numpy array of size (#frames,)

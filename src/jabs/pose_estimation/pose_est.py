@@ -1,6 +1,5 @@
 import enum
 import pickle
-import typing
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -14,12 +13,50 @@ MINIMUM_CONFIDENCE = 0.3
 
 
 class PoseHashException(Exception):
+    """Exception raised when the hash of a pose file does not match the expected value."""
+
     pass
 
 
 class PoseEstimation(ABC):
-    """abstract base class for PoseEstimation objects. Used as the base class for
-    PoseEstimationV2 and PoseEstimationV3
+    """Abstract base class for pose estimation data handlers.
+
+    Provides a common interface for loading, accessing, and processing pose data
+    from HDF5 files. Defines methods for retrieving keypoints, confidence masks, identity
+    presence, and static objects, as well as utilities for geometric computations such as
+    convex hulls and bearing angles. All pose estimation versioned classes should inherit
+    from this base class.
+
+    Args:
+        file_path (Path): Path to the pose HDF5 file.
+        cache_dir (Path | None): Optional cache directory for intermediate data.
+        fps (int): Frames per second for the video.
+
+    Abstract Methods:
+        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
+        get_identity_poses(identity, scale): Get all points and masks for an identity.
+        get_identity_point_mask(identity): Get the point mask array for a given identity.
+        identity_mask(identity): Get the identity mask for a given identity.
+        identity_to_track: Get the identity-to-track mapping for this file.
+        format_major_version: Returns the major version of the pose file format.
+
+    Methods:
+        get_identity_convex_hulls(identity): Get convex hulls for an identity across frames.
+        compute_bearing(points): Compute the bearing angle for a single frame.
+        compute_all_bearings(identity): Compute bearing angles for all frames of an identity.
+        get_pose_file_attributes(path): Static method to get HDF5 file attributes.
+
+    Properties:
+        num_frames (int): Number of frames.
+        identities (list): List of identities.
+        num_identities (int): Number of identities.
+        cm_per_pixel (float | None): Centimeters per pixel.
+        fps (int): Frames per second.
+        pose_file (Path): Path to the pose file.
+        hash (str): Hash of the pose file.
+        static_objects (dict): Static objects in the pose file.
+        num_lixit_keypoints (int): Number of lixit keypoints (default 0).
+        external_identities (list[int] | None): Mapping to external identities.
     """
 
     class KeypointIndex(enum.IntEnum):
@@ -38,9 +75,7 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         """initialize new object from h5 file
 
         Args:
@@ -56,7 +91,7 @@ class PoseEstimation(ABC):
         self._num_frames = 0
         self._identities = []
         self._external_identities = None
-        self._convex_hull_cache = dict()
+        self._convex_hull_cache = {}
         self._path = file_path
         self._cache_dir = cache_dir
         self._cm_per_pixel = None
@@ -77,28 +112,31 @@ class PoseEstimation(ABC):
 
     @property
     def num_identities(self) -> int:
+        """get the number of identities in the pose file"""
         return len(self._identities)
 
     @property
     def cm_per_pixel(self):
+        """get centimeters per pixel for video/pose"""
         return self._cm_per_pixel
 
     @property
     def fps(self):
+        """get frames per second"""
         return self._fps
 
     @property
     def pose_file(self):
+        """get the path to the pose file"""
         return self._path
 
     @property
     def hash(self):
+        """get the hash of the pose file"""
         return self._hash
 
     @abstractmethod
-    def get_points(
-        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
-    ):
+    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
         """return points and point masks for an individual frame
 
         Args:
@@ -113,7 +151,7 @@ class PoseEstimation(ABC):
         pass
 
     @abstractmethod
-    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: float | None = None):
         """return all points and point masks
 
         Args:
@@ -140,8 +178,7 @@ class PoseEstimation(ABC):
 
     @abstractmethod
     def identity_mask(self, identity):
-        """get the identity mask (indicates if specified identity is present in
-        each frame)
+        """get the identity mask (indicates if specified identity is present in each frame)
 
         Args:
             identity: identity to get masks for
@@ -154,6 +191,7 @@ class PoseEstimation(ABC):
     @property
     @abstractmethod
     def identity_to_track(self):
+        """get the identity to track mapping for this file"""
         pass
 
     @property
@@ -164,10 +202,12 @@ class PoseEstimation(ABC):
 
     @property
     def static_objects(self):
+        """get static objects from the pose file"""
         return self._static_objects
 
     def get_identity_convex_hulls(self, identity):
-        """A list of length #frames containing convex hulls for the given identity.
+        """get a list of length #frames containing convex hulls for the given identity.
+
         The convex hulls are calculated using all valid points except for the
         middle of tail and tip of tail points.
 
@@ -178,7 +218,6 @@ class PoseEstimation(ABC):
             the convex hulls in pixel units (array elements will be None
             if there is no valid convex hull for that frame)
         """
-
         if identity in self._convex_hull_cache:
             return self._convex_hull_cache[identity]
         else:
@@ -196,7 +235,7 @@ class PoseEstimation(ABC):
                 try:
                     with path.open("rb") as f:
                         convex_hulls = pickle.load(f)
-                except:
+                except OSError:
                     # we weren't able to read in the cached convex hulls,
                     # just ignore the exception and we'll generate them
                     pass
@@ -225,6 +264,11 @@ class PoseEstimation(ABC):
             return convex_hulls
 
     def compute_bearing(self, points):
+        """compute the bearing of the animal using base tail and base neck keypoints
+
+        Args:
+            points (np.ndarray): the points for a single frame (12,2) array
+        """
         base_tail_xy = points[self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
         base_neck_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
         base_neck_offset_xy = base_neck_xy - base_tail_xy
@@ -234,6 +278,7 @@ class PoseEstimation(ABC):
         return np.degrees(angle_rad)
 
     def compute_all_bearings(self, identity):
+        """compute the bearing for each frame for a given identity"""
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
         for i in range(self.num_frames):
             points, mask = self.get_points(i, identity)
@@ -243,15 +288,21 @@ class PoseEstimation(ABC):
 
     @staticmethod
     def get_pose_file_attributes(path: Path) -> dict:
+        """get the attributes from the pose file's hdf5 file"""
         with h5py.File(path, "r") as pose_h5:
             attrs = dict(pose_h5.attrs)
             attrs["poseest"] = dict(pose_h5["poseest"].attrs)
             return attrs
 
     @property
-    def lixit_keypoints(self) -> int:
+    def num_lixit_keypoints(self) -> int:
+        """get the number of lixit keypoints
+
+        always 0 for pose file versions <5
+        """
         return 0
 
     @property
     def external_identities(self) -> list[int] | None:
+        """get the jabs identity to external identity mapping"""
         return self._external_identities
