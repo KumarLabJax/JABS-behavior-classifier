@@ -234,7 +234,8 @@ class TrackLabels:
                     {
                         "start": block_start,
                         "end": block_start + count - 1,
-                        "present": val == cls.Label.BEHAVIOR,
+                        # note: val == cls.Label.BEHAVIOR returns a numpy bool, which is not json serializable
+                        "present": bool(val == cls.Label.BEHAVIOR),
                     }
                 )
             block_start += count
