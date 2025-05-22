@@ -235,8 +235,7 @@ class TrackLabels:
                         "start": block_start,
                         "end": block_start + count - 1,
                         # note: val == cls.Label.BEHAVIOR returns a numpy bool, which is not json serializable
-                        # the True if ... else False forces it to be a python bool
-                        "present": True if val == cls.Label.BEHAVIOR else False,  # noqa: SIM210
+                        "present": bool(val == cls.Label.BEHAVIOR),
                     }
                 )
             block_start += count
