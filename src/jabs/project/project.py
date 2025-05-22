@@ -1,3 +1,4 @@
+import contextlib
 import gzip
 import json
 import shutil
@@ -9,10 +10,11 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.pose_estimation import get_pose_path, open_pose_file, PoseEstimation
+from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
 from jabs.video_reader.utilities import get_fps
+
 from .feature_manager import FeatureManager
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
@@ -23,16 +25,32 @@ from .video_manager import VideoManager
 
 
 class Project:
-    """represents a JABS project"""
+    """Represents a JABS project, managing all data, settings, and operations for a project directory.
+
+    A project consists of video files, pose files, metadata, annotations, classifier data, and possibly predictions.
+    This class provides methods to access and manage project resources, including loading and saving annotations,
+    managing features and predictions, archiving behaviors, and retrieving project settings.
+
+    Args:
+        project_path: Path to the project directory.
+        use_cache (bool, optional): Whether to use cached data. Defaults to True.
+        enable_video_check (bool, optional): Whether to check for video file validity. Defaults to True.
+
+    Properties:
+        dir: Project directory path.
+        feature_dir: Directory for feature files.
+        annotation_dir: Directory for annotation files.
+        classifier_dir: Directory for classifier files.
+        settings: Project metadata and preferences.
+        settings_manager: SettingsManager instance for this project.
+        total_project_identities: Total number of identities across all videos.
+        prediction_manager: PredictionManager instance for this project.
+        feature_manager: FeatureManager instance for this project.
+        video_manager: VideoManager instance for this project.
+        project_paths: ProjectPaths instance for this project.
+    """
 
     def __init__(self, project_path, use_cache=True, enable_video_check=True):
-        """Open a project at a given path. A project is a directory that contains
-        avi files and their corresponding pose_est_v3.h5 files as well as json
-        files containing project metadata and annotations.
-
-        Args:
-            project_path: path to project directory
-        """
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
         self._total_project_identities = 0
@@ -62,18 +80,22 @@ class Project:
 
     @property
     def dir(self) -> Path:
+        """get the project directory"""
         return self._paths.project_dir
 
     @property
     def feature_dir(self) -> Path:
+        """get the feature directory"""
         return self._paths.feature_dir
 
     @property
     def annotation_dir(self) -> Path:
+        """get the annotation directory"""
         return self._paths.annotations_dir
 
     @property
     def classifier_dir(self):
+        """get the classifier directory"""
         return self._paths.classifier_dir
 
     @property
@@ -186,8 +208,8 @@ class Project:
             "window_size": fe.DEFAULT_WINDOW_SIZE,
             "social": pose_version >= 3,
             "static_objects": {
-                obj: True if pose_version >= 5 and obj in static_objects else False
-                for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map.keys()
+                obj: bool(pose_version >= 5 and obj in static_objects)
+                for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map
             },
             "segmentation": pose_version >= 6,
             "window": True,
@@ -254,7 +276,6 @@ class Project:
             probabilities[video_name][identity, index] correspond to the frame
             specified by frame_indexes[video][identity, index]
         """
-
         for video in self._video_manager.videos:
             # setup an output filename based on the behavior and video names
             file_base = Path(video).with_suffix("").name + ".h5"
@@ -270,7 +291,6 @@ class Project:
                 self._paths.cache_dir,
             )
 
-            video_path = self._paths.project_dir / self._video_manager.video_path(video)
             nframes = poses.num_frames
 
             # allocate numpy arrays to write to h5 file
@@ -305,16 +325,15 @@ class Project:
 
     def archive_behavior(self, behavior: str):
         """Archive a behavior.
-        Archives any labels for this behavior. Deletes any other files
-        associated with this behavior.
+
+        Archives any labels for this behavior. Deletes any other files associated with this behavior.
 
         Args:
-            behavior: string behavior name
+            behavior (str): behavior name
 
         Returns:
             None
         """
-
         safe_behavior = to_safe_name(behavior)
 
         # remove predictions
@@ -323,10 +342,8 @@ class Project:
 
         # remove classifier
         path = self._paths.classifier_dir / f"{safe_behavior}.pickle"
-        try:
+        with contextlib.suppress(FileNotFoundError):
             path.unlink()
-        except FileNotFoundError:
-            pass
 
         # archive labels
         archived_labels = {}
@@ -361,16 +378,15 @@ class Project:
         self._settings_manager.remove_behavior(behavior)
 
     def counts(self, behavior):
-        """get the labeled frame counts and bout counts for each video in the
-        project
+        """get the labeled frame counts and bout counts for each video in the project
 
         Returns:
             dict where keys are video names and values are lists of
-        (
-            identity,
-            (behavior frame count, not behavior frame count),
-            (behavior bout count, not behavior bout count)
-        )
+                (
+                    identity,
+                    (behavior frame count, not behavior frame count),
+                    (behavior bout count, not behavior bout count)
+                )
         """
         counts = {}
         for video in self._video_manager.videos:
@@ -379,6 +395,7 @@ class Project:
 
     def get_labeled_features(self, behavior=None, progress_callable=None):
         """the features for all labeled frames
+
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
@@ -414,7 +431,6 @@ class Project:
               ...
             }
         """
-
         all_per_frame = []
         all_window = []
         all_labels = []

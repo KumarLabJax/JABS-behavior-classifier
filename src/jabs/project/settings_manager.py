@@ -70,7 +70,6 @@ class SettingsManager:
             behavior: Behavior name.
             data: Dictionary of behavior settings.
         """
-
         defaults = self._project_info.get("defaults", {})
 
         all_behavior_data = self._project_info.get("behavior", {})
@@ -92,7 +91,7 @@ class SettingsManager:
         return self._project_info.get("behavior", {}).get(behavior, {})
 
     def remove_behavior(self, behavior: str) -> None:
-        # remove from project settings
+        """remove behavior from project settings"""
         try:
             del self._project_info["behavior"][behavior]
             self.save_project_file()

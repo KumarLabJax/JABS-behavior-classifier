@@ -7,17 +7,20 @@ from jabs.pose_estimation import (
     get_static_objects_in_file,
 )
 from jabs.types import ProjectDistanceUnit
+
 from .project_paths import ProjectPaths
 
 
 class FeatureManager:
-    """Class to manage task of determining which features are supported by an instance
-    of a Project and storing this information so it can be accessed as necessary.
+    """Manages feature support and metadata for a JABS project.
 
-    Looks at the pose version and static objects in the project to
-    determine the common set of features supported (for example, if one pose files
-    has social features and another does not, then those features will be disabled
-    for the project).
+    Determines which features are available for a project by analyzing pose file versions
+    and static objects across all videos. Provides access to feature availability, distance
+    units, and extended feature support, ensuring consistency across the project.
+
+    Args:
+        project_paths (ProjectPaths): Paths object for the project.
+        videos (list[str]): List of video filenames in the project.
     """
 
     def __init__(self, project_paths: ProjectPaths, videos: list[str]):
@@ -30,10 +33,10 @@ class FeatureManager:
 
         # determine if this project can use social features or not
         # social data is available for V3+
-        self._can_use_social = True if self._min_pose_version >= 3 else False
+        self._can_use_social = self._min_pose_version >= 3
 
         # segmentation data is available for V6+
-        self._can_use_segmentation = True if self._min_pose_version >= 6 else False
+        self._can_use_segmentation = self._min_pose_version >= 6
 
         self._extended_features = self.__initialize_extended_features()
 
@@ -146,10 +149,11 @@ class FeatureManager:
 
     @property
     def static_objects(self) -> set[str]:
-        """Get the set of static objects in the project. This set contains all the static
-        objects that are present in all pose files in the project.
+        """Get the set of static objects in the project.
+
+        This set contains all the static objects that are present in all pose files in the project.
 
         Returns:
-            Set of static objects.
+            Set of static object names.
         """
         return self._static_objects
