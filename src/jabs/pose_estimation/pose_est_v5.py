@@ -1,7 +1,7 @@
-import typing
 from pathlib import Path
-import numpy as np
+
 import h5py
+import numpy as np
 
 from .pose_est_v4 import PoseEstimationV4
 
@@ -12,18 +12,21 @@ OBJECTS_STORED_YX = [
 
 
 class PoseEstimationV5(PoseEstimationV4):
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
-        """
-        Args:
-            file_path: Path object representing the location of the pose
-                file
-            cache_dir: optional cache directory, used to cache convex
-                hulls and transformed pose file for faster loading
-            fps: frames per second, used for scaling time series
-                features from "per frame" to "per second"
-        """
+    """Pose estimation handler for version 5 pose files with static object support.
+
+    Extends PoseEstimationV4 to add reading and management of static object data
+    (such as lixit and food hopper positions) from pose v5 HDF5 files. Handles
+    additional datasets introduced in v5, including logic for different lixit
+    keypoint configurations.
+
+    Args:
+        file_path (Path): Path to the pose HDF5 file.
+        cache_dir (Path | None): Optional cache directory for intermediate data.
+        fps (int): Frames per second for the video.
+
+    """
+
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
 
         # V5 files are the same as V4, except they have some additional datasets
@@ -69,8 +72,10 @@ class PoseEstimationV5(PoseEstimationV4):
 
     @property
     def format_major_version(self) -> int:
+        """get the major version of the pose file format"""
         return 5
 
     @property
-    def lixit_keypoints(self) -> int:
+    def num_lixit_keypoints(self) -> int:
+        """get the number of lixit keypoints"""
         return self._lixit_keypoints

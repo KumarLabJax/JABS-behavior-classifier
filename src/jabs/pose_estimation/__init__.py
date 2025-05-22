@@ -1,10 +1,11 @@
+"""JABS pose file handler module"""
+
 import re
-import typing
 from pathlib import Path
 
 import h5py
 
-from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
+from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation, PoseHashException
 from .pose_est_v2 import PoseEstimationV2
 from .pose_est_v3 import PoseEstimationV3
 from .pose_est_v4 import PoseEstimationV4
@@ -12,10 +13,8 @@ from .pose_est_v5 import PoseEstimationV5
 from .pose_est_v6 import PoseEstimationV6
 
 
-def open_pose_file(path: Path, cache_dir: typing.Optional[Path] = None):
-    """open a pose file using the correct PoseEstimation subclass based on
-    the version implied by the filename
-    """
+def open_pose_file(path: Path, cache_dir: Path | None = None):
+    """open a pose file using the correct PoseEstimation subclass based on the version implied by the filename"""
     if path.name.endswith("v2.h5"):
         return PoseEstimationV2(path, cache_dir)
     elif path.name.endswith("v3.h5"):
@@ -31,8 +30,7 @@ def open_pose_file(path: Path, cache_dir: typing.Optional[Path] = None):
 
 
 def get_pose_path(video_path: Path):
-    """take a path to a video file and return the path to the corresponding
-    pose_est h5 file
+    """take a path to a video file and return the path to the corresponding pose_est h5 file
 
     Args:
         video_path: Path to video file in project
@@ -43,7 +41,6 @@ def get_pose_path(video_path: Path):
     Raises:
         ValueError: if video_path does not have corresponding pose_est file
     """
-
     file_base = video_path.with_suffix("")
 
     # default to the highest version pose file for a video
@@ -63,7 +60,8 @@ def get_pose_path(video_path: Path):
 
 def get_pose_file_major_version(path: Path):
     """get the major version of a pose file from the _filename_
-    (does not inspect contents of file), assumes file name matches
+
+    Note: does not inspect contents of file, assumes file name matches
     video_name_v[version number].h5
 
     Args:
@@ -92,7 +90,6 @@ def get_static_objects_in_file(path: Path):
     Returns:
         list of static object names contained in pose file
     """
-
     if get_pose_file_major_version(path) >= 5:
         with h5py.File(path, "r") as pose_h5:
             if "static_objects" in pose_h5:
@@ -102,6 +99,7 @@ def get_static_objects_in_file(path: Path):
 
 def get_points_per_lixit(path: Path) -> int:
     """inspect a pose file to get the number of keypoints per lixit
+
     returns zero if the pose file does not have any lixit keypoints.
     """
     points_per_lixit = 0
