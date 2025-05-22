@@ -234,7 +234,7 @@ class TrackLabels:
                     {
                         "start": block_start,
                         "end": block_start + count - 1,
-                        "present": val == cls.Label.BEHAVIOR,
+                        "present": True if val == cls.Label.BEHAVIOR else False,  # noqa: SIM210
                     }
                 )
             block_start += count
