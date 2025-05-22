@@ -20,6 +20,7 @@ def main():
         icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
         app.setWindowIcon(QIcon(str(icon_path)))
     except:  # noqa: E722
+        # don't treat not being able to load the icon as a fatal error
         pass
 
     main_window = MainWindow(app_name=APP_NAME, app_name_long=APP_NAME_LONG)
@@ -36,7 +37,7 @@ def main():
             sys.exit(f"Error opening project:  {e}")
 
     main_window.show()
-    if main_window.show_license_dialog() == QtWidgets.QDialog.Accepted:
+    if main_window.show_license_dialog() == QtWidgets.QDialog.DialogCode.Accepted:
         # user accepted license terms, run the main application loop
         sys.exit(app.exec())
 
