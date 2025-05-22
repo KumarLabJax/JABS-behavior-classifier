@@ -11,7 +11,6 @@ import pandas as pd
 
 import jabs.feature_extraction as fe
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
-from jabs.project import TrackLabels
 from jabs.types import ProjectDistanceUnit
 from jabs.video_reader.utilities import get_fps
 
@@ -20,6 +19,7 @@ from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .settings_manager import SettingsManager
+from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
