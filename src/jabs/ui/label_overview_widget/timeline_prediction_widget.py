@@ -32,10 +32,18 @@ class TimelinePredictionWidget(TimelineLabelWidget):
 
         width = self.size().width()
         height = self.size().height()
-        self._pixmap = QPixmap(width, height)
+
+        # create a pixmap with a width that evenly divides the total number of
+        # frames so that each pixel along the width represents a bin of frames
+        # (_update_scale() has done this, we can use pixmap_offset to figure
+        # out how many pixels of padding will be on each side of the final
+        # pixmap)
+        pixmap_width = width - 2 * self._pixmap_offset
+
+        self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.GlobalColor.transparent)
 
-        downsampled = TrackLabels.downsample(self._labels, width)
+        downsampled = TrackLabels.downsample(self._labels, pixmap_width)
 
         # use downsampled labels to generate RGBA colors
         # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
@@ -53,13 +61,3 @@ class TimelinePredictionWidget(TimelineLabelWidget):
         painter = QPainter(self._pixmap)
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
-
-    def set_num_frames(self, num_frames):
-        """sets the number of frames in the current video, and resets the display with a blank track"""
-        if num_frames:
-            self._labels = np.full(
-                num_frames, TrackLabels.Label.NONE.value, dtype=np.byte
-            )
-        else:
-            self._labels = None
-        super().set_num_frames(num_frames)

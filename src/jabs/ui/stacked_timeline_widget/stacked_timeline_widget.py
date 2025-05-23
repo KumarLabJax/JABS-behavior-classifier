@@ -268,17 +268,18 @@ class StackedTimelineWidget(QWidget):
                 f"Number of labels ({len(labels_list)}) does not match number of identities ({self._num_identities})."
             )
 
+        self._active_identity_index = 0
+
         for i, widget in enumerate(self._label_overview_widgets):
             labels = labels_list[i]
             mask = masks_list[i] if masks_list else None
 
             # need to set the number of frames and framerate on the child widgets because they were zero when they
             # were created. Now that data has been loaded, they can be set to the correct values.
-            widget.num_frames = self.num_frames
-            widget.framerate = self.framerate
+            widget.num_frames = self._num_frames
+            widget.framerate = self._framerate
 
             widget.set_labels(labels, mask)
-            widget.update_labels()
 
     def set_predictions(self, predictions_list, probabilities_list):
         """
@@ -288,22 +289,18 @@ class StackedTimelineWidget(QWidget):
             predictions_list: List of np.ndarray, one per identity.
             probabilities_list: Optional list of np.ndarray, one per identity.
         """
-        if (
-            predictions_list is not None
-            and len(predictions_list) != self._num_identities
-        ):
+        if len(predictions_list) != self._num_identities:
             raise ValueError(
                 f"Number of predictions ({len(predictions_list)}) does not match number of identities ({self._num_identities})."
             )
 
         for i, widget in enumerate(self._prediction_overview_widgets):
-            widget.num_frames = self.num_frames
-            widget.framerate = self.framerate
+            widget.num_frames = self._num_frames
+            widget.framerate = self._framerate
 
-            predictions = predictions_list[i] if predictions_list else None
-            probabilities = probabilities_list[i] if probabilities_list else None
+            predictions = predictions_list[i]
+            probabilities = probabilities_list[i]
             widget.set_predictions(predictions, probabilities)
-            widget.update_labels()
 
     def start_selection(self, starting_frame: int):
         """Start selection on the active identity's widget and record the starting frame."""
@@ -319,12 +316,7 @@ class StackedTimelineWidget(QWidget):
         if self._active_identity_index is not None:
             self._label_overview_widgets[self._active_identity_index].clear_selection()
             self._selection_starting_frame = None
-            self.update_labels()
-
-    def update_labels(self):
-        """Call update_labels on all child LabelOverviewWidgets."""
-        for widget in self._label_overview_widgets:
-            widget.update_labels()
+            self._label_overview_widgets[self._active_identity_index].update_labels()
 
     def reset(self):
         """reset state of all child widgets"""

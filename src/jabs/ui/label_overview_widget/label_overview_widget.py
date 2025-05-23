@@ -83,6 +83,7 @@ class LabelOverviewWidget(QWidget):
         Args:
             value: number of frames in the video
         """
+        self._num_frames = value
         self._timeline_widget.set_num_frames(value)
         self._label_widget.set_num_frames(value)
 

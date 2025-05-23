@@ -24,16 +24,7 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     def set_predictions(self, predictions, probabilities):
         """set prediction data to display"""
         self._label_widget.set_predictions(predictions, probabilities)
-        if predictions is not None:
-            self._timeline_widget.set_labels(predictions)
-        else:
-            self._timeline_widget.set_labels(
-                np.full(
-                    self.num_frames,
-                    TrackLabels.Label.NONE.value,
-                    dtype=np.byte,
-                )
-            )
+        self._timeline_widget.set_labels(predictions)
         self.update_labels()
 
     def set_labels(self, labels: TrackLabels, mask: np.ndarray | None = None):

@@ -67,6 +67,9 @@ class FrameLabelsWidget(QWidget):
 
         This draws the widget.
         """
+        if self._num_frames == 0:
+            return
+
         # starting and ending frames of the current view
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size

@@ -229,7 +229,6 @@ class CentralWidget(QtWidgets.QWidget):
 
             self._suppress_label_track_update = False
             self._set_label_track()
-            self._set_prediction_vis()
 
             # update ui components based on some properties of new video
             if self._pose_est.num_identities > 0:
@@ -334,7 +333,6 @@ class CentralWidget(QtWidgets.QWidget):
     def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode):
         """set the timeline view mode"""
         self._stacked_label_overview.view_mode = view_mode
-        self._stacked_label_overview.update_labels()
 
     @property
     def timeline_identity_mode(self):
@@ -345,7 +343,6 @@ class CentralWidget(QtWidgets.QWidget):
     def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode):
         """set the timeline view mode"""
         self._stacked_label_overview.identity_mode = identity_mode
-        self._stacked_label_overview.update_labels()
 
     def _change_behavior(self, new_behavior):
         """make UI changes to reflect the currently selected behavior"""
@@ -591,31 +588,32 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         identity = self._controls.current_identity_index
-
         prediction_list = []
         probability_list = []
-        for i in range(self._pose_est.num_identities):
-            try:
-                indexes = self._frame_indexes[identity]
-            except KeyError:
-                prediction_list.append(None)
-                probability_list.append(None)
-                continue
 
+        for i in range(self._pose_est.num_identities):
             prediction_labels = np.full(
                 (self._player_widget.num_frames()),
                 TrackLabels.Label.NONE.value,
                 dtype=np.byte,
             )
+
             prediction_prob = np.zeros(
                 (self._player_widget.num_frames()), dtype=np.float64
             )
 
+            try:
+                indexes = self._frame_indexes[identity]
+            except KeyError:
+                prediction_list.append(prediction_labels)
+                probability_list.append(prediction_prob)
+                continue
+
             prediction_labels[indexes] = self._predictions[i][indexes]
             prediction_prob[indexes] = self._probabilities[i][indexes]
-
             prediction_list.append(prediction_labels)
             probability_list.append(prediction_prob)
+
         self._stacked_label_overview.set_predictions(prediction_list, probability_list)
 
     def _set_train_button_enabled_state(self):
