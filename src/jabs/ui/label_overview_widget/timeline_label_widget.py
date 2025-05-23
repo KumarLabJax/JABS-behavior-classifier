@@ -1,11 +1,11 @@
 import math
 
 import numpy as np
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .colors import (
+from ..colors import (
     BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,
@@ -20,6 +20,10 @@ class TimelineLabelWidget(QWidget):
     you can't see fine detail, but you can see where manual labels have been
     applied. This can be useful for seeking through the video to a location of
     labeling.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
     """
 
     # Define color LUT (RGBA)
@@ -117,6 +121,7 @@ class TimelineLabelWidget(QWidget):
         self._labels = labels
         self.update_labels()
 
+    @Slot(int)
     def set_current_frame(self, current_frame):
         """called to reposition the view"""
         self._current_frame = current_frame
@@ -184,8 +189,13 @@ class TimelineLabelWidget(QWidget):
         """update scale factor and bin size"""
         width = self.size().width()
 
-        pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
-        self._bin_size = int(self._num_frames + pad_size) // width
+        if width and self._num_frames:
+            # calculate the bin size based on the number of frames and the
+            # width of the widget
+            pad_size = (
+                math.ceil(float(self._num_frames) / width) * width - self._num_frames
+            )
+            self._bin_size = int(self._num_frames + pad_size) // width
 
-        padding = (self._bin_size * width - self._num_frames) // self._bin_size
-        self._pixmap_offset = padding // 2
+            padding = (self._bin_size * width - self._num_frames) // self._bin_size
+            self._pixmap_offset = padding // 2

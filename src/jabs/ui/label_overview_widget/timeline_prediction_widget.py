@@ -7,16 +7,20 @@ from jabs.project import TrackLabels
 from .timeline_label_widget import TimelineLabelWidget
 
 
-class GlobalInferenceWidget(TimelineLabelWidget):
-    """GlobalInferenceWidget
+class TimelinePredictionWidget(TimelineLabelWidget):
+    """TimelinePredictionWidget
 
-    subclass of TimelineLabeWidget with some modifications:
+    subclass of TimelineLabelWidget with some modifications:
     self._labels will be a numpy array and not a TrackLabels object
     also uses opacity to indicate the confidence of the label
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _update_bar(self):
         """Updates the bar pixmap.

@@ -1,9 +1,9 @@
 import numpy as np
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .colors import (
+from ..colors import (
     BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,
@@ -13,7 +13,17 @@ from .colors import (
 
 
 class ManualLabelWidget(QWidget):
-    """widget used to show labels for a range of frames around the current frame"""
+    """
+    Widget for visualizing manual behavior labels in a video timeline.
+
+    Displays a horizontal bar representing frame-wise labels, with color coding for behavior,
+    non-behavior, and gaps in identity. Supports selection, current frame indication, and
+    second ticks for time reference.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
+    """
 
     _BORDER_COLOR = QColor(212, 212, 212)
     _SELECTION_COLOR = QColor(*SELECTION_COLOR)
@@ -244,6 +254,7 @@ class ManualLabelWidget(QWidget):
         self._identity_mask = mask
         self.update()
 
+    @Slot(int)
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""
         self._current_frame = current_frame

@@ -4,11 +4,10 @@ from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 
 class FrameLabelsWidget(QWidget):
-    """Widget for drawing frame ticks and labels below a ManualLabelsWidget.
+    """Widget for drawing frame ticks and labels below a LabelOverviewWidget.
 
-    Displays tick marks and frame numbers for a sliding window of frames centered
-    around the current frame. Intended to visually indicate frame positions and
-    intervals in a video labeling interface.
+    Displays tick marks and frame numbers for a sliding window of frames centered around the current frame.
+    Intended to visually indicate frame positions and intervals in a video labeling interface.
 
     Args:
         *args: Additional positional arguments for QWidget.

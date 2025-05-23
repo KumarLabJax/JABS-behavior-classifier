@@ -586,14 +586,6 @@ class PlayerWidget(QtWidgets.QWidget):
         """return the pixmap_clicked signal from the frame widget"""
         return self._frame_widget.pixmap_clicked
 
-    def get_identity_mask(self):
-        """Get the idenitty mask for the currently selected identity
-
-        Returns:
-            numpy uint8 array of length num_frames
-        """
-        return self._pose_est.identity_mask(self._active_identity)
-
     def _enable_frame_buttons(self):
         """enable the previous/next frame buttons"""
         self._next_frame_button.setEnabled(True)

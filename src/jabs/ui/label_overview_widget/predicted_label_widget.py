@@ -5,8 +5,18 @@ from PySide6.QtGui import QImage, QPainter
 from .manual_label_widget import ManualLabelWidget
 
 
-class PredictionVisWidget(ManualLabelWidget):
-    """widget used to show predicted class for a range of frames around the current frame"""
+class PredictedLabelWidget(ManualLabelWidget):
+    """
+    Widget for visualizing predicted behavior labels and their probabilities in a video timeline.
+
+    Displays a horizontal bar where each frame is color-coded according to the predicted label,
+    with transparency indicating the model's confidence (probability). Unlike ManualLabelWidget,
+    this widget is read-only and does not support selection or manual label editing.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
