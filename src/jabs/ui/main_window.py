@@ -163,7 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._timeline_all_animals = QtGui.QAction("All Animals", self, checkable=True)
         self._timeline_selected_animal = QtGui.QAction(
-            "Selected Animals", self, checkable=True
+            "Selected Animal", self, checkable=True
         )
 
         animal_group.addAction(self._timeline_all_animals)
