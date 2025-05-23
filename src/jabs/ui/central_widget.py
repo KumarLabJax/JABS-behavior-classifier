@@ -259,14 +259,22 @@ class CentralWidget(QtWidgets.QWidget):
                 self._start_selection(True)
 
         key = event.key()
+        shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+
         if key == QtCore.Qt.Key.Key_Left:
             self._player_widget.previous_frame()
         elif key == QtCore.Qt.Key.Key_Right:
             self._player_widget.next_frame()
         elif key == QtCore.Qt.Key.Key_Up:
-            self._player_widget.next_frame(self._frame_jump)
+            if shift_pressed:
+                self._increment_identity_index()
+            else:
+                self._player_widget.next_frame(self._frame_jump)
         elif key == QtCore.Qt.Key.Key_Down:
-            self._player_widget.previous_frame(self._frame_jump)
+            if shift_pressed:
+                self._decrement_identity_index()
+            else:
+                self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key.Key_Space:
             self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key.Key_Z:
@@ -790,3 +798,29 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_controls()
         else:
             self._controls.classify_button_set_enabled(False)
+
+    def _increment_identity_index(self):
+        """Increment the identity selection index, rolling over if necessary."""
+        if self._pose_est is None:
+            return
+
+        num_identities = self._pose_est.num_identities
+        if num_identities == 0:
+            return
+
+        current_index = self._controls.current_identity_index
+        next_index = (current_index + 1) % num_identities
+        self._controls.set_identity_index(next_index)
+
+    def _decrement_identity_index(self):
+        """Decrement the identity selection index, rolling over if necessary."""
+        if self._pose_est is None:
+            return
+
+        num_identities = self._pose_est.num_identities
+        if num_identities == 0:
+            return
+
+        current_index = self._controls.current_identity_index
+        prev_index = (current_index - 1) % num_identities
+        self._controls.set_identity_index(prev_index)

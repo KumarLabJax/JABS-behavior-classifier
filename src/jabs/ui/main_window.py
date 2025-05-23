@@ -292,6 +292,7 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Key.Key_C,
             Qt.Key.Key_Escape,
             Qt.Key.Key_Question,
+            Qt.Key.Key_Shift,
         ]:
             self.centralWidget().keyPressEvent(event)
         elif key == Qt.Key.Key_T:
