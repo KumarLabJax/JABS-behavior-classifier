@@ -13,10 +13,9 @@ from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
 from .frame_labels_widget import FrameLabelsWidget
-from .label_overview_widget import PredictionOverviewWidget
 from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
-from .stacked_label_overview_widget import StackedLabelOverviewWidget
+from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -31,16 +30,12 @@ class CentralWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # timeline widgets
-        self._prediction_overview_widget = PredictionOverviewWidget(self)
         self.frame_number_labels = FrameLabelsWidget()
-        self._stacked_label_overview = StackedLabelOverviewWidget(self)
+        self._stacked_label_overview = StackedTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget()
         self._player_widget.updateFrameNumber.connect(self._frame_change)
-        self._player_widget.updateFrameNumber.connect(
-            self._prediction_overview_widget.set_current_frame
-        )
         self._player_widget.updateFrameNumber.connect(
             self._stacked_label_overview.set_current_frame
         )
@@ -93,14 +88,12 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 5, 1)
         layout.addWidget(self._stacked_label_overview, 1, 0)
-        layout.addWidget(self._prediction_overview_widget, 2, 0)
-        layout.addWidget(self.frame_number_labels, 3, 0)
+        layout.addWidget(self.frame_number_labels, 2, 0)
 
         # set row stretch to allow player to expand vertically but not other rows
         layout.setRowStretch(0, 1)  # Player row expands
         layout.setRowStretch(1, 0)  # Label overview
-        layout.setRowStretch(2, 0)  # Prediction overview
-        layout.setRowStretch(3, 0)  # Frame number labels
+        layout.setRowStretch(2, 0)  # Frame number labels
 
         self.setLayout(layout)
 
@@ -231,12 +224,7 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._set_identities(self._pose_est.identities)
 
-            self._prediction_overview_widget.num_frames = (
-                self._player_widget.num_frames()
-            )
-            self._prediction_overview_widget.framerate = (
-                self._player_widget.stream_fps()
-            )
+            self._stacked_label_overview.framerate = self._player_widget.stream_fps()
             self.frame_number_labels.set_num_frames(self._player_widget.num_frames())
 
             self._suppress_label_track_update = False
@@ -328,6 +316,28 @@ class CentralWidget(QtWidgets.QWidget):
     def controls(self):
         """return the controls widget"""
         return self._controls
+
+    @property
+    def timeline_view_mode(self):
+        """return the timeline view mode"""
+        return self._stacked_label_overview.view_mode
+
+    @timeline_view_mode.setter
+    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode):
+        """set the timeline view mode"""
+        self._stacked_label_overview.view_mode = view_mode
+        self._stacked_label_overview.update_labels()
+
+    @property
+    def timeline_identity_mode(self):
+        """return the timeline identity mode"""
+        return self._stacked_label_overview.identity_mode
+
+    @timeline_identity_mode.setter
+    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode):
+        """set the timeline view mode"""
+        self._stacked_label_overview.identity_mode = identity_mode
+        self._stacked_label_overview.update_labels()
 
     def _change_behavior(self, new_behavior):
         """make UI changes to reflect the currently selected behavior"""
@@ -574,25 +584,31 @@ class CentralWidget(QtWidgets.QWidget):
 
         identity = self._controls.current_identity_index
 
-        try:
-            indexes = self._frame_indexes[identity]
-        except KeyError:
-            self._prediction_overview_widget.set_predictions(None, None)
-            return
+        prediction_list = []
+        probability_list = []
+        for i in range(self._pose_est.num_identities):
+            try:
+                indexes = self._frame_indexes[identity]
+            except KeyError:
+                prediction_list.append(None)
+                probability_list.append(None)
+                continue
 
-        prediction_labels = np.full(
-            (self._player_widget.num_frames()),
-            TrackLabels.Label.NONE.value,
-            dtype=np.byte,
-        )
-        prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
+            prediction_labels = np.full(
+                (self._player_widget.num_frames()),
+                TrackLabels.Label.NONE.value,
+                dtype=np.byte,
+            )
+            prediction_prob = np.zeros(
+                (self._player_widget.num_frames()), dtype=np.float64
+            )
 
-        prediction_labels[indexes] = self._predictions[identity][indexes]
-        prediction_prob[indexes] = self._probabilities[identity][indexes]
+            prediction_labels[indexes] = self._predictions[i][indexes]
+            prediction_prob[indexes] = self._probabilities[i][indexes]
 
-        self._prediction_overview_widget.set_predictions(
-            prediction_labels, prediction_prob
-        )
+            prediction_list.append(prediction_labels)
+            probability_list.append(prediction_prob)
+        self._stacked_label_overview.set_predictions(prediction_list, probability_list)
 
     def _set_train_button_enabled_state(self):
         """set the enabled property of the train button

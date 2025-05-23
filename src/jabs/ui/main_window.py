@@ -16,6 +16,7 @@ from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .central_widget import CentralWidget
 from .license_dialog import LicenseAgreementDialog
 from .project_loader_thread import ProjectLoaderThread
+from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
 from .video_list_widget import VideoListDockWidget
 
@@ -69,18 +70,7 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menu.addMenu("View")
         feature_menu = menu.addMenu("Features")
 
-        # open action
-        open_action = QtGui.QAction("&Open Project", self)
-        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
-        open_action.setStatusTip("Open Project")
-        open_action.triggered.connect(self._show_project_open_dialog)
-        file_menu.addAction(open_action)
-
-        # open recent
-        self._open_recent_menu = QtWidgets.QMenu("Open Recent", self)
-        file_menu.addMenu(self._open_recent_menu)
-        self._update_recent_projects()
-
+        # Setup App Menu
         # about app
         about_action = QtGui.QAction(f" &About {self._app_name}", self)
         about_action.setStatusTip("About this application")
@@ -101,6 +91,19 @@ class MainWindow(QtWidgets.QMainWindow):
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
+        # Setup File Menu
+        # open action
+        open_action = QtGui.QAction("&Open Project", self)
+        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
+        open_action.setStatusTip("Open Project")
+        open_action.triggered.connect(self._show_project_open_dialog)
+        file_menu.addAction(open_action)
+
+        # open recent
+        self._open_recent_menu = QtWidgets.QMenu("Open Recent", self)
+        file_menu.addMenu(self._open_recent_menu)
+        self._update_recent_projects()
+
         # export training data action
         self._export_training = QtGui.QAction("Export Training Data", self)
         self._export_training.setShortcut(QtGui.QKeySequence("Ctrl+T"))
@@ -116,11 +119,69 @@ class MainWindow(QtWidgets.QMainWindow):
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
 
+        # Setup View Menu
         # video playlist menu item
         self.view_playlist = QtGui.QAction("View Playlist", self)
         self.view_playlist.setCheckable(True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
         view_menu.addAction(self.view_playlist)
+
+        # Timeline submenu
+        timeline_menu = QtWidgets.QMenu("Timeline", self)
+        view_menu.addMenu(timeline_menu)
+
+        # First mutually exclusive group: Labels & Predictions, Labels, Predictions
+        timeline_group = QtGui.QActionGroup(self)
+        timeline_group.setExclusive(True)
+
+        self._timeline_labels_preds = QtGui.QAction(
+            "Labels & Predictions", self, checkable=True
+        )
+        self._timeline_labels = QtGui.QAction("Labels", self, checkable=True)
+        self._timeline_preds = QtGui.QAction("Predictions", self, checkable=True)
+
+        timeline_group.addAction(self._timeline_labels_preds)
+        timeline_group.addAction(self._timeline_labels)
+        timeline_group.addAction(self._timeline_preds)
+
+        timeline_menu.addAction(self._timeline_labels_preds)
+        timeline_menu.addAction(self._timeline_labels)
+        timeline_menu.addAction(self._timeline_preds)
+
+        self._timeline_labels_preds.triggered.connect(
+            self._on_timeline_view_mode_changed
+        )
+        self._timeline_labels.triggered.connect(self._on_timeline_view_mode_changed)
+        self._timeline_preds.triggered.connect(self._on_timeline_view_mode_changed)
+
+        # Separator
+        timeline_menu.addSeparator()
+
+        # Second mutually exclusive group: All Animals, Selected Animals
+        animal_group = QtGui.QActionGroup(self)
+        animal_group.setExclusive(True)
+
+        self._timeline_all_animals = QtGui.QAction("All Animals", self, checkable=True)
+        self._timeline_selected_animal = QtGui.QAction(
+            "Selected Animals", self, checkable=True
+        )
+
+        animal_group.addAction(self._timeline_all_animals)
+        animal_group.addAction(self._timeline_selected_animal)
+
+        timeline_menu.addAction(self._timeline_all_animals)
+        timeline_menu.addAction(self._timeline_selected_animal)
+
+        self._timeline_all_animals.triggered.connect(
+            self._one_timeline_identity_mode_changed
+        )
+        self._timeline_selected_animal.triggered.connect(
+            self._one_timeline_identity_mode_changed
+        )
+
+        # Set default checked actions
+        self._timeline_labels_preds.setChecked(True)
+        self._timeline_selected_animal.setChecked(True)
 
         self.show_track = QtGui.QAction("Show Track", self)
         self.show_track.setCheckable(True)
@@ -558,3 +619,27 @@ class MainWindow(QtWidgets.QMainWindow):
             project_path = action.data()
             if project_path:
                 self.open_project(project_path)
+
+    def _on_timeline_view_mode_changed(self):
+        if self._timeline_labels_preds.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
+            )
+        elif self._timeline_labels.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.LABELS
+            )
+        elif self._timeline_preds.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.PREDICTIONS
+            )
+
+    def _one_timeline_identity_mode_changed(self):
+        if self._timeline_all_animals.isChecked():
+            self._central_widget.timeline_identity_mode = (
+                StackedTimelineWidget.IdentityMode.ALL
+            )
+        elif self._timeline_selected_animal.isChecked():
+            self._central_widget.timeline_identity_mode = (
+                StackedTimelineWidget.IdentityMode.ACTIVE
+            )

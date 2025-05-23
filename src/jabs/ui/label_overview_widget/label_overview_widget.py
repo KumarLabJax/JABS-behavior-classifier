@@ -1,6 +1,6 @@
 import numpy as np
 from PySide6.QtCore import QSize, Slot
-from PySide6.QtWidgets import QFrame, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from jabs.project import TrackLabels
 
@@ -20,28 +20,24 @@ class LabelOverviewWidget(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    _BORDER_COLOR = "#0078d7"
     _FRAME_VERTICAL_SPACING = 6
     _FRAME_HORIZONTAL_SPACING = 0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self._active = False
         self._num_frames = 0
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self._frame = QFrame(self)
-        self._frame.setFrameShape(QFrame.Shape.NoFrame)
-        self._frame.setLineWidth(2)
+        # Use a plain QWidget as the container
+        self._container = QWidget(self)
 
-        self._timeline_widget = self._timeline_widget_factory(self._frame)
-        self._label_widget = self._label_widget_factory(self._frame)
+        self._timeline_widget = self._timeline_widget_factory(self._container)
+        self._label_widget = self._label_widget_factory(self._container)
 
         self._set_layout()
-        self._update_border()
 
     @staticmethod
     def _timeline_widget_factory(parent):
@@ -61,27 +57,11 @@ class LabelOverviewWidget(QWidget):
 
     def _set_layout(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(0)
-        layout.addWidget(self._frame)
+        layout.addWidget(self._timeline_widget)
+        layout.addWidget(self._label_widget)
         self.setLayout(layout)
-
-        frame_layout = QVBoxLayout(self._frame)
-        frame_layout.setContentsMargins(0, 8, 0, 8)
-        frame_layout.setSpacing(0)
-
-        frame_layout.addWidget(self._timeline_widget)
-        frame_layout.addWidget(self._timeline_widget)
-        frame_layout.addItem(
-            QSpacerItem(
-                self._FRAME_HORIZONTAL_SPACING,
-                self._FRAME_VERTICAL_SPACING,
-                QSizePolicy.Policy.Minimum,
-                QSizePolicy.Policy.Fixed,
-            )
-        )
-        frame_layout.addWidget(self._label_widget)
-        frame_layout.addWidget(self._label_widget)
 
     def sizeHint(self):
         """Return the recommended size for the widget based on its children."""
@@ -90,17 +70,6 @@ class LabelOverviewWidget(QWidget):
         width = max(timeline_hint.width(), manual_hint.width())
         height = timeline_hint.height() + manual_hint.height()
         return QSize(width, height)
-
-    @property
-    def active(self) -> bool:
-        """Return whether the widget is the active identity or not."""
-        return self._active
-
-    @active.setter
-    def active(self, value: bool):
-        if self._active != value:
-            self._active = value
-            self._update_border()
 
     @property
     def num_frames(self):
@@ -152,7 +121,6 @@ class LabelOverviewWidget(QWidget):
         self._timeline_widget.reset()
         self._label_widget.set_labels(None)
         self._num_frames = 0
-        self._active = False
 
     def start_selection(self, starting_frame: int):
         """Start a selection from the given frame to the current frame."""
@@ -180,11 +148,3 @@ class LabelOverviewWidget(QWidget):
         """
         self._timeline_widget.update()
         self._label_widget.update()
-
-    def _update_border(self):
-        if self._active:
-            self._frame.setStyleSheet(
-                f"QFrame {{ border: 2px solid {self._BORDER_COLOR}; border-radius: 4px; }}"
-            )
-        else:
-            self._frame.setStyleSheet("QFrame { border: none; }")

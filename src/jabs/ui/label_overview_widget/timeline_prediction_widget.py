@@ -56,5 +56,10 @@ class TimelinePredictionWidget(TimelineLabelWidget):
 
     def set_num_frames(self, num_frames):
         """sets the number of frames in the current video, and resets the display with a blank track"""
-        self._labels = np.full(num_frames, TrackLabels.Label.NONE.value, dtype=np.byte)
+        if num_frames:
+            self._labels = np.full(
+                num_frames, TrackLabels.Label.NONE.value, dtype=np.byte
+            )
+        else:
+            self._labels = None
         super().set_num_frames(num_frames)
