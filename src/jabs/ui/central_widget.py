@@ -31,13 +31,13 @@ class CentralWidget(QtWidgets.QWidget):
 
         # timeline widgets
         self.frame_number_labels = FrameLabelsWidget()
-        self._stacked_label_overview = StackedTimelineWidget(self)
+        self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget()
         self._player_widget.updateFrameNumber.connect(self._frame_change)
         self._player_widget.updateFrameNumber.connect(
-            self._stacked_label_overview.set_current_frame
+            self._stacked_timeline.set_current_frame
         )
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
@@ -87,7 +87,7 @@ class CentralWidget(QtWidgets.QWidget):
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 5, 1)
-        layout.addWidget(self._stacked_label_overview, 1, 0)
+        layout.addWidget(self._stacked_timeline, 1, 0)
         layout.addWidget(self.frame_number_labels, 2, 0)
 
         # set row stretch to allow player to expand vertically but not other rows
@@ -198,8 +198,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path)
 
-            self._stacked_label_overview.num_identities = self._pose_est.num_identities
-            self._stacked_label_overview.num_frames = self._pose_est.num_frames
+            self._stacked_timeline.num_identities = self._pose_est.num_identities
+            self._stacked_timeline.num_frames = self._pose_est.num_frames
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
@@ -224,7 +224,7 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._set_identities(self._pose_est.identities)
 
-            self._stacked_label_overview.framerate = self._player_widget.stream_fps()
+            self._stacked_timeline.framerate = self._player_widget.stream_fps()
             self.frame_number_labels.set_num_frames(self._player_widget.num_frames())
 
             self._suppress_label_track_update = False
@@ -238,7 +238,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._controls.select_button_set_enabled(False)
 
                 # and make sure the label visualization widgets are cleared
-                self._stacked_label_overview.reset()
+                self._stacked_timeline.reset()
 
         except OSError as e:
             # error loading
@@ -327,22 +327,22 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def timeline_view_mode(self):
         """return the timeline view mode"""
-        return self._stacked_label_overview.view_mode
+        return self._stacked_timeline.view_mode
 
     @timeline_view_mode.setter
     def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode):
         """set the timeline view mode"""
-        self._stacked_label_overview.view_mode = view_mode
+        self._stacked_timeline.view_mode = view_mode
 
     @property
     def timeline_identity_mode(self):
         """return the timeline identity mode"""
-        return self._stacked_label_overview.identity_mode
+        return self._stacked_timeline.identity_mode
 
     @timeline_identity_mode.setter
     def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode):
         """set the timeline view mode"""
-        self._stacked_label_overview.identity_mode = identity_mode
+        self._stacked_timeline.identity_mode = identity_mode
 
     def _change_behavior(self, new_behavior):
         """make UI changes to reflect the currently selected behavior"""
@@ -382,10 +382,10 @@ class CentralWidget(QtWidgets.QWidget):
         if pressed:
             self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame()
-            self._stacked_label_overview.start_selection(self._selection_start)
+            self._stacked_timeline.start_selection(self._selection_start)
         else:
             self._controls.disable_label_buttons()
-            self._stacked_label_overview.clear_selection()
+            self._stacked_timeline.clear_selection()
 
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
@@ -422,7 +422,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._project.save_annotations(self._labels)
         self._controls.disable_label_buttons()
-        self._stacked_label_overview.clear_selection()
+        self._stacked_timeline.clear_selection()
         self._update_label_counts()
         self._set_train_button_enabled_state()
 
@@ -434,7 +434,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
-        self._stacked_label_overview.active_identity_index = (
+        self._stacked_timeline.active_identity_index = (
             self._controls.current_identity_index
         )
 
@@ -460,7 +460,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._pose_est.identity_mask(i)
                 for i in range(self._pose_est.num_identities)
             ]
-            self._stacked_label_overview.set_labels(label_list, mask_list)
+            self._stacked_timeline.set_labels(label_list, mask_list)
 
         self._set_prediction_vis()
 
@@ -612,7 +612,7 @@ class CentralWidget(QtWidgets.QWidget):
             prediction_list.append(prediction_labels)
             probability_list.append(prediction_prob)
 
-        self._stacked_label_overview.set_predictions(prediction_list, probability_list)
+        self._stacked_timeline.set_predictions(prediction_list, probability_list)
 
     def _set_train_button_enabled_state(self):
         """set the enabled property of the train button

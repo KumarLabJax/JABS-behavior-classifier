@@ -4,7 +4,7 @@ version = "0.25.0-dev.3"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
-authors = ["Glen Beane", "Brian Geuther"]
+authors = ["Glen Beane", "Brian Geuther", "Keith Sheppard"]
 readme = "README.md"
 packages = [
     { include = "jabs", from = "src" },

@@ -15,10 +15,12 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     prediction data and disables setting manual labels.
     """
 
-    def _timeline_widget_factory(self, parent):
+    @classmethod
+    def _timeline_widget_factory(cls, parent):
         return TimelinePredictionWidget(parent)
 
-    def _label_widget_factory(self, parent):
+    @classmethod
+    def _label_widget_factory(cls, parent):
         return PredictedLabelWidget(parent)
 
     def set_predictions(self, predictions, probabilities):

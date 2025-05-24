@@ -139,6 +139,13 @@ meaning that the JABS Python modules installed in the virtualenv will be links
 to the files in the cloned git repository. JABS code changes will be reflected 
 immediately in the Python environment.
 
+#### Code Style
+
+JABS uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. 
+Developers should run `ruff check` and `ruff format` before committing code.
+A pre-commit hook is provided to run these commands automatically before
+committing code.
+
 To install pre-commit hooks for linting and formatting run:
 
 ```commandline
@@ -148,9 +155,20 @@ pre-commit install
 You can also run [ruff](https://docs.astral.sh/ruff/) directly from command line:
 
 ```commandline
-ruff format src/packagepath/modulename.py
 ruff check src/packagepath/modulename.py
+ruff format src/packagepath/modulename.py
 ```
+
+#### Building Python Packages
+
+Developers can build a Python package using the `poetry build` command. This 
+will produce both a .tar.gz and a Python Wheel file (.whl) in the dist 
+directory. The wheel file can be installed with pip: 
+
+```pip install jabs_behavior_classifier-<version>-py3-none-any.whl``` 
+
+Since the Wheel does not contain any compiled code it is platform independent. 
+
 
 ### Enabling XGBoost Classifier
 
@@ -169,12 +187,3 @@ The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting w
 environment. Please inspect the definition files for related linux packages 
 to run the software.
 
-## Building Python Packages
-
-Developers can build a Python package using the `poetry build` command. This 
-will produce both a .tar.gz and a Python Wheel file (.whl) in the dist 
-directory. The wheel file can be installed with pip: 
-
-```pip install jabs_behavior_classifier-<version>-py3-none-any.whl``` 
-
-Since the Wheel does not contain any compiled code it is platform independent. 

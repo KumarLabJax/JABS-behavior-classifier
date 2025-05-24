@@ -19,13 +19,15 @@ class TimelinePredictionWidget(TimelineLabelWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def _update_bar(self):
-        """Updates the bar pixmap.
+    def _update_bar(self) -> None:
+        """Update the timeline bar pixmap with downsampled label colors.
 
-        Downsamples with the current size and updates self._pixmap
+        Overrides _update_bar() from parent class to use a np.ndarray as input instead of a TrackLabels object.
+        Downsamples the label array to match the current pixmap width, maps labels to RGBA colors, and renders
+        the color bar as a QPixmap for display.
         """
         if self._labels is None:
             return

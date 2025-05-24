@@ -1,6 +1,6 @@
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
 from .manual_label_widget import ManualLabelWidget
 
@@ -18,15 +18,20 @@ class PredictedLabelWidget(ManualLabelWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._predictions = None
-        self._probabilities = None
+        self._predictions: np.ndarray | None = None
+        self._probabilities: np.ndarray | None = None
 
-    def paintEvent(self, event):
-        """override QWidget paintEvent
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """handle the paint event to render the widget.
 
-        This draws the widget.
+        Render the predicted label bar with color-coded frames and confidence transparency. Draws the
+        timeline bar, including padding, background, predicted labels with probability-based
+        transparency, and overlays position markers and ticks.
+
+        Args:
+            event (QPaintEvent): The paint event containing region to update.
         """
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
@@ -105,20 +110,37 @@ class PredictedLabelWidget(ManualLabelWidget):
         # done drawing
         qp.end()
 
-    def set_predictions(self, predictions, probabilities):
-        """set prediction data to display"""
+    def set_predictions(
+        self, predictions: np.ndarray, probabilities: np.ndarray
+    ) -> None:
+        """Set the predicted labels and their probabilities for display.
+
+        Args:
+            predictions (np.ndarray): Array of predicted labels for each frame.
+            probabilities (np.ndarray): Array of prediction probabilities for each frame.
+        """
         self._predictions = predictions
         self._probabilities = probabilities
         self.update()
 
-    def start_selection(self, start_frame):
-        """unlike the ManualLabelWidget, this widget does not support selection"""
+    def start_selection(self, start_frame: int) -> None:
+        """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
 
-    def clear_selection(self):
-        """unlike the ManualLabelWidget, this widget does not support selection"""
+    def clear_selection(self) -> None:
+        """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
 
-    def set_labels(self, labels, mask=None):
-        """unlike the ManualLabelWidget, this widget does not support selection"""
+    def set_labels(self, labels: np.ndarray, mask: np.ndarray) -> None:
+        """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
+
+    def reset(self) -> None:
+        """Reset the widget to its initial state.
+
+        Clears any displayed predictions and probabilities, and calls the parent
+        class's reset method to perform additional cleanup.
+        """
+        self._predictions = None
+        self._probabilities = None
+        super().reset()

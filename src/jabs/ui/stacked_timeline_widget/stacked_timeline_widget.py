@@ -38,7 +38,7 @@ class StackedTimelineWidget(QWidget):
         ALL = 0
         ACTIVE = 1
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self._active_identity_index = None
@@ -71,42 +71,50 @@ class StackedTimelineWidget(QWidget):
         return widget
 
     @property
-    def num_identities(self):
+    def num_identities(self) -> int:
         """Get the number of identities."""
         return self._num_identities
 
     @num_identities.setter
-    def num_identities(self, value: int):
+    def num_identities(self, value: int) -> None:
         """Set the number of identities and reset the layout."""
         if value != self._num_identities:
             self._num_identities = value
             self._reset_layout()
 
     @property
-    def view_mode(self):
+    def view_mode(self) -> ViewMode:
         """Get the current view mode."""
         return self._view_mode
 
     @view_mode.setter
-    def view_mode(self, value: ViewMode):
+    def view_mode(self, value: ViewMode) -> None:
         """Set the view mode and update the layout accordingly."""
         if value != self._view_mode:
             self._view_mode = value
             self._update_widget_visibility()
 
     @property
-    def identity_mode(self):
+    def identity_mode(self) -> IdentityMode:
         """Get the current identity mode."""
         return self._identity_mode
 
     @identity_mode.setter
-    def identity_mode(self, value: IdentityMode):
+    def identity_mode(self, value: IdentityMode) -> None:
         """Set the identity mode and update the layout accordingly."""
         if value != self._identity_mode:
             self._identity_mode = value
             self._update_widget_visibility()
 
-    def _reset_layout(self):
+    def _reset_layout(self) -> None:
+        """Recreate the layout and child widgets for all identities.
+
+        Removes existing frames and overview widgets, then creates new frames,
+        label overview widgets, and prediction overview widgets for each identity.
+        Updates the internal lists and layout, and sets the active identity index.
+
+        This method is called when the number of identities changes.
+        """
         # Remove old widgets and frames
         for frame in self._identity_frames:
             self._layout.removeWidget(frame)
@@ -144,14 +152,23 @@ class StackedTimelineWidget(QWidget):
             self._active_identity_index = None
         self._update_widget_visibility()
 
-    def _set_active_frame_border(self, active_index: int | None = None):
+    def _set_active_frame_border(self, active_index: int | None = None) -> None:
+        """Update the visual border for the active identity frame.
+
+        Highlights the QFrame corresponding to the active identity by applying a border style,
+        and removes the border from all other frames. If `active_index` is not provided,
+        uses the current active identity index.
+
+        Args:
+            active_index: Optional index of the frame to highlight. If None, uses the current active identity.
+        """
         active_index = (
             self._active_identity_index if active_index is None else active_index
         )
         for i, frame in enumerate(self._identity_frames):
             if i == active_index:
                 frame.setStyleSheet(
-                    f"QFrame {{border: 2px solid {self._BORDER_COLOR}; border-radius: 4px;}}"
+                    f"QFrame {{border: 2px solid {self._BORDER_COLOR}; border-radius: 8px;}}"
                 )
             else:
                 frame.setStyleSheet("QFrame {border: none; padding: 2px;}")
@@ -162,7 +179,7 @@ class StackedTimelineWidget(QWidget):
         return self._num_frames
 
     @num_frames.setter
-    def num_frames(self, value: int):
+    def num_frames(self, value: int) -> None:
         """Set the number of frames."""
         self._num_frames = value
 
@@ -172,7 +189,7 @@ class StackedTimelineWidget(QWidget):
         return self._framerate
 
     @framerate.setter
-    def framerate(self, value: int):
+    def framerate(self, value: int) -> None:
         """Set the framerate."""
         self._framerate = value
 
@@ -182,7 +199,14 @@ class StackedTimelineWidget(QWidget):
         return self._active_identity_index
 
     @active_identity_index.setter
-    def active_identity_index(self, value: int):
+    def active_identity_index(self, value: int) -> None:
+        """Set the index of the currently active identity.
+
+        In addition to setting the active identity index, this method also handles the case where
+        the selection is active. It clears the selection on the old active widget and transfers it to
+        the new active widget. The method also updates the frame border and visibility of the widgets
+        depending on the current identity and view modes.
+        """
         if value != self._active_identity_index:
             old_index = self._active_identity_index
             selection_frame = self._selection_starting_frame
@@ -212,7 +236,13 @@ class StackedTimelineWidget(QWidget):
         else:
             self._set_active_frame_border(-1)
 
-    def _update_widget_visibility(self):
+    def _update_widget_visibility(self) -> None:
+        """Update which identity frames and widgets are visible based on the current identity and view modes.
+
+        Removes all frames from the layout, then adds back either all identity frames or only the active one,
+        depending on the identity mode. Sets the visibility of label and prediction widgets within each frame
+        according to the current view mode. Also updates the frame border to reflect the active identity.
+        """
         # Remove all frames from the layout
         for frame in self._identity_frames:
             self._layout.removeWidget(frame)
@@ -247,7 +277,16 @@ class StackedTimelineWidget(QWidget):
         self,
         label_widget: LabelOverviewWidget,
         prediction_widget: PredictionOverviewWidget,
-    ):
+    ) -> None:
+        """Set the visibility of label and prediction widgets based on the current view mode.
+
+        Shows or hides the provided label and prediction widgets according to the selected
+        view mode (labels only, predictions only, or both).
+
+        Args:
+            label_widget: The LabelOverviewWidget to show or hide.
+            prediction_widget: The PredictionOverviewWidget to show or hide.
+        """
         if self._view_mode == self.ViewMode.LABELS_AND_PREDICTIONS:
             label_widget.setVisible(True)
             prediction_widget.setVisible(True)
@@ -259,7 +298,7 @@ class StackedTimelineWidget(QWidget):
             prediction_widget.setVisible(True)
 
     @Slot(int)
-    def set_current_frame(self, current_frame: int):
+    def set_current_frame(self, current_frame: int) -> None:
         """Forward current frame to all LabelOverviewWidgets and PredictionOverviewWidgets."""
         for label_widget, prediction_widget in zip(
             self._label_overview_widgets, self._prediction_overview_widgets, strict=True
@@ -267,7 +306,9 @@ class StackedTimelineWidget(QWidget):
             label_widget.set_current_frame(current_frame)
             prediction_widget.set_current_frame(current_frame)
 
-    def set_labels(self, labels_list: list[np.ndarray], masks_list: list[np.ndarray]):
+    def set_labels(
+        self, labels_list: list[np.ndarray], masks_list: list[np.ndarray]
+    ) -> None:
         """
         Set labels for all LabelOverviewWidgets.
 
@@ -275,14 +316,15 @@ class StackedTimelineWidget(QWidget):
             labels_list: List of TrackLabels, one per identity.
             masks_list: Optional list of masks, one per identity.
         """
-        if len(labels_list) != len(masks_list) != self._num_identities:
-            raise ValueError(
-                f"Number of labels ({len(labels_list)}) does not match number of identities ({self._num_identities})."
-            )
+        if (
+            len(labels_list) != len(masks_list)
+            or len(labels_list) != self._num_identities
+        ):
+            raise ValueError("Input length does not match number of identities.")
 
         for i, widget in enumerate(self._label_overview_widgets):
             labels = labels_list[i]
-            mask = masks_list[i] if masks_list else None
+            mask = masks_list[i]
 
             # need to set the number of frames and framerate on the child widgets because they were zero when they
             # were created. Now that data has been loaded, they can be set to the correct values.
@@ -293,13 +335,13 @@ class StackedTimelineWidget(QWidget):
 
     def set_predictions(
         self, predictions_list: list[np.ndarray], probabilities_list: list[np.ndarray]
-    ):
+    ) -> None:
         """
         Set predictions for all PredictionOverviewWidgets.
 
         Args:
             predictions_list: List of np.ndarray, one per identity.
-            probabilities_list: Optional list of np.ndarray, one per identity.
+            probabilities_list: List of np.ndarray, one per identity.
         """
         if len(predictions_list) != self._num_identities:
             raise ValueError(
@@ -311,8 +353,14 @@ class StackedTimelineWidget(QWidget):
             widget.framerate = self.framerate
             widget.set_predictions(predictions_list[i], probabilities_list[i])
 
-    def start_selection(self, starting_frame: int):
-        """Start selection on the active identity's widget and record the starting frame."""
+    def start_selection(self, starting_frame: int) -> None:
+        """Start a selection from the given frame on the active identity's widget.
+
+        Records the starting frame and initiates selection mode on the currently active identity.
+
+        Args:
+            starting_frame: The frame index where the selection begins.
+        """
         if self._active_identity_index is not None:
             self._selection_starting_frame = starting_frame
             self._label_overview_widgets[self._active_identity_index].start_selection(
@@ -320,15 +368,21 @@ class StackedTimelineWidget(QWidget):
             )
             self._label_overview_widgets[self._active_identity_index].update()
 
-    def clear_selection(self):
-        """Clear selection on the active identity's widget and reset the starting frame."""
+    def clear_selection(self) -> None:
+        """Clear the current selection on the active identity's widget.
+
+        Exits selection mode and resets the selection starting frame.
+        """
         if self._active_identity_index is not None:
             self._label_overview_widgets[self._active_identity_index].clear_selection()
             self._selection_starting_frame = None
             self._label_overview_widgets[self._active_identity_index].update_labels()
 
-    def reset(self):
-        """reset state of all child widgets"""
+    def reset(self) -> None:
+        """Reset all child widgets to their initial state.
+
+        Clears all internal data and resets the state of label and prediction overview widgets.
+        """
         for widget in self._label_overview_widgets:
             widget.reset()
 
