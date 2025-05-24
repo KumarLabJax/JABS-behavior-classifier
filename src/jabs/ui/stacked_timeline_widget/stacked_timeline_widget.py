@@ -140,6 +140,11 @@ class StackedTimelineWidget(QWidget):
             self._identity_frames.append(frame)
             self._layout.addWidget(frame)
         self._update_frame_border()
+        if self._num_identities > 0:
+            self._active_identity_index = 0
+        else:
+            self._active_identity_index = None
+        self._update_widget_visibility()
 
     def _set_active_frame_border(self, active_index):
         for i, frame in enumerate(self._identity_frames):
@@ -267,8 +272,6 @@ class StackedTimelineWidget(QWidget):
             raise ValueError(
                 f"Number of labels ({len(labels_list)}) does not match number of identities ({self._num_identities})."
             )
-
-        self._active_identity_index = 0
 
         for i, widget in enumerate(self._label_overview_widgets):
             labels = labels_list[i]

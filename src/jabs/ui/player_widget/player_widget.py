@@ -20,16 +20,15 @@ class _FrameWidget(QtWidgets.QLabel):
     def __init__(self):
         super().__init__()
 
-        # initially we want the _FrameWidget to expand to the true size of the
-        # image
         self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+            QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Ignored
         )
         self.firstFrame = True
         self._scaled_pix_x = 0
         self._scaled_pix_y = 0
         self._scaled_pix_width = 0
         self._scaled_pix_height = 0
+        self.setMinimumSize(400, 400)
 
     def mousePressEvent(self, event):
         pix_x, pix_y = self._frame_xy_to_pixmap_xy(event.x(), event.y())
@@ -65,15 +64,11 @@ class _FrameWidget(QtWidgets.QLabel):
 
     def sizeHint(self):
         """Override QLabel.sizeHint to give an initial starting size."""
-        return QtCore.QSize(800, 800)
+        return QtCore.QSize(1024, 1024)
 
     def reset(self):
         """reset state of frame widget"""
         self.clear()
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
-        )
-        self.firstFrame = True
 
     def paintEvent(self, event: QPaintEvent):
         """override paintEvent handler to scale the image if the widget is resized.
@@ -92,7 +87,9 @@ class _FrameWidget(QtWidgets.QLabel):
             # scale the image to the current size of the widget. First frame,
             # the widget will be expanded to fit the full size image.
             pix = self.pixmap().scaled(
-                size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                size,
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
             )
 
             # because we are maintaining aspect ratio, the scaled frame might
@@ -109,14 +106,6 @@ class _FrameWidget(QtWidgets.QLabel):
             self._scaled_pix_width = pix.width()
             self._scaled_pix_height = pix.height()
 
-            # after we let the first frame expand the widget
-            # switch to the Ignored size policy and we will resize the image to
-            # fit the widget
-            if self.firstFrame:
-                self.setSizePolicy(
-                    QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored
-                )
-                self.firstFrame = False
         else:
             # if we don't have a pixmap to display just call the original QLabel
             # paintEvent
@@ -183,10 +172,10 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setFont(font)
         self._time_label.setFont(font)
         self._time_label.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed
         )
         self._frame_label.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed
         )
         time_layout = QtWidgets.QHBoxLayout()
         time_layout.addWidget(self._time_label)

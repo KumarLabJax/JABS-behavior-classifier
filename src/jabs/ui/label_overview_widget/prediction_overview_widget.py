@@ -30,3 +30,9 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     def set_labels(self, labels: TrackLabels, mask: np.ndarray | None = None):
         """this widget does not support setting labels from a TrackLabels object"""
         raise NotImplementedError
+
+    def reset(self):
+        """Reset the widget to its initial state."""
+        self._timeline_widget.reset()
+        self._label_widget.set_predictions(None, None)
+        self._num_frames = 0
