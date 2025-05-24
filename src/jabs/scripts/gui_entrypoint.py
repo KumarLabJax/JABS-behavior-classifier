@@ -36,7 +36,6 @@ def main():
         except Exception as e:
             sys.exit(f"Error opening project:  {e}")
 
-    main_window.resize(1600, 1000)
     main_window.show()
     if main_window.show_license_dialog() == QtWidgets.QDialog.DialogCode.Accepted:
         # user accepted license terms, run the main application loop

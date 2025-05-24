@@ -62,6 +62,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
 
+        size = self._settings.value("main_window_size")
+        if size:
+            self.resize(size)
+        else:
+            self.resize(1280, 720)
+
         # setup menu bar
         menu = self.menuBar()
 
@@ -321,6 +327,15 @@ class MainWindow(QtWidgets.QMainWindow):
             event.accept()
             return True
         return super().eventFilter(source, event)
+
+    def resizeEvent(self, event):
+        """Handle the resize event of the main window.
+
+        This method saves the current size of the main window to the settings so the size can be restored next time
+        the application is run.
+        """
+        self._settings.setValue("main_window_size", self.size())
+        super().resizeEvent(event)
 
     def open_project(self, project_path: str):
         """open a new project directory"""
