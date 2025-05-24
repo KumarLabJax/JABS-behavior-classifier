@@ -291,6 +291,7 @@ class StackedTimelineWidget(QWidget):
         Args:
             predictions_list: List of np.ndarray, one per identity.
             probabilities_list: Optional list of np.ndarray, one per identity.
+            masks_list: for each identity, indicate if the identity is present in the frame.
         """
         if len(predictions_list) != self._num_identities:
             raise ValueError(
@@ -300,10 +301,7 @@ class StackedTimelineWidget(QWidget):
         for i, widget in enumerate(self._prediction_overview_widgets):
             widget.num_frames = self._num_frames
             widget.framerate = self._framerate
-
-            predictions = predictions_list[i]
-            probabilities = probabilities_list[i]
-            widget.set_predictions(predictions, probabilities)
+            widget.set_predictions(predictions_list[i], probabilities_list[i])
 
     def start_selection(self, starting_frame: int):
         """Start selection on the active identity's widget and record the starting frame."""

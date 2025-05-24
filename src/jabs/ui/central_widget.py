@@ -433,7 +433,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _change_identity(self):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
-        self._set_label_track()
         self._update_label_counts()
         self._stacked_label_overview.active_identity_index = (
             self._controls.current_identity_index
@@ -587,7 +586,6 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        identity = self._controls.current_identity_index
         prediction_list = []
         probability_list = []
 
@@ -603,7 +601,7 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
             try:
-                indexes = self._frame_indexes[identity]
+                indexes = self._frame_indexes[i]
             except KeyError:
                 prediction_list.append(prediction_labels)
                 probability_list.append(prediction_prob)
