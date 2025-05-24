@@ -141,7 +141,7 @@ class MainWindow(QtWidgets.QMainWindow):
         timeline_group.setExclusive(True)
 
         self._timeline_labels_preds = QtGui.QAction(
-            "Labels and Predictions", self, checkable=True
+            "Labels && Predictions", self, checkable=True
         )
         self._timeline_labels = QtGui.QAction("Labels", self, checkable=True)
         self._timeline_preds = QtGui.QAction("Predictions", self, checkable=True)
