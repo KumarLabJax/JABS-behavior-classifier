@@ -223,31 +223,32 @@ manual labels, only predicted labels.
   share a classifier. This exported file is written to the project directory and
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
   used as one input for the `jabs-classify` script.
-- **View→View Playlist:** can be used to hide/show video playlist
-- **View->Timeline:** Menu to control the timeline display. 
-- **View→Show Track:** show/hide track overlay for the subject. The track
-  overlay shows the nose position for the previous 5 frames and the next 10
-  frames. The nose position for the next 10 frames is colored red, and the
-  previous 5 frames it is a shade of pink.
-- **View→Overlay Pose:** toggle the overlay of the pose on top of the subject
+- **View:** Menu to control various display options.
+  - **View→View Playlist:** can be used to hide/show video playlist
+  - **View→Timeline:** Menu to control the timeline display. 
+  - **View→Show Track:** show/hide track overlay for the subject. The track
+    overlay shows the nose position for the previous 5 frames and the next 10
+    frames. The nose position for the next 10 frames is colored red, and the
+    previous 5 frames it is a shade of pink.
+  - **View→Overlay Pose:** toggle the overlay of the pose on top of the subject
   mouse
-- **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the
+  - **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the
   video.
 - **Features:** Menu item for controlling per-behavior classifier settings.
   Menu items are disabled when at least 1 pose file in the project does not
   contain the data to calculate features.
-- **Features→CM Units:** toggle using CM or pixel units
+  - **Features→CM Units:** toggle using CM or pixel units
   (Warning! Changing this will require features to be re-calculated)
-- **Features→Enable Window Features:** toggle using statistical window features
-- **Features→Enable Signal Features:** toggle using fft-based window features
-- **Features→Enable Social Features:** toggle using social features (v3+ projects)
-- **Features→Enable Corners Features:** toggle using arena corner features
+  - **Features→Enable Window Features:** toggle using statistical window features
+  - **Features→Enable Signal Features:** toggle using fft-based window features
+  - **Features→Enable Social Features:** toggle using social features (v3+ projects)
+  - **Features→Enable Corners Features:** toggle using arena corner features
   (v5+ projects with arena corner static object)
-- **Features→Enable Lixit Features:** toggle using lixit features
+  - **Features→Enable Lixit Features:** toggle using lixit features
   (v5+ projects with lixit static object)
-- **Features→Enable Food_hopper Features:** toggle using food hopper features
+  - **Features→Enable Food_hopper Features:** toggle using food hopper features
   (v5+ projects with food hopper static object)
-- **Features→Enable Segmentation Features:** toggle using segmentation features
+  - **Features→Enable Segmentation Features:** toggle using segmentation features
   (v6+ projects)
 
 **Track Overlay Example:**  
