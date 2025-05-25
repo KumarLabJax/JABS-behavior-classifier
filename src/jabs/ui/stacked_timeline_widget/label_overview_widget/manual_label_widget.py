@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.project import TrackLabels
 
-from ..colors import (
+from ...colors import (
     BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,

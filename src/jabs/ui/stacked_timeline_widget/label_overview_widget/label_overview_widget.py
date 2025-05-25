@@ -25,9 +25,6 @@ class LabelOverviewWidget(QWidget):
         num_frames: int number of frames in the current video.
     """
 
-    _FRAME_VERTICAL_SPACING = 6
-    _FRAME_HORIZONTAL_SPACING = 0
-
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -67,7 +64,7 @@ class LabelOverviewWidget(QWidget):
         """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 4, 2, 6)
-        layout.setSpacing(0)
+        layout.setSpacing(4)
         layout.addWidget(self._timeline_widget)
         layout.addWidget(self._label_widget)
         self.setLayout(layout)

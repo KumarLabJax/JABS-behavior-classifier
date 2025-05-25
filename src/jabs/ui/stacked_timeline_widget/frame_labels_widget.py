@@ -82,7 +82,7 @@ class FrameLabelsWidget(QWidget):
         qp.end()
 
     def _draw_ticks(self, painter, start, end):
-        """draw ticks draw ticks at the proper interval and draw the frame number under the tick
+        """draw ticks at the proper interval and draw the frame number under the tick
 
         Args:
             painter: active QPainter
@@ -105,7 +105,6 @@ class FrameLabelsWidget(QWidget):
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""
         self._current_frame = current_frame
-        # force redraw
         self.update()
 
     def set_num_frames(self, num_frames):

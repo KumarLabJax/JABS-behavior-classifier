@@ -2,9 +2,10 @@ from enum import IntEnum
 
 import numpy as np
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
-from ..label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
+from .frame_labels_widget import FrameLabelsWidget
+from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
 
 
 class StackedTimelineWidget(QWidget):
@@ -41,6 +42,8 @@ class StackedTimelineWidget(QWidget):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
         self._active_identity_index = None
         self._selection_starting_frame = None
         self._view_mode = self.ViewMode.LABELS_AND_PREDICTIONS
@@ -51,10 +54,11 @@ class StackedTimelineWidget(QWidget):
         self._label_overview_widgets = []
         self._prediction_overview_widgets = []
         self._identity_frames = []
+        self._frame_labels = FrameLabelsWidget()
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(4)
+        self._layout.setSpacing(0)
 
     def _label_overview_widget_factory(self, parent) -> LabelOverviewWidget:
         """Factory method to create a label overview widget."""
@@ -120,6 +124,7 @@ class StackedTimelineWidget(QWidget):
             self._layout.removeWidget(frame)
             frame.setParent(None)
             frame.deleteLater()
+        self._layout.removeWidget(self._frame_labels)
         self._label_overview_widgets = []
         self._prediction_overview_widgets = []
         self._identity_frames = []
@@ -182,6 +187,7 @@ class StackedTimelineWidget(QWidget):
     def num_frames(self, value: int) -> None:
         """Set the number of frames."""
         self._num_frames = value
+        self._frame_labels.set_num_frames(value)
 
     @property
     def framerate(self) -> int:
@@ -271,6 +277,7 @@ class StackedTimelineWidget(QWidget):
                 self._prediction_overview_widgets[idx],
             )
 
+        self._layout.addWidget(self._frame_labels)
         self._update_frame_border()
 
     def _set_widget_visibility(
@@ -305,6 +312,7 @@ class StackedTimelineWidget(QWidget):
         ):
             label_widget.set_current_frame(current_frame)
             prediction_widget.set_current_frame(current_frame)
+        self._frame_labels.set_current_frame(current_frame)
 
     def set_labels(
         self, labels_list: list[np.ndarray], masks_list: list[np.ndarray]

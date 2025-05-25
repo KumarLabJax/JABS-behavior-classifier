@@ -12,7 +12,6 @@ from jabs.project.track_labels import TrackLabels
 from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
-from .frame_labels_widget import FrameLabelsWidget
 from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
 from .stacked_timeline_widget import StackedTimelineWidget
@@ -30,7 +29,6 @@ class CentralWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # timeline widgets
-        self.frame_number_labels = FrameLabelsWidget()
         self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
@@ -86,14 +84,12 @@ class CentralWidget(QtWidgets.QWidget):
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
-        layout.addWidget(self._controls, 0, 1, 5, 1)
+        layout.addWidget(self._controls, 0, 1, 2, 1)
         layout.addWidget(self._stacked_timeline, 1, 0)
-        layout.addWidget(self.frame_number_labels, 2, 0)
 
         # set row stretch to allow player to expand vertically but not other rows
         layout.setRowStretch(0, 1)  # Player row expands
         layout.setRowStretch(1, 0)  # Label overview
-        layout.setRowStretch(2, 0)  # Frame number labels
 
         self.setLayout(layout)
 
@@ -225,7 +221,6 @@ class CentralWidget(QtWidgets.QWidget):
                 self._set_identities(self._pose_est.identities)
 
             self._stacked_timeline.framerate = self._player_widget.stream_fps()
-            self.frame_number_labels.set_num_frames(self._player_widget.num_frames())
 
             self._suppress_label_track_update = False
             self._set_label_track()
@@ -441,7 +436,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _frame_change(self, new_frame):
         """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
-        self.frame_number_labels.set_current_frame(new_frame)
 
     def _set_label_track(self):
         """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
