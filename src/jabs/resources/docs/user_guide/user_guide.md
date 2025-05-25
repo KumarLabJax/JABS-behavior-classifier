@@ -201,7 +201,9 @@ tool (`jabs-classify`).
 By default, the Timeline shows manual labels and predicted behaviors for the currently 
 subject animal. The Timeline can be toggled to show all subjects by selecting 
 View->Timeline->All Animals in the menu bar. The Timeline can also be toggled to show only
-manual labels, only predicted labels.
+manual labels, only predicted labels. If "All Animals" is selected, the Timeline will show
+which set of labels and predictions belong to the subject animal by drawing a colored box 
+them. 
 
 **Timeline Menu**
 <img src="imgs/timeline_menu.png" alt="JABS Timeline" alt="Timeline visualization options" />
@@ -338,7 +340,7 @@ Actions under the file menu have keyboard shortcuts.
 
 ### Labeling
 
-while in select mode:
+While in select mode:
 
 - z: label current selection <behavior>and leave select mode
 - x: clear current selection labels and leave select mode
@@ -346,12 +348,20 @@ while in select mode:
 - Escape: exit select mode without applying/clearing labels for current
   selection
 
-while not in select mode:
+While not in select mode:
 
 - z, x, c: enter select mode
 
 ### Other
 
+Switching subject:
+- shift + up arrow: switch to the next subject
+- shift + down arrow: switch to the previous subject
+
+Note: next/previous subject is determined by the order of subjects in the
+  "Identity Selection" dropdown. 
+
+Overlays:
 - t: toggle track overlay for subject
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
