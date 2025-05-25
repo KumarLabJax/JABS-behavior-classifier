@@ -4,7 +4,8 @@ import numpy as np
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
-from ...project import TrackLabels
+from jabs.project import TrackLabels
+
 from .frame_labels_widget import FrameLabelsWidget
 from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
 
