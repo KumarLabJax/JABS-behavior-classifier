@@ -54,7 +54,7 @@ class StackedTimelineWidget(QWidget):
         self._label_overview_widgets = []
         self._prediction_overview_widgets = []
         self._identity_frames = []
-        self._frame_labels = FrameLabelsWidget()
+        self._frame_labels = FrameLabelsWidget(self)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)

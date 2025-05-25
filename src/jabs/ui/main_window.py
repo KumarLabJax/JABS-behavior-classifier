@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeyEvent
+from PySide6.QtGui import QAction
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
@@ -25,6 +25,7 @@ USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
 RECENT_PROJECTS_KEY = "recent_projects"
 LICENSE_ACCEPTED_KEY = "license_accepted"
 LICENSE_VERSION_KEY = "license_version"
+WINDOW_SIZE_KEY = "main_window_size"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -44,7 +45,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
-        self._central_widget = CentralWidget()
+        self._central_widget = CentralWidget(self)
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -55,15 +56,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread = None
         self._progress_dialog = None
 
-        self._status_bar = QtWidgets.QStatusBar()
+        self._status_bar = QtWidgets.QStatusBar(self)
         self.setStatusBar(self._status_bar)
 
         self._user_guide_window = None
 
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
 
-        size = self._settings.value("main_window_size")
-        if size:
+        size = self._settings.value("main_window_size", None, type=QtCore.QSize)
+        if size and isinstance(size, QtCore.QSize):
             self.resize(size)
         else:
             self.resize(1280, 720)
@@ -179,10 +180,10 @@ class MainWindow(QtWidgets.QMainWindow):
         timeline_menu.addAction(self._timeline_selected_animal)
 
         self._timeline_all_animals.triggered.connect(
-            self._one_timeline_identity_mode_changed
+            self._on_timeline_identity_mode_changed
         )
         self._timeline_selected_animal.triggered.connect(
-            self._one_timeline_identity_mode_changed
+            self._on_timeline_identity_mode_changed
         )
 
         # Set default checked actions
@@ -282,7 +283,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._export_training.setEnabled
         )
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent):
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
 
@@ -311,7 +312,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # anything else pass on to the super class keyPressEvent
             super().keyPressEvent(event)
 
-    def eventFilter(self, source, event):
+    def eventFilter(self, source: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """filter events emitted by progress dialog
 
         The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
@@ -328,7 +329,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return True
         return super().eventFilter(source, event)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         """Handle the resize event of the main window.
 
         This method saves the current size of the main window to the settings so the size can be restored next time
@@ -425,14 +426,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.open_project(directory)
 
     def _show_about_dialog(self):
-        dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})")
+        dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})", self)
         dialog.exec_()
 
     def _open_user_guide(self):
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
-                f"{self._app_name_long} ({self._app_name})"
+                f"{self._app_name_long} ({self._app_name})", self
             )
         self._user_guide_window.show()
 
@@ -533,7 +534,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._project_load_error_callback(e)
 
     def _open_archive_behavior_dialog(self):
-        dialog = ArchiveBehaviorDialog(self._central_widget.behaviors)
+        dialog = ArchiveBehaviorDialog(self._central_widget.behaviors, self)
         dialog.behavior_archived.connect(self._archive_behavior_callback)
         dialog.exec_()
 
@@ -650,7 +651,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 StackedTimelineWidget.ViewMode.PREDICTIONS
             )
 
-    def _one_timeline_identity_mode_changed(self):
+    def _on_timeline_identity_mode_changed(self):
         if self._timeline_all_animals.isChecked():
             self._central_widget.timeline_identity_mode = (
                 StackedTimelineWidget.IdentityMode.ALL
