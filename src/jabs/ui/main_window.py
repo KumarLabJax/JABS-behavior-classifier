@@ -346,7 +346,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.show()
-        self._project_loader_thread = ProjectLoaderThread(project_path)
+        self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
         self._project_loader_thread.project_loaded.connect(
             self._project_loaded_callback
         )
@@ -575,6 +575,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Callback function to be called when the project fails to load."""
         self._project_loader_thread = None
         self._progress_dialog.close()
+        self._progress_dialog = None
         QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
 
     def show_license_dialog(self):

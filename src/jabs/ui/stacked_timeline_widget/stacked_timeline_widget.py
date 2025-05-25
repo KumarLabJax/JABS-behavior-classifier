@@ -252,7 +252,6 @@ class StackedTimelineWidget(QWidget):
         # Remove all frames from the layout
         for frame in self._identity_frames:
             self._layout.removeWidget(frame)
-            frame.setParent(None)
 
         if self._identity_mode == self.IdentityMode.ALL:
             # Add all frames
