@@ -4,6 +4,7 @@ import numpy as np
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
+from ...project import TrackLabels
 from .frame_labels_widget import FrameLabelsWidget
 from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
 
@@ -314,10 +315,9 @@ class StackedTimelineWidget(QWidget):
         self._frame_labels.set_current_frame(current_frame)
 
     def set_labels(
-        self, labels_list: list[np.ndarray], masks_list: list[np.ndarray]
+        self, labels_list: list[TrackLabels], masks_list: list[np.ndarray]
     ) -> None:
-        """
-        Set labels for all LabelOverviewWidgets.
+        """Set labels for all LabelOverviewWidgets.
 
         Args:
             labels_list: List of TrackLabels, one per identity.
