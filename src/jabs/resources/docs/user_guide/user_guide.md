@@ -93,7 +93,7 @@ video.
 
 This directory contains archived labels. These are compressed files (gzip)
 containing labels for behaviors that the user has removed from the project.
-Rotta only archives labels. Trained classifiers and predictions are deleted if a
+JABS only archives labels. Trained classifiers and predictions are deleted if a
 user removes a behavior from a project.
 
 ### jabs/cache
@@ -107,7 +107,7 @@ different platform.
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable. While non-portable,
 these files can be used alongside `jabs-classify classify --classifier` for
-predicting on the same machine the gui running the training.
+predicting on the same machine as the gui running the training.
 
 ### jabs/features
 
@@ -179,7 +179,7 @@ tool (`jabs-classify`).
 - **Cross Validation Slider:** Number of "Leave One Out" cross validation
   iterations to run while training.
 
-### Label and Prediction Visualizations
+### Label and Prediction Visualizations (Timeline)
 
 <img src="imgs/label_viz.png" alt="JABS Label Visualizations" width=900 />
 
@@ -196,7 +196,20 @@ tool (`jabs-classify`).
 - **Predicted Class (global view):** Displays a zoomed out view of the predicted
   classes for the entire video.
 - **Sliding Window Indicator:** highlights the section of the global views that
-  correspond to the frames displayed in the "sliding window" views.s
+  correspond to the frames displayed in the "sliding window" views.
+
+By default, the Timeline shows manual labels and predicted behaviors for the currently 
+subject animal. The Timeline can be toggled to show all subjects by selecting 
+View->Timeline->All Animals in the menu bar. The Timeline can also be toggled to show only
+manual labels, only predicted labels.
+
+**Timeline Menu**
+<img src="imgs/timeline_menu.png" alt="JABS Timeline" alt="Timeline visualization options" />
+
+<br />
+**Example Timeline with "Labels & Predictions" and "All Animals" selected**
+<img src="imgs/stacked_timeline.png" alt="Timeline with all animals" width=900 />
+
 
 ### Menu
 
@@ -211,6 +224,7 @@ tool (`jabs-classify`).
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
   used as one input for the `jabs-classify` script.
 - **View→View Playlist:** can be used to hide/show video playlist
+- **View->Timeline:** Menu to control the timeline display. 
 - **View→Show Track:** show/hide track overlay for the subject. The track
   overlay shows the nose position for the previous 5 frames and the next 10
   frames. The nose position for the next 10 frames is colored red, and the
