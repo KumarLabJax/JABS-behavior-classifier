@@ -24,6 +24,7 @@ class CentralWidget(QtWidgets.QWidget):
     """QT Widget implementing our main window contents"""
 
     export_training_status_change = QtCore.Signal(bool)
+    status_message = QtCore.Signal(str, int)  # message, timeout (ms)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -496,11 +497,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier,
             self._controls.current_behavior,
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
+            parent=self,
         )
         self._training_thread.training_complete.connect(self._training_thread_complete)
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(
-            lambda m: self.parent().display_status_message(m, 0)
+            lambda m: self.status_message.emit(m, 0)
         )
 
         # setup progress dialog
@@ -525,7 +527,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _training_thread_complete(self):
         """enable classify button once the training is complete"""
         self._progress_dialog.reset()
-        self.parent().display_status_message("Training Complete", 3000)
+        self.status_message.emit("Training Complete", 3000)
         self._controls.classify_button_set_enabled(True)
 
     def _update_training_progress(self, step):
@@ -543,11 +545,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._project,
             self._controls.current_behavior,
             self._loaded_video.name,
+            parent=self,
         )
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(
-            lambda m: self.parent().display_status_message(m, 0)
+            lambda m: self.status_message.emit(m, 0)
         )
 
         # setup progress dialog
@@ -568,7 +571,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
-        self.parent().display_status_message("Classification Complete")
+        self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step):

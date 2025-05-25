@@ -13,8 +13,8 @@ class ClassifyThread(QtCore.QThread):
     update_progress = QtCore.Signal(int)
     current_status = QtCore.Signal(str)
 
-    def __init__(self, classifier, project, behavior, current_video):
-        super().__init__()
+    def __init__(self, classifier, project, behavior, current_video, parent=None):
+        super().__init__(parent=parent)
         self._classifier = classifier
         self._project = project
         self._behavior = behavior

@@ -46,6 +46,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget(self)
+        self._central_widget.status_message.connect(self.display_status_message)
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
