@@ -262,13 +262,13 @@ class MainWindow(QtWidgets.QMainWindow):
         feature_menu.addAction(self.enable_segmentation_features)
 
         # playlist widget added to dock on left side of main window
-        self.video_list = VideoListDockWidget()
+        self.video_list = VideoListDockWidget(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
         self.video_list.setFeatures(
-            QtWidgets.QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+            QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
             | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
 
         # if the playlist visibility changes, make sure the view_playlists
