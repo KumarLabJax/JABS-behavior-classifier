@@ -23,8 +23,7 @@ from ...colors import (
 
 
 class ManualLabelWidget(QWidget):
-    """
-    Widget for visualizing manual behavior labels in a video timeline.
+    """Widget for visualizing manual behavior labels in a video timeline.
 
     Displays a horizontal bar representing frame-wise labels, with color coding for behavior,
     non-behavior, and gaps in identity. Supports selection, current frame indication, and
