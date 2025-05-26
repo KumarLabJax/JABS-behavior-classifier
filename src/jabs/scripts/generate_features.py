@@ -6,16 +6,27 @@ computes features if they do not exist
 """
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from jabs.project import Project
-from jabs.pose_estimation import open_pose_file
 from jabs.feature_extraction.features import IdentityFeatures
+from jabs.pose_estimation import open_pose_file
+from jabs.project import Project
 from jabs.types import ProjectDistanceUnit
 
 
 def generate_feature_cache(args):
+    """
+    Generate and cache features for each identity in a pose file.
+
+    Loads the pose file, computes features for each identity using the specified
+    settings, and caches the results in the given feature directory. Optionally
+    generates window features if a window size is provided.
+
+    Args:
+        args: argparse Namespace object containing script arguments, including pose file path,
+              pose version, feature directory, distance unit, window size, and fps.
+    """
     distance_unit = (
         ProjectDistanceUnit.CM if args.cm_units else ProjectDistanceUnit.PIXEL
     )
@@ -47,6 +58,7 @@ def generate_feature_cache(args):
 
 
 def main():
+    """jabs-features"""
     parser = argparse.ArgumentParser(prog=f"{script_name()} features")
     parser.add_argument(
         "--pose-file",
@@ -87,7 +99,8 @@ def main():
     generate_feature_cache(args)
 
 
-def script_name():
+def script_name() -> str:
+    """return the script name"""
     return Path(sys.argv[0]).name
 
 

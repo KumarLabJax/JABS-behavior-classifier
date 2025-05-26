@@ -1,32 +1,39 @@
+from pathlib import Path
 from typing import Any
 
-import numpy as np
-import typing
-from pathlib import Path
 import h5py
+import numpy as np
 
 from .pose_est_v5 import PoseEstimationV5
 
 
 class PoseEstimationV6(PoseEstimationV5):
-    """Version 6 of the Pose Estimation class."""
+    """Pose estimation handler for version 6 pose files with segmentation support.
 
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
-        """
-        Args:
-            file_path: Path object representing the location of the pose file
-            cache_dir: optional cache directory, used to cache convex
-                hulls and transformed pose files for faster loading
-            fps: frames per second, used for scaling time series
-                features from "per frame" to "per second"
-        """
+    Extends PoseEstimationV5 to add reading and management of image segmentation data
+    (instance and long-term segmentation IDs, segmentation flags, and segmentation masks)
+    from pose v6 HDF5 files. Provides methods to access segmentation data per identity
+    and per frame, as well as utilities for sorting and retrieving segmentation arrays.
+
+    Args:
+        file_path (Path): Path to the pose HDF5 file.
+        cache_dir (Path | None): Optional cache directory for intermediate data.
+        fps (int): Frames per second for the video.
+
+    Methods:
+        get_seg_id(frame_index, identity): Get long-term segmentation ID for a frame and identity.
+        get_segmentation_data(identity): Get segmentation mask array for an identity.
+        get_segmentation_flags(identity): Get segmentation internal/external flags for an identity.
+        get_segmentation_data_per_frame(frame_index, identity): Get segmentation mask for a specific frame and identity.
+        format_major_version: Returns the major version of the pose file format (6).
+    """
+
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
 
         # v6 properties
         # Image segmentation data read from pose v6 files.
-        self._segmentation_dict = {
+        self._segmentation_dict: dict[str, np.ndarray | None] = {
             "instance_seg_id": None,
             "longterm_seg_id": None,
             "seg_external_flag": None,
@@ -54,6 +61,7 @@ class PoseEstimationV6(PoseEstimationV5):
     def get_seg_id(
         self, frame_index: int, identity: int
     ) -> np.ndarray[Any, Any] | None:
+        """get segmentation for a given frame and identity."""
         if self._segmentation_dict["longterm_seg_id"] is None:
             return None
         else:
@@ -98,15 +106,13 @@ class PoseEstimationV6(PoseEstimationV5):
             the ndarray of segmentation data (if it exists) otherwise
             the function returns None.
         """
-
         if self._segmentation_dict["seg_data"] is None:
             return None
         else:
             return self._segmentation_dict["seg_data"][:, identity, ...]
 
     def get_segmentation_flags(self, identity: int) -> np.ndarray | None:
-        """Given a particular identity, return the appropriate segmentation
-        internal/external flags.
+        """Given a particular identity, return the appropriate segmentation internal/external flags.
 
         Args:
             identity: identity to return segmentation flags for.
@@ -115,7 +121,6 @@ class PoseEstimationV6(PoseEstimationV5):
             the ndarray of segmentation flags (if it exists) otherwise
             the function returns None.
         """
-
         if self._segmentation_dict["seg_external_flag"] is None:
             return None
         else:
@@ -135,7 +140,6 @@ class PoseEstimationV6(PoseEstimationV5):
             the ndarray of segmentation data (if it exists) otherwise
             the function returns None.
         """
-
         if self._segmentation_dict["seg_data"] is None:
             return None
         else:
@@ -143,4 +147,5 @@ class PoseEstimationV6(PoseEstimationV5):
 
     @property
     def format_major_version(self) -> int:
+        """Returns the major version of the pose file format."""
         return 6

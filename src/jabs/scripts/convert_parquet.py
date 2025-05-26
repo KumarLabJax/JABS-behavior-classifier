@@ -79,8 +79,8 @@ import sys
 from pathlib import Path
 
 import h5py
-import pandas as pd
 import numpy as np
+import pandas as pd
 from argparse_formatter import FlexiFormatter
 
 from jabs.pose_estimation import PoseEstimation
@@ -101,6 +101,7 @@ def convert(
     num_frames: int,
 ) -> None:
     """Convert a parquet file to JABS Pose format.
+
     Args:
         parquet_path: path to input parquet file
         output_path: output path for the converted h5 file
@@ -123,6 +124,7 @@ def convert_data_frame(
     num_frames: int,
 ) -> None:
     """Convert a pandas dataframe to JABS Pose format.
+
     Args:
         df: pandas dataframe with required columns
         output_path: output path for the converted h5 file
@@ -132,7 +134,6 @@ def convert_data_frame(
     Returns:
         None
     """
-
     # we saw one parquet file with a single row with animal_id == 0
     # we're going to trim those out if they exist
     identities = [x for x in df["animal_id"].unique().tolist() if x != 0]
@@ -150,7 +151,7 @@ def convert_data_frame(
     jabs_id_mask = np.ones((num_frames, num_identities), dtype=np.bool_)
     jabs_embed_id = np.zeros((num_frames, num_identities), dtype=np.uint32)
 
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
         frame = row["frame"]
         identity = row["jabs_identity"]
 
@@ -206,8 +207,11 @@ def convert_data_frame(
 
 
 def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
-    """Read the csv file with the lixit predictions and return the average x and y coordinates of the three key
-    points (tip, left side, and right side).
+    """Read the csv file with the lixit predictions
+
+    Averages the x and y coordinates of the three key points (tip, left side, and right side) for
+    all of the lixit predictions in the file.
+
     Args:
         path (Path): Path to the csv file
 
@@ -221,7 +225,7 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
     right_side_x = []
     right_side_y = []
 
-    with open(path, "r") as f:
+    with open(path) as f:
         reader = csv.DictReader(f)
 
         try:
@@ -256,6 +260,7 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
 
 
 def main():
+    """jabs-convert-parquet"""
     parser = argparse.ArgumentParser(
         description="""
         Convert parquet pose file to JABS Pose format.
@@ -304,7 +309,7 @@ def main():
     try:
         if args.out_dir is not None:
             args.out_dir.mkdir(parents=True, exist_ok=True)
-    except IOError:
+    except OSError:
         print(f"Unable to create output directory {args.out_dir}", file=sys.stderr)
         sys.exit(1)
 

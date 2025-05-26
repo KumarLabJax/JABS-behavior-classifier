@@ -1,16 +1,46 @@
-from jabs.pose_estimation import PoseEstimation
+from typing import ClassVar
+
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
-from .corner import DistanceToCorner, BearingToCorner, CornerDistanceInfo
-from .lixit import DistanceToLixit, BearingToLixit, LixitDistanceInfo, MouseLixitAngle
+from jabs.pose_estimation import PoseEstimation
+
+from .corner import BearingToCorner, CornerDistanceInfo, DistanceToCorner
 from .food_hopper import FoodHopper
+from .lixit import BearingToLixit, DistanceToLixit, LixitDistanceInfo, MouseLixitAngle
 
 
 class LandmarkFeatureGroup(FeatureGroup):
+    """
+    Feature group for extracting features related to static landmarks in the environment.
+
+    This class manages the extraction of features derived from static objects such as corners,
+    lixits, and food hoppers, using pose estimation data. It enables and initializes only the
+    features supported by the provided pose file and static objects. The class provides methods
+    to retrieve feature modules, shared info objects, and to query supported features and objects.
+
+    Args:
+        poses (PoseEstimation): Pose estimation handler for the current session.
+        pixel_scale (float): Scale factor to convert pixel coordinates to real-world units.
+
+    Class Attributes:
+        _features (ClassVar[dict[str, type]]): Maps feature names to their implementing classes.
+        feature_map (ClassVar[dict[str, list[str]]]): Maps static object names to feature names.
+
+    Methods:
+        get_corner_info(identity): Get or create the CornerDistanceInfo for an identity.
+        get_lixit_info(identity): Get or create the LixitDistanceInfo for an identity.
+        static_object_features(static_object): List features derived from a static object.
+        static_object_per_frame_features(feature_name): List per-frame features for a feature.
+        static_object_window_features(feature_name): List window features for a feature.
+        get_supported_objects(): List all supported static objects.
+        get_objects_from_features(features): Get required objects for a list of features.
+        get_feature_names(static_objects): Get per-frame and window features for objects.
+    """
+
     _name = "landmark"
 
     # build a dictionary that maps a feature name to the class that
     # implements it
-    _features = {
+    _features: ClassVar[dict[str, type]] = {
         DistanceToCorner.name(): DistanceToCorner,
         BearingToCorner.name(): BearingToCorner,
         DistanceToLixit.name(): DistanceToLixit,
@@ -20,7 +50,7 @@ class LandmarkFeatureGroup(FeatureGroup):
     }
 
     # maps static objects to the names of features derived from that object
-    feature_map = {
+    feature_map: ClassVar[dict[str, list[str]]] = {
         "corners": [DistanceToCorner.name(), BearingToCorner.name()],
         "lixit": [
             DistanceToLixit.name(),
@@ -41,7 +71,7 @@ class LandmarkFeatureGroup(FeatureGroup):
                 if self._features[feature].is_supported(
                     poses.format_major_version,
                     set(poses.static_objects.keys()),
-                    lixit_keypoints=poses.lixit_keypoints,
+                    lixit_keypoints=poses.num_lixit_keypoints,
                 ):
                     self._enabled_features.append(feature)
 
@@ -197,7 +227,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         return list(set(found_objects))
 
     @classmethod
-    def get_feature_names(cls, static_objects: list = None):
+    def get_feature_names(cls, static_objects: list | None = None):
         """get the features supported
 
         Args:

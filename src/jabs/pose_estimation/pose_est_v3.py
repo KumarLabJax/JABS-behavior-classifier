@@ -1,11 +1,10 @@
 import heapq
-import typing
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation, PoseHashException, MINIMUM_CONFIDENCE
+from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation, PoseHashException
 
 
 class _CacheFileVersion(Exception):
@@ -13,22 +12,31 @@ class _CacheFileVersion(Exception):
 
 
 class PoseEstimationV3(PoseEstimation):
-    """class for opening and parsing version 3 of the pose estimation HDF5 file"""
+    """Handler for version 3 pose estimation HDF5 files.
+
+    This class parses and manages pose data from v3 pose files, including mapping tracks to identities,
+    reordering keypoints, and handling confidence and identity masks. It provides access to pose points,
+    confidence masks, and identity presence per frame. Supports caching for faster subsequent loading.
+
+    Args:
+        file_path (Path): Path to the pose HDF5 file.
+        cache_dir (Path | None): Optional cache directory for intermediate data.
+        fps (int): Frames per second for the video.
+
+    Properties:
+        identity_to_track: Returns the identity-to-track mapping.
+        format_major_version: Returns the major version of the pose file format (3).
+
+    Methods:
+        get_points(frame_index, identity, scale): Get points and mask for an identity in a frame.
+        get_identity_poses(identity, scale): Get all points and masks for an identity.
+        identity_mask(identity): Get the identity mask for a given identity.
+        get_identity_point_mask(identity): Get the point mask array for a given identity.
+    """
 
     __CACHE_FILE_VERSION = 2
 
-    def __init__(
-        self, file_path: Path, cache_dir: typing.Optional[Path] = None, fps: int = 30
-    ):
-        """
-        Args:
-            file_path: Path object representing the location of the pose
-                file
-            cache_dir: optional cache directory, used to cache convex
-                hulls for faster loading
-            fps: frames per second, used for scaling time series
-                features from "per frame" to "per second"
-        """
+    def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
 
         self._identity_to_track = None
@@ -66,7 +74,7 @@ class PoseEstimationV3(PoseEstimation):
                     # get pixel size
                     self._cm_per_pixel = pose_grp.attrs.get("cm_per_pixel", None)
 
-            except (IOError, KeyError, _CacheFileVersion, PoseHashException):
+            except (OSError, KeyError, _CacheFileVersion, PoseHashException):
                 # unable to open or read pose cache file, revert to source pose
                 # file
                 use_cache = False
@@ -157,6 +165,11 @@ class PoseEstimationV3(PoseEstimation):
 
     @property
     def identity_to_track(self):
+        """get the identity to track mapping for the pose file
+
+        will compute if it hasn't been computed yet, otherwise will return the
+        cached version.
+        """
         if self._identity_to_track is None:
             self._identity_to_track = np.full(
                 (self._max_instances, self._num_frames), -1, dtype=np.int32
@@ -170,11 +183,10 @@ class PoseEstimationV3(PoseEstimation):
 
     @property
     def format_major_version(self):
+        """get the major version of the pose file format"""
         return 3
 
-    def get_points(
-        self, frame_index: int, identity: int, scale: typing.Optional[float] = None
-    ):
+    def get_points(self, frame_index: int, identity: int, scale: float | None = None):
         """get points and mask for an identity for a given frame
 
         Args:
@@ -186,7 +198,6 @@ class PoseEstimationV3(PoseEstimation):
         Returns:
             points, mask if identity has data for this frame
         """
-
         if not self._identity_mask[identity, frame_index]:
             return None, None
 
@@ -201,7 +212,7 @@ class PoseEstimationV3(PoseEstimation):
                 self._point_mask[identity, frame_index, :],
             )
 
-    def get_identity_poses(self, identity: int, scale: typing.Optional[float] = None):
+    def get_identity_poses(self, identity: int, scale: float | None = None):
         """return all points and point masks
 
         Args:
@@ -212,7 +223,6 @@ class PoseEstimationV3(PoseEstimation):
         Returns:
             numpy array of points (#frames, 12, 2), numpy array of point masks (#frames, 12)
         """
-
         if scale is not None:
             return (
                 self._points[identity, ...] * scale,
@@ -222,6 +232,11 @@ class PoseEstimationV3(PoseEstimation):
             return self._points[identity, ...], self._point_mask[identity, ...]
 
     def identity_mask(self, identity):
+        """get the identity mask for a given identity
+
+        The idenitity mask is a 1D array of length num_frames, where each
+        element is 1 if the identity exists in that frame, and 0 if it does
+        """
         return self._identity_mask[identity, :]
 
     def get_identity_point_mask(self, identity):

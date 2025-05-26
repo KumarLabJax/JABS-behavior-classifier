@@ -6,19 +6,33 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .project_utils import to_safe_name
 from jabs.version import version_str
+
+from .project_utils import to_safe_name
 
 if typing.TYPE_CHECKING:
     from .project import Project
 
 
 class MissingBehaviorError(Exception):
+    """Exception raised when a behavior is not found in the prediction file."""
+
     pass
 
 
 class PredictionManager:
-    """Class to manage the loading and saving of predictions."""
+    """
+    Manages reading and writing of prediction data for behaviors in a JABS project.
+
+    Handles storage and retrieval of predicted classes and probabilities for each identity in each video,
+    using HDF5 files. Provides methods to write new predictions, load existing predictions, and handle
+    missing or invalid data. Integrates with the project structure to ensure predictions are associated
+    with the correct behaviors and videos.
+
+    Args:
+        project: The JABS Project instance this manager is associated with.
+
+    """
 
     _PREDICTION_FILE_VERSION = 2
 
@@ -41,20 +55,23 @@ class PredictionManager:
         classifier,
         external_identities: list[int] | None = None,
     ):
-        """write predictions out to a file
+        """
+        Write predicted classes and probabilities for a behavior to an HDF5 file.
+
+        Stores predictions, probabilities, and relevant metadata for each identity in the specified video.
+        Optionally includes a mapping from JABS identities to external identities.
 
         Args:
-            behavior: string describing the behavior
-            output_path: name of file to write predictions to
-            predictions: matrix of prediction class data of shape
-                [n_animals, n_frames]
-            probabilities: matrix of probability for the predicted class
-                of shape [n_animals, n_frames]
-            poses: PoseEstimation object for which predictions were made
-            classifier: Classifier object for which was used to make
-                predictions
-            external_identities: list of external identities that
-                correspond to the jabs identities
+            behavior (str): Name of the behavior for which predictions are made.
+            output_path (Path): Path to the HDF5 file where predictions will be saved.
+            predictions (np.ndarray): Array of predicted class labels, shape (n_animals, n_frames).
+            probabilities (np.ndarray): Array of predicted class probabilities, shape (n_animals, n_frames).
+            poses: PoseEstimation object corresponding to the video.
+            classifier: Classifier object used to generate predictions.
+            external_identities (list[int], optional): List mapping JABS identities to external identities.
+
+        Returns:
+            None
         """
         # TODO catch exceptions
         with h5py.File(output_path, "a") as h5:
@@ -102,7 +119,6 @@ class PredictionManager:
             frame_indexes)
         each dict has identities present in the video for keys
         """
-
         predictions = {}
         probabilities = {}
         frame_indexes = {}
@@ -152,7 +168,7 @@ class PredictionManager:
         except (MissingBehaviorError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
-        except (AssertionError, KeyError) as e:
+        except (AssertionError, KeyError):
             print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
         return predictions, probabilities, frame_indexes

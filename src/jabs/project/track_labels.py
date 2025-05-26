@@ -6,8 +6,15 @@ import numpy as np
 
 
 class TrackLabels:
-    """Stores labels for a given identity and behavior. Requires one byte per
-    frame to store labels (e.g. approx. 108KB per 1 hour of 30fps video)
+    """
+    Stores and manages frame-level labels for a single identity and behavior.
+
+    Each frame can be labeled as NONE, BEHAVIOR, or NOT_BEHAVIOR. The class provides methods to set, clear,
+    and query labels over frame ranges, as well as utilities for counting labeled frames and bouts, exporting
+    label blocks, and downsampling label arrays for visualization or analysis.
+
+    Args:
+        num_frames (int): Number of frames to allocate for label storage.
     """
 
     class Label(enum.IntEnum):
@@ -56,6 +63,11 @@ class TrackLabels:
             self._labels[start : end + 1] = label
 
     def get_labels(self):
+        """Return the full label array for all frames.
+
+        Todo:
+         - make this a property
+        """
         return self._labels
 
     def get_frame_label(self, frame_index):
@@ -64,12 +76,10 @@ class TrackLabels:
 
     @property
     def label_count(self):
-        """property that returns a tuple with the count of the number of frames
-        for each label class
+        """Return a tuple with the count of frames for each label class.
 
         Returns:
-            (count of frames labeled as showing behavior, count of
-            frames labeled as not showing behavior)
+            tuple: (number of frames labeled as BEHAVIOR, number of frames labeled as NOT_BEHAVIOR)
         """
         return (
             np.count_nonzero(self._labels == self.Label.BEHAVIOR),
@@ -78,12 +88,11 @@ class TrackLabels:
 
     @property
     def bout_count(self):
-        """property that returns a tuple with the count of the number of bouts
-        of each label class
+        """Return a tuple with the number of contiguous bouts for each label class.
 
         Returns:
-            (count of bouts of behavior, count of bouts of "not
-            behavior")
+            tuple: (number of behavior bouts, number of not behavior bouts)
+                - A bout is a contiguous block of frames labeled as BEHAVIOR or NOT_BEHAVIOR.
         """
         blocks = self._array_to_blocks(self._labels)
         bouts_behavior = 0
@@ -103,34 +112,35 @@ class TrackLabels:
 
     def get_blocks(self):
         """get blocks for entire label array
+
         see _array_to_blocks() for return type
         """
         return self._array_to_blocks(self._labels)
 
     def get_slice_blocks(self, start, end):
         """get label blocks for a slice of frames
+
         block start and end frame numbers will be relative to the slice start
         """
         return self._array_to_blocks(self._labels[start : end + 1])
 
     @classmethod
-    def downsample(cls, labels, size):
-        """Downsample the label array for a "zoomed out" view. We use a custom
-        downsampling algorithm. Each element in the downsampled array is
-        assigned one of the following values:
-            Label.NONE: all elements in the bin have the value of Label.NONE
-            Label.BEHAVIOR: all elements are either zero or Label.BEHAVIOR
-            Label.NOT_BEHAVIOR: all elements are either zero or Label.NOT_BEHAVIOR
-            Label.MIX: bin contains Label.BEHAVIOR and Label.NOT_BEHAVIOR
-            Label.PAD: bin consists entirely of padding added to input array to
-            make it evenly divisible by output size
+    def downsample(cls, labels: np.ndarray, size: int):
+        """Downsample a label array to a specified size using custom binning rules.
+
+        Each output element summarizes a bin of input frames:
+            - Label.NONE: All frames in the bin are NONE.
+            - Label.BEHAVIOR: All frames are BEHAVIOR or NONE.
+            - Label.NOT_BEHAVIOR: All frames are NOT_BEHAVIOR or NONE.
+            - Label.MIX: Bin contains both BEHAVIOR and NOT_BEHAVIOR.
+            - Label.PAD: Bin consists entirely of padding added to fit the output size.
 
         Args:
-            labels: numpy label array
-            size: size of the resulting downsampled label array
+            labels (np.ndarray): Input label array.
+            size (int): Desired output array size.
 
         Returns:
-            numpy array of size 'size' with downsampled values
+            np.ndarray: Downsampled label array of length `size`.
         """
 
         def bincount(array):
@@ -180,12 +190,16 @@ class TrackLabels:
         return downsampled
 
     @classmethod
-    def load(cls, num_frames, blocks):
-        """return a TrackLabels object initialized with data from a list of blocks
-        :param num_frames total number of frames in the video
-        :param blocks - blocks to use to initialize frame label array. see
-        _array_to_blocks() for format
-        :return initialized TrackLabels object
+    def load(cls, num_frames: int, blocks: list[dict]) -> "TrackLabels":
+        """Create a TrackLabels object from a list of labeled blocks.
+
+        Args:
+            num_frames (int): Total number of frames in the video.
+            blocks (list[dict]): List of label blocks, where each block is a dict with
+                'start', 'end', and 'present' fields as produced by get_blocks().
+
+        Returns:
+            TrackLabels: Initialized TrackLabels object with labels set according to the provided blocks.
         """
         labels = cls(num_frames)
         for block in blocks:
@@ -196,27 +210,20 @@ class TrackLabels:
         return labels
 
     @classmethod
-    def _array_to_blocks(cls, array):
-        """return label blocks as something that can easily be exported as json
-        for saving to disk
-        :param array numpy label array to encode as blocks. Each element
-        should be one of TrackLabels.Label enum values.
+    def _array_to_blocks(cls, array: np.ndarray) -> list[dict]:
+        """Convert a label array into a list of labeled blocks for export or serialization.
+
+        Args:
+            array (np.ndarray): Numpy array of TrackLabels.Label values for each frame.
 
         Returns:
-            list of blocks of frames that have been labeled as having
-            the behavior or not having the behavior. Each block has the
-            following representation:
-            {
-                'start': block_start_frame,
-                'end': block_end_frame,
-                'present': boolean
-            }
-            where 'present' is True if the block has been labeled as showing the
-            behavior and False if it has been labeled as not showing the
-            behavior. Unlabeled frames are not included, so the total number of
-            frames is also required to reconstruct the labels array.
-        """
+            list[dict]: Each dict represents a contiguous block of labeled frames (excluding NONE), with:
+                - 'start': Start frame index of the block.
+                - 'end': End frame index of the block.
+                - 'present': True if the block is labeled as BEHAVIOR, False if labeled as NOT_BEHAVIOR.
 
+            Unlabeled (NONE) frames are omitted from the output.
+        """
         block_start = 0
         blocks = []
 
@@ -227,7 +234,8 @@ class TrackLabels:
                     {
                         "start": block_start,
                         "end": block_start + count - 1,
-                        "present": True if val == cls.Label.BEHAVIOR else False,
+                        # note: val == cls.Label.BEHAVIOR returns a numpy bool, which is not json serializable
+                        "present": bool(val == cls.Label.BEHAVIOR),
                     }
                 )
             block_start += count

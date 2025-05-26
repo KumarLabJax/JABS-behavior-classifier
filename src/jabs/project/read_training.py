@@ -1,9 +1,9 @@
 from pathlib import Path
+
 import h5py
 import pandas as pd
 
-from jabs.types import ClassifierType
-from jabs.types import ProjectDistanceUnit
+from jabs.types import ClassifierType, ProjectDistanceUnit
 
 
 def read_project_settings(h5_file: h5py.Group) -> dict:
@@ -72,7 +72,6 @@ def load_training_data(training_file: Path):
             },
         }
     """
-
     features = {"per_frame": {}, "window": {}}
     group_mapping = {}
 

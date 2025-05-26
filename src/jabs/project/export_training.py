@@ -1,14 +1,8 @@
-"""TODO: change exported training data from a single h5 file with pre-computed
-features to a bundle of pose files, labels, and list of features used for
-the classifier
-"""
-
-import h5py
-import typing
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import h5py
 import numpy as np
 
 import jabs.feature_extraction
@@ -29,31 +23,30 @@ def export_training_data(
     pose_version: int,
     classifier_type: "ClassifierType",
     training_seed: int,
-    out_file: typing.Optional[Path] = None,
+    out_file: Path | None = None,
 ):
-    """export training data from a project in a format that can be used to
-    retrain a classifier elsewhere (for example, by the command line batch
-    tool)
+    """
+    Export labeled training data from a JABS project for classifier retraining.
 
-    writes exported data to the project directory
+    This function extracts features and labels for a specified behavior and writes them,
+    along with relevant project and classifier metadata, to an HDF5 file. The exported
+    file can be used for retraining classifiers outside the current environment.
 
     Args:
-        project: Project from which to export training data
-        behavior: Behavior to export
-        pose_version: Minimum required pose version for this classifier
-        classifier_type: Preferred classifier type
-        training_seed: random seed to use for training to get
-            reproducable results
-        out_file: optional output path, if None write to project dir
-            with a file name of the form {behavior}_training_YYYYMMDD_hhmmss.h5
+        project (Project): The JABS project to export data from.
+        behavior (str): Name of the behavior to export.
+        pose_version (int): Minimum required pose version for the classifier.
+        classifier_type (ClassifierType): The classifier type for which data is exported.
+        training_seed (int): Random seed to ensure reproducible training splits.
+        out_file (Path, optional): Output file path. If None, a file is created in the
+            project directory with a timestamped name.
 
     Returns:
-        path of output file
+        Path: The path to the exported HDF5 file.
 
     Raises:
-        OSError if unable to create output file (e.g. permission denied, no such file or directory, etc)
+        OSError: If the output file cannot be created or written.
     """
-
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     features, group_mapping = project.get_labeled_features(behavior)
 
@@ -98,7 +91,7 @@ def export_training_data(
 
 
 def write_project_settings(
-    h5_file: typing.Union[h5py.File, h5py.Group], settings: dict, node: str = "settings"
+    h5_file: h5py.File | h5py.Group, settings: dict, node: str = "settings"
 ):
     """write project settings to a training h5 file recursively
 

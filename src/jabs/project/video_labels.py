@@ -2,15 +2,20 @@ from .track_labels import TrackLabels
 
 
 class VideoLabels:
-    """store the labels associated with a video file.
+    """Stores and manages frame-level behavior labels for each identity in a video.
 
-    labels are organized by "identity". Each identity may have multiple
-    behaviors labeled. An identity and behavior uniquely identifies a
-    TrackLabels object, which stores labels for each frame in the video. Each
-    frame can have one of three label values: TrackLabels.Label.NONE,
-    Tracklabels.Label.BEHAVIOR, and TrackLabels.Label.NOT_BEHAVIOR
+    Each identity in the video can have multiple behaviors labeled, with each (identity, behavior) pair
+    corresponding to a TrackLabels object that tracks frame-wise annotations. Labels are organized such that
+    each frame can be marked as NONE, BEHAVIOR, or NOT_BEHAVIOR. The class provides methods for accessing,
+    counting, serializing, and loading these labels.
 
-    TODO stop using str for identities in method parameters, switch to int
+    Args:
+        filename: Name of the video file this object represents.
+        num_frames: Total number of frames in the video.
+        external_identities (list[int] | None, optional): Optional mapping of external identity indices.
+
+    Note:
+        in several places, identities are currently handled as strings for serialization compatibility.
     """
 
     def __init__(
@@ -28,6 +33,7 @@ class VideoLabels:
 
     @property
     def num_frames(self):
+        """return number of frames in video this object represents"""
         return self._num_frames
 
     def get_track_labels(self, identity, behavior):
@@ -40,10 +46,9 @@ class VideoLabels:
         Returns:
             TrackLabels object for this identity and behavior
 
-        TODO:
+        Todo:
             handle integer identity
         """
-
         # require identity to be a string for serialization
         if not isinstance(identity, str):
             raise ValueError("Identity must be a string")
@@ -65,8 +70,7 @@ class VideoLabels:
         return self._identity_labels[identity][behavior]
 
     def counts(self, behavior):
-        """get the count of labeled frames and bouts for each identity in this
-        video for a specified behavior
+        """get the count of labeled frames and bouts for each identity in this video for a specified behavior
 
         Args:
             behavior: behavior to get label counts for
@@ -87,8 +91,9 @@ class VideoLabels:
         return counts
 
     def as_dict(self) -> dict:
-        """return dict representation of self, useful for JSON serialization and
-        saving to disk or caching in memory without storing the full
+        """return dict representation of video labels
+
+        useful for JSON serialization and saving to disk or caching in memory without storing the full
         numpy label array when user switches to a different video
 
         example return value:
@@ -112,7 +117,6 @@ class VideoLabels:
         }
 
         """
-
         label_dict = {
             "file": self._filename,
             "num_frames": self._num_frames,
@@ -135,9 +139,7 @@ class VideoLabels:
 
     @classmethod
     def load(cls, video_label_dict):
-        """return a VideoLabels object initialized with data from a dict previously
-        exported using the export() method
-        """
+        """return a VideoLabels object initialized with data from a dict previously exported using the export() method"""
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
         for identity in video_label_dict["labels"]:
             labels._identity_labels[identity] = {}

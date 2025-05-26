@@ -1,7 +1,5 @@
 import re
 
-import h5py
-
 
 def to_safe_name(behavior: str) -> str:
     """Create a version of the given behavior name that should be safe to use in filenames.
@@ -15,7 +13,6 @@ def to_safe_name(behavior: str) -> str:
     Raises:
         ValueError: if the behavior name is empty after sanitization
     """
-
     safe_behavior = re.sub(r"[^\w.-]+", "_", behavior, flags=re.UNICODE)
     # get rid of consecutive underscores
     safe_behavior = re.sub("_{2,}", "_", safe_behavior)
