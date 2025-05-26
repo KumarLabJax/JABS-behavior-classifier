@@ -420,8 +420,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """open a dialog to search for behaviors"""
         dialog = BehaviorSearchDialog(self)
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            behavior_search_state = dialog.behavior_search_state
-            print(behavior_search_state)
+            search_query = dialog.behavior_search_query
+            self._central_widget.update_behavior_search_query(search_query)
 
     def _toggle_cm_units(self, checked: bool):
         """toggle project to use pixel units."""

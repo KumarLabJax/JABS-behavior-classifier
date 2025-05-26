@@ -1,9 +1,9 @@
 from PySide6 import QtGui, QtWidgets
 
-from jabs.ui.behavior_search_state import (
-    BehaviorSearchState,
-    LabelBehaviorSearchState,
-    PredictionLabelSearchState,
+from jabs.ui.behavior_search_query import (
+    BehaviorSearchQuery,
+    LabelBehaviorSearchQuery,
+    PredictionLabelSearchQuery,
 )
 
 
@@ -57,32 +57,30 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         prediction_widget = QtWidgets.QWidget()
         prediction_layout = QtWidgets.QVBoxLayout(prediction_widget)
 
-        prob_greater_layout = QtWidgets.QHBoxLayout()
-        self.prob_greater_checkbox = QtWidgets.QCheckBox("Probability >")
+        # Probability range row
+        prob_range_layout = QtWidgets.QHBoxLayout()
         self.prob_greater_value = QtWidgets.QLineEdit()
         self.prob_greater_value.setValidator(QtGui.QDoubleValidator(0.0, 1.0, 3))
-        self.prob_greater_value.setPlaceholderText("0.0 - 1.0")
-        prob_greater_layout.addWidget(self.prob_greater_checkbox)
-        prob_greater_layout.addWidget(self.prob_greater_value)
+        self.prob_greater_value.setText("0.0")
+        prob_range_layout.addWidget(self.prob_greater_value)
 
-        prob_less_layout = QtWidgets.QHBoxLayout()
-        self.prob_less_checkbox = QtWidgets.QCheckBox("Probability <")
+        prob_range_layout.addWidget(QtWidgets.QLabel("≤ behavior probability ≤"))
+
         self.prob_less_value = QtWidgets.QLineEdit()
         self.prob_less_value.setValidator(QtGui.QDoubleValidator(0.0, 1.0, 3))
-        self.prob_less_value.setPlaceholderText("0.0 - 1.0")
-        prob_less_layout.addWidget(self.prob_less_checkbox)
-        prob_less_layout.addWidget(self.prob_less_value)
+        self.prob_less_value.setText("1.0")
+        prob_range_layout.addWidget(self.prob_less_value)
+
+        prediction_layout.addLayout(prob_range_layout)
 
         min_frame_layout = QtWidgets.QHBoxLayout()
         frame_label = QtWidgets.QLabel("Min contiguous matching frames:")
         self.min_frame_count = QtWidgets.QLineEdit()
         self.min_frame_count.setValidator(QtGui.QIntValidator(1, 1000000))
-        self.min_frame_count.setPlaceholderText("e.g. 10")
+        self.min_frame_count.setText("1")
         min_frame_layout.addWidget(frame_label)
         min_frame_layout.addWidget(self.min_frame_count)
 
-        prediction_layout.addLayout(prob_greater_layout)
-        prediction_layout.addLayout(prob_less_layout)
         prediction_layout.addLayout(min_frame_layout)
         prediction_layout.addStretch()
 
@@ -102,43 +100,29 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         )
 
     @property
-    def behavior_search_state(self):
-        """Return a BehaviorSearchState based on the current dialog values."""
+    def behavior_search_query(self):
+        """Return a BehaviorSearchQuery based on the current dialog values."""
         if self.method_combo.currentIndex() == 0:  # Label Search
-            label_state = LabelBehaviorSearchState(
+            label_query = LabelBehaviorSearchQuery(
                 positive=self.positive_checkbox.isChecked(),
                 negative=self.negative_checkbox.isChecked(),
             )
 
-            return BehaviorSearchState(
-                label_search_state=label_state,
-                prediction_search_state=None,
+            return BehaviorSearchQuery(
+                label_search_query=label_query,
+                prediction_search_query=None,
             )
         else:  # Prediction Search
-            prob_greater_enabled = self.prob_greater_checkbox.isChecked()
-            prob_less_enabled = self.prob_less_checkbox.isChecked()
-            prob_greater_value = (
-                float(self.prob_greater_value.text())
-                if prob_greater_enabled and self.prob_greater_value.text()
-                else None
-            )
-            prob_less_value = (
-                float(self.prob_less_value.text())
-                if prob_less_enabled and self.prob_less_value.text()
-                else None
-            )
-            min_frames = (
-                int(self.min_frame_count.text())
-                if self.min_frame_count.text()
-                else None
-            )
-            prediction_state = PredictionLabelSearchState(
+            prob_greater_value = float(self.prob_greater_value.text())
+            prob_less_value = float(self.prob_less_value.text())
+            min_frames = int(self.min_frame_count.text())
+            prediction_query = PredictionLabelSearchQuery(
                 prob_greater_value=prob_greater_value,
                 prob_less_value=prob_less_value,
                 min_contiguous_frames=min_frames,
             )
 
-            return BehaviorSearchState(
-                label_search_state=None,
-                prediction_search_state=prediction_state,
+            return BehaviorSearchQuery(
+                label_search_query=None,
+                prediction_search_query=prediction_query,
             )

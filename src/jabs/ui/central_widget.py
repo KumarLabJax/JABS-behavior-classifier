@@ -9,6 +9,7 @@ import jabs.feature_extraction
 from jabs.classifier import Classifier
 from jabs.project import VideoLabels
 from jabs.project.track_labels import TrackLabels
+from jabs.ui.search_bar_widget import SearchBarWidget
 from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
@@ -31,6 +32,12 @@ class CentralWidget(QtWidgets.QWidget):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # search bar
+        self._search_bar_widget = SearchBarWidget(self)
+        self._search_bar_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
 
         # video player
         self._player_widget = PlayerWidget()
@@ -87,7 +94,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.timeline_widget = TimelineLabelWidget()
         self.inference_timeline_widget = GlobalInferenceWidget()
 
-        # main layout
+        # main grid layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 5, 1)
@@ -96,7 +103,19 @@ class CentralWidget(QtWidgets.QWidget):
         layout.addWidget(self.inference_timeline_widget, 3, 0)
         layout.addWidget(self.prediction_vis, 4, 0)
         layout.addWidget(self.frame_ticks, 5, 0)
-        self.setLayout(layout)
+
+        # container for the grid layout
+        grid_container = QtWidgets.QWidget()
+        grid_container.setLayout(layout)
+
+        # main vertical layout to hold the search bar and grid container
+        main_vbox = QtWidgets.QVBoxLayout()
+        main_vbox.setContentsMargins(0, 0, 0, 0)
+        main_vbox.setSpacing(0)
+        main_vbox.addWidget(self._search_bar_widget)
+        main_vbox.addWidget(grid_container, 1)
+
+        self.setLayout(main_vbox)
 
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
@@ -107,6 +126,10 @@ class CentralWidget(QtWidgets.QWidget):
         # from grabbing focus on Windows (which breaks arrow key video nav)
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+
+    def update_behavior_search_query(self, search_query):
+        """Update the search query for the search bar widget"""
+        self._search_bar_widget.update_behavior_search_query(search_query)
 
     def eventFilter(self, source, event):
         """filter events emitted by progress dialog
@@ -177,6 +200,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.settings)
+        self._search_bar_widget.update_project(project)
 
     def load_video(self, path):
         """load a new video file into self._player_widget
