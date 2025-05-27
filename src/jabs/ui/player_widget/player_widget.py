@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtGui import QPaintEvent
+from PySide6.QtGui import QImage, QPaintEvent
 
 from jabs.video_reader import VideoReader
 
@@ -124,7 +124,7 @@ class PlayerWidget(QtWidgets.QWidget):
     the playback will resume after the slider is released.
     """
 
-    # signal to allow parent UI component to observe current frame number
+    # signal to allow other UI components to observe current frame number
     updateFrameNumber = QtCore.Signal(int)
 
     # let the main window UI know what the list of identities should be
@@ -134,7 +134,9 @@ class PlayerWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # make sure the player thread is stopped when quitting the application
-        QtCore.QCoreApplication.instance().aboutToQuit.connect(self.cleanup)
+        QtCore.QCoreApplication.instance().aboutToQuit.connect(
+            self._cleanup_player_thread
+        )
 
         # keep track of the current state
         self._playing = False
@@ -184,17 +186,17 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # play/pause button
         self._play_button = QtWidgets.QPushButton()
-        self._play_button.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._play_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._play_button.setCheckable(True)
         self._play_button.setEnabled(False)
         self._play_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPlay)
         )
         self._play_button.clicked.connect(self.toggle_play)
 
         # previous frame button
         self._previous_frame_button = QtWidgets.QToolButton()
-        self._previous_frame_button.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._previous_frame_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._previous_frame_button.setText("◀")
         self._previous_frame_button.setMaximumWidth(20)
         self._previous_frame_button.setMaximumHeight(20)
@@ -203,7 +205,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # next frame button
         self._next_frame_button = QtWidgets.QToolButton()
-        self._next_frame_button.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._next_frame_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._next_frame_button.setText("▶")
         self._next_frame_button.setMaximumWidth(20)
         self._next_frame_button.setMaximumHeight(20)
@@ -219,10 +221,10 @@ class PlayerWidget(QtWidgets.QWidget):
         self._disable_frame_buttons()
 
         # position slider
-        self._position_slider = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
-        self._position_slider.setFocusPolicy(QtCore.Qt.NoFocus)
+        self._position_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self._position_slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._position_slider.sliderMoved.connect(
-            self._position_slider_moved, QtCore.Qt.QueuedConnection
+            self._position_slider_moved, QtCore.Qt.ConnectionType.QueuedConnection
         )
         self._position_slider.sliderPressed.connect(self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(self._position_slider_release)
@@ -245,12 +247,22 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
-    def cleanup(self):
+    def _cleanup_player_thread(self):
         """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
             self._player_thread.stop_playback()
             self._player_thread.wait()
+            try:
+                self._player_thread.newImage.disconnect()
+                self._player_thread.updatePosition.disconnect()
+                self._player_thread.endOfFile.disconnect()
+            except TypeError:
+                # Already disconnected
+                pass
+            self._player_thread.deleteLater()
             self._player_thread = None
+            # Process pending events to flush any queued signals
+            QtWidgets.QApplication.processEvents()
 
     def current_frame(self):
         """return the current frame"""
@@ -289,7 +301,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._label_closest = enabled
 
         if self._player_thread:
-            self._player_thread.label_closest(self._label_closest)
+            self._player_thread.setLabelClosest.emit(self._label_closest)
             if not self._playing:
                 # if we are not playing, we need to update the current frame
                 # to show/hide the overlay
@@ -306,7 +318,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._show_track = enabled
 
         if self._player_thread:
-            self._player_thread.set_show_track(self._show_track)
+            self._player_thread.setShowTrack.emit(self._show_track)
             if not self._playing:
                 # if we are not playing, we need to update the current frame
                 # to show the overlay
@@ -323,7 +335,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._overlay_pose = enabled
 
         if self._player_thread:
-            self._player_thread.set_overlay_pose(self._overlay_pose)
+            self._player_thread.setOverlayPose.emit(self._overlay_pose)
             if not self._playing:
                 # if we are not playing, we need to update the current frame
                 # to show the overlay
@@ -340,7 +352,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._overlay_segmentation = enabled
 
         if self._player_thread:
-            self._player_thread.set_overlay_segmentation(self._overlay_segmentation)
+            self._player_thread.setOverlaySegmentation.emit(self._overlay_segmentation)
             if not self._playing:
                 # if we are not playing, we need to update the current frame
                 # to show the overlay
@@ -357,17 +369,11 @@ class PlayerWidget(QtWidgets.QWidget):
             self._overlay_landmarks = enabled
 
         if self._player_thread:
-            self._player_thread.set_overlay_landmarks(self._overlay_landmarks)
+            self._player_thread.setOverlayLandmarks.emit(self._overlay_landmarks)
             if not self._playing:
                 # if we are not playing, we need to update the current frame
                 # to show the overlay
                 self._seek(self._position_slider.value())
-
-    def set_identities(self, identities):
-        """set the list of identities in the video"""
-        self._identities = identities
-        if self._player_thread:
-            self._player_thread.set_identities(self._identities)
 
     def load_video(self, path: Path, pose_est):
         """load a new video source
@@ -376,46 +382,36 @@ class PlayerWidget(QtWidgets.QWidget):
             path: path to video file
             pose_est: pose file for this video
         """
-        # if we already have a video loaded make sure it is stopped
-        if self._playing:
-            self.stop()
-            self._player_thread.wait()
+        # cleanup the old player thread if it exists
+        self._cleanup_player_thread()
+
+        # reset the button state to not playing
+        self.stop()
         self.reset()
 
-        # load the video and pose file
         self._video_stream = VideoReader(path)
-
         self._pose_est = pose_est
-        self.set_identities(self._pose_est.identities)
+        self._identities = pose_est.identities
+
+        self._player_thread = PlayerThread(
+            self._video_stream,
+            self._pose_est,
+            self._active_identity,
+            self._show_track,
+            self._overlay_pose,
+            self._identities,
+            self._overlay_landmarks,
+            self._overlay_segmentation,
+        )
+
+        self._player_thread.newImage.connect(self._display_image)
+        self._player_thread.updatePosition.connect(self._set_position)
+        self._player_thread.endOfFile.connect(self.stop)
 
         # set up the position slider
+        self._seek(0)
         self._position_slider.setMaximum(self._video_stream.num_frames - 1)
         self._position_slider.setEnabled(True)
-
-        if self._player_thread is None:
-            self._player_thread = PlayerThread(
-                self._video_stream,
-                self._pose_est,
-                self._active_identity,
-                self._show_track,
-                self._overlay_pose,
-                self._identities,
-                self._overlay_landmarks,
-                self._overlay_segmentation,
-            )
-            self._player_thread.newImage.connect(self._display_image)
-            self._player_thread.updatePosition.connect(self._set_position)
-            self._player_thread.endOfFile.connect(self.stop)
-            self._player_thread.label_closest(self._label_closest)
-        else:
-            self._player_thread.load_new_video(
-                self._video_stream,
-                self._pose_est,
-                self._active_identity,
-                self._identities,
-            )
-
-        self._seek(0)
 
         # enable the play button and next/previous frame buttons
         self._play_button.setEnabled(True)
@@ -426,10 +422,11 @@ class PlayerWidget(QtWidgets.QWidget):
         # if we have an active player thread, terminate
         if self._player_thread:
             self._player_thread.stop_playback()
+            self._player_thread.wait()
 
         # change the icon to play
         self._play_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPlay)
         )
 
         # switch the button state to off
@@ -484,7 +481,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """handle "clicked" signal for the next frame button.
 
         Need to wrap self.next_frame because it takes an optional parameter and Qt always
-        passes a boolean argument to the click signal handler that isvmeaningless unless
+        passes a boolean argument to the click signal handler that is meaningless unless
         the button is "checkable"
         """
         self.next_frame()
@@ -514,7 +511,7 @@ class PlayerWidget(QtWidgets.QWidget):
         else:
             # we weren't already playing so start
             self._play_button.setIcon(
-                self.style().standardIcon(QtWidgets.QStyle.SP_MediaPause)
+                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
             )
             self._disable_frame_buttons()
             self._start_player_thread()
@@ -559,14 +556,14 @@ class PlayerWidget(QtWidgets.QWidget):
             self._position_slider.setValue(new_frame)
             self._player_thread.seek(new_frame)
 
-    def set_active_identity(self, identity):
+    def set_active_identity(self, identity: int):
         """set an active identity, which will be labeled in the video"""
         # don't do anything if a video isn't loaded
         if self._player_thread is None:
             return
 
         self._active_identity = identity
-        self._player_thread.set_identity(identity)
+        self._player_thread.setActiveIdentity.emit(identity)
         if not self._playing:
             self._player_thread.seek(self._position_slider.value())
 
@@ -594,43 +591,29 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.Slot(dict)
-    def _display_image(self, data: dict):
-        """display a new QImage sent from the player thread
+    @QtCore.Slot(QImage)
+    def _display_image(self, image: QImage):
+        """display a new frame sent from the player thread
 
         Args:
-            data: dict emitted by player thread
-
-        data dict includes QImage to display as next frame as well as the source video
+            image (QImage): frame ready for display as emitted by player thread
         """
-        # When switching videos, it's possible us to receive frames emitted by the player thread for the
-        # previous video. We need to ignore those frames.
-        if data["source"] != self._video_stream.filename:
-            return
-
-        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(data["image"]))
+        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
 
     @QtCore.Slot(int)
-    def _set_position(self, data: dict):
+    def _set_position(self, frame_number: int):
         """update the position slider during playback
 
         Args:
-            frame_number: new value for the progress slider
-            data: dict emitted by player thread
+            frame_number (int): frame_number emitted by player thread
         """
-        # ignore events from previous videos that haven't been processed yet
-        if data["source"] != self._video_stream.filename:
-            return
-
         # don't update the slider value if user is seeking, since that can interfere.
         if self._seeking:
             return
 
-        frame_number = data["index"]
-
         self._position_slider.setValue(frame_number)
-        self.updateFrameNumber.emit(frame_number)
         self._update_time_display(frame_number)
+        self.updateFrameNumber.emit(frame_number)
 
     def _start_player_thread(self):
         """start video playback in player thread"""

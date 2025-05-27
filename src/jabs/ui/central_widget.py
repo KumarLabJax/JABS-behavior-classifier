@@ -33,7 +33,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
-        self._player_widget = PlayerWidget()
+        self._player_widget = PlayerWidget(self)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
         self._player_widget.updateFrameNumber.connect(
             self._stacked_timeline.set_current_frame
