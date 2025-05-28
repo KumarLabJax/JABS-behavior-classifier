@@ -247,31 +247,25 @@ class StackedTimelineWidget(QWidget):
             self._set_active_frame_border(-1)
 
     def _update_widget_visibility(self) -> None:
-        """Update which identity frames and widgets are visible based on the current identity and view modes.
+        # Remove all widgets from the layout
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
 
-        Removes all frames from the layout, then adds back either all identity frames or only the active one,
-        depending on the identity mode. Sets the visibility of label and prediction widgets within each frame
-        according to the current view mode. Also updates the frame border to reflect the active identity.
-        """
-        # Remove all frames from the layout
-        for frame in self._identity_frames:
-            self._layout.removeWidget(frame)
-
+        # Add only the widgets needed for the current mode
         if self._identity_mode == self.IdentityMode.ALL:
-            # Add all frames
             for i, frame in enumerate(self._identity_frames):
                 self._layout.addWidget(frame)
-                # Set visibility for each widget based on view_mode
                 self._set_widget_visibility(
                     self._label_overview_widgets[i],
                     self._prediction_overview_widgets[i],
                 )
-
         elif (
             self._identity_mode == self.IdentityMode.ACTIVE
             and self._active_identity_index is not None
         ):
-            # Add only the active frame
             idx = self._active_identity_index
             frame = self._identity_frames[idx]
             self._layout.addWidget(frame)
@@ -280,6 +274,7 @@ class StackedTimelineWidget(QWidget):
                 self._prediction_overview_widgets[idx],
             )
 
+        # Add FrameLabelsWidget last
         self._layout.addWidget(self._frame_labels)
         self._update_frame_border()
 
