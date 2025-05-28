@@ -168,6 +168,8 @@ class StackedTimelineWidget(QWidget):
 
         Args:
             active_index: Optional index of the frame to highlight. If None, uses the current active identity.
+                If active_index does not match any identity, no border is applied. (we pass -1 to clear all
+                borders)
         """
         active_index = (
             self._active_identity_index if active_index is None else active_index

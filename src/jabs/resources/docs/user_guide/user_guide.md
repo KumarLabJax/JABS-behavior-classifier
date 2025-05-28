@@ -358,8 +358,7 @@ Switching subject:
 - shift + up arrow: switch to the next subject
 - shift + down arrow: switch to the previous subject
 
-Note: next/previous subject is determined by the order of subjects in the
-  "Identity Selection" dropdown. 
+Note: next/previous subject is determined by the order of subjects in the "Identity Selection" dropdown. 
 
 Overlays:
 - t: toggle track overlay for subject
