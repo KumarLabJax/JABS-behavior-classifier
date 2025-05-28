@@ -127,7 +127,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         )
 
     @property
-    def behavior_search_query(self):
+    def behavior_search_query(self) -> BehaviorSearchQuery:
         """Return a BehaviorSearchQuery based on the current dialog values."""
         if self.method_combo.currentIndex() == 0:  # Label Search
             radio_id = self.label_radio_group.checkedId()
@@ -136,27 +136,20 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
                 if self.behavior_combo.currentIndex() != 0
                 else None
             )
-            label_query = LabelBehaviorSearchQuery(
+
+            return LabelBehaviorSearchQuery(
                 behavior_label=behavior_label,
                 positive=radio_id in (0, 1),
                 negative=radio_id in (0, 2),
             )
 
-            return BehaviorSearchQuery(
-                label_search_query=label_query,
-                prediction_search_query=None,
-            )
         else:  # Prediction Search
             prob_greater_value = float(self.prob_greater_value.text())
             prob_less_value = float(self.prob_less_value.text())
             min_frames = int(self.min_frame_count.text())
-            prediction_query = PredictionLabelSearchQuery(
+
+            return PredictionLabelSearchQuery(
                 prob_greater_value=prob_greater_value,
                 prob_less_value=prob_less_value,
                 min_contiguous_frames=min_frames,
-            )
-
-            return BehaviorSearchQuery(
-                label_search_query=None,
-                prediction_search_query=prediction_query,
             )

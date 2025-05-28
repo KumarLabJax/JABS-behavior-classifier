@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from PySide6 import QtCore, QtWidgets
 
 from jabs.project.project import Project
-from jabs.ui.behavior_search_query import BehaviorSearchQuery
+from jabs.ui.behavior_search_query import (
+    BehaviorSearchQuery,
+    LabelBehaviorSearchQuery,
+    PredictionLabelSearchQuery,
+)
 
 
 @dataclass(frozen=True)
@@ -119,7 +123,7 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.text_label.setText("")
         else:
             self.setVisible(True)
-            self.text_label.setText(search_query.describe())
+            self.text_label.setText(_describe_query(search_query))
             self._perform_search()
 
     def _on_prev_clicked(self):
@@ -148,47 +152,84 @@ class SearchBarWidget(QtWidgets.QWidget):
         if self._project is None or self._search_query is None:
             return
 
-        if self._search_query.label_search_query:
-            print("Searching for labels...")
+        match self._search_query:
+            case LabelBehaviorSearchQuery() as label_query:
+                print("Searching for labels...")
 
-            label_query = self._search_query.label_search_query
-            if label_query.positive or label_query.negative:
-                video_manager = self._project.video_manager
+                if label_query.positive or label_query.negative:
+                    video_manager = self._project.video_manager
+                    sorted_videos = sorted(video_manager.videos)
 
-                # we apply a sort to match the order used in VideoListDockWidget
-                sorted_videos = sorted(video_manager.videos)
-                for video in sorted_videos:
-                    # Implement logic to search for labels in the video
-                    anno_path = video_manager.annotations_path(video)
-                    if anno_path.exists():
-                        print(f"Found annotations for {video} at {anno_path}")
-                        with anno_path.open() as f:
-                            anno_dict = json.load(f)
+                    for video in sorted_videos:
+                        anno_path = video_manager.annotations_path(video)
+                        if anno_path.exists():
+                            print(f"Found annotations for {video} at {anno_path}")
+                            with anno_path.open() as f:
+                                anno_dict = json.load(f)
 
-                        labels = anno_dict.get("labels", {})
-                        for identity, identified_labels in labels.items():
-                            for behavior, blocks in identified_labels.items():
-                                for block in blocks:
-                                    block_matches_query = (
-                                        # does behavior label match the query?
-                                        behavior == label_query.behavior_label
-                                        or label_query.behavior_label is None
-                                    ) and (
-                                        # does behavior presence/absence match the query?
-                                        (label_query.positive and block["present"])
-                                        or (
-                                            label_query.negative
-                                            and not block["present"]
+                            labels = anno_dict.get("labels", {})
+                            for identity, identified_labels in labels.items():
+                                for behavior, blocks in identified_labels.items():
+                                    for block in blocks:
+                                        block_matches_query = (
+                                            behavior == label_query.behavior_label
+                                            or label_query.behavior_label is None
+                                        ) and (
+                                            (label_query.positive and block["present"])
+                                            or (
+                                                label_query.negative
+                                                and not block["present"]
+                                            )
                                         )
-                                    )
-                                    if block_matches_query:
-                                        yield _SearchHit(
-                                            file=video,
-                                            identity=identity,
-                                            start_frame=block["start"],
-                                            end_frame=block["end"],
-                                        )
+                                        if block_matches_query:
+                                            yield _SearchHit(
+                                                file=video,
+                                                identity=identity,
+                                                start_frame=block["start"],
+                                                end_frame=block["end"],
+                                            )
 
-        elif self._search_query.prediction_search_query:
-            # Implement logic to search for predictions in the project
-            print("Searching for predictions...")
+            case PredictionLabelSearchQuery() as pred_query:  # noqa: F841
+                print("Searching for predictions...")
+                # Your prediction search logic goes here
+
+            case _:
+                print("Unknown query type or unsupported search.")
+
+
+def _describe_query(query: BehaviorSearchQuery) -> str:
+    """Return a descriptive string for the given search query."""
+    match query:
+        case LabelBehaviorSearchQuery(
+            behavior_label=None, positive=True, negative=True
+        ):
+            return "All behaviors positive & negative labels"
+        case LabelBehaviorSearchQuery(behavior_label=None, positive=True):
+            return "All behaviors positive labels"
+        case LabelBehaviorSearchQuery(behavior_label=None, negative=True):
+            return "All behaviors negative labels"
+        case LabelBehaviorSearchQuery(
+            behavior_label=behavior_label, positive=True, negative=True
+        ):
+            return f"{behavior_label} & Not {behavior_label} labels"
+        case LabelBehaviorSearchQuery(behavior_label=behavior_label, positive=True):
+            return f"{behavior_label} labels"
+        case LabelBehaviorSearchQuery(behavior_label=behavior_label, negative=True):
+            return f"Not {behavior_label} labels"
+        case PredictionLabelSearchQuery(
+            prob_greater_value=gt, prob_less_value=lt, min_contiguous_frames=frames
+        ):
+            parts = []
+            if gt is not None and lt is not None:
+                parts.append(f"{gt} < behavior prob. < {lt}")
+            elif gt is not None:
+                parts.append(f"behavior prob. > {gt}")
+            elif lt is not None:
+                parts.append(f"behavior prob. < {lt}")
+            if not parts:
+                return "No Search"
+            if frames is not None:
+                parts.append(f"with at least {frames} contiguous frames")
+            return " ".join(parts)
+        case _:
+            return "No Search"
