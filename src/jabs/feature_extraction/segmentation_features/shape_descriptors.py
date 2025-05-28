@@ -3,8 +3,8 @@ import typing
 import cv2
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
@@ -12,6 +12,7 @@ if typing.TYPE_CHECKING:
 
 class ShapeDescriptors(Feature):
     """Feature related to shape descriptors of the segmentation data.
+
     Ellipse-fit was adopted from https://doi.org/10.1038/nmeth.2281
     Additional shape features are taken from definitions in http://dx.doi.org/10.5772/6237
     """
@@ -27,18 +28,30 @@ class ShapeDescriptors(Feature):
         self._moment_cache = moment_cache
         self._pixel_scale = pixel_scale
 
-    def per_frame(self, identity: int) -> np.ndarray:
-        x = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        y = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        ellipse_w = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        ellipse_l = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        perimeter_sum = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        elongation = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        rectangularity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        convexity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        solidity = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        euler_number = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
-        hole_area_ratio = np.full((self._poses.num_frames), np.nan, dtype=np.float32)
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """Computes per-frame shape descriptor features for a specific identity.
+
+        For each frame, calculates various shape features based on segmentation moments and contours,
+        including ellipse dimensions, perimeter, elongation, rectangularity, convexity, solidity,
+        Euler number, hole area ratio, and centroid speed.
+
+        Args:
+            identity (int): The identity index for which to compute shape descriptors.
+
+        Returns:
+            dict[str, np.ndarray]: Dictionary mapping feature names to per-frame arrays of values.
+        """
+        x = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        y = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        ellipse_w = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        ellipse_l = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        perimeter_sum = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        elongation = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        rectangularity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        convexity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        solidity = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        euler_number = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
+        hole_area_ratio = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
 
         # We don't use vectorized ops so that division by 0 safeties can be checked before calculation
         for frame in range(self._poses.num_frames):
@@ -120,16 +133,17 @@ class ShapeDescriptors(Feature):
         # Calculate the centroid speeds
         centroid_speeds = np.hypot(np.gradient(x), np.gradient(y)) * self._poses.fps
 
-        values = {}
-        values["centroid_speed"] = centroid_speeds
-        values["ellipse_w"] = ellipse_w
-        values["ellipse_l"] = ellipse_l
-        values["perimeter"] = perimeter_sum
-        values["elongation"] = elongation
-        values["rectangularity"] = rectangularity
-        values["convexity"] = convexity
-        values["solidity"] = solidity
-        values["euler_number"] = euler_number
-        values["hole_area_ratio"] = hole_area_ratio
+        values = {
+            "centroid_speed": centroid_speeds,
+            "ellipse_w": ellipse_w,
+            "ellipse_l": ellipse_l,
+            "perimeter": perimeter_sum,
+            "elongation": elongation,
+            "rectangularity": rectangularity,
+            "convexity": convexity,
+            "solidity": solidity,
+            "euler_number": euler_number,
+            "hole_area_ratio": hole_area_ratio,
+        }
 
         return values

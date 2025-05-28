@@ -1,9 +1,10 @@
-import numpy as np
 import warnings
+
+import numpy as np
 
 
 def pad_sliding_window(
-    arr: np.ndarray, window: int, pad_const: float = None
+    arr: np.ndarray, window: int, pad_const: float | None = None
 ) -> np.ndarray:
     """Generates a sliding window view of an input array with nan-padding.
 
@@ -42,7 +43,7 @@ def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarra
         window_masks = ~np.isnan(sliding_window_view)
     else:
         window_masks = sliding_window_view != const
-    for no_data_row in np.where(np.all(window_masks == False, axis=1)):
+    for no_data_row in np.where(np.all(~window_masks, axis=1)):
         window_masks[no_data_row] = True
 
     return window_masks

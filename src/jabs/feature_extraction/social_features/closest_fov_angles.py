@@ -6,16 +6,30 @@ import scipy.stats
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
-    from .social_distance import ClosestIdentityInfo
     from jabs.pose_estimation import PoseEstimation
+
+    from .social_distance import ClosestIdentityInfo
 
 
 class ClosestFovAngles(Feature):
+    """
+    Computes the angle between a subject and the closest other identity within its field of view (FoV) for each frame.
+
+    This feature provides, for each frame, the angle (in degrees) from the subject to the closest other identity
+    that is within its field of view, based on pose estimation data. The angles are treated as circular values for
+    windowed operations.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        social_distance_info (ClosestIdentityInfo): Object providing closest identity and FoV angle information.
+    """
+
     _name = "closest_fov_angles"
     _min_pose = 3
 
     # override for circular values
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: scipy.stats.circmean(
             x, low=-180, high=180, nan_policy="omit"
         ),
@@ -49,7 +63,7 @@ class ClosestFovAngles(Feature):
 
     def window(
         self, identity: int, window_size: int, per_frame_values: dict[str, np.ndarray]
-    ) -> typing.Dict:
-        # need to override to use special method for computing window features
-        # with circular values
+    ) -> dict:
+        """compute window feature values for a given identities per frame values"""
+        # need to override to use special method for computing window features with circular values
         return self._window_circular(identity, window_size, per_frame_values)

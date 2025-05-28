@@ -1,6 +1,7 @@
-from scipy.stats import kurtosis, skew
-import numpy as np
 import warnings
+
+import numpy as np
+from scipy.stats import kurtosis, skew
 
 
 def psd_sum(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
@@ -66,6 +67,8 @@ def psd_mean_band(
     Args:
         freqs: frequencies in the psd, ignored
         psd: power spectral density matrix
+        band_low: lower bound of the frequency band
+        band_high: upper bound of the frequency band
 
     Returns:
         mean of power

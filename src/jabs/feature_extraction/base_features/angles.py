@@ -1,20 +1,20 @@
+import typing
+
 import numpy as np
 import scipy.stats
 
 from jabs.feature_extraction.angle_index import AngleIndex
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class Angles(Feature):
-    """this module computes joint angles
-    the result is a dict of features of length #frames rows
-    """
+    """this module computes joint angles the result is a dict of features of length #frames rows"""
 
     _name = "angles"
 
     # override for circular values
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: scipy.stats.circmean(x, high=360, nan_policy="omit"),
         "std_dev": lambda x: scipy.stats.circstd(x, high=360, nan_policy="omit"),
     }
@@ -23,7 +23,8 @@ class Angles(Feature):
         super().__init__(poses, pixel_scale)
         self._num_angles = len(AngleIndex)
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity"""
         values = {}
 
         poses, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
@@ -39,11 +40,16 @@ class Angles(Feature):
             )
         return values
 
-    def window(
-        self, identity: int, window_size: int, per_frame_values: np.ndarray
-    ) -> dict:
-        # need to override to use special method for computing window features
-        # with circular values
+    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+        """compute window feature values.
+
+        overrides the base class method to handle circular values.
+
+        Args:
+            identity (int): subject identity
+            window_size (int): window size NOTE: (actual window size is 2 * window_size + 1)
+            per_frame_values (dict): per frame values for this identity
+        """
         return self._window_circular(identity, window_size, per_frame_values)
 
     @staticmethod
