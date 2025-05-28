@@ -1,23 +1,24 @@
 import typing
 
+import cv2
 import numpy as np
 import scipy.stats
-import cv2
 from shapely.geometry import Point
 
-
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class CornerDistanceInfo:
-    """because we have two features that both need to know which corner is the
+    """cached distance to corner
+
+    because we have two features that both need to know which corner is the
     closest, we compute that information once in this helper class and then
-    pass it to both of the features
-    The features are not merged into a single feature because one (bearing to
+    pass it to both of the classes that implement the features.
+    The features are not merged into a single feature class because one (bearing to
     corner) needs to use the circular window feature methods, and the other
     does not, so it can't easily be implemented as one multi-column Feature
-    class
+    class.
     """
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -34,7 +35,6 @@ class CornerDistanceInfo:
         Args:
             identity: integer identity to get distances for
         """
-
         if identity in self._cached_distances and identity in self._cached_bearings:
             return
 
@@ -149,7 +149,7 @@ class CornerDistanceInfo:
         }
         self._avg_wall_length = avg_wall_length
 
-    def get_distances(self, identity: int) -> typing.Dict:
+    def get_distances(self, identity: int) -> dict:
         """get corner distance features for a given identity
 
         Args:
@@ -162,7 +162,7 @@ class CornerDistanceInfo:
             self.cache_features(identity)
         return self._cached_distances[identity]
 
-    def get_bearings(self, identity: int) -> typing.Dict:
+    def get_bearings(self, identity: int) -> dict:
         """get corner bearing features for a given identity
 
         Args:
@@ -244,7 +244,6 @@ class CornerDistanceInfo:
         Returns:
             angle between AB and BC with range [-180, 180)
         """
-
         # most of the point types are unsigned short integers
         # cast to signed types to avoid underflow issues during subtraction
         angle = np.degrees(
@@ -254,9 +253,17 @@ class CornerDistanceInfo:
 
 
 class DistanceToCorner(Feature):
+    """Feature extraction class for computing the distance to the nearest corner.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        distances (CornerDistanceInfo): Object providing corner distance information.
+    """
+
     _name = "corner_distances"
     _min_pose = 5
-    _static_objects = ["corners"]
+    _static_objects: typing.ClassVar[list[str]] = ["corners"]
 
     def __init__(
         self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo
@@ -265,7 +272,7 @@ class DistanceToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> typing.Dict:
+    def per_frame(self, identity: int) -> dict:
         """get the per frame distance to the nearest corner values
 
         Args:
@@ -274,18 +281,25 @@ class DistanceToCorner(Feature):
         Returns:
             dict of numpy ndarray of values with shape (nframes,)
         """
-
         distances = self._cached_distances.get_distances(identity)
         return distances
 
 
 class BearingToCorner(Feature):
+    """Feature extraction class for computing the bearing to the nearest corner.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        distances (CornerDistanceInfo): Object providing corner distance and bearing information.
+    """
+
     _name = "corner_bearings"
     _min_pose = 5
-    _static_objects = ["corners"]
+    _static_objects: typing.ClassVar[list[str]] = ["corners"]
 
     # override for circular values
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, np.ndarray]] = {
         "mean": lambda x: scipy.stats.circmean(
             x, low=-180, high=180, nan_policy="omit"
         ),
@@ -301,7 +315,7 @@ class BearingToCorner(Feature):
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> typing.Dict:
+    def per_frame(self, identity: int) -> dict:
         """get the per frame bearing to the nearest corner values
 
         Args:
@@ -310,13 +324,11 @@ class BearingToCorner(Feature):
         Returns:
             dict of numpy ndarray values with shape (nframes,)
         """
-
         bearings = self._cached_distances.get_bearings(identity)
         return bearings
 
-    def window(
-        self, identity: int, window_size: int, per_frame_values: dict
-    ) -> typing.Dict:
+    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+        """compute the windowed features for the bearing to corner feature"""
         # need to override to use special method for computing window features
         # with circular values
         return self._window_circular(identity, window_size, per_frame_values)

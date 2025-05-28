@@ -1,9 +1,10 @@
+import typing
+
 import numpy as np
 import scipy.stats
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
-
+from jabs.pose_estimation import PoseEstimation
 
 # TODO: merge CentroidVelocityMag and CentroidVelocityDir into a single feature
 #  with a 2D numpy array of values
@@ -18,7 +19,7 @@ class CentroidVelocityDir(Feature):
     _name = "centroid_velocity_dir"
 
     # override for circular values
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, np.ndarray]] = {
         "mean": lambda x: scipy.stats.circmean(
             x, low=-180, high=180, nan_policy="omit"
         ),
@@ -31,6 +32,7 @@ class CentroidVelocityDir(Feature):
         super().__init__(poses, pixel_scale)
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """compute the value of the per frame features for a specific identity"""
         bearings = self._poses.compute_all_bearings(identity)
         frame_valid = self._poses.identity_mask(identity)
 
@@ -60,8 +62,21 @@ class CentroidVelocityDir(Feature):
         return {"centroid_velocity_dir": values}
 
     def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        # need to override to use special method for computing window features
-        # with circular values
+        """compute window feature values for the centroid velocity direction
+
+        Overrides base class to use special method for computing window features with circular values
+
+        Args:
+            identity (int): subject identity
+            window_size (int): window size NOTE: (actual window size is 2 *
+                window_size + 1)
+            per_frame_values (dict[str, np.ndarray]): dictionary of per frame values for this identity
+
+        Returns:
+            dict: dictionary where keys are window feature names and values are the computed window features at each
+                frame for the given identity
+
+        """
         return self._window_circular(identity, window_size, per_frame_values)
 
 

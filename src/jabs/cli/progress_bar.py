@@ -9,8 +9,9 @@ def cli_progress_bar(
     precision=1,
     complete_as_percent=True,
 ):
-    """Call in a loop to create terminal progress bar. The loop can't print
-    any other output to stdout.
+    """Call in a loop to create terminal progress bar.
+
+    Note, the loop can't print any other output to stdout.
 
     Args:
         completed: number of completed iterations
@@ -22,8 +23,10 @@ def cli_progress_bar(
         suffix: suffix string, printed after progress bar
         precision: number of decimals in percent complete
         complete_as_percent: if True, print percent complete, if False print "num_complete of total_num"
-    """
 
+    Todo:
+     - replace this with rich progress bar
+    """
     if len(fill_char) != 1:
         raise ValueError("Invalid fill character")
     if len(padding_char) != 1:

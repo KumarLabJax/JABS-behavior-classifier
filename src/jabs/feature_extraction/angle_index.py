@@ -1,4 +1,5 @@
 import enum
+
 from jabs.pose_estimation import PoseEstimation
 
 
@@ -19,6 +20,7 @@ class AngleIndex(enum.IntEnum):
 
     @staticmethod
     def get_angle_name(i: "AngleIndex"):
+        """map angle index to a string name"""
         strings = {
             AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW: "NOSE-BASE_NECK-RIGHT_FRONT_PAW",
             AngleIndex.NOSE_BASE_NECK_LEFT_FRONT_PAW: "NOSE-BASE_NECK-LEFT_FRONT_PAW",
@@ -36,6 +38,7 @@ class AngleIndex(enum.IntEnum):
 
     @staticmethod
     def get_angle_indices(i: "AngleIndex"):
+        """get the keypoint indices for a given angle index"""
         angles = {
             AngleIndex.NOSE_BASE_NECK_RIGHT_FRONT_PAW: [
                 PoseEstimation.KeypointIndex.NOSE,
