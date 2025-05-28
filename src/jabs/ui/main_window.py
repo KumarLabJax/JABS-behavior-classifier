@@ -549,7 +549,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread = None
 
         # The central_widget updates main_control_widget
-        self.centralWidget().set_project(self._project)
+        self._central_widget.set_project(self._project)
         self.video_list.set_project(self._project)
 
         # Update which controls should be available
@@ -571,11 +571,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
         self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
 
     def _project_load_error_callback(self, error: Exception):
         """Callback function to be called when the project fails to load."""
         self._project_loader_thread = None
         self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
         self._progress_dialog = None
         QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
 
