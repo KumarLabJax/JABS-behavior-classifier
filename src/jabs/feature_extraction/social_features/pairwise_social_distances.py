@@ -2,8 +2,8 @@ import typing
 
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .social_distance import ClosestIdentityInfo
@@ -19,6 +19,21 @@ _social_point_subset = [
 
 
 class PairwiseSocialDistances(Feature):
+    """Computes pairwise social distances between a subject and its closest other identity for a subset of keypoints.
+
+    This feature extracts, for each frame, the distances between all pairs of keypoints in a predefined subset
+    for the subject and the closest other identity. The distances are used to characterize social interactions
+    based on pose estimation data.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for all subjects.
+        pixel_scale (float): Scale factor to convert pixel distances to real-world units.
+        social_distance_info (ClosestIdentityInfo): Object providing closest identity information.
+
+    Methods:
+        per_frame(identity): Computes per-frame pairwise social distances for a given identity.
+    """
+
     _name = "social_pairwise_distances"
     _min_pose = 3
 
@@ -45,21 +60,21 @@ class PairwiseSocialDistances(Feature):
         Returns:
             dict with feature values
         """
-
         return self._social_distance_info.compute_pairwise_social_distances(
             _social_point_subset, self._social_distance_info.closest_identities
         )
 
 
 class PairwiseSocialFovDistances(PairwiseSocialDistances):
-    """PairwiseSocialFovDistances, nearly the same as the PairwiseSocialDistances,
-    except closest_fov_identities is passed to compute_pairwise_social_distances
-    rather than closest_identities
+    """compute pairwise social distances between subject and closest other animal in field of view
+
+    nearly the same as the PairwiseSocialDistances, except closest_fov_identities is passed to
+    compute_pairwise_social_distances rather than closest_identities
     """
 
     _name = "social_pairwise_fov_distances"
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """compute the value of the per frame features for a specific identity
 
         Args:

@@ -5,11 +5,24 @@ import numpy as np
 from jabs.feature_extraction.feature_base_class import Feature
 
 if typing.TYPE_CHECKING:
-    from .social_distance import ClosestIdentityInfo
     from jabs.pose_estimation import PoseEstimation
+
+    from .social_distance import ClosestIdentityInfo
 
 
 class ClosestDistances(Feature):
+    """
+    Computes the distance between a subject and the nearest other identity for each frame.
+
+    This feature calculates, for each frame, the distance between the subject and the closest other identity,
+    based on pose estimation data. The result is useful for analyzing proximity-based social interactions.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to real-world units (cm).
+        social_distance_info (ClosestIdentityInfo): Object providing pre-computed closest identity information.
+    """
+
     _name = "closest_distances"
     _min_pose = 3
 

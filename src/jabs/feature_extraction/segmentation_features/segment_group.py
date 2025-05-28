@@ -1,15 +1,24 @@
+import typing
+
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from jabs.pose_estimation import PoseEstimation
 
+from ..feature_base_class import Feature
+
 # import all feature modules for this group
-from . import Moments, HuMoments, ShapeDescriptors, MomentInfo
+from .hu_moments import HuMoments
+from .moment_cache import MomentInfo
+from .moments import Moments
+from .shape_descriptors import ShapeDescriptors
 
 
 class SegmentationFeatureGroup(FeatureGroup):
+    """A feature group for extracting segmentation features from pose estimation data."""
+
     _name = "segmentation"
 
     # build dictionary mapping feature name to class that implements it
-    _features = {
+    _features: typing.ClassVar[dict[str, Feature]] = {
         Moments.name(): Moments,
         ShapeDescriptors.name(): ShapeDescriptors,
         HuMoments.name(): HuMoments,

@@ -1,16 +1,18 @@
+import typing
+
 import numpy as np
 import scipy.stats
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class LixitDistanceInfo:
-    """because we have two feature groups that both need to know which lixit is the
-    closest, we compute that information once in this helper class and then
-    pass it to both of the features
-    The features cannot be merged into a single feature because one requires a
-    different set of window feature methods.
+    """compute and cache distances and bearings to lixit objects for reuse by multiple features.
+
+    because we have two feature groups that both need to know which lixit is the closest, we compute that
+    information once in this helper class and then pass it to both of the features. The features cannot be merged into
+    a single feature because one requires a different set of window feature methods.
     """
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -26,6 +28,14 @@ class LixitDistanceInfo:
         self._cached_bearings = {}
 
     def cache_features(self, identity: int):
+        """Computes and caches distances and bearings to the closest lixit for a given identity.
+
+        Args:
+            identity (int): The identity index for which to compute and cache lixit distances and bearings.
+
+        Returns:
+            None
+        """
         # if we have already computed the distances and bearings for this identity, we don't need to do anything
         if identity in self._cached_distances and identity in self._cached_bearings:
             return
@@ -50,10 +60,7 @@ class LixitDistanceInfo:
             # OR in newer versions, it might be <number of lixit> x 3 x 2 since a lixit can be defined by three points
             # (tip, left side, right side -- in that order) instead of just a single point (tip)
             num_lixit = lixit.shape[0]
-            if lixit.ndim == 3:
-                points_per_lixit = 3
-            else:
-                points_per_lixit = 1
+            points_per_lixit = 3 if lixit.ndim == 3 else 1
 
             # convert lixit coordinates from pixels to cm if we can
             if self._pixel_scale is not None:
@@ -70,12 +77,7 @@ class LixitDistanceInfo:
             pts = points[:, self._closest_key, :]
             for i in range(num_lixit):
                 # use the tip of the lixit to determine closest
-                if points_per_lixit == 3:
-                    # if we have three points per lixit, the tip of the lixit is the first point
-                    ref = lixit[i, 0]
-                else:
-                    # one point per lixit, it is the tip
-                    ref = lixit[i]
+                ref = lixit[i, 0] if points_per_lixit == 3 else lixit[i]
                 alignment_distances[:, i] = np.sqrt(np.sum((pts - ref) ** 2, axis=1))
 
             self._closest_lixit_idx[identity] = np.argmin(alignment_distances, axis=1)
@@ -159,9 +161,22 @@ class LixitDistanceInfo:
 
 
 class DistanceToLixit(Feature):
+    """
+    Helper class to compute and cache distances and bearings from animal keypoints to lixit objects.
+
+    This class determines, for each frame and identity, the closest lixit (water spout) and calculates:
+      - The distance from each keypoint to the nearest lixit tip.
+      - The bearing (angle) to the lixit using a vector from the animal's nose to base neck as the reference.
+    Results are cached for efficient reuse by multiple feature extraction classes.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data containing keypoints and static objects.
+        pixel_scale (float): Scale factor to convert pixel distances to centimeters.
+    """
+
     _name = "lixit_distances"
     _min_pose = 5
-    _static_objects = ["lixit"]
+    _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
     def __init__(
         self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo
@@ -184,12 +199,20 @@ class DistanceToLixit(Feature):
 
 
 class BearingToLixit(Feature):
+    """This class computes the bearing to the nearest lixit for each frame.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        distances (LixitDistanceInfo): Object providing pre-computed lixit distance and bearing information.
+    """
+
     _name = "lixit_bearings"
     _min_pose = 5
-    _static_objects = ["lixit"]
+    _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
     # override for circular values
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: scipy.stats.circmean(
             x, low=-180, high=180, nan_policy="omit"
         ),
@@ -221,7 +244,10 @@ class BearingToLixit(Feature):
     def window(
         self, identity: int, window_size: int, per_frame_values: dict
     ) -> dict[str, dict[str, np.ndarray]]:
-        # override for circular values
+        """get the windowed values for the bearing to lixit feature
+
+        need to override for base class to properly handle circular values
+        """
         return self._window_circular(identity, window_size, per_frame_values)
 
 
@@ -242,7 +268,7 @@ class MouseLixitAngle(Feature):
 
     _name = "mouse_lixit_angle"
     _min_pose = 5
-    _static_objects = ["lixit"]
+    _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
     def __init__(
         self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo
@@ -255,11 +281,11 @@ class MouseLixitAngle(Feature):
     def is_supported(
         cls, pose_version: int, static_objects: set[str], **kwargs
     ) -> bool:
-        if super().is_supported(pose_version, static_objects, **kwargs):
-            # check additional attributes
-            if kwargs.get("lixit_keypoints") == 3:
-                return True
-        return False
+        """Check if the feature is supported based on the pose version and static objects."""
+        return bool(
+            super().is_supported(pose_version, static_objects, **kwargs)
+            and kwargs.get("lixit_keypoints") == 3
+        )
 
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """Calculate per frame features.
@@ -313,10 +339,10 @@ class MouseLixitAngle(Feature):
 
         # Compute the cosine of the angle between the two vectors and clip it to the range [-1, 1]
         return {
-            f"centroid - nose": np.clip(
+            "centroid - nose": np.clip(
                 dot_product / (norm_mouse_vectors * norm_lixit_vectors), -1.0, 1.0
             ),
-            f"base-tail - centroid": np.clip(
+            "base-tail - centroid": np.clip(
                 dot_product_back / (norm_mouse_back_vectors * norm_lixit_vectors),
                 -1.0,
                 1.0,

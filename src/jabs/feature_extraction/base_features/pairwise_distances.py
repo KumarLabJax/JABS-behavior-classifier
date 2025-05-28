@@ -1,11 +1,16 @@
 import numpy as np
 
-
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class PairwisePointDistances(Feature):
+    """Feature extraction class for computing pairwise Euclidean distances between all keypoints per frame.
+
+    This class calculates the Euclidean distance between every unique pair of keypoints, returning a dictionary
+    mapping each keypoint pair to an array of per-frame distances.
+    """
+
     _name = "pairwise_distances"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -20,7 +25,6 @@ class PairwisePointDistances(Feature):
         Returns:
             dict with feature values
         """
-
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
         values = {}

@@ -1,17 +1,16 @@
 import abc
 import typing
+import warnings
+
 import numpy as np
 from scipy import signal
-import warnings
 
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
 
 
 class Feature(abc.ABC):
-    """Abstract Base Class to define a common interface for classes that implement
-    one or more related features
-    """
+    """Abstract Base Class to define a common interface for classes that implement one or more related features"""
 
     # each subclass needs to define this name and feature_names
     _name = None
@@ -20,10 +19,10 @@ class Feature(abc.ABC):
 
     # requirements for this feature to be available
     _min_pose = 2
-    _static_objects = []
+    _static_objects: typing.ClassVar[list[str]] = []
 
     # NOTE: Circular values need to override this as well as the window()
-    _window_operations = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": window_stats.window_mean,
         "median": window_stats.window_median,
         "std_dev": window_stats.window_std_dev,
@@ -35,7 +34,7 @@ class Feature(abc.ABC):
     _nan_fill_value = 0
 
     # signal processing operations
-    _signal_operations = {
+    _signal_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "fft_band": signal_stats.psd_mean_band,
         "psd_sum": signal_stats.psd_sum,
         "psd_max": signal_stats.psd_max,
@@ -66,6 +65,7 @@ class Feature(abc.ABC):
 
     @staticmethod
     def window_width(window_size: int) -> int:
+        """return the width of the window used for computing features"""
         return 2 * window_size + 1
 
     @classmethod
@@ -75,9 +75,7 @@ class Feature(abc.ABC):
 
     @classmethod
     def feature_names(cls) -> list[str]:
-        """return a list of strings containing the names of the features for the
-        feature set
-        """
+        """return a list of strings containing the names of the features for the feature set"""
         return cls._feature_names
 
     @classmethod
@@ -97,25 +95,19 @@ class Feature(abc.ABC):
         Returns:
             True if the pose file supports the feature, false otherwise
         """
-
         # check that the minimum pose version is met
         if cls._min_pose > pose_version:
             return False
 
         # check that any static objects required by the feature are
         # available
-        for obj in cls._static_objects:
-            if obj not in static_objects:
-                return False
-
-        return True
+        return all(obj in static_objects for obj in cls._static_objects)
 
     @abc.abstractmethod
     def per_frame(self, identity: int) -> dict[str, np.ndarray]:
-        """each FeatureSet subclass will implement this to compute the
-        features in the set
+        """each FeatureSet subclass will implement this to compute the features in the set
 
-        returns an ndarray containing the feature values.
+        returns a ndarray containing the feature values.
         The feature set could be a single feature, where this would be a 1D
         numpy ndarray, or it could be a 2D ndarray for a set of related
         features (for example the pairwise point distances, which is a 2D
@@ -183,7 +175,7 @@ class Feature(abc.ABC):
         # Summarize the signal features
         for op_name, op in self._signal_operations.items():
             if op_name == "fft_band":
-                for i, band in enumerate(self._signal_bands):
+                for band in self._signal_bands:
                     values[f"{op_name}-{band['band_low']}Hz-{band['band_high']}Hz"] = (
                         self._compute_signal_features(
                             freqs,
@@ -284,8 +276,8 @@ class Feature(abc.ABC):
         Args:
             feature_values: dict of per-frame feature values
             frame_mask: numpy array that indicates if the frame is valid for the specific identity we are computing features for
-            window_size:
-            op:
+            window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
+            op: function to perform the actual computation, such as scipy.stats.circmean or scipy.stats.circstd
 
         Returns:
             dict with circular feature values

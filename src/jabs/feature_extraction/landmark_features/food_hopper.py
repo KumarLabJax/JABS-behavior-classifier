@@ -1,9 +1,10 @@
-import numpy as np
+import typing
 
 import cv2
+import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 _EXCLUDED_POINTS = [
     PoseEstimation.KeypointIndex.MID_TAIL,
@@ -12,9 +13,17 @@ _EXCLUDED_POINTS = [
 
 
 class FoodHopper(Feature):
+    """Feature extraction class for computing distances from mouse keypoints to the food hopper polygon.
+
+    For each frame and identity, this class calculates the signed distance from each keypoint (excluding mid tail
+    and tip tail) to the polygon defined by the food hopper's keypoints. The distance is positive if the keypoint is
+    inside the polygon, negative if outside, and zero if on the edge. Results are provided as per-frame arrays for
+    each relevant keypoint.
+    """
+
     _name = "food_hopper"
     _min_pose = 5
-    _static_objects = ["food_hopper"]
+    _static_objects: typing.ClassVar[list[str]] = ["food_hopper"]
 
     def per_frame(self, identity: int) -> dict:
         """get the per frame feature values for the food hopper landmark
