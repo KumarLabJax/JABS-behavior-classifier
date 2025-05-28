@@ -148,6 +148,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.behavior_search = QtGui.QAction("Search Behaviors", self)
         self.behavior_search.setShortcut(QtGui.QKeySequence.Find)
         self.behavior_search.setStatusTip("Search for behaviors")
+        self.behavior_search.setEnabled(False)
         self.behavior_search.triggered.connect(self._search_behaviors)
         view_menu.addAction(self.behavior_search)
 
@@ -417,8 +418,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.overlay_segmentation(checked)
 
     def _search_behaviors(self):
-        """open a dialog to search for behaviors"""
-        dialog = BehaviorSearchDialog(self)
+        """open a dialog to search for behaviors if a project is loaded."""
+        if self._project is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Project Loaded",
+                "Please load a project before searching for behaviors.",
+            )
+            return
+
+        # open the behavior search dialog
+        dialog = BehaviorSearchDialog(self._project, self)
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             search_query = dialog.behavior_search_query
             self._central_widget.update_behavior_search_query(search_query)
@@ -503,6 +513,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
+        self.behavior_search.setEnabled(True)
 
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)

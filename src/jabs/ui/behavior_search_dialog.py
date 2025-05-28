@@ -1,5 +1,6 @@
 from PySide6 import QtGui, QtWidgets
 
+from jabs.project.project import Project
 from jabs.ui.behavior_search_query import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
@@ -15,11 +16,14 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
     2. Prediction Search: Searches based on prediction probabilities.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, project: Project, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Behavior Search")
         self.setModal(True)
         self.resize(500, 320)
+
+        proj_settings = project.settings
+        self._behavior_labels = sorted(proj_settings.get("behavior", {}).keys())
 
         # === Main Layout ===
         main_layout = QtWidgets.QVBoxLayout(self)
@@ -46,10 +50,33 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         # --- Label Search Panel ---
         label_widget = QtWidgets.QWidget()
         label_layout = QtWidgets.QVBoxLayout(label_widget)
-        self.positive_checkbox = QtWidgets.QCheckBox("Positive behavior labels")
-        self.negative_checkbox = QtWidgets.QCheckBox("Negative behavior labels")
-        label_layout.addWidget(self.positive_checkbox)
-        label_layout.addWidget(self.negative_checkbox)
+
+        # behavior dropdown
+        behavior_row = QtWidgets.QHBoxLayout()
+        behavior_label = QtWidgets.QLabel("Behavior Label:")
+        self.behavior_combo = QtWidgets.QComboBox()
+        self.behavior_combo.addItems(["All Behaviors", *self._behavior_labels])
+        behavior_row.addWidget(behavior_label)
+        behavior_row.addWidget(self.behavior_combo)
+        behavior_row.addStretch()
+        label_layout.addLayout(behavior_row)
+
+        # Radio buttons for label selection
+        self.label_radio_group = QtWidgets.QButtonGroup(label_widget)
+        self.radio_both = QtWidgets.QRadioButton(
+            "Positive and negative behavior labels"
+        )
+        self.radio_positive = QtWidgets.QRadioButton("Only positive behavior labels")
+        self.radio_negative = QtWidgets.QRadioButton("Only negative behavior labels")
+        self.radio_both.setChecked(True)
+
+        self.label_radio_group.addButton(self.radio_both, 0)
+        self.label_radio_group.addButton(self.radio_positive, 1)
+        self.label_radio_group.addButton(self.radio_negative, 2)
+
+        label_layout.addWidget(self.radio_both)
+        label_layout.addWidget(self.radio_positive)
+        label_layout.addWidget(self.radio_negative)
         label_layout.addStretch()
         self.stacked_widget.addWidget(label_widget)
 
@@ -103,9 +130,16 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
     def behavior_search_query(self):
         """Return a BehaviorSearchQuery based on the current dialog values."""
         if self.method_combo.currentIndex() == 0:  # Label Search
+            radio_id = self.label_radio_group.checkedId()
+            behavior_label = (
+                self.behavior_combo.currentText()
+                if self.behavior_combo.currentIndex() != 0
+                else None
+            )
             label_query = LabelBehaviorSearchQuery(
-                positive=self.positive_checkbox.isChecked(),
-                negative=self.negative_checkbox.isChecked(),
+                behavior_label=behavior_label,
+                positive=radio_id in (0, 1),
+                negative=radio_id in (0, 2),
             )
 
             return BehaviorSearchQuery(

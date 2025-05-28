@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class LabelBehaviorSearchQuery:
     """Query for label behavior search."""
 
+    behavior_label: str | None = None
     positive: bool = False
     negative: bool = False
 
@@ -29,14 +30,31 @@ class BehaviorSearchQuery:
         """Return a descriptive string for the current search query."""
         no_search = "No Search"
         if self.label_search_query:
-            parts = []
-            if self.label_search_query.positive:
-                parts.append("positive labels")
-            if self.label_search_query.negative:
-                parts.append("negative labels")
-            if not parts:
-                return no_search
-            return " & ".join(parts)
+            behavior_label = self.label_search_query.behavior_label
+            if behavior_label:
+                if (
+                    self.label_search_query.positive
+                    and self.label_search_query.negative
+                ):
+                    return f"{behavior_label} & Not {behavior_label} labels"
+                if self.label_search_query.positive:
+                    return f"{behavior_label} labels"
+                if self.label_search_query.negative:
+                    return f"Not {behavior_label} labels"
+            else:
+                behavior_text = "All behaviors"
+                if (
+                    self.label_search_query.positive
+                    and self.label_search_query.negative
+                ):
+                    return f"{behavior_text} positive & negative labels"
+                if self.label_search_query.positive:
+                    return f"{behavior_text} positive labels"
+                if self.label_search_query.negative:
+                    return f"{behavior_text} negative labels"
+
+            return no_search
+
         elif self.prediction_search_query:
             parts = []
 
