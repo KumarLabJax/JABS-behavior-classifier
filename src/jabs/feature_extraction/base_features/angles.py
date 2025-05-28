@@ -14,7 +14,7 @@ class Angles(Feature):
     _name = "angles"
 
     # override for circular values
-    _window_operations: typing.ClassVar[dict[str, np.ndarray]] = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: scipy.stats.circmean(x, high=360, nan_policy="omit"),
         "std_dev": lambda x: scipy.stats.circstd(x, high=360, nan_policy="omit"),
     }

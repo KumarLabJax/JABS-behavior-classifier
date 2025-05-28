@@ -19,7 +19,7 @@ class CentroidVelocityDir(Feature):
     _name = "centroid_velocity_dir"
 
     # override for circular values
-    _window_operations: typing.ClassVar[dict[str, np.ndarray]] = {
+    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: scipy.stats.circmean(
             x, low=-180, high=180, nan_policy="omit"
         ),
