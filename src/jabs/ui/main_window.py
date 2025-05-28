@@ -336,8 +336,8 @@ class MainWindow(QtWidgets.QMainWindow):
         This method saves the current size of the main window to the settings so the size can be restored next time
         the application is run.
         """
-        self._settings.setValue("main_window_size", self.size())
         super().resizeEvent(event)
+        self._settings.setValue("main_window_size", self.size())
 
     def open_project(self, project_path: str):
         """open a new project directory"""
