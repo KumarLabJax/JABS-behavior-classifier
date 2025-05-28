@@ -1,11 +1,11 @@
 from PySide6 import QtGui, QtWidgets
 
-from jabs.project.project import Project
-from jabs.ui.behavior_search_query import (
+from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionLabelSearchQuery,
 )
+from jabs.project.project import Project
 
 
 class BehaviorSearchDialog(QtWidgets.QDialog):

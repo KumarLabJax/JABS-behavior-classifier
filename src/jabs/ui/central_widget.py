@@ -129,7 +129,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def update_behavior_search_query(self, search_query):
         """Update the search query for the search bar widget"""
-        self._search_bar_widget.update_behavior_search_query(search_query)
+        self._search_bar_widget.update_search(search_query)
 
     def eventFilter(self, source, event):
         """filter events emitted by progress dialog

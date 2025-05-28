@@ -1,47 +1,13 @@
-import json
-from collections.abc import Iterable
-from dataclasses import dataclass
-
 from PySide6 import QtCore, QtWidgets
 
-from jabs.project.project import Project
-from jabs.ui.behavior_search_query import (
+from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionLabelSearchQuery,
+    SearchHit,
+    search_behaviors,
 )
-
-
-@dataclass(frozen=True)
-class _SearchHit:
-    file: str
-    identity: str
-    start_frame: int
-    end_frame: int
-
-    @staticmethod
-    def sorted_search_hits(hits: Iterable["_SearchHit"]) -> list["_SearchHit"]:
-        """
-        Return a list of search hits sorted by file, identity (numeric if possible), and start_frame.
-
-        Args:
-            hits: An iterable of _SearchHit objects.
-
-        Returns:
-            A list of _SearchHit objects sorted by file, identity, and start_frame.
-            Identity is sorted numerically if possible, otherwise alphanumerically.
-        """
-        try:
-            return sorted(
-                hits,
-                key=lambda hit: (hit.file, int(hit.identity), hit.start_frame),
-            )
-        except ValueError:
-            # there is at least one identity that cannot be converted to an int
-            return sorted(
-                hits,
-                key=lambda hit: (hit.file, hit.identity, hit.start_frame),
-            )
+from jabs.project import Project
 
 
 class SearchBarWidget(QtWidgets.QWidget):
@@ -52,12 +18,16 @@ class SearchBarWidget(QtWidgets.QWidget):
 
         self._project: Project = None
         self._search_query = None
+        self._search_results: list[SearchHit] = []
+        self._current_result_index = 0
 
         self.label = QtWidgets.QLabel("Searching for:")
         self.text_label = QtWidgets.QLabel("")
         font = self.text_label.font()
         font.setBold(True)
         self.text_label.setFont(font)
+
+        self.result_count_label = QtWidgets.QLabel("(Not found)")
 
         self.prev_button = QtWidgets.QToolButton()
         self.prev_button.setText("<")
@@ -78,6 +48,7 @@ class SearchBarWidget(QtWidgets.QWidget):
         layout.addWidget(self.label)
         layout.addWidget(self.text_label)
         layout.addStretch()
+        layout.addWidget(self.result_count_label)
 
         # Group prev/next tightly together
         btn_group = QtWidgets.QHBoxLayout()
@@ -97,7 +68,7 @@ class SearchBarWidget(QtWidgets.QWidget):
             }
         """)
 
-        self.update_behavior_search_query(None)
+        self.update_search(None)
 
     @property
     def project(self) -> Project | None:
@@ -108,23 +79,29 @@ class SearchBarWidget(QtWidgets.QWidget):
         """Update the current project."""
         self._project = project
         if self._search_query is not None:
-            self.update_behavior_search_query(self._search_query)
+            self.update_search(self._search_query)
 
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery | None:
         """Get the current behavior search query."""
         return self._search_query
 
-    def update_behavior_search_query(self, search_query: BehaviorSearchQuery | None):
+    def update_search(self, search_query: BehaviorSearchQuery | None):
         """Set the behavior search query and update the text label."""
         self._search_query = search_query
         if search_query is None:
             self.setVisible(False)
-            self.text_label.setText("")
         else:
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
-            self._perform_search()
+            self._search_results = search_behaviors(self._project, search_query)
+            if self._search_results:
+                hit_count = len(self._search_results)
+                self.result_count_label.setText(f"(1 of {hit_count})")
+                print(f"Search found {hit_count} results.")
+            else:
+                self.result_count_label.setText("(Not found)")
+                print("No results found.")
 
     def _on_prev_clicked(self):
         print("Previous button clicked")
@@ -133,68 +110,7 @@ class SearchBarWidget(QtWidgets.QWidget):
         print("Next button clicked")
 
     def _on_done_clicked(self):
-        self.update_behavior_search_query(None)
-
-    def _perform_search(self):
-        """Perform the search based on the current query and project."""
-        search_results = _SearchHit.sorted_search_hits(self._perform_search_gen())
-        if search_results:
-            print(f"Search found {len(search_results)} results.")
-            # Here you could update the UI to display the search results
-        else:
-            print("No results found.")
-
-    def _perform_search_gen(self):
-        """Perform the search based on the current query and project.
-
-        This is a generator that yields search hits.
-        """
-        if self._project is None or self._search_query is None:
-            return
-
-        match self._search_query:
-            case LabelBehaviorSearchQuery() as label_query:
-                print("Searching for labels...")
-
-                if label_query.positive or label_query.negative:
-                    video_manager = self._project.video_manager
-                    sorted_videos = sorted(video_manager.videos)
-
-                    for video in sorted_videos:
-                        anno_path = video_manager.annotations_path(video)
-                        if anno_path.exists():
-                            print(f"Found annotations for {video} at {anno_path}")
-                            with anno_path.open() as f:
-                                anno_dict = json.load(f)
-
-                            labels = anno_dict.get("labels", {})
-                            for identity, identified_labels in labels.items():
-                                for behavior, blocks in identified_labels.items():
-                                    for block in blocks:
-                                        block_matches_query = (
-                                            behavior == label_query.behavior_label
-                                            or label_query.behavior_label is None
-                                        ) and (
-                                            (label_query.positive and block["present"])
-                                            or (
-                                                label_query.negative
-                                                and not block["present"]
-                                            )
-                                        )
-                                        if block_matches_query:
-                                            yield _SearchHit(
-                                                file=video,
-                                                identity=identity,
-                                                start_frame=block["start"],
-                                                end_frame=block["end"],
-                                            )
-
-            case PredictionLabelSearchQuery() as pred_query:  # noqa: F841
-                print("Searching for predictions...")
-                # Your prediction search logic goes here
-
-            case _:
-                print("Unknown query type or unsupported search.")
+        self.update_search(None)
 
 
 def _describe_query(query: BehaviorSearchQuery) -> str:
