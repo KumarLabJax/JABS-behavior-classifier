@@ -28,7 +28,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         # === Main Layout ===
         main_layout = QtWidgets.QVBoxLayout(self)
 
-        # Dropdown selector
+        # select search method
         method_layout = QtWidgets.QHBoxLayout()
         method_label = QtWidgets.QLabel("Search method:")
         self.method_combo = QtWidgets.QComboBox()
@@ -38,8 +38,18 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         method_layout.addStretch()
         main_layout.addLayout(method_layout)
 
+        # checkboxes for limiting search scope
+        self.limit_to_video_checkbox = QtWidgets.QCheckBox(
+            "Limit search to selected video"
+        )
+        self.limit_to_identity_checkbox = QtWidgets.QCheckBox(
+            "Limit search to selected identity"
+        )
+        main_layout.addWidget(self.limit_to_video_checkbox)
+        main_layout.addWidget(self.limit_to_identity_checkbox)
+
         # === GroupBox container with stacked widget ===
-        group_box = QtWidgets.QGroupBox()  # No title for neutral framing
+        group_box = QtWidgets.QGroupBox()
         group_box_layout = QtWidgets.QVBoxLayout(group_box)
         group_box.setStyleSheet("QGroupBox { margin-top: 10px; }")
 
