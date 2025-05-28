@@ -23,7 +23,7 @@ class Angles(Feature):
         super().__init__(poses, pixel_scale)
         self._num_angles = len(AngleIndex)
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
         """compute the value of the per frame features for a specific identity"""
         values = {}
 
