@@ -1,22 +1,26 @@
-import numpy as np
 import cv2
+import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimationV6
 
 
 class MomentInfo:
     """this info is needed to compute a number of different image moment features.
-    It can be done once for a given identity, and then an instance of this
-    object can be passed into all the features that need it
 
-    Image moments provided here are adjusted for pixel scaling
+    It can be done once for a given identity, and then an instance of this object can be passed into all the
+    features that need it. Image moments provided here are adjusted for pixel scaling.
 
     get_moment(frame, key) retrieves the calculated image moment
+
+    Args:
+        poses (PoseEstimationV6): V6+ Pose estimation data for one video.
+        identity (int): Identity to compute moments for.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
     """
 
-    def __init__(self, poses: PoseEstimation, identity: int, pixel_scale: float):
+    def __init__(self, poses: PoseEstimationV6, identity: int, pixel_scale: float):
         # These keys are necessary because opencv returns a dict which may not always be sorted
-        self._moment_keys = [feature_name for feature_name in cv2.moments(np.empty(0))]
+        self._moment_keys = list(cv2.moments(np.empty(0)))
         self._moment_conversion_powers = [
             self.get_pixel_power(feature_name) for feature_name in self._moment_keys
         ]
@@ -38,7 +42,7 @@ class MomentInfo:
         for frame, contours in enumerate(self._seg_data):
             # No segmentation data was present, skip calculating moments
             if len(contours) < 1:
-                moments = {key: np.nan for key in self._moment_keys}
+                moments = dict.fromkeys(self._moment_keys, np.nan)
             else:
                 moments = self.calculate_moments(contours)
             # Update the output array with the desired moments for each frame.
@@ -83,9 +87,7 @@ class MomentInfo:
         Returns:
             dict of moment data
         """
-        return {
-            key: value for key, value in zip(self._moment_keys, self._moments[frame])
-        }
+        return dict(zip(self._moment_keys, self._moments[frame], strict=False))
 
     def get_trimmed_contours(self, frame):
         """retrieves a contour for a specific frame

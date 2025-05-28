@@ -2,8 +2,8 @@ import typing
 
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 if typing.TYPE_CHECKING:
     from .moment_cache import MomentInfo
@@ -18,7 +18,7 @@ class Moments(Feature):
     # However, we only want to look at egocentric (translational invariant)
     # mu (central or relative to centroid) moments and nu (normalized central) moments meet this translational invariance criteria
     # nu moments are also scale-invariant
-    _moments_to_use = [
+    _moments_to_use: typing.ClassVar[list[str]] = [
         "m00",
         "mu20",
         "mu11",
@@ -42,7 +42,18 @@ class Moments(Feature):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
 
-    def per_frame(self, identity: int) -> np.ndarray:
+    def per_frame(self, identity: int) -> dict[str, np.ndarray]:
+        """Computes per-frame image moment features for a specific identity.
+
+        For each frame, extracts selected translational and scale-invariant image moments
+        (central and normalized central moments) from the cached segmentation data.
+
+        Args:
+            identity (int): The identity index for which to compute moment features.
+
+        Returns:
+            dict[str, np.ndarray]: Dictionary mapping moment names to per-frame arrays of values.
+        """
         values = {}
 
         for cur_moment in self._moments_to_use:

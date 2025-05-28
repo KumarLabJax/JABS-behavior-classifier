@@ -1,23 +1,23 @@
 import random
+import re
 import typing
+import warnings
 from importlib import import_module
 from pathlib import Path
-import joblib
-import re
-import warnings
 
+import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
-    precision_recall_fscore_support,
     confusion_matrix,
+    precision_recall_fscore_support,
 )
-from sklearn.model_selection import train_test_split, LeaveOneGroupOut
+from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
-from jabs.project import TrackLabels, Project, load_training_data
+from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
@@ -39,21 +39,25 @@ except Exception:
 
 
 class Classifier:
+    """A machine learning classifier for behavior classification tasks.
+
+    This class supports training, evaluating, saving, and loading classifiers
+    for behavioral data using Random Forest, Gradient Boosting, or XGBoost algorithms.
+    It provides utilities for data splitting, balancing, augmentation, and feature management.
+
+    Attributes:
+        LABEL_THRESHOLD (int): Minimum number of labels required per group.
+    """
+
     LABEL_THRESHOLD = 20
 
-    _classifier_names = {
+    _CLASSIFIER_NAMES: typing.ClassVar[dict] = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
         ClassifierType.GRADIENT_BOOSTING: "Gradient Boosting",
         ClassifierType.XGBOOST: "XGBoost",
     }
 
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
-        """
-        Args:
-            classifier: type of classifier to use. Must be ClassifierType enum value. Defaults to ClassifierType.RANDOM_FOREST
-            n_jobs: number of jobs to use for classifiers that support this parameter for parallelism
-        """
-
         self._classifier_type = classifier
         self._classifier = None
         self._project_settings = None
@@ -72,7 +76,10 @@ class Classifier:
 
     @classmethod
     def from_training_file(cls, path: Path):
-        """
+        """Initialize a classifier from an exported training data file.
+
+        This method will load the training data and train a classifier.
+
         Args:
             path: exported training data file
 
@@ -112,7 +119,7 @@ class Classifier:
     @property
     def classifier_name(self) -> str:
         """return the name of the classifier used as a string"""
-        return self._classifier_names[self._classifier_type]
+        return self._CLASSIFIER_NAMES[self._classifier_type]
 
     @property
     def classifier_type(self) -> ClassifierType:
@@ -121,12 +128,14 @@ class Classifier:
 
     @property
     def classifier_file(self) -> str:
+        """return the filename of the saved classifier"""
         if self._classifier_file is not None:
             return self._classifier_file
         return "NO SAVED CLASSIFIER"
 
     @property
     def classifier_hash(self) -> str:
+        """return the hash of the classifier file"""
         if self._classifier_hash is not None:
             return self._classifier_hash
         return "NO HASH"
@@ -140,14 +149,17 @@ class Classifier:
 
     @property
     def behavior_name(self) -> str:
+        """return the behavior name property"""
         return self._behavior
 
     @behavior_name.setter
-    def behavior_name(self, value) -> str:
+    def behavior_name(self, value) -> None:
+        """set the behavior name property"""
         self._behavior = value
 
     @property
     def version(self) -> int:
+        """return the classifier format version"""
         return self._version
 
     @property
@@ -175,7 +187,6 @@ class Classifier:
             'feature_names': list of feature names
         }
         """
-
         # split labeled data and labels
         all_features = pd.concat([per_frame_features, window_features], axis=1)
         x_train, x_test, y_train, y_test = train_test_split(all_features, label_data)
@@ -306,6 +317,7 @@ class Classifier:
     @staticmethod
     def augment_symmetric(features, labels, random_str="ASygRQDZJD"):
         """augments the features to include L-R and R-L duplicates
+
         This requires 'left' or 'right' to be in the feature name to be swapped
         Features that don't include these terms will not be swapped
 
@@ -318,7 +330,6 @@ class Classifier:
         Returns:
             tuple of augmented features, labels
         """
-
         # Figure out the L-R swapping of features
         lowercase_features = np.array([x.lower() for x in features.columns.to_list()])
         reflected_feature_names = [
@@ -357,9 +368,11 @@ class Classifier:
 
     def set_project_settings(self, project: Project):
         """assign project settings to the classifier
-        :project: project to copy classifier-relevant settings from for the current behavior
 
-        if no behavior is currently set, will simply use project defaults
+        Args:
+            project: project to copy classifier-relevant settings from for the current behavior
+
+        if no behavior is currently set will use project defaults
         """
         if self._behavior is None:
             self._project_settings = project.get_project_defaults()
@@ -370,7 +383,9 @@ class Classifier:
 
     def set_dict_settings(self, settings: dict):
         """assign project settings via a dict to the classifier
-        :settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
+
+        Args:
+            settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
         """
@@ -389,9 +404,9 @@ class Classifier:
             <ClassifierType.XGBOOST: 3>: 'XGBoost'
         }
         """
-        return {d: self._classifier_names[d] for d in _classifier_choices}
+        return {d: self._CLASSIFIER_NAMES[d] for d in _classifier_choices}
 
-    def train(self, data, random_seed: typing.Optional[int] = None):
+    def train(self, data, random_seed: int | None = None):
         """train the classifier
 
         Args:
@@ -410,7 +425,7 @@ class Classifier:
             )
 
         # Assume that feature names is provided, otherwise extract it from the dataframe
-        if "feature_names" in data.keys():
+        if "feature_names" in data:
             self._feature_names = data["feature_names"]
         else:
             self._feature_names = data["training_data"].columns.to_list()
@@ -489,6 +504,10 @@ class Classifier:
         )
 
     def save(self, path: Path):
+        """save the classifier to a file
+
+        Uses joblib to serialize the classifier object to a file.
+        """
         joblib.dump(self, path)
 
         # If the classifier was not generated from exported training data
@@ -501,6 +520,11 @@ class Classifier:
             self._classifier_source = "serialized"
 
     def load(self, path: Path):
+        """load a classifier from a file
+
+        Uses joblib to deserialize the classifier object that was previously saved
+        using the joblib.dump() method.
+        """
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always", InconsistentVersionWarning)
             c = joblib.load(path)
@@ -510,7 +534,7 @@ class Classifier:
                         "Classifier trained with different version of sklearn."
                     )
                 else:
-                    warnings.warn(warning.message, warning.category)
+                    warnings.warn(warning.message, warning.category, stacklevel=2)
 
         if not isinstance(c, Classifier):
             raise ValueError(f"{path} is not instance of Classifier")
@@ -550,14 +574,17 @@ class Classifier:
 
     @staticmethod
     def accuracy_score(truth, predictions):
+        """return accuracy score"""
         return accuracy_score(truth, predictions)
 
     @staticmethod
     def precision_recall_score(truth, predictions):
+        """return precision recall score"""
         return precision_recall_fscore_support(truth, predictions)
 
     @staticmethod
     def confusion_matrix(truth, predictions):
+        """return the confusion matrix using sklearn's confusion_matrix function"""
         return confusion_matrix(truth, predictions)
 
     @staticmethod
@@ -573,9 +600,7 @@ class Classifier:
         """
         return pd.concat([per_frame, window], axis=1)
 
-    def _fit_random_forest(
-        self, features, labels, random_seed: typing.Optional[int] = None
-    ):
+    def _fit_random_forest(self, features, labels, random_seed: int | None = None):
         if random_seed is not None:
             classifier = RandomForestClassifier(
                 n_jobs=self._n_jobs, random_state=random_seed
@@ -584,16 +609,14 @@ class Classifier:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs)
         return classifier.fit(features.fillna(0), labels)
 
-    def _fit_gradient_boost(
-        self, features, labels, random_seed: typing.Optional[int] = None
-    ):
+    def _fit_gradient_boost(self, features, labels, random_seed: int | None = None):
         if random_seed is not None:
             classifier = GradientBoostingClassifier(random_state=random_seed)
         else:
             classifier = GradientBoostingClassifier()
         return classifier.fit(features.fillna(0), labels)
 
-    def _fit_xgboost(self, features, labels, random_seed: typing.Optional[int] = None):
+    def _fit_xgboost(self, features, labels, random_seed: int | None = None):
         if random_seed is not None:
             classifier = _xgboost.XGBClassifier(
                 n_jobs=self._n_jobs, random_state=random_seed
@@ -607,15 +630,15 @@ class Classifier:
         """print the most important features and their importance
 
         Args:
-            feature_list
-            limit
+            feature_list: list of feature names used in the classifier
+            limit: maximum number of features to print, defaults to 20
         """
         # Get numerical feature importance
         importances = list(self._classifier.feature_importances_)
         # List of tuples with variable and importance
         feature_importance = [
             (feature, round(importance, 2))
-            for feature, importance in zip(feature_list, importances)
+            for feature, importance in zip(feature_list, importances, strict=True)
         ]
         # Sort the feature importance by most important first
         feature_importance = sorted(
@@ -651,7 +674,7 @@ class Classifier:
             number of groups that meet label criteria
         """
         group_count = 0
-        for video, counts in all_counts.items():
+        for _, counts in all_counts.items():
             for count in counts:
                 if (
                     count[1][0] >= Classifier.LABEL_THRESHOLD
@@ -675,4 +698,4 @@ class Classifier:
             bool if requested valid groups is > valid group
         """
         group_count = Classifier.count_label_threshold(all_counts)
-        return True if 1 < group_count >= min_groups else False
+        return 1 < group_count >= min_groups

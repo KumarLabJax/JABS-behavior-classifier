@@ -1,10 +1,17 @@
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class PointSpeeds(Feature):
+    """Feature extraction class for computing the speed of each keypoint per frame.
+
+    This class calculates the instantaneous speed of each keypoint by computing the Euclidean norm of the
+    frame-to-frame displacement, scaled by the video frame rate. The resulting speeds are provided as a dictionary
+    mapping keypoint names to per-frame speed arrays.
+    """
+
     _name = "point_speeds"
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

@@ -7,8 +7,9 @@ from jabs.pose_estimation import PoseEstimation
 
 class ClosestIdentityInfo:
     """this info is needed to compute a number of different social features.
-    It can be done once for a given identity, and then an instance of this
-    object can be passed into all the features that need it
+
+    It can be done once for a given identity, and then an instance of this object can be passed into all the
+    features that need it
     """
 
     # TODO  For now this is taken from the ICY paper where the full field of
@@ -68,26 +69,26 @@ class ClosestIdentityInfo:
                                 self_nose_point, self_base_neck_point, other_centroid
                             )
 
-                            if abs(view_angle) <= self.HALF_FOV_DEGREE:
-                                # other animal is in FoV
-                                if (
-                                    closest_fov_dist is None
-                                    or curr_dist < closest_fov_dist
-                                ):
-                                    self._closest_fov_identities[frame] = curr_id
-                                    self._fov_angles[frame] = view_angle
-                                    closest_fov_dist = curr_dist
+                            if abs(view_angle) <= self.HALF_FOV_DEGREE and (
+                                closest_fov_dist is None or curr_dist < closest_fov_dist
+                            ):
+                                self._closest_fov_identities[frame] = curr_id
+                                self._fov_angles[frame] = view_angle
+                                closest_fov_dist = curr_dist
 
     @property
     def closest_identities(self):
+        """Returns the closest identities for each frame."""
         return self._closest_identities
 
     @property
     def closest_fov_identities(self):
+        """Returns the closest identities in the field of view for each frame."""
         return self._closest_fov_identities
 
     @property
     def closest_fov_angles(self):
+        """Returns the angles of the closest animals in the field of view."""
         return self._fov_angles
 
     @staticmethod
@@ -102,13 +103,23 @@ class ClosestIdentityInfo:
         Returns:
             angle between AB and BC with range [-180, 180)
         """
-
         angle = np.degrees(
             np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 
     def compute_distances(self, closest_identities: np.ndarray) -> np.ndarray:
+        """Computes the frame-wise distances between the subject's convex hull and the convex hull of the closest other animal.
+
+        Args:
+            closest_identities (np.ndarray): Array of closest identity indices for each frame.
+
+        Returns:
+            np.ndarray: Array of distances for each frame, with NaN for frames where distance could not be computed.
+
+        Todo:
+         - we already compute distances in the constructor, we should save them and return them here
+        """
         values = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         self_convex_hulls = self._poses.get_identity_convex_hulls(self._identity)
 
@@ -130,9 +141,20 @@ class ClosestIdentityInfo:
 
     def compute_pairwise_social_distances(
         self,
-        social_points: [PoseEstimation.KeypointIndex],
+        social_points: list[PoseEstimation.KeypointIndex],
         closest_identities: np.ndarray,
     ):
+        """
+        Computes pairwise distances between specified keypoints of the subject and the closest other identity.
+
+        Args:
+            social_points (list[PoseEstimation.KeypointIndex]): List of keypoint indices to use for pairwise distance
+             calculation.
+            closest_identities (np.ndarray): Array of closest identity indices for each frame.
+
+        Returns:
+            dict[str, np.ndarray]: Dictionary mapping keypoint pair names to arrays of distances for each frame.
+        """
         values = np.full(
             (self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32
         )
