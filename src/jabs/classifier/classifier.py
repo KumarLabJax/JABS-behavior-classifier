@@ -75,11 +75,6 @@ class Classifier:
             raise ValueError("Invalid classifier type")
 
     @classmethod
-    def classifier_names(cls) -> dict[ClassifierType, str]:
-        """return classifier type to name mapping"""
-        return cls._CLASSIFIER_NAMES
-
-    @classmethod
     def from_training_file(cls, path: Path):
         """Initialize a classifier from an exported training data file.
 
@@ -124,7 +119,7 @@ class Classifier:
     @property
     def classifier_name(self) -> str:
         """return the name of the classifier used as a string"""
-        return self.classifier_names()[self._classifier_type]
+        return self._CLASSIFIER_NAMES[self._classifier_type]
 
     @property
     def classifier_type(self) -> ClassifierType:
@@ -409,7 +404,7 @@ class Classifier:
             <ClassifierType.XGBOOST: 3>: 'XGBoost'
         }
         """
-        return {d: self.classifier_names()[d] for d in _classifier_choices}
+        return {d: self._CLASSIFIER_NAMES[d] for d in _classifier_choices}
 
     def train(self, data, random_seed: int | None = None):
         """train the classifier
