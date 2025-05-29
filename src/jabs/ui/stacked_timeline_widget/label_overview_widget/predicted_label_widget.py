@@ -110,9 +110,7 @@ class PredictedLabelWidget(ManualLabelWidget):
         # done drawing
         qp.end()
 
-    def set_predictions(
-        self, predictions: np.ndarray, probabilities: np.ndarray
-    ) -> None:
+    def set_labels(self, predictions: np.ndarray, probabilities: np.ndarray) -> None:
         """Set the predicted labels and their probabilities for display.
 
         Args:
@@ -128,10 +126,6 @@ class PredictedLabelWidget(ManualLabelWidget):
         raise NotImplementedError
 
     def clear_selection(self) -> None:
-        """Not supported in PredictedLabelWidget"""
-        raise NotImplementedError
-
-    def set_labels(self, labels: np.ndarray, mask: np.ndarray) -> None:
         """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
 

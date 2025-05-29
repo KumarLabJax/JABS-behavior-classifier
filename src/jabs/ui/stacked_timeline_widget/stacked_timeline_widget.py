@@ -356,7 +356,7 @@ class StackedTimelineWidget(QWidget):
         for i, widget in enumerate(self._prediction_overview_widgets):
             widget.num_frames = self.num_frames
             widget.framerate = self.framerate
-            widget.set_predictions(predictions_list[i], probabilities_list[i])
+            widget.set_labels(predictions_list[i], probabilities_list[i])
 
     def start_selection(self, starting_frame: int) -> None:
         """Start a selection from the given frame on the active identity's widget.
