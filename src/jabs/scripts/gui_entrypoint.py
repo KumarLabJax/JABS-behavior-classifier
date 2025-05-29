@@ -1,5 +1,4 @@
 import argparse
-import contextlib
 import sys
 
 from PySide6 import QtWidgets
@@ -16,10 +15,7 @@ def main():
     takes one optional positional argument: path to project directory
     """
     app = QtWidgets.QApplication(sys.argv)
-
-    # don't treat not being able to load the icon as a fatal error
-    with contextlib.suppress(Exception):
-        app.setWindowIcon(QIcon(str(ICON_PATH)))
+    app.setWindowIcon(QIcon(str(ICON_PATH)))
 
     parser = argparse.ArgumentParser()
     parser.add_argument("project_dir", nargs="?")
