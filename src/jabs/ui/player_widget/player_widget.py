@@ -31,9 +31,7 @@ class PlayerWidget(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         # make sure the player thread is stopped when quitting the application
-        QtCore.QCoreApplication.instance().aboutToQuit.connect(
-            self._cleanup_player_thread
-        )
+        QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)
 
         # keep track of the current state
         self._playing = False
@@ -129,6 +127,7 @@ class PlayerWidget(QtWidgets.QWidget):
         )
         self._position_slider.sliderPressed.connect(self._position_slider_clicked)
         self._position_slider.sliderReleased.connect(self._position_slider_release)
+        self._position_slider.valueChanged.connect(self._on_slider_value_changed)
         self._position_slider.setEnabled(False)
 
         # -- set up the layout of the components
@@ -194,9 +193,7 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def _set_overlay_attr(
-        self, attr: str, signal: QtCore.Signal, enabled: bool | None
-    ) -> None:
+    def _set_overlay_attr(self, attr: str, signal: QtCore.Signal, enabled: bool | None) -> None:
         """Toggle or set an overlay attribute and emit the corresponding signal.
 
         Args:
@@ -217,9 +214,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def show_closest(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show closest' overlay state."""
-        self._set_overlay_attr(
-            "_label_closest", self._player_thread.setLabelClosest, enabled
-        )
+        self._set_overlay_attr("_label_closest", self._player_thread.setLabelClosest, enabled)
 
     def show_track(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show track' overlay state."""
@@ -227,9 +222,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_pose", self._player_thread.setOverlayPose, enabled
-        )
+        self._set_overlay_attr("_overlay_pose", self._player_thread.setOverlayPose, enabled)
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay segmentation' overlay state."""
@@ -337,6 +330,11 @@ class PlayerWidget(QtWidgets.QWidget):
             self._start_player_thread()
             self._resume_playing = False
 
+    def _on_slider_value_changed(self, value):
+        """handle slider value change event, this lets us seek by scrolling or dragging the slider"""
+        if self._player_thread is not None and not self._playing:
+            self._seek(value)
+
     def toggle_play(self) -> None:
         """handle clicking on the play/pause button
 
@@ -368,9 +366,7 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._playing:
             return
 
-        new_frame = min(
-            self._position_slider.value() + frames, self._position_slider.maximum()
-        )
+        new_frame = min(self._position_slider.value() + frames, self._position_slider.maximum())
 
         # if new_frame == the current value of the position slider we are at
         # the end of the video, don't do anything. Otherwise, show the next
