@@ -21,6 +21,7 @@ lint.ignore = [
 ]
 
 target-version = "py310"
+line-length = 99
 
 [lint.pydocstyle]
 convention = "google"
