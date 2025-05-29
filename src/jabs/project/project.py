@@ -139,8 +139,8 @@ class Project:
         return self._paths
 
     @property
-    def username(self) -> str:
-        """return username
+    def labeler(self) -> str:
+        """return name of labeler
 
         For now, this is just the username of the user running JABS.
         """
@@ -179,7 +179,7 @@ class Project:
         )
 
         annotations = annotations.as_dict()
-        annotations["labeler"] = self.username
+        annotations["labeler"] = self.labeler
 
         with path.open(mode="w", newline="\n") as f:
             json.dump(annotations, f, indent=2)
