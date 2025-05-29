@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeyEvent
+from PySide6.QtGui import QAction
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
@@ -16,6 +16,7 @@ from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .central_widget import CentralWidget
 from .license_dialog import LicenseAgreementDialog
 from .project_loader_thread import ProjectLoaderThread
+from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
 from .video_list_widget import VideoListDockWidget
 
@@ -24,6 +25,7 @@ USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
 RECENT_PROJECTS_KEY = "recent_projects"
 LICENSE_ACCEPTED_KEY = "license_accepted"
 LICENSE_VERSION_KEY = "license_version"
+WINDOW_SIZE_KEY = "main_window_size"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -43,7 +45,8 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
-        self._central_widget = CentralWidget()
+        self._central_widget = CentralWidget(self)
+        self._central_widget.status_message.connect(self.display_status_message)
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -54,12 +57,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread = None
         self._progress_dialog = None
 
-        self._status_bar = QtWidgets.QStatusBar()
+        self._status_bar = QtWidgets.QStatusBar(self)
         self.setStatusBar(self._status_bar)
 
         self._user_guide_window = None
 
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
+
+        size = self._settings.value("main_window_size", None, type=QtCore.QSize)
+        if size and isinstance(size, QtCore.QSize):
+            self.resize(size)
+        else:
+            self.resize(1280, 720)
 
         # setup menu bar
         menu = self.menuBar()
@@ -69,18 +78,7 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menu.addMenu("View")
         feature_menu = menu.addMenu("Features")
 
-        # open action
-        open_action = QtGui.QAction("&Open Project", self)
-        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
-        open_action.setStatusTip("Open Project")
-        open_action.triggered.connect(self._show_project_open_dialog)
-        file_menu.addAction(open_action)
-
-        # open recent
-        self._open_recent_menu = QtWidgets.QMenu("Open Recent", self)
-        file_menu.addMenu(self._open_recent_menu)
-        self._update_recent_projects()
-
+        # Setup App Menu
         # about app
         about_action = QtGui.QAction(f" &About {self._app_name}", self)
         about_action.setStatusTip("About this application")
@@ -101,6 +99,19 @@ class MainWindow(QtWidgets.QMainWindow):
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         app_menu.addAction(exit_action)
 
+        # Setup File Menu
+        # open action
+        open_action = QtGui.QAction("&Open Project", self)
+        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
+        open_action.setStatusTip("Open Project")
+        open_action.triggered.connect(self._show_project_open_dialog)
+        file_menu.addAction(open_action)
+
+        # open recent
+        self._open_recent_menu = QtWidgets.QMenu("Open Recent", self)
+        file_menu.addMenu(self._open_recent_menu)
+        self._update_recent_projects()
+
         # export training data action
         self._export_training = QtGui.QAction("Export Training Data", self)
         self._export_training.setShortcut(QtGui.QKeySequence("Ctrl+T"))
@@ -116,11 +127,69 @@ class MainWindow(QtWidgets.QMainWindow):
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
 
+        # Setup View Menu
         # video playlist menu item
         self.view_playlist = QtGui.QAction("View Playlist", self)
         self.view_playlist.setCheckable(True)
         self.view_playlist.triggered.connect(self._toggle_video_list)
         view_menu.addAction(self.view_playlist)
+
+        # Timeline submenu
+        timeline_menu = QtWidgets.QMenu("Timeline", self)
+        view_menu.addMenu(timeline_menu)
+
+        # First mutually exclusive group: Labels & Predictions, Labels, Predictions
+        timeline_group = QtGui.QActionGroup(self)
+        timeline_group.setExclusive(True)
+
+        self._timeline_labels_preds = QtGui.QAction(
+            "Labels && Predictions", self, checkable=True
+        )
+        self._timeline_labels = QtGui.QAction("Labels", self, checkable=True)
+        self._timeline_preds = QtGui.QAction("Predictions", self, checkable=True)
+
+        timeline_group.addAction(self._timeline_labels_preds)
+        timeline_group.addAction(self._timeline_labels)
+        timeline_group.addAction(self._timeline_preds)
+
+        timeline_menu.addAction(self._timeline_labels_preds)
+        timeline_menu.addAction(self._timeline_labels)
+        timeline_menu.addAction(self._timeline_preds)
+
+        self._timeline_labels_preds.triggered.connect(
+            self._on_timeline_view_mode_changed
+        )
+        self._timeline_labels.triggered.connect(self._on_timeline_view_mode_changed)
+        self._timeline_preds.triggered.connect(self._on_timeline_view_mode_changed)
+
+        # Separator
+        timeline_menu.addSeparator()
+
+        # Second mutually exclusive group: All Animals, Selected Animals
+        animal_group = QtGui.QActionGroup(self)
+        animal_group.setExclusive(True)
+
+        self._timeline_all_animals = QtGui.QAction("All Animals", self, checkable=True)
+        self._timeline_selected_animal = QtGui.QAction(
+            "Selected Animal", self, checkable=True
+        )
+
+        animal_group.addAction(self._timeline_all_animals)
+        animal_group.addAction(self._timeline_selected_animal)
+
+        timeline_menu.addAction(self._timeline_all_animals)
+        timeline_menu.addAction(self._timeline_selected_animal)
+
+        self._timeline_all_animals.triggered.connect(
+            self._on_timeline_identity_mode_changed
+        )
+        self._timeline_selected_animal.triggered.connect(
+            self._on_timeline_identity_mode_changed
+        )
+
+        # Set default checked actions
+        self._timeline_labels_preds.setChecked(True)
+        self._timeline_selected_animal.setChecked(True)
 
         self.show_track = QtGui.QAction("Show Track", self)
         self.show_track.setCheckable(True)
@@ -194,13 +263,13 @@ class MainWindow(QtWidgets.QMainWindow):
         feature_menu.addAction(self.enable_segmentation_features)
 
         # playlist widget added to dock on left side of main window
-        self.video_list = VideoListDockWidget()
+        self.video_list = VideoListDockWidget(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.video_list)
         self.video_list.setFloating(False)
         self.video_list.setFeatures(
-            QtWidgets.QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+            QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
             | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
 
         # if the playlist visibility changes, make sure the view_playlists
@@ -215,7 +284,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._export_training.setEnabled
         )
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent):
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
 
@@ -231,6 +300,7 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Key.Key_C,
             Qt.Key.Key_Escape,
             Qt.Key.Key_Question,
+            Qt.Key.Key_Shift,
         ]:
             self.centralWidget().keyPressEvent(event)
         elif key == Qt.Key.Key_T:
@@ -243,7 +313,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # anything else pass on to the super class keyPressEvent
             super().keyPressEvent(event)
 
-    def eventFilter(self, source, event):
+    def eventFilter(self, source: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """filter events emitted by progress dialog
 
         The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
@@ -260,6 +330,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return True
         return super().eventFilter(source, event)
 
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        """Handle the resize event of the main window.
+
+        This method saves the current size of the main window to the settings so the size can be restored next time
+        the application is run.
+        """
+        super().resizeEvent(event)
+        self._settings.setValue("main_window_size", self.size())
+
     def open_project(self, project_path: str):
         """open a new project directory"""
         self._progress_dialog = QtWidgets.QProgressDialog(
@@ -268,7 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.show()
-        self._project_loader_thread = ProjectLoaderThread(project_path)
+        self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
         self._project_loader_thread.project_loaded.connect(
             self._project_loaded_callback
         )
@@ -348,14 +427,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.open_project(directory)
 
     def _show_about_dialog(self):
-        dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})")
+        dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})", self)
         dialog.exec_()
 
     def _open_user_guide(self):
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
-                f"{self._app_name_long} ({self._app_name})"
+                f"{self._app_name_long} ({self._app_name})", self
             )
         self._user_guide_window.show()
 
@@ -456,7 +535,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._project_load_error_callback(e)
 
     def _open_archive_behavior_dialog(self):
-        dialog = ArchiveBehaviorDialog(self._central_widget.behaviors)
+        dialog = ArchiveBehaviorDialog(self._central_widget.behaviors, self)
         dialog.behavior_archived.connect(self._archive_behavior_callback)
         dialog.exec_()
 
@@ -470,7 +549,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread = None
 
         # The central_widget updates main_control_widget
-        self.centralWidget().set_project(self._project)
+        self._central_widget.set_project(self._project)
         self.video_list.set_project(self._project)
 
         # Update which controls should be available
@@ -492,11 +571,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
         self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
 
     def _project_load_error_callback(self, error: Exception):
         """Callback function to be called when the project fails to load."""
         self._project_loader_thread = None
         self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
         QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
 
     def show_license_dialog(self):
@@ -558,3 +641,27 @@ class MainWindow(QtWidgets.QMainWindow):
             project_path = action.data()
             if project_path:
                 self.open_project(project_path)
+
+    def _on_timeline_view_mode_changed(self):
+        if self._timeline_labels_preds.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
+            )
+        elif self._timeline_labels.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.LABELS
+            )
+        elif self._timeline_preds.isChecked():
+            self._central_widget.timeline_view_mode = (
+                StackedTimelineWidget.ViewMode.PREDICTIONS
+            )
+
+    def _on_timeline_identity_mode_changed(self):
+        if self._timeline_all_animals.isChecked():
+            self._central_widget.timeline_identity_mode = (
+                StackedTimelineWidget.IdentityMode.ALL
+            )
+        elif self._timeline_selected_animal.isChecked():
+            self._central_widget.timeline_identity_mode = (
+                StackedTimelineWidget.IdentityMode.ACTIVE
+            )

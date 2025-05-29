@@ -1,11 +1,22 @@
 import math
 
 import numpy as np
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtCore import QSize, Qt, Slot
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QImage,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .colors import (
+from jabs.project import TrackLabels
+
+from ...colors import (
     BACKGROUND_COLOR,
     BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR,
@@ -20,6 +31,10 @@ class TimelineLabelWidget(QWidget):
     you can't see fine detail, but you can see where manual labels have been
     applied. This can be useful for seeking through the video to a location of
     labeling.
+
+    Args:
+        *args: Additional positional arguments for QWidget.
+        **kwargs: Additional keyword arguments for QWidget.
     """
 
     # Define color LUT (RGBA)
@@ -34,14 +49,17 @@ class TimelineLabelWidget(QWidget):
         dtype=np.uint8,
     )
     _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
+    _BAR_HEIGHT = 8  # height of the bar in pixels
+    _BAR_PADDING = 3  # padding around the bar in pixels
+    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self._bar_height = 8
-        self._bar_padding = 3
+        self._bar_height = self._BAR_HEIGHT
+        self._bar_padding = self._BAR_PADDING
         self._height = self._bar_height + 2 * self._bar_padding
-        self._window_size = 100
+        self._window_size = self._WINDOW_SIZE
         self._frames_in_view = 2 * self._window_size + 1
 
         # allow widget to expand horizontally but maintain fixed vertical size
@@ -63,20 +81,21 @@ class TimelineLabelWidget(QWidget):
         self._current_frame = 0
         self._num_frames = 0
 
-    def sizeHint(self):
-        """Override QWidget.sizeHint to give an initial starting size.
+    def sizeHint(self) -> QSize:
+        """Return the recommended size for the widget.
 
-        Width hint is not so important because we allow the widget to resize
-        horizontally to fill the available container. The height is fixed,
-        so the value used here sets the height of the widget.
+        Returns:
+            QSize: The preferred size for the timeline label widget.
         """
         return QSize(400, self._height)
 
-    def resizeEvent(self, event):
-        """Handle resize event.
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Handle widget resize events.
 
-        Recalculates scaling factors and calls update_bar() to downsample current label array
-        and rerender the bar
+        Recalculates scaling and updates the bar to match the new size.
+
+        Args:
+            event (QResizeEvent): The resize event.
         """
         # if no video is loaded, there is nothing to display and nothing to
         # resize
@@ -86,8 +105,12 @@ class TimelineLabelWidget(QWidget):
         self._update_scale()
         self._update_bar()
 
-    def paintEvent(self, event):
-        """override QWidget paintEvent"""
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Render the timeline label bar and highlight the current frame.
+
+        Args:
+            event (QPaintEvent): The paint event.
+        """
         # make sure we have something to draw
         if self._pixmap is None or self._bin_size == 0:
             return
@@ -112,37 +135,58 @@ class TimelineLabelWidget(QWidget):
         # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
 
-    def set_labels(self, labels):
-        """load label track to display"""
+    def set_labels(self, labels: TrackLabels) -> None:
+        """Load and display a new label track.
+
+        Args:
+            labels (TrackLabels): The label track to display.
+        """
         self._labels = labels
         self.update_labels()
 
-    def set_current_frame(self, current_frame):
-        """called to reposition the view"""
+    @Slot(int)
+    def set_current_frame(self, current_frame: int) -> None:
+        """Set the current frame to highlight in the timeline.
+
+        Args:
+            current_frame (int): The index of the current frame.
+        """
         self._current_frame = current_frame
         self.update()
 
-    def set_num_frames(self, num_frames):
-        """sets the number of frames in the current video"""
+    def set_num_frames(self, num_frames: int) -> None:
+        """Set the total number of frames in the video.
+
+        Args:
+            num_frames (int): The number of frames.
+        """
         self._num_frames = num_frames
         self._update_scale()
         self._update_bar()
 
-    def update_labels(self):
-        """Update the rendered labels and redraw."""
+    def update_labels(self) -> None:
+        """Update and redraw the timeline bar to reflect the current label data.
+
+        Regenerates the color representation of the labels and updates the widget display.
+        Should be called whenever the label data changes to keep the visualization in sync.
+        """
         self._update_bar()
         self.update()
 
-    def reset(self):
-        """Resets the widget state."""
+    def reset(self) -> None:
+        """Reset the widget to its initial state.
+
+        Clears any loaded labels and recalculates the scale, preparing the widget for new data.
+        """
         self._labels = None
         self._update_scale()
-        self._update_bar()
 
-    def _update_bar(self):
-        """Updates the bar pixmap.
+    def _update_bar(self) -> None:
+        """Downsample the label array and update the bar pixmap for display.
 
-        Downsamples label array with the current size and updates self._pixmap
+        Converts the current labels into a color bar, downsampling as needed to fit the widget width,
+        and updates the internal pixmap for efficient rendering. The internal pixmap is reused by paintEvent
+        and only updated when the labels change or the widget is resized.
         """
         if self._labels is None:
             return
@@ -180,12 +224,21 @@ class TimelineLabelWidget(QWidget):
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
 
-    def _update_scale(self):
-        """update scale factor and bin size"""
+    def _update_scale(self) -> None:
+        """Recalculate the bin size and pixmap offset for the timeline bar.
+
+        Determines how many frames each horizontal pixel represents and computes the necessary
+        padding to center the bar, based on the widget width and total frame count.
+        """
         width = self.size().width()
 
-        pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
-        self._bin_size = int(self._num_frames + pad_size) // width
+        if width and self._num_frames:
+            # calculate the bin size based on the number of frames and the
+            # width of the widget
+            pad_size = (
+                math.ceil(float(self._num_frames) / width) * width - self._num_frames
+            )
+            self._bin_size = int(self._num_frames + pad_size) // width
 
-        padding = (self._bin_size * width - self._num_frames) // self._bin_size
-        self._pixmap_offset = padding // 2
+            padding = (self._bin_size * width - self._num_frames) // self._bin_size
+            self._pixmap_offset = padding // 2

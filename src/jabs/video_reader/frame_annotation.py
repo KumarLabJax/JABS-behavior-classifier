@@ -68,7 +68,7 @@ def label_identity(
     pose_est: PoseEstimation,
     identity: int,
     frame_index: int,
-    color: tuple[int] = _ID_COLOR,
+    color: tuple[int, int, int] = _ID_COLOR,
 ):
     """label the identity on an image
 

@@ -1,7 +1,14 @@
 """IdentityComboBox used to let the player widget know when the combo box is displayed or hidden
 
-Todo:
+Note:
     This functionality isn't needed anymore. Remove it and switch to a standard QComboBox.
+    This exists because when first implemented, we only showed the identity of the selected
+    mouse. When the combo box is displayed, we showed the identities of all the mice in the video. This
+    widget facilitated that. Now we show the identity of all the mice in the video at all times so this
+    is not needed.
+
+Todo:
+    remove this class and switch to a standard QComboBox
 """
 
 from PySide6 import QtCore, QtWidgets

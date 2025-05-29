@@ -21,8 +21,8 @@ class TrainingThread(QtCore.QThread):
     # we can update a status bar if we want
     update_progress = QtCore.Signal(int)
 
-    def __init__(self, project, classifier, behavior, k=1):
-        super().__init__()
+    def __init__(self, project, classifier, behavior, k=1, parent=None):
+        super().__init__(parent=parent)
         self._project = project
         self._classifier = classifier
         self._behavior = behavior

@@ -12,13 +12,9 @@ from jabs.project.track_labels import TrackLabels
 from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
-from .frame_labels_widget import FrameLabelsWidget
-from .global_inference_widget import GlobalInferenceWidget
 from .main_control_widget import MainControlWidget
-from .manual_label_widget import ManualLabelWidget
 from .player_widget import PlayerWidget
-from .prediction_vis_widget import PredictionVisWidget
-from .timeline_label_widget import TimelineLabelWidget
+from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -28,13 +24,20 @@ class CentralWidget(QtWidgets.QWidget):
     """QT Widget implementing our main window contents"""
 
     export_training_status_change = QtCore.Signal(bool)
+    status_message = QtCore.Signal(str, int)  # message, timeout (ms)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # timeline widgets
+        self._stacked_timeline = StackedTimelineWidget(self)
+
         # video player
-        self._player_widget = PlayerWidget()
+        self._player_widget = PlayerWidget(self)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
+        self._player_widget.updateFrameNumber.connect(
+            self._stacked_timeline.set_current_frame
+        )
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
 
@@ -42,6 +45,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._project = None
         self._labels = None
         self._pose_est = None
+        self._suppress_label_track_update = False
 
         #  classifier
         self._classifier = Classifier(n_jobs=-1)
@@ -78,24 +82,16 @@ class CentralWidget(QtWidgets.QWidget):
         )
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
-        # label & prediction vis widgets
-        self.manual_labels = ManualLabelWidget()
-        self.prediction_vis = PredictionVisWidget()
-        self.frame_ticks = FrameLabelsWidget()
-
-        # timeline widgets
-        self.timeline_widget = TimelineLabelWidget()
-        self.inference_timeline_widget = GlobalInferenceWidget()
-
         # main layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
-        layout.addWidget(self._controls, 0, 1, 5, 1)
-        layout.addWidget(self.timeline_widget, 1, 0)
-        layout.addWidget(self.manual_labels, 2, 0)
-        layout.addWidget(self.inference_timeline_widget, 3, 0)
-        layout.addWidget(self.prediction_vis, 4, 0)
-        layout.addWidget(self.frame_ticks, 5, 0)
+        layout.addWidget(self._controls, 0, 1, 2, 1)
+        layout.addWidget(self._stacked_timeline, 1, 0)
+
+        # set row stretch to allow player to expand vertically but not other rows
+        layout.setRowStretch(0, 1)  # Player row expands
+        layout.setRowStretch(1, 0)  # Label overview
+
         self.setLayout(layout)
 
         # progress bar dialog used when running the training or classify threads
@@ -187,6 +183,7 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        self._suppress_label_track_update = True
         if self._labels is not None:
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
@@ -197,6 +194,9 @@ class CentralWidget(QtWidgets.QWidget):
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path)
+
+            self._stacked_timeline.num_identities = self._pose_est.num_identities
+            self._stacked_timeline.num_frames = self._pose_est.num_frames
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
@@ -221,16 +221,10 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._set_identities(self._pose_est.identities)
 
-            self.manual_labels.set_num_frames(self._player_widget.num_frames())
-            self.manual_labels.set_framerate(self._player_widget.stream_fps())
-            self.prediction_vis.set_num_frames(self._player_widget.num_frames())
-            self.frame_ticks.set_num_frames(self._player_widget.num_frames())
-            self.timeline_widget.set_num_frames(self._player_widget.num_frames())
-            self.inference_timeline_widget.set_num_frames(
-                self._player_widget.num_frames()
-            )
+            self._stacked_timeline.framerate = self._player_widget.stream_fps()
+
+            self._suppress_label_track_update = False
             self._set_label_track()
-            self._set_prediction_vis()
 
             # update ui components based on some properties of new video
             if self._pose_est.num_identities > 0:
@@ -240,8 +234,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._controls.select_button_set_enabled(False)
 
                 # and make sure the label visualization widgets are cleared
-                self.manual_labels.set_labels(None)
-                self.timeline_widget.reset()
+                self._stacked_timeline.reset()
 
         except OSError as e:
             # error loading
@@ -261,36 +254,44 @@ class CentralWidget(QtWidgets.QWidget):
                 self._start_selection(True)
 
         key = event.key()
-        if key == QtCore.Qt.Key_Left:
+        shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+
+        if key == QtCore.Qt.Key.Key_Left:
             self._player_widget.previous_frame()
-        elif key == QtCore.Qt.Key_Right:
+        elif key == QtCore.Qt.Key.Key_Right:
             self._player_widget.next_frame()
-        elif key == QtCore.Qt.Key_Up:
-            self._player_widget.next_frame(self._frame_jump)
-        elif key == QtCore.Qt.Key_Down:
-            self._player_widget.previous_frame(self._frame_jump)
-        elif key == QtCore.Qt.Key_Space:
+        elif key == QtCore.Qt.Key.Key_Up:
+            if shift_pressed:
+                self._increment_identity_index()
+            else:
+                self._player_widget.next_frame(self._frame_jump)
+        elif key == QtCore.Qt.Key.Key_Down:
+            if shift_pressed:
+                self._decrement_identity_index()
+            else:
+                self._player_widget.previous_frame(self._frame_jump)
+        elif key == QtCore.Qt.Key.Key_Space:
             self._player_widget.toggle_play()
-        elif key == QtCore.Qt.Key_Z:
+        elif key == QtCore.Qt.Key.Key_Z:
             if self._controls.select_button_is_checked:
                 self._label_behavior()
             else:
                 begin_select_mode()
-        elif key == QtCore.Qt.Key_X:
+        elif key == QtCore.Qt.Key.Key_X:
             if self._controls.select_button_is_checked:
                 self._clear_behavior_label()
             else:
                 begin_select_mode()
-        elif key == QtCore.Qt.Key_C:
+        elif key == QtCore.Qt.Key.Key_C:
             if self._controls.select_button_is_checked:
                 self._label_not_behavior()
             else:
                 begin_select_mode()
-        elif key == QtCore.Qt.Key_Escape:
+        elif key == QtCore.Qt.Key.Key_Escape:
             if self._controls.select_button_is_checked:
                 self._controls.select_button_set_checked(False)
                 self._start_selection(False)
-        elif key == QtCore.Qt.Key_Question:
+        elif key == QtCore.Qt.Key.Key_Question:
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
 
@@ -318,6 +319,26 @@ class CentralWidget(QtWidgets.QWidget):
     def controls(self):
         """return the controls widget"""
         return self._controls
+
+    @property
+    def timeline_view_mode(self):
+        """return the timeline view mode"""
+        return self._stacked_timeline.view_mode
+
+    @timeline_view_mode.setter
+    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode):
+        """set the timeline view mode"""
+        self._stacked_timeline.view_mode = view_mode
+
+    @property
+    def timeline_identity_mode(self):
+        """return the timeline identity mode"""
+        return self._stacked_timeline.identity_mode
+
+    @timeline_identity_mode.setter
+    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode):
+        """set the timeline view mode"""
+        self._stacked_timeline.identity_mode = identity_mode
 
     def _change_behavior(self, new_behavior):
         """make UI changes to reflect the currently selected behavior"""
@@ -357,18 +378,17 @@ class CentralWidget(QtWidgets.QWidget):
         if pressed:
             self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame()
-            self.manual_labels.start_selection(self._selection_start)
+            self._stacked_timeline.start_selection(self._selection_start)
         else:
             self._controls.disable_label_buttons()
-            self.manual_labels.clear_selection()
-        self.manual_labels.update()
+            self._stacked_timeline.clear_selection()
 
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
         start, end = sorted(
             [self._selection_start, self._player_widget.current_frame()]
         )
-        mask = self._player_widget.get_identity_mask()
+        mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
@@ -377,7 +397,7 @@ class CentralWidget(QtWidgets.QWidget):
         start, end = sorted(
             [self._selection_start, self._player_widget.current_frame()]
         )
-        mask = self._player_widget.get_identity_mask()
+        mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_not_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
@@ -398,9 +418,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._project.save_annotations(self._labels)
         self._controls.disable_label_buttons()
-        self.manual_labels.clear_selection()
-        self.manual_labels.update()
-        self.timeline_widget.update_labels()
+        self._stacked_timeline.clear_selection()
         self._update_label_counts()
         self._set_train_button_enabled_state()
 
@@ -411,29 +429,33 @@ class CentralWidget(QtWidgets.QWidget):
     def _change_identity(self):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
-        self._set_label_track()
         self._update_label_counts()
+        self._stacked_timeline.active_identity_index = (
+            self._controls.current_identity_index
+        )
 
     def _frame_change(self, new_frame):
         """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
-        self.manual_labels.set_current_frame(new_frame)
-        self.prediction_vis.set_current_frame(new_frame)
-        self.timeline_widget.set_current_frame(new_frame)
-        self.inference_timeline_widget.set_current_frame(new_frame)
-        self.frame_ticks.set_current_frame(new_frame)
 
     def _set_label_track(self):
         """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
+        if self._suppress_label_track_update:
+            return
+
         behavior = self._controls.current_behavior
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            labels = self._labels.get_track_labels(str(identity), behavior)
-            self.manual_labels.set_labels(
-                labels, mask=self._player_widget.get_identity_mask()
-            )
-            self.timeline_widget.set_labels(labels)
+            label_list = [
+                self._labels.get_track_labels(str(i), behavior)
+                for i in range(self._pose_est.num_identities)
+            ]
+            mask_list = [
+                self._pose_est.identity_mask(i)
+                for i in range(self._pose_est.num_identities)
+            ]
+            self._stacked_timeline.set_labels(label_list, mask_list)
 
         self._set_prediction_vis()
 
@@ -475,11 +497,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier,
             self._controls.current_behavior,
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
+            parent=self,
         )
         self._training_thread.training_complete.connect(self._training_thread_complete)
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(
-            lambda m: self.parent().display_status_message(m, 0)
+            lambda m: self.status_message.emit(m, 0)
         )
 
         # setup progress dialog
@@ -494,7 +517,7 @@ class CentralWidget(QtWidgets.QWidget):
             "Training", None, 0, total_steps, self
         )
         self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         self._progress_dialog.reset()
         self._progress_dialog.show()
 
@@ -504,7 +527,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _training_thread_complete(self):
         """enable classify button once the training is complete"""
         self._progress_dialog.reset()
-        self.parent().display_status_message("Training Complete", 3000)
+        self.status_message.emit("Training Complete", 3000)
         self._controls.classify_button_set_enabled(True)
 
     def _update_training_progress(self, step):
@@ -522,11 +545,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._project,
             self._controls.current_behavior,
             self._loaded_video.name,
+            parent=self,
         )
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(
-            lambda m: self.parent().display_status_message(m, 0)
+            lambda m: self.status_message.emit(m, 0)
         )
 
         # setup progress dialog
@@ -534,7 +558,7 @@ class CentralWidget(QtWidgets.QWidget):
             "Predicting", None, 0, self._project.total_project_identities + 1, self
         )
         self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         self._progress_dialog.reset()
         self._progress_dialog.show()
 
@@ -547,7 +571,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
-        self.parent().display_status_message("Classification Complete")
+        self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step):
@@ -559,34 +583,33 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        identity = self._controls.current_identity_index
+        prediction_list = []
+        probability_list = []
 
-        try:
-            indexes = self._frame_indexes[identity]
-        except KeyError:
-            self.prediction_vis.set_predictions(None, None)
-            self.inference_timeline_widget.set_labels(
-                np.full(
-                    self._player_widget.num_frames(),
-                    TrackLabels.Label.NONE.value,
-                    dtype=np.byte,
-                )
+        for i in range(self._pose_est.num_identities):
+            prediction_labels = np.full(
+                (self._player_widget.num_frames()),
+                TrackLabels.Label.NONE.value,
+                dtype=np.byte,
             )
-            return
 
-        prediction_labels = np.full(
-            (self._player_widget.num_frames()),
-            TrackLabels.Label.NONE.value,
-            dtype=np.byte,
-        )
-        prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
+            prediction_prob = np.zeros(
+                (self._player_widget.num_frames()), dtype=np.float64
+            )
 
-        prediction_labels[indexes] = self._predictions[identity][indexes]
-        prediction_prob[indexes] = self._probabilities[identity][indexes]
+            try:
+                indexes = self._frame_indexes[i]
+            except KeyError:
+                prediction_list.append(prediction_labels)
+                probability_list.append(prediction_prob)
+                continue
 
-        self.prediction_vis.set_predictions(prediction_labels, prediction_prob)
-        self.inference_timeline_widget.set_labels(prediction_labels)
-        self.inference_timeline_widget.update_labels()
+            prediction_labels[indexes] = self._predictions[i][indexes]
+            prediction_prob[indexes] = self._probabilities[i][indexes]
+            prediction_list.append(prediction_labels)
+            probability_list.append(prediction_prob)
+
+        self._stacked_timeline.set_predictions(prediction_list, probability_list)
 
     def _set_train_button_enabled_state(self):
         """set the enabled property of the train button
@@ -768,3 +791,29 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_controls()
         else:
             self._controls.classify_button_set_enabled(False)
+
+    def _increment_identity_index(self):
+        """Increment the identity selection index, rolling over if necessary."""
+        if self._pose_est is None:
+            return
+
+        num_identities = self._pose_est.num_identities
+        if num_identities == 0:
+            return
+
+        current_index = self._controls.current_identity_index
+        next_index = (current_index + 1) % num_identities
+        self._controls.set_identity_index(next_index)
+
+    def _decrement_identity_index(self):
+        """Decrement the identity selection index, rolling over if necessary."""
+        if self._pose_est is None:
+            return
+
+        num_identities = self._pose_est.num_identities
+        if num_identities == 0:
+            return
+
+        current_index = self._controls.current_identity_index
+        prev_index = (current_index - 1) % num_identities
+        self._controls.set_identity_index(prev_index)

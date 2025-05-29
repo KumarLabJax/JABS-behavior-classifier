@@ -6,23 +6,19 @@ from pathlib import Path
 import toml
 
 
-def version_str():
-    """return version string using the version specified in the pyproject.toml file"""
+def version_str() -> str:
+    """Return version string from package metadata or pyproject.toml.
+
+    If jabs-behavior-classifier is an installed package, gets the version from the package metadata. If not installed,
+    attempts to read the project's pyproject.toml file to get the version. Returns 'dev' if it's not able to determine
+    the version using either rof these methods.
+    """
     try:
-        # if the jabs package is installed, return version from package metadata
         return importlib.metadata.version("jabs-behavior-classifier")
-    except:  # noqa: E722
-        # not installed as a package, assume we're running out of a cloned git repo without running `poetry install`
-        # try to get the version from the pyproject.toml file
-
-        # placeholder string in case we can't get version from the pyproject.toml file for some reason
-        version = "dev"
-
+    except importlib.metadata.PackageNotFoundError:
         pyproject_file = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
         try:
             data = toml.load(pyproject_file)
-            version = data["tool"]["poetry"]["version"]
-        except:  # noqa: E722
-            pass
-
-        return version
+            return data["tool"]["poetry"]["version"]
+        except (FileNotFoundError, KeyError, toml.TomlDecodeError):
+            return "dev"
