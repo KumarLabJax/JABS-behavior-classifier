@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
 import jabs.feature_extraction
+from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
 from jabs.project import VideoLabels
 from jabs.project.track_labels import TrackLabels
@@ -37,6 +38,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget = SearchBarWidget(self)
         self._search_bar_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
+        self._search_bar_widget.current_search_hit_changed.connect(
+            self._update_search_hit
         )
 
         # video player
@@ -792,3 +796,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_controls()
         else:
             self._controls.classify_button_set_enabled(False)
+
+    def _update_search_hit(self, search_hit: SearchHit | None):
+        """Handle updates when the current search hit changes."""
+        if search_hit is not None and self._project is not None:
+            print(f"Loading video for search hit: {search_hit.file}")
+            self.load_video(self._project.video_manager.video_path(search_hit.file))
+            self._player_widget.seek_to_frame(search_hit.start_frame)

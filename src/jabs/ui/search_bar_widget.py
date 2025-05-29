@@ -13,6 +13,10 @@ from jabs.project import Project
 class SearchBarWidget(QtWidgets.QWidget):
     """A custom widget for displaying a behavior search bar."""
 
+    # Signal emitted when the current search hit changes.
+    # This will be either a SearchHit object or None if no hits are found.
+    current_search_hit_changed = QtCore.Signal(object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -89,28 +93,61 @@ class SearchBarWidget(QtWidgets.QWidget):
     def update_search(self, search_query: BehaviorSearchQuery | None):
         """Set the behavior search query and update the text label."""
         self._search_query = search_query
+        self._search_results = []
+        self._current_result_index = 0
+
         if search_query is None:
             self.setVisible(False)
+            self.current_search_hit_changed.emit(None)
         else:
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
             if self._search_results:
                 hit_count = len(self._search_results)
-                self.result_count_label.setText(f"(1 of {hit_count})")
+                self.current_search_hit_changed.emit(self.current_search_hit)
                 print(f"Search found {hit_count} results.")
             else:
-                self.result_count_label.setText("(Not found)")
+                self.current_search_hit_changed.emit(None)
                 print("No results found.")
+
+        self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_prev_clicked(self):
         print("Previous button clicked")
+        if self._search_results and self._current_result_index > 0:
+            self._current_result_index -= 1
+            self._update_result_count_label()
+            self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_next_clicked(self):
         print("Next button clicked")
+        if (
+            self._search_results
+            and self._current_result_index < len(self._search_results) - 1
+        ):
+            self._current_result_index += 1
+            self._update_result_count_label()
+            self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_done_clicked(self):
         self.update_search(None)
+
+    def _update_result_count_label(self):
+        if self._search_results:
+            self.result_count_label.setText(
+                f"({self._current_result_index + 1} of {len(self._search_results)})"
+            )
+        else:
+            self.result_count_label.setText("(Not found)")
+
+    @property
+    def current_search_hit(self) -> SearchHit | None:
+        """Get the current search hit based on the current index."""
+        if self._current_result_index < len(self._search_results):
+            return self._search_results[self._current_result_index]
+
+        return None
 
 
 def _describe_query(query: BehaviorSearchQuery) -> str:
