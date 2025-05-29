@@ -321,11 +321,16 @@ class StackedTimelineWidget(QWidget):
             labels_list: List of TrackLabels, one per identity.
             masks_list: Optional list of masks, one per identity.
         """
-        if (
-            len(labels_list) != len(masks_list)
-            or len(labels_list) != self._num_identities
-        ):
-            raise ValueError("Input length does not match number of identities.")
+        if len(labels_list) != self._num_identities:
+            raise ValueError(
+                f"Number of TrackLabels in labels_list ({len(labels_list)}) "
+                f"does not match number of identities ({self._num_identities})."
+            )
+        if len(masks_list) != self._num_identities:
+            raise ValueError(
+                f"Number of mask arrays in masks_list ({len(masks_list)}) "
+                f"does not match number of identities ({self._num_identities})."
+            )
 
         for i, widget in enumerate(self._label_overview_widgets):
             labels = labels_list[i]
@@ -350,7 +355,13 @@ class StackedTimelineWidget(QWidget):
         """
         if len(predictions_list) != self._num_identities:
             raise ValueError(
-                f"Number of predictions ({len(predictions_list)}) does not match number of identities ({self._num_identities})."
+                f"Number of prediction arrays ({len(predictions_list)}) "
+                f"does not match number of identities ({self._num_identities})."
+            )
+        if len(probabilities_list) != self._num_identities:
+            raise ValueError(
+                f"Number of probability arrays ({len(predictions_list)}) "
+                f"does not match number of identities ({self._num_identities})."
             )
 
         for i, widget in enumerate(self._prediction_overview_widgets):
