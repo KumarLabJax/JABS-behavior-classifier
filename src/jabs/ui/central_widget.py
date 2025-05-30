@@ -6,9 +6,11 @@ from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
 import jabs.feature_extraction
+from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
 from jabs.project import VideoLabels
 from jabs.project.track_labels import TrackLabels
+from jabs.ui.search_bar_widget import SearchBarWidget
 from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
@@ -29,15 +31,20 @@ class CentralWidget(QtWidgets.QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # search bar
+        self._search_bar_widget = SearchBarWidget(self)
+        self._search_bar_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
+        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
+
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
-        self._player_widget.updateFrameNumber.connect(
-            self._stacked_timeline.set_current_frame
-        )
+        self._player_widget.updateFrameNumber.connect(self._stacked_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
 
@@ -77,12 +84,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
         self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_balance_labels_changed.connect(
-            self._use_balance_labels_changed
-        )
+        self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
-        # main layout
+        # main grid layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 2, 1)
@@ -92,7 +97,18 @@ class CentralWidget(QtWidgets.QWidget):
         layout.setRowStretch(0, 1)  # Player row expands
         layout.setRowStretch(1, 0)  # Label overview
 
-        self.setLayout(layout)
+        # container for the grid layout
+        grid_container = QtWidgets.QWidget()
+        grid_container.setLayout(layout)
+
+        # main vertical layout to hold the search bar and grid container
+        main_vbox = QtWidgets.QVBoxLayout()
+        main_vbox.setContentsMargins(0, 0, 0, 0)
+        main_vbox.setSpacing(0)
+        main_vbox.addWidget(self._search_bar_widget)
+        main_vbox.addWidget(grid_container, 1)
+
+        self.setLayout(main_vbox)
 
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
@@ -103,6 +119,10 @@ class CentralWidget(QtWidgets.QWidget):
         # from grabbing focus on Windows (which breaks arrow key video nav)
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+
+    def update_behavior_search_query(self, search_query):
+        """Update the search query for the search bar widget"""
+        self._search_bar_widget.update_search(search_query)
 
     def eventFilter(self, source, event):
         """filter events emitted by progress dialog
@@ -173,6 +193,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.settings)
+        self._search_bar_widget.update_project(project)
 
     def load_video(self, path):
         """load a new video file into self._player_widget
@@ -201,15 +222,11 @@ class CentralWidget(QtWidgets.QWidget):
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 nframes = get_frame_count(str(path))
-                self._labels = VideoLabels(
-                    path.name, nframes, self._pose_est.external_identities
-                )
+                self._labels = VideoLabels(path.name, nframes, self._pose_est.external_identities)
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
-                self._project.prediction_manager.load_predictions(
-                    path.name, self.behavior
-                )
+                self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
 
             # load video into player
@@ -365,9 +382,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._set_train_button_enabled_state()
 
-        self._project.settings_manager.save_project_file(
-            {"selected_behavior": self.behavior}
-        )
+        self._project.settings_manager.save_project_file({"selected_behavior": self.behavior})
 
     def _start_selection(self, pressed):
         """Handle a click on "select" button.
@@ -385,27 +400,21 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
-        start, end = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
         mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
     def _label_not_behavior(self):
         """apply _not_ behavior label to currently selected range of frames"""
-        start, end = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
         mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_not_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
     def _clear_behavior_label(self):
         """clear all behavior/not behavior labels from current selection"""
-        label_range = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        label_range = sorted([self._selection_start, self._player_widget.current_frame()])
         self._get_label_track().clear_labels(*label_range)
         self._label_button_common()
 
@@ -430,9 +439,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
-        self._stacked_timeline.active_identity_index = (
-            self._controls.current_identity_index
-        )
+        self._stacked_timeline.active_identity_index = self._controls.current_identity_index
 
     def _frame_change(self, new_frame):
         """called when the video player widget emits its updateFrameNumber signal"""
@@ -452,8 +459,7 @@ class CentralWidget(QtWidgets.QWidget):
                 for i in range(self._pose_est.num_identities)
             ]
             mask_list = [
-                self._pose_est.identity_mask(i)
-                for i in range(self._pose_est.num_identities)
+                self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
             self._stacked_timeline.set_labels(label_list, mask_list)
 
@@ -476,8 +482,7 @@ class CentralWidget(QtWidgets.QWidget):
             and classifier_settings.get("window_size", None) == self.window_size
             and classifier_settings.get("balance_labels", None)
             == self._controls.use_balance_labels
-            and classifier_settings.get("symmetric_behavior", None)
-            == self._controls.use_symmetric
+            and classifier_settings.get("symmetric_behavior", None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -501,9 +506,7 @@ class CentralWidget(QtWidgets.QWidget):
         )
         self._training_thread.training_complete.connect(self._training_thread_complete)
         self._training_thread.update_progress.connect(self._update_training_progress)
-        self._training_thread.current_status.connect(
-            lambda m: self.status_message.emit(m, 0)
-        )
+        self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
 
         # setup progress dialog
         # adds 2 for final training
@@ -513,9 +516,7 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = QtWidgets.QProgressDialog(
-            "Training", None, 0, total_steps, self
-        )
+        self._progress_dialog = QtWidgets.QProgressDialog("Training", None, 0, total_steps, self)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         self._progress_dialog.reset()
@@ -549,9 +550,7 @@ class CentralWidget(QtWidgets.QWidget):
         )
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
-        self._classify_thread.current_status.connect(
-            lambda m: self.status_message.emit(m, 0)
-        )
+        self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
@@ -593,9 +592,7 @@ class CentralWidget(QtWidgets.QWidget):
                 dtype=np.byte,
             )
 
-            prediction_prob = np.zeros(
-                (self._player_widget.num_frames()), dtype=np.float64
-            )
+            prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
 
             try:
                 indexes = self._frame_indexes[i]
@@ -752,9 +749,7 @@ class CentralWidget(QtWidgets.QWidget):
             # checkbox
             return
 
-        self.update_behavior_settings(
-            "balance_labels", self._controls.use_balance_labels
-        )
+        self.update_behavior_settings("balance_labels", self._controls.use_balance_labels)
         self._update_classifier_controls()
 
     def _use_symmetric_changed(self):
@@ -762,9 +757,7 @@ class CentralWidget(QtWidgets.QWidget):
             # Copy behavior of use_balance_labels_changed
             return
 
-        self.update_behavior_settings(
-            "symmetric_behavior", self._controls.use_symmetric
-        )
+        self.update_behavior_settings("symmetric_behavior", self._controls.use_symmetric)
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
@@ -779,9 +772,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _load_cached_classifier(self):
         classifier_loaded = False
         try:
-            classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior
-            )
+            classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)
         except Exception as e:
             print("failed to load classifier:", file=sys.stderr)
             print(f"  {e}", file=sys.stderr)
@@ -791,6 +782,13 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_controls()
         else:
             self._controls.classify_button_set_enabled(False)
+
+    def _update_search_hit(self, search_hit: SearchHit | None):
+        """Handle updates when the current search hit changes."""
+        if search_hit is not None and self._project is not None:
+            print(f"Loading video for search hit: {search_hit.file}")
+            self.load_video(self._project.video_manager.video_path(search_hit.file))
+            self._player_widget.seek_to_frame(search_hit.start_frame)
 
     def _increment_identity_index(self):
         """Increment the identity selection index, rolling over if necessary."""

@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.project import export_training_data
+from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from jabs.version import version_str
 
@@ -142,9 +143,7 @@ class MainWindow(QtWidgets.QMainWindow):
         timeline_group = QtGui.QActionGroup(self)
         timeline_group.setExclusive(True)
 
-        self._timeline_labels_preds = QtGui.QAction(
-            "Labels && Predictions", self, checkable=True
-        )
+        self._timeline_labels_preds = QtGui.QAction("Labels && Predictions", self, checkable=True)
         self._timeline_labels = QtGui.QAction("Labels", self, checkable=True)
         self._timeline_preds = QtGui.QAction("Predictions", self, checkable=True)
 
@@ -156,9 +155,7 @@ class MainWindow(QtWidgets.QMainWindow):
         timeline_menu.addAction(self._timeline_labels)
         timeline_menu.addAction(self._timeline_preds)
 
-        self._timeline_labels_preds.triggered.connect(
-            self._on_timeline_view_mode_changed
-        )
+        self._timeline_labels_preds.triggered.connect(self._on_timeline_view_mode_changed)
         self._timeline_labels.triggered.connect(self._on_timeline_view_mode_changed)
         self._timeline_preds.triggered.connect(self._on_timeline_view_mode_changed)
 
@@ -170,9 +167,7 @@ class MainWindow(QtWidgets.QMainWindow):
         animal_group.setExclusive(True)
 
         self._timeline_all_animals = QtGui.QAction("All Animals", self, checkable=True)
-        self._timeline_selected_animal = QtGui.QAction(
-            "Selected Animal", self, checkable=True
-        )
+        self._timeline_selected_animal = QtGui.QAction("Selected Animal", self, checkable=True)
 
         animal_group.addAction(self._timeline_all_animals)
         animal_group.addAction(self._timeline_selected_animal)
@@ -180,12 +175,8 @@ class MainWindow(QtWidgets.QMainWindow):
         timeline_menu.addAction(self._timeline_all_animals)
         timeline_menu.addAction(self._timeline_selected_animal)
 
-        self._timeline_all_animals.triggered.connect(
-            self._on_timeline_identity_mode_changed
-        )
-        self._timeline_selected_animal.triggered.connect(
-            self._on_timeline_identity_mode_changed
-        )
+        self._timeline_all_animals.triggered.connect(self._on_timeline_identity_mode_changed)
+        self._timeline_selected_animal.triggered.connect(self._on_timeline_identity_mode_changed)
 
         # Set default checked actions
         self._timeline_labels_preds.setChecked(True)
@@ -212,14 +203,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
         view_menu.addAction(self.overlay_segmentation)
 
+        # add behavior search
+        self.behavior_search = QtGui.QAction("Search Behaviors", self)
+        self.behavior_search.setShortcut(QtGui.QKeySequence.Find)
+        self.behavior_search.setStatusTip("Search for behaviors")
+        self.behavior_search.setEnabled(False)
+        self.behavior_search.triggered.connect(self._search_behaviors)
+        view_menu.addAction(self.behavior_search)
+
         # Feature subset actions
         # All these settings should be updated whenever the behavior_changed event occurs
-        self._central_widget.controls.behavior_changed.connect(
-            self.behavior_changed_event
-        )
-        self._central_widget.controls.new_behavior_label.connect(
-            self.behavior_label_add_event
-        )
+        self._central_widget.controls.behavior_changed.connect(self.behavior_changed_event)
+        self._central_widget.controls.new_behavior_label.connect(self.behavior_label_add_event)
 
         self.enable_cm_units = QtGui.QAction("CM Units", self)
         self.enable_cm_units.setCheckable(True)
@@ -244,22 +239,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # Static objects
         enable_landmark_features = {}
         for landmark_name in LandmarkFeatureGroup.feature_map:
-            landmark_action = QtGui.QAction(
-                f"Enable {landmark_name.capitalize()} Features", self
-            )
+            landmark_action = QtGui.QAction(f"Enable {landmark_name.capitalize()} Features", self)
             landmark_action.setCheckable(True)
             landmark_action.triggered.connect(self._toggle_static_object_feature)
             feature_menu.addAction(landmark_action)
             enable_landmark_features[landmark_name] = landmark_action
         self.enable_landmark_features = enable_landmark_features
 
-        self.enable_segmentation_features = QtGui.QAction(
-            "Enable Segmentation Features", self
-        )
+        self.enable_segmentation_features = QtGui.QAction("Enable Segmentation Features", self)
         self.enable_segmentation_features.setCheckable(True)
-        self.enable_segmentation_features.triggered.connect(
-            self._toggle_segmentation_features
-        )
+        self.enable_segmentation_features.triggered.connect(self._toggle_segmentation_features)
         feature_menu.addAction(self.enable_segmentation_features)
 
         # playlist widget added to dock on left side of main window
@@ -341,19 +330,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project(self, project_path: str):
         """open a new project directory"""
-        self._progress_dialog = QtWidgets.QProgressDialog(
-            "Loading project...", None, 0, 0, self
-        )
+        self._progress_dialog = QtWidgets.QProgressDialog("Loading project...", None, 0, 0, self)
         self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.show()
         self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
-        self._project_loader_thread.project_loaded.connect(
-            self._project_loaded_callback
-        )
-        self._project_loader_thread.load_error.connect(
-            self._project_load_error_callback
-        )
+        self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
+        self._project_loader_thread.load_error.connect(self._project_load_error_callback)
         self._project_loader_thread.start()
 
     def behavior_changed_event(self, new_behavior: str):
@@ -368,9 +351,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_window_features.setChecked(behavior_metadata.get("window", False))
         self.enable_fft_features.setChecked(behavior_metadata.get("fft", False))
         self.enable_social_features.setChecked(behavior_metadata.get("social", False))
-        self.enable_segmentation_features.setChecked(
-            behavior_metadata.get("segmentation", False)
-        )
+        self.enable_segmentation_features.setChecked(behavior_metadata.get("segmentation", False))
         static_settings = behavior_metadata.get("static_objects", {})
         for static_object, menu_item in self.enable_landmark_features.items():
             menu_item.setChecked(static_settings.get(static_object, False))
@@ -379,10 +360,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """handle project updates required when user adds new behavior labels"""
         # check for new behaviors
         for behavior in behaviors:
-            if (
-                behavior
-                not in self._project.settings_manager.project_settings["behavior"]
-            ):
+            if behavior not in self._project.settings_manager.project_settings["behavior"]:
                 # save new behavior with default settings
                 self._project.settings_manager.save_behavior(behavior, {})
 
@@ -487,12 +465,26 @@ class MainWindow(QtWidgets.QMainWindow):
         """show/hide segmentation overlay for subject."""
         self._central_widget.overlay_segmentation(checked)
 
+    def _search_behaviors(self):
+        """open a dialog to search for behaviors if a project is loaded."""
+        if self._project is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Project Loaded",
+                "Please load a project before searching for behaviors.",
+            )
+            return
+
+        # open the behavior search dialog
+        dialog = BehaviorSearchDialog(self._project, self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            search_query = dialog.behavior_search_query
+            self._central_widget.update_behavior_search_query(search_query)
+
     def _toggle_cm_units(self, checked: bool):
         """toggle project to use pixel units."""
         # TODO: Warn the user that features may need to be re-calculated
-        self._project.save_behavior(
-            self._central_widget.behavior, {"cm_units": checked}
-        )
+        self._project.save_behavior(self._central_widget.behavior, {"cm_units": checked})
 
     def _toggle_social_features(self, checked: bool):
         """toggle project to use social features."""
@@ -508,17 +500,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_segmentation_features(self, checked: bool):
         """toggle project to use segmentation features."""
-        self._project.save_behavior(
-            self._central_widget.behavior, {"segmentation": checked}
-        )
+        self._project.save_behavior(self._central_widget.behavior, {"segmentation": checked})
 
     def _toggle_static_object_feature(self, checked: bool):
         """toggle project to use a specific static object feature set."""
         # get the key from the caller
         key = self.sender().text().split(" ")[1].lower()
-        all_object_settings = self._project.get_behavior(
-            self._central_widget.behavior
-        ).get("static_objects", {})
+        all_object_settings = self._project.get_behavior(self._central_widget.behavior).get(
+            "static_objects", {}
+        )
         all_object_settings[key] = checked
         self._project.save_behavior(
             self._central_widget.behavior, {"static_objects": all_object_settings}
@@ -527,9 +517,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _video_list_selection(self, filename: str):
         """handle a click on a new video in the list loaded into the main window dock"""
         try:
-            self._central_widget.load_video(
-                self._project.video_manager.video_path(filename)
-            )
+            self._central_widget.load_video(self._project.video_manager.video_path(filename))
         except OSError as e:
             self.display_status_message(f"Unable to load video: {e}")
             self._project_load_error_callback(e)
@@ -567,6 +555,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
+        self.behavior_search.setEnabled(True)
 
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
@@ -648,20 +637,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
             )
         elif self._timeline_labels.isChecked():
-            self._central_widget.timeline_view_mode = (
-                StackedTimelineWidget.ViewMode.LABELS
-            )
+            self._central_widget.timeline_view_mode = StackedTimelineWidget.ViewMode.LABELS
         elif self._timeline_preds.isChecked():
-            self._central_widget.timeline_view_mode = (
-                StackedTimelineWidget.ViewMode.PREDICTIONS
-            )
+            self._central_widget.timeline_view_mode = StackedTimelineWidget.ViewMode.PREDICTIONS
 
     def _on_timeline_identity_mode_changed(self):
         if self._timeline_all_animals.isChecked():
-            self._central_widget.timeline_identity_mode = (
-                StackedTimelineWidget.IdentityMode.ALL
-            )
+            self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ALL
         elif self._timeline_selected_animal.isChecked():
-            self._central_widget.timeline_identity_mode = (
-                StackedTimelineWidget.IdentityMode.ACTIVE
-            )
+            self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ACTIVE
