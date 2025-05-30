@@ -4,7 +4,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui
 
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV3
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.video_reader import (
     VideoReader,
     draw_track,
@@ -22,18 +22,19 @@ class PlayerThread(QtCore.QThread):
     Handles timing to achieve correct playback speed and emits signals to update UI components.
 
     Args:
-        video_reader: The video reader instance.
-        pose_est: The pose estimation object.
-        identity: The active identity to track.
+        video_reader (VideoReader): The video reader instance.
+        pose_est (PoseEstimation): The pose estimation object.
+        identity (int): The active identity to track.
         show_track (bool, optional): Whether to show the track overlay. Defaults to False.
         overlay_pose_flag (bool, optional): Whether to overlay pose. Defaults to False.
-        identities (list, optional): List of all identities. Defaults to None.
+        identities (list[str], optional): List of all identities. Defaults to None.
         overlay_landmarks_flag (bool, optional): Whether to overlay landmarks. Defaults to False.
         overlay_segmentation_flag (bool, optional): Whether to overlay segmentation. Defaults to False.
+        label_closest (bool, optional): Whether to label the closest animal. Defaults to False.
 
     Signals:
-        newImage (dict): Emitted with a new QImage and source filename.
-        updatePosition (dict): Emitted with the current frame index and source filename.
+        newImage (QImage): Emitted with a new QImage for the PlayerWidget to display.
+        updatePosition (int): Emitted with the current frame index
         endOfFile: Emitted when the end of the video is reached.
     """
 
@@ -41,22 +42,37 @@ class PlayerThread(QtCore.QThread):
     _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.Signal(dict)
-    updatePosition = QtCore.Signal(dict)
+    newImage = QtCore.Signal(QtGui.QImage)
+    updatePosition = QtCore.Signal(int)
     endOfFile = QtCore.Signal()
+
+    # signals used to update the properties of PlayerThread in a thread-safe manner
+    setLabelClosest = QtCore.Signal(bool)
+    setShowTrack = QtCore.Signal(bool)
+    setOverlayPose = QtCore.Signal(bool)
+    setOverlaySegmentation = QtCore.Signal(bool)
+    setOverlayLandmarks = QtCore.Signal(bool)
+    setActiveIdentity = QtCore.Signal(int)
 
     def __init__(
         self,
-        video_reader,
-        pose_est,
-        identity,
-        show_track=False,
-        overlay_pose_flag=False,
-        identities=None,
-        overlay_landmarks_flag=False,
-        overlay_segmentation_flag=False,
+        video_reader: VideoReader,
+        pose_est: PoseEstimation,
+        identity: int,
+        show_track: bool = False,
+        overlay_pose_flag: bool = False,
+        identities: list[str] | None = None,
+        overlay_landmarks_flag: bool = False,
+        overlay_segmentation_flag: bool = False,
+        label_closest: bool = False,
     ):
         super().__init__()
+
+        if overlay_segmentation_flag and not isinstance(pose_est, PoseEstimationV6):
+            raise ValueError(
+                "Overlay segmentation is only supported with PoseEstimationV6 or greater."
+            )
+
         self._video_reader = video_reader
         self._pose_est = pose_est
         self._identity = identity
@@ -65,54 +81,53 @@ class PlayerThread(QtCore.QThread):
         self._overlay_pose = overlay_pose_flag
         self._overlay_segmentation = overlay_segmentation_flag
         self._overlay_landmarks = overlay_landmarks_flag
+        self._label_closest = label_closest
         self._identities = identities if identities is not None else []
+
+        self.setLabelClosest.connect(self._set_label_closest)
+        self.setShowTrack.connect(self._set_show_track)
+        self.setOverlayPose.connect(self._set_overlay_pose)
+        self.setOverlaySegmentation.connect(self._set_overlay_segmentation)
+        self.setOverlayLandmarks.connect(self._set_overlay_landmarks)
+        self.setActiveIdentity.connect(self._set_identity)
 
     def stop_playback(self):
         """tell run thread to stop playback"""
         self.requestInterruption()
 
-    def set_identity(self, identity):
-        """set the active identity
-
-        Args:
-            identity: new selected identity
-
-        Returns:
-            None
-        """
+    @QtCore.Slot(int)
+    def _set_identity(self, identity: int):
+        """set the active identity"""
         self._identity = identity
 
-    def set_identities(self, identities):
-        """set the list of identities"""
-        self._identities = identities
+    @QtCore.Slot(bool)
+    def _set_label_closest(self, value: bool):
+        self._label_closest = value
 
-    def label_closest(self, new_val: bool):
-        """set the label closest property"""
-        self._label_closest = new_val
+    @QtCore.Slot(bool)
+    def _set_show_track(self, value: bool):
+        self._show_track = value
 
-    def set_show_track(self, new_val: bool):
-        """set the show track property"""
-        self._show_track = new_val
-
-    def set_overlay_pose(self, new_val: bool):
+    @QtCore.Slot(bool)
+    def _set_overlay_pose(self, new_val: bool):
         """set overlay pose property"""
         self._overlay_pose = new_val
 
-    def set_overlay_segmentation(self, new_val: bool):
+    @QtCore.Slot(bool)
+    def _set_overlay_segmentation(self, new_val: bool):
         """set the overlay segmentation property"""
         self._overlay_segmentation = new_val
 
-    def set_overlay_landmarks(self, new_val: bool):
+    @QtCore.Slot(bool)
+    def _set_overlay_landmarks(self, new_val: bool):
         """set the overlay landmarks property"""
         self._overlay_landmarks = new_val
 
     def _read_and_emit_frame(self):
         frame = self._video_reader.load_next_frame()
         image = self._prepare_image(frame)
-        self.newImage.emit({"image": image, "source": self._video_reader.filename})
-        self.updatePosition.emit(
-            {"index": frame["index"], "source": self._video_reader.filename}
-        )
+        self.newImage.emit(image)
+        self.updatePosition.emit(frame["index"])
 
     def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
         if frame["data"] is None:
@@ -171,15 +186,26 @@ class PlayerThread(QtCore.QThread):
             subject=self._identity,
         )
 
-        # convert OpenCV image (numpy array) to QImage
-        image = QtGui.QImage(
-            frame["data"],
-            frame["data"].shape[1],
-            frame["data"].shape[0],
-            QtGui.QImage.Format_RGB888,
-        ).rgbSwapped()
-
-        return image
+        # using numpy slicing to convert from OpenCV BGR to Qt RGB format is more efficient
+        # than using QImage.rgbSwapped() because QImage.rgbSwapped() creates a a QImage in BGR
+        # first and then makes a copy with the channels swapped.
+        img = frame["data"]
+        if img.dtype != np.uint8:
+            img = img.astype(np.uint8)
+        if img.shape[2] == 3:  # Assume BGR from OpenCV
+            img_rgb = np.ascontiguousarray(img[..., ::-1])  # BGR to RGB
+            height, width, channels = img_rgb.shape
+            bytes_per_line = channels * width
+            image = QtGui.QImage(
+                img_rgb.data,
+                width,
+                height,
+                bytes_per_line,
+                QtGui.QImage.Format.Format_RGB888,
+            )
+            return image
+        else:
+            raise ValueError("Unsupported image format: expected 3 channels (BGR/RGB)")
 
     def seek(self, position: int):
         """Seek to a specific frame position if the thread is not running.
@@ -193,30 +219,6 @@ class PlayerThread(QtCore.QThread):
         if not self.isRunning():
             self._video_reader.seek(position)
             self._read_and_emit_frame()
-
-    def load_new_video(
-        self,
-        video_reader: VideoReader,
-        pose_est: PoseEstimation,
-        identity: int,
-        identities: list,
-    ):
-        """Load a new video and update associated pose estimation and identities.
-
-        Updates the internal video reader, pose estimation object, active identity, and list of identities
-        if the thread is not currently running.
-
-        Args:
-            video_reader (VideoReader): The new video reader instance.
-            pose_est (PoseEstimation): The new pose estimation object.
-            identity (int): The active identity to track.
-            identities (list): List of all identities in the video.
-        """
-        if not self.isRunning():
-            self._video_reader = video_reader
-            self._pose_est = pose_est
-            self._identity = identity
-            self._identities = identities
 
     def run(self):
         """method to be run as a thread during playback
@@ -249,12 +251,8 @@ class PlayerThread(QtCore.QThread):
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
                 if not self.isInterruptionRequested():
-                    self.newImage.emit(
-                        {"image": image, "source": self._video_reader.filename}
-                    )
-                    self.updatePosition.emit(
-                        {"index": frame["index"], "source": self._video_reader.filename}
-                    )
+                    self.newImage.emit(image)
+                    self.updatePosition.emit(frame["index"])
 
                 # update timestamp for when should the next frame be shown
                 next_timestamp += frame["duration"]
@@ -266,7 +264,7 @@ class PlayerThread(QtCore.QThread):
                 end_of_file = True
 
     def _get_closest_animal_id(self, frame_index, half_fov_deg=None):
-        idx = PoseEstimationV3.KeypointIndex
+        idx = PoseEstimation.KeypointIndex
         closest_id = None
         closest_dist = None
         ref_shape = self._pose_est.get_identity_convex_hulls(self._identity)[

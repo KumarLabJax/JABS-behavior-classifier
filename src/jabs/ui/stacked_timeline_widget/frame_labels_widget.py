@@ -4,11 +4,10 @@ from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 
 class FrameLabelsWidget(QWidget):
-    """Widget for drawing frame ticks and labels below a ManualLabelsWidget.
+    """Widget for drawing frame ticks and labels below a LabelOverviewWidget.
 
-    Displays tick marks and frame numbers for a sliding window of frames centered
-    around the current frame. Intended to visually indicate frame positions and
-    intervals in a video labeling interface.
+    Displays tick marks and frame numbers for a sliding window of frames centered around the current frame.
+    Intended to visually indicate frame positions and intervals in a video labeling interface.
 
     Args:
         *args: Additional positional arguments for QWidget.
@@ -68,6 +67,9 @@ class FrameLabelsWidget(QWidget):
 
         This draws the widget.
         """
+        if self._num_frames == 0:
+            return
+
         # starting and ending frames of the current view
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
@@ -80,7 +82,7 @@ class FrameLabelsWidget(QWidget):
         qp.end()
 
     def _draw_ticks(self, painter, start, end):
-        """draw ticks draw ticks at the proper interval and draw the frame number under the tick
+        """draw ticks at the proper interval and draw the frame number under the tick
 
         Args:
             painter: active QPainter
@@ -103,7 +105,6 @@ class FrameLabelsWidget(QWidget):
     def set_current_frame(self, current_frame):
         """called to reposition the view around new current frame"""
         self._current_frame = current_frame
-        # force redraw
         self.update()
 
     def set_num_frames(self, num_frames):

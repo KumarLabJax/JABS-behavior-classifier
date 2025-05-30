@@ -28,7 +28,7 @@ class VideoReader:
         self._num_frames = int(self.stream.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # get frame rate
-        self._fps = self.stream.get(cv2.CAP_PROP_FPS)
+        self._fps = round(self.stream.get(cv2.CAP_PROP_FPS))
 
         # calculate duration in seconds of each frame based on frame rate
         self._duration = 1.0 / self._fps

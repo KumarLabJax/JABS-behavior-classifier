@@ -28,4 +28,4 @@ def get_fps(video_path: str):
     if not stream.isOpened():
         raise OSError(f"unable to open {video_path}")
 
-    return stream.get(cv2.CAP_PROP_FPS)
+    return round(stream.get(cv2.CAP_PROP_FPS))

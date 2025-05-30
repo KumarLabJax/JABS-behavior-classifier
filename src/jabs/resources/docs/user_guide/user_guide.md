@@ -93,7 +93,7 @@ video.
 
 This directory contains archived labels. These are compressed files (gzip)
 containing labels for behaviors that the user has removed from the project.
-Rotta only archives labels. Trained classifiers and predictions are deleted if a
+JABS only archives labels. Trained classifiers and predictions are deleted if a
 user removes a behavior from a project.
 
 ### jabs/cache
@@ -107,7 +107,7 @@ different platform.
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable. While non-portable,
 these files can be used alongside `jabs-classify classify --classifier` for
-predicting on the same machine the gui running the training.
+predicting on the same machine as the gui running the training.
 
 ### jabs/features
 
@@ -179,7 +179,7 @@ tool (`jabs-classify`).
 - **Cross Validation Slider:** Number of "Leave One Out" cross validation
   iterations to run while training.
 
-### Label and Prediction Visualizations
+### Label and Prediction Visualizations (Timeline)
 
 <img src="imgs/label_viz.png" alt="JABS Label Visualizations" width=900 />
 
@@ -196,7 +196,22 @@ tool (`jabs-classify`).
 - **Predicted Class (global view):** Displays a zoomed out view of the predicted
   classes for the entire video.
 - **Sliding Window Indicator:** highlights the section of the global views that
-  correspond to the frames displayed in the "sliding window" views.s
+  correspond to the frames displayed in the "sliding window" views.
+
+By default, the Timeline shows manual labels and predicted behaviors for the currently 
+subject animal. The Timeline can be toggled to show all subjects by selecting 
+View->Timeline->All Animals in the menu bar. The Timeline can also be toggled to show only
+manual labels, only predicted labels. If "All Animals" is selected, the Timeline will show
+which set of labels and predictions belong to the subject animal by drawing a colored box 
+them. 
+
+**Timeline Menu**
+<img src="imgs/timeline_menu.png" alt="JABS Timeline" alt="Timeline visualization options" />
+
+<br />
+**Example Timeline with "Labels & Predictions" and "All Animals" selected**
+<img src="imgs/stacked_timeline.png" alt="Timeline with all animals" width=900 />
+
 
 ### Menu
 
@@ -210,30 +225,32 @@ tool (`jabs-classify`).
   share a classifier. This exported file is written to the project directory and
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
   used as one input for the `jabs-classify` script.
-- **View→View Playlist:** can be used to hide/show video playlist
-- **View→Show Track:** show/hide track overlay for the subject. The track
-  overlay shows the nose position for the previous 5 frames and the next 10
-  frames. The nose position for the next 10 frames is colored red, and the
-  previous 5 frames it is a shade of pink.
-- **View→Overlay Pose:** toggle the overlay of the pose on top of the subject
+- **View:** Menu to control various display options.
+  - **View→View Playlist:** can be used to hide/show video playlist
+  - **View→Timeline:** Menu to control the timeline display. 
+  - **View→Show Track:** show/hide track overlay for the subject. The track
+    overlay shows the nose position for the previous 5 frames and the next 10
+    frames. The nose position for the next 10 frames is colored red, and the
+    previous 5 frames it is a shade of pink.
+  - **View→Overlay Pose:** toggle the overlay of the pose on top of the subject
   mouse
-- **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the
+  - **View→Overlay Landmarks:** toggle the overlay of arena landmarks over the
   video.
 - **Features:** Menu item for controlling per-behavior classifier settings.
   Menu items are disabled when at least 1 pose file in the project does not
   contain the data to calculate features.
-- **Features→CM Units:** toggle using CM or pixel units
+  - **Features→CM Units:** toggle using CM or pixel units
   (Warning! Changing this will require features to be re-calculated)
-- **Features→Enable Window Features:** toggle using statistical window features
-- **Features→Enable Signal Features:** toggle using fft-based window features
-- **Features→Enable Social Features:** toggle using social features (v3+ projects)
-- **Features→Enable Corners Features:** toggle using arena corner features
+  - **Features→Enable Window Features:** toggle using statistical window features
+  - **Features→Enable Signal Features:** toggle using fft-based window features
+  - **Features→Enable Social Features:** toggle using social features (v3+ projects)
+  - **Features→Enable Corners Features:** toggle using arena corner features
   (v5+ projects with arena corner static object)
-- **Features→Enable Lixit Features:** toggle using lixit features
+  - **Features→Enable Lixit Features:** toggle using lixit features
   (v5+ projects with lixit static object)
-- **Features→Enable Food_hopper Features:** toggle using food hopper features
+  - **Features→Enable Food_hopper Features:** toggle using food hopper features
   (v5+ projects with food hopper static object)
-- **Features→Enable Segmentation Features:** toggle using segmentation features
+  - **Features→Enable Segmentation Features:** toggle using segmentation features
   (v6+ projects)
 
 **Track Overlay Example:**  
@@ -323,7 +340,7 @@ Actions under the file menu have keyboard shortcuts.
 
 ### Labeling
 
-while in select mode:
+While in select mode:
 
 - z: label current selection <behavior>and leave select mode
 - x: clear current selection labels and leave select mode
@@ -331,12 +348,19 @@ while in select mode:
 - Escape: exit select mode without applying/clearing labels for current
   selection
 
-while not in select mode:
+While not in select mode:
 
 - z, x, c: enter select mode
 
 ### Other
 
+Switching subject:
+- shift + up arrow: switch to the next subject
+- shift + down arrow: switch to the previous subject
+
+Note: next/previous subject is determined by the order of subjects in the "Identity Selection" dropdown. 
+
+Overlays:
 - t: toggle track overlay for subject
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
