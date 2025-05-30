@@ -36,6 +36,7 @@ class SearchHit:
 
     file: str
     identity: str
+    behavior: str | None
     start_frame: int
     end_frame: int
 
@@ -81,15 +82,13 @@ def _search_behaviors_gen(
                                         or label_query.behavior_label is None
                                     ) and (
                                         (label_query.positive and block["present"])
-                                        or (
-                                            label_query.negative
-                                            and not block["present"]
-                                        )
+                                        or (label_query.negative and not block["present"])
                                     )
                                     if block_matches_query:
                                         yield SearchHit(
                                             file=video,
                                             identity=identity,
+                                            behavior=behavior,
                                             start_frame=block["start"],
                                             end_frame=block["end"],
                                         )
@@ -102,9 +101,11 @@ def _search_behaviors_gen(
             print("Unknown query type or unsupported search.")
 
 
-def _sorted_search_results(hits: Iterable["SearchHit"]) -> list["SearchHit"]:
+def _sorted_search_results(hits: Iterable[SearchHit]) -> list[SearchHit]:
     """
-    Return a list of search hits sorted by file, identity (numeric if possible), and start_frame.
+    Return a list of sorted search hits.
+
+    Return a list of search hits sorted by file, identity (numeric if possible), start_frame and behavior.
 
     Args:
         hits: An iterable of _SearchHit objects.
@@ -116,11 +117,11 @@ def _sorted_search_results(hits: Iterable["SearchHit"]) -> list["SearchHit"]:
     try:
         return sorted(
             hits,
-            key=lambda hit: (hit.file, int(hit.identity), hit.start_frame),
+            key=lambda hit: (hit.file, hit.start_frame, int(hit.identity), hit.behavior),
         )
     except ValueError:
         # there is at least one identity that cannot be converted to an int
         return sorted(
             hits,
-            key=lambda hit: (hit.file, hit.identity, hit.start_frame),
+            key=lambda hit: (hit.file, hit.start_frame, hit.identity, hit.behavior),
         )
