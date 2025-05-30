@@ -157,6 +157,8 @@ class StackedTimelineWidget(QWidget):
             self._active_identity_index = 0
         else:
             self._active_identity_index = None
+
+        self._layout.addWidget(self._frame_labels)
         self._update_widget_visibility()
 
     def _set_active_frame_border(self, active_index: int | None = None) -> None:
@@ -171,9 +173,7 @@ class StackedTimelineWidget(QWidget):
                 If active_index does not match any identity, no border is applied. (we pass -1 to clear all
                 borders)
         """
-        active_index = (
-            self._active_identity_index if active_index is None else active_index
-        )
+        active_index = self._active_identity_index if active_index is None else active_index
         for i, frame in enumerate(self._identity_frames):
             if i == active_index:
                 frame.setStyleSheet(
@@ -229,9 +229,9 @@ class StackedTimelineWidget(QWidget):
 
             # Transfer selection to new active widget if selection is active
             if selection_frame is not None:
-                self._label_overview_widgets[
-                    self._active_identity_index
-                ].start_selection(selection_frame)
+                self._label_overview_widgets[self._active_identity_index].start_selection(
+                    selection_frame
+                )
 
             # Set active state or frame border depending on display mode
             if self._identity_mode == self.IdentityMode.ALL:
@@ -252,12 +252,13 @@ class StackedTimelineWidget(QWidget):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                widget.hide()
 
         # Add only the widgets needed for the current mode
         if self._identity_mode == self.IdentityMode.ALL:
             for i, frame in enumerate(self._identity_frames):
                 self._layout.addWidget(frame)
+                frame.show()
                 self._set_widget_visibility(
                     self._label_overview_widgets[i],
                     self._prediction_overview_widgets[i],
@@ -269,6 +270,7 @@ class StackedTimelineWidget(QWidget):
             idx = self._active_identity_index
             frame = self._identity_frames[idx]
             self._layout.addWidget(frame)
+            frame.show()
             self._set_widget_visibility(
                 self._label_overview_widgets[idx],
                 self._prediction_overview_widgets[idx],
@@ -276,6 +278,7 @@ class StackedTimelineWidget(QWidget):
 
         # Add FrameLabelsWidget last
         self._layout.addWidget(self._frame_labels)
+        self._frame_labels.show()
         self._update_frame_border()
 
     def _set_widget_visibility(
@@ -312,9 +315,7 @@ class StackedTimelineWidget(QWidget):
             prediction_widget.set_current_frame(current_frame)
         self._frame_labels.set_current_frame(current_frame)
 
-    def set_labels(
-        self, labels_list: list[TrackLabels], masks_list: list[np.ndarray]
-    ) -> None:
+    def set_labels(self, labels_list: list[TrackLabels], masks_list: list[np.ndarray]) -> None:
         """Set labels for all LabelOverviewWidgets.
 
         Args:
