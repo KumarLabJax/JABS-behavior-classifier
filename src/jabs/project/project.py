@@ -1,4 +1,5 @@
 import contextlib
+import getpass
 import gzip
 import json
 import shutil
@@ -137,6 +138,14 @@ class Project:
         """get the project paths object for this project"""
         return self._paths
 
+    @property
+    def labeler(self) -> str:
+        """return name of labeler
+
+        For now, this is just the username of the user running JABS.
+        """
+        return getpass.getuser()
+
     def load_pose_est(self, video_path: Path) -> PoseEstimation:
         """return a PoseEstimation object for a given video path
 
@@ -169,8 +178,11 @@ class Project:
             ".json"
         )
 
+        annotations = annotations.as_dict()
+        annotations["labeler"] = self.labeler
+
         with path.open(mode="w", newline="\n") as f:
-            json.dump(annotations.as_dict(), f, indent=2)
+            json.dump(annotations, f, indent=2)
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()

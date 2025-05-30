@@ -355,12 +355,14 @@ While not in select mode:
 ### Other
 
 Switching subject:
+
 - shift + up arrow: switch to the next subject
 - shift + down arrow: switch to the previous subject
 
 Note: next/previous subject is determined by the order of subjects in the "Identity Selection" dropdown. 
 
 Overlays:
+
 - t: toggle track overlay for subject
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
