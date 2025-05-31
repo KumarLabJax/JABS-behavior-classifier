@@ -8,7 +8,6 @@ from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.video_reader import (
     VideoReader,
     draw_track,
-    label_all_identities,
     label_identity,
     overlay_landmarks,
     overlay_pose,
@@ -135,9 +134,7 @@ class PlayerThread(QtCore.QThread):
 
         if self._identity is not None:
             if self._show_track:
-                draw_track(
-                    frame["data"], self._pose_est, self._identity, frame["index"]
-                )
+                draw_track(frame["data"], self._pose_est, self._identity, frame["index"])
 
             if self._overlay_pose:
                 overlay_pose(
@@ -176,15 +173,6 @@ class PlayerThread(QtCore.QThread):
                         frame["index"],
                         color=self._CLOSEST_LABEL_COLOR,
                     )
-
-        # label all identities
-        label_all_identities(
-            frame["data"],
-            self._pose_est,
-            self._identities,
-            frame["index"],
-            subject=self._identity,
-        )
 
         # using numpy slicing to convert from OpenCV BGR to Qt RGB format is more efficient
         # than using QImage.rgbSwapped() because QImage.rgbSwapped() creates a a QImage in BGR
@@ -267,15 +255,11 @@ class PlayerThread(QtCore.QThread):
         idx = PoseEstimation.KeypointIndex
         closest_id = None
         closest_dist = None
-        ref_shape = self._pose_est.get_identity_convex_hulls(self._identity)[
-            frame_index
-        ]
+        ref_shape = self._pose_est.get_identity_convex_hulls(self._identity)[frame_index]
         if ref_shape is not None:
             for curr_id in self._pose_est.identities:
                 if curr_id != self._identity:
-                    other_shape = self._pose_est.get_identity_convex_hulls(curr_id)[
-                        frame_index
-                    ]
+                    other_shape = self._pose_est.get_identity_convex_hulls(curr_id)[frame_index]
 
                     if other_shape is not None:
                         curr_dist = ref_shape.distance(other_shape)
@@ -286,9 +270,7 @@ class PlayerThread(QtCore.QThread):
                                 closest_dist = curr_dist
                         else:
                             # we need to account for FoV angle
-                            points, mask = self._pose_est.get_points(
-                                frame_index, self._identity
-                            )
+                            points, mask = self._pose_est.get_points(frame_index, self._identity)
 
                             # we need nose and base neck to figure out view angle
                             if mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
