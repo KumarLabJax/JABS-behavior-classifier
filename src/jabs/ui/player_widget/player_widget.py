@@ -171,7 +171,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def num_frames(self) -> int:
         """get total number of frames in the loaded video"""
         if self._video_stream is None:
-            raise ValueError("No video loaded")
+            return 0
         return self._video_stream.num_frames
 
     def reset(self) -> None:
