@@ -253,6 +253,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._video_stream = VideoReader(path)
         self._pose_est = pose_est
         self._identities = pose_est.identities
+        self._frame_widget.set_pose(pose_est)
 
         self._player_thread = PlayerThread(
             self._video_stream,
@@ -401,6 +402,7 @@ class PlayerWidget(QtWidgets.QWidget):
             return
 
         self._active_identity = identity
+        self._frame_widget.set_active_identity(identity)
         self._player_thread.setActiveIdentity.emit(identity)
         if not self._playing:
             self._player_thread.seek(self._position_slider.value())
@@ -436,7 +438,7 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             image (QImage): frame ready for display as emitted by player thread
         """
-        self._frame_widget.setPixmap(QtGui.QPixmap.fromImage(image))
+        self._frame_widget.updateFrame(image, self.current_frame())
 
     @QtCore.Slot(int)
     def _set_position(self, frame_number: int) -> None:
