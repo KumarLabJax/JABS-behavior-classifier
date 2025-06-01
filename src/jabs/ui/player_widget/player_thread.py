@@ -125,8 +125,8 @@ class PlayerThread(QtCore.QThread):
     def _read_and_emit_frame(self):
         frame = self._video_reader.load_next_frame()
         image = self._prepare_image(frame)
-        self.newImage.emit(image)
         self.updatePosition.emit(frame["index"])
+        self.newImage.emit(image)
 
     def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
         if frame["data"] is None:

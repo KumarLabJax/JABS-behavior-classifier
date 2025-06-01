@@ -218,8 +218,7 @@ class PlayerWidget(QtWidgets.QWidget):
         setattr(self, attr, new_value)
         if self._player_thread:
             signal.emit(new_value)
-            if not self._playing:
-                self._seek(self._position_slider.value())
+            self.reload_frame()
 
     def show_closest(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show closest' overlay state."""
@@ -304,6 +303,15 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._enable_frame_buttons()
         self._playing = False
+
+    def reload_frame(self) -> None:
+        """reload the current frame in the player thread.
+
+        This is useful when video overlays have changed but the video
+        is paused and we want to update the current frame display.
+        """
+        if not self._playing and self._player_thread is not None:
+            self._player_thread.seek(self._position_slider.value())
 
     def _seek(self, position: int) -> None:
         self._player_thread.seek(position)
@@ -413,8 +421,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._active_identity = identity
         self._frame_widget.set_active_identity(identity)
         self._player_thread.setActiveIdentity.emit(identity)
-        if not self._playing:
-            self._player_thread.seek(self._position_slider.value())
+        self.reload_frame()
 
     def set_labels(self, labels: list[np.ndarray] | None) -> None:
         """set labels used for overlay in the frame widget
@@ -424,8 +431,7 @@ class PlayerWidget(QtWidgets.QWidget):
               Must match the sorted order of identities or be None.
         """
         self._frame_widget.set_label_overlay(labels)
-        if not self._playing and self._player_thread is not None:
-            self._player_thread.seek(self._position_slider.value())
+        self.reload_frame()
 
     @property
     def pixmap_clicked(self) -> QtCore.SignalInstance:

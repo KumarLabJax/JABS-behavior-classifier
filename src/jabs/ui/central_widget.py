@@ -435,6 +435,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._stacked_timeline.clear_selection()
         self._update_label_counts()
         self._set_train_button_enabled_state()
+        self._player_widget.reload_frame()
 
     def _set_identities(self, identities):
         """populate the identity_selection combobox"""
