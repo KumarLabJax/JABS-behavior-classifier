@@ -1,10 +1,17 @@
+import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
+from jabs.project import TrackLabels
 
-_ID_COLOR = (0, 222, 215)
-_ACTIVE_COLOR = (255, 0, 0)
-_FONT_SIZE = 16
+from ..colors import BACKGROUND_COLOR, BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
+
+_ID_COLOR = QtGui.QColor(0, 222, 215)
+_ACTIVE_COLOR = QtGui.QColor(255, 0, 0)
+_BEHAVIOR_LABEL_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
+_FONT_SIZE = 16  # size of the font used for identity labels
+_BEHAVIOR_LABEL_SIZE = 10  # size of the behavior label square
+_GAP = 5  # gap between identity label and behavior label
 
 
 class FrameWidget(QtWidgets.QLabel):
@@ -21,6 +28,7 @@ class FrameWidget(QtWidgets.QLabel):
 
         self._font = QtGui.QFont()
         self._font.setPointSize(_FONT_SIZE)
+        self._font_metrics = QtGui.QFontMetrics(self._font)
 
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Ignored
@@ -32,6 +40,8 @@ class FrameWidget(QtWidgets.QLabel):
         self._frame_number = 0
         self._active_identity = 0
         self._pose = None
+        self._labels = None
+
         self.setMinimumSize(400, 400)
 
     def set_pose(self, pose: PoseEstimation) -> None:
@@ -48,6 +58,17 @@ class FrameWidget(QtWidgets.QLabel):
         This identity will be highlighted in the frame.
         """
         self._active_identity = identity
+
+    def set_label_overlay(self, labels: list[np.ndarray]):
+        """set label values to use for overlaying on the frame.
+
+        Labels are used to indicated behavior or not behavior label or predction for each identity
+
+        Args:
+            labels (list[np.ndarray]): list of label arrays, one for each identity.
+            Each array should contain the label for each frame in the video for the given identity.
+        """
+        self._labels = labels
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         """Process mousePressEvent to emit a signal with the clicked pixel coordinates."""
@@ -163,7 +184,7 @@ class FrameWidget(QtWidgets.QLabel):
             # paintEvent
             super().paintEvent(event)
 
-    def updateFrame(self, frame: QtGui.QImage, frame_number: int) -> None:
+    def update_frame(self, frame: QtGui.QImage, frame_number: int) -> None:
         """Update the frame displayed in the widget."""
         self._frame_number = frame_number
         self.setPixmap(QtGui.QPixmap.fromImage(frame))
@@ -193,5 +214,31 @@ class FrameWidget(QtWidgets.QLabel):
                 )
                 # Convert image coordinates to widget coordinates and draw the label
                 widget_x, widget_y = self._image_to_widget_coords(center.x, center.y)
-                painter.setPen(QtGui.QColor(*color))
+                painter.setPen(color)
                 painter.drawText(widget_x, widget_y, label)
+
+                # also add an overlay with a behavior label if available
+                # (source of label can be manual label or model prediction)
+                if self._labels:
+                    # draw a square next to the identity label to indicate behavior label
+                    behavior_x = widget_x - _BEHAVIOR_LABEL_SIZE - _GAP
+                    behavior_y = (
+                        widget_y
+                        - self._font_metrics.ascent()
+                        + self._font_metrics.height() // 2
+                        - _BEHAVIOR_LABEL_SIZE // 2
+                    )
+
+                    match self._labels[identity][self._frame_number]:
+                        case TrackLabels.Label.BEHAVIOR:
+                            prediction_color = BEHAVIOR_COLOR
+                        case TrackLabels.Label.NOT_BEHAVIOR:
+                            prediction_color = NOT_BEHAVIOR_COLOR
+                        case _:
+                            prediction_color = BACKGROUND_COLOR
+
+                    painter.setBrush(QtGui.QColor(*prediction_color))
+                    painter.setPen(_BEHAVIOR_LABEL_OUTLINE_COLOR)
+                    painter.drawRect(
+                        behavior_x, behavior_y, _BEHAVIOR_LABEL_SIZE, _BEHAVIOR_LABEL_SIZE
+                    )

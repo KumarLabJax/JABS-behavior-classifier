@@ -1,5 +1,7 @@
+import enum
 from pathlib import Path
 
+import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
@@ -20,6 +22,13 @@ class PlayerWidget(QtWidgets.QWidget):
     position will be updated. If video was playing when the slider is dragged
     the playback will resume after the slider is released.
     """
+
+    class LabelOverlay(enum.IntEnum):
+        """Enum for label overlay options."""
+
+        NONE = 0
+        LABEL = 1
+        PREDICTION = 2
 
     # signal to allow other UI components to observe current frame number
     updateFrameNumber = QtCore.Signal(int)
@@ -407,6 +416,17 @@ class PlayerWidget(QtWidgets.QWidget):
         if not self._playing:
             self._player_thread.seek(self._position_slider.value())
 
+    def set_labels(self, labels: list[np.ndarray] | None) -> None:
+        """set labels used for overlay in the frame widget
+
+        Args:
+            labels: list of numpy arrays with behavior/not behavior/no label for each identity.
+              Must match the sorted order of identities or be None.
+        """
+        self._frame_widget.set_label_overlay(labels)
+        if not self._playing and self._player_thread is not None:
+            self._player_thread.seek(self._position_slider.value())
+
     @property
     def pixmap_clicked(self) -> QtCore.SignalInstance:
         """return the pixmap_clicked signal from the frame widget"""
@@ -438,7 +458,7 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             image (QImage): frame ready for display as emitted by player thread
         """
-        self._frame_widget.updateFrame(image, self.current_frame())
+        self._frame_widget.update_frame(image, self.current_frame())
 
     @QtCore.Slot(int)
     def _set_position(self, frame_number: int) -> None:

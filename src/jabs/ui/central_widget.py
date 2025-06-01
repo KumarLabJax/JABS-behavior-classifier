@@ -35,9 +35,7 @@ class CentralWidget(QtWidgets.QWidget):
         # video player
         self._player_widget = PlayerWidget(self)
         self._player_widget.updateFrameNumber.connect(self._frame_change)
-        self._player_widget.updateFrameNumber.connect(
-            self._stacked_timeline.set_current_frame
-        )
+        self._player_widget.updateFrameNumber.connect(self._stacked_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
 
@@ -45,6 +43,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._project = None
         self._labels = None
         self._pose_est = None
+        self._label_overlay_mode = PlayerWidget.LabelOverlay.NONE
         self._suppress_label_track_update = False
 
         #  classifier
@@ -77,9 +76,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
         self._controls.window_size_changed.connect(self._window_feature_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_balance_labels_changed.connect(
-            self._use_balance_labels_changed
-        )
+        self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
         # main layout
@@ -161,6 +158,35 @@ class CentralWidget(QtWidgets.QWidget):
         """return the behaviors from the controls widget"""
         return self._controls.behaviors
 
+    @property
+    def label_overlay_mode(self) -> PlayerWidget.LabelOverlay:
+        """return the current label overlay mode of the player widget"""
+        return self._label_overlay_mode
+
+    @label_overlay_mode.setter
+    def label_overlay_mode(self, mode: PlayerWidget.LabelOverlay) -> None:
+        """set the label overlay mode of the player widget
+
+        If the mode is changed, update the player widget labels with
+        either the current labels or predictions based on the mode.
+
+        Args:
+            mode (PlayerWidget.LabelOverlay): The new label overlay mode to set.
+        """
+        if mode != self._label_overlay_mode:
+            self._label_overlay_mode = mode
+            # also update self._player_widget labels
+            if mode == PlayerWidget.LabelOverlay.LABEL:
+                self._player_widget.set_labels(
+                    [labels.get_labels() for labels in self._get_label_list()]
+                )
+            elif mode == PlayerWidget.LabelOverlay.PREDICTION:
+                prediction_list, _ = self._get_prediction_list()
+                self._player_widget.set_labels(prediction_list)
+            else:
+                # if the player is set to show nothing, clear the labels
+                self._player_widget.set_labels(None)
+
     def set_project(self, project):
         """set the currently opened project"""
         self._project = project
@@ -201,15 +227,11 @@ class CentralWidget(QtWidgets.QWidget):
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 nframes = get_frame_count(str(path))
-                self._labels = VideoLabels(
-                    path.name, nframes, self._pose_est.external_identities
-                )
+                self._labels = VideoLabels(path.name, nframes, self._pose_est.external_identities)
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
-                self._project.prediction_manager.load_predictions(
-                    path.name, self.behavior
-                )
+                self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
 
             # load video into player
@@ -365,9 +387,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._set_train_button_enabled_state()
 
-        self._project.settings_manager.save_project_file(
-            {"selected_behavior": self.behavior}
-        )
+        self._project.settings_manager.save_project_file({"selected_behavior": self.behavior})
 
     def _start_selection(self, pressed):
         """Handle a click on "select" button.
@@ -385,27 +405,21 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
-        start, end = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
         mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
     def _label_not_behavior(self):
         """apply _not_ behavior label to currently selected range of frames"""
-        start, end = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
         mask = self._pose_est.identity_mask(self._controls.current_identity_index)
         self._get_label_track().label_not_behavior(start, end, mask[start : end + 1])
         self._label_button_common()
 
     def _clear_behavior_label(self):
         """clear all behavior/not behavior labels from current selection"""
-        label_range = sorted(
-            [self._selection_start, self._player_widget.current_frame()]
-        )
+        label_range = sorted([self._selection_start, self._player_widget.current_frame()])
         self._get_label_track().clear_labels(*label_range)
         self._label_button_common()
 
@@ -430,9 +444,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
-        self._stacked_timeline.active_identity_index = (
-            self._controls.current_identity_index
-        )
+        self._stacked_timeline.active_identity_index = self._controls.current_identity_index
 
     def _frame_change(self, new_frame):
         """called when the video player widget emits its updateFrameNumber signal"""
@@ -447,17 +459,28 @@ class CentralWidget(QtWidgets.QWidget):
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            label_list = [
-                self._labels.get_track_labels(str(i), behavior)
-                for i in range(self._pose_est.num_identities)
-            ]
+            label_list = self._get_label_list()
             mask_list = [
-                self._pose_est.identity_mask(i)
-                for i in range(self._pose_est.num_identities)
+                self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
             self._stacked_timeline.set_labels(label_list, mask_list)
 
+            if self._label_overlay_mode == PlayerWidget.LabelOverlay.LABEL:
+                # if configured to show labels, update the player widget with the new labels
+                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+
         self._set_prediction_vis()
+
+    def _get_label_list(self):
+        """get a list of np.ndarray containing labels, one for each identity"""
+        behavior = self._controls.current_behavior
+        identity = self._controls.current_identity_index
+        if identity != -1 and behavior != "" and self._labels is not None:
+            return [
+                self._labels.get_track_labels(str(i), behavior)
+                for i in range(self._pose_est.num_identities)
+            ]
+        return []
 
     def _get_label_track(self):
         """get the current label track for the currently selected identity and behavior"""
@@ -476,8 +499,7 @@ class CentralWidget(QtWidgets.QWidget):
             and classifier_settings.get("window_size", None) == self.window_size
             and classifier_settings.get("balance_labels", None)
             == self._controls.use_balance_labels
-            and classifier_settings.get("symmetric_behavior", None)
-            == self._controls.use_symmetric
+            and classifier_settings.get("symmetric_behavior", None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
@@ -501,9 +523,7 @@ class CentralWidget(QtWidgets.QWidget):
         )
         self._training_thread.training_complete.connect(self._training_thread_complete)
         self._training_thread.update_progress.connect(self._update_training_progress)
-        self._training_thread.current_status.connect(
-            lambda m: self.status_message.emit(m, 0)
-        )
+        self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
 
         # setup progress dialog
         # adds 2 for final training
@@ -513,9 +533,7 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = QtWidgets.QProgressDialog(
-            "Training", None, 0, total_steps, self
-        )
+        self._progress_dialog = QtWidgets.QProgressDialog("Training", None, 0, total_steps, self)
         self._progress_dialog.installEventFilter(self)
         self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         self._progress_dialog.reset()
@@ -549,9 +567,7 @@ class CentralWidget(QtWidgets.QWidget):
         )
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
-        self._classify_thread.current_status.connect(
-            lambda m: self.status_message.emit(m, 0)
-        )
+        self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
 
         # setup progress dialog
         self._progress_dialog = QtWidgets.QProgressDialog(
@@ -583,6 +599,14 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
+        prediction_list, probability_list = self._get_prediction_list()
+        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        if self._label_overlay_mode == PlayerWidget.LabelOverlay.PREDICTION:
+            # if the player is set to show predictions, update the player widget
+            self._player_widget.set_labels(prediction_list)
+
+    def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """get the prediction and probability list for each identity in the current video"""
         prediction_list = []
         probability_list = []
 
@@ -593,9 +617,7 @@ class CentralWidget(QtWidgets.QWidget):
                 dtype=np.byte,
             )
 
-            prediction_prob = np.zeros(
-                (self._player_widget.num_frames()), dtype=np.float64
-            )
+            prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
 
             try:
                 indexes = self._frame_indexes[i]
@@ -608,8 +630,7 @@ class CentralWidget(QtWidgets.QWidget):
             prediction_prob[indexes] = self._probabilities[i][indexes]
             prediction_list.append(prediction_labels)
             probability_list.append(prediction_prob)
-
-        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        return prediction_list, probability_list
 
     def _set_train_button_enabled_state(self):
         """set the enabled property of the train button
@@ -752,9 +773,7 @@ class CentralWidget(QtWidgets.QWidget):
             # checkbox
             return
 
-        self.update_behavior_settings(
-            "balance_labels", self._controls.use_balance_labels
-        )
+        self.update_behavior_settings("balance_labels", self._controls.use_balance_labels)
         self._update_classifier_controls()
 
     def _use_symmetric_changed(self):
@@ -762,9 +781,7 @@ class CentralWidget(QtWidgets.QWidget):
             # Copy behavior of use_balance_labels_changed
             return
 
-        self.update_behavior_settings(
-            "symmetric_behavior", self._controls.use_symmetric
-        )
+        self.update_behavior_settings("symmetric_behavior", self._controls.use_symmetric)
         self._update_classifier_controls()
 
     def _update_controls_from_project_settings(self):
@@ -779,9 +796,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _load_cached_classifier(self):
         classifier_loaded = False
         try:
-            classifier_loaded = self._project.load_classifier(
-                self._classifier, self.behavior
-            )
+            classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)
         except Exception as e:
             print("failed to load classifier:", file=sys.stderr)
             print(f"  {e}", file=sys.stderr)
