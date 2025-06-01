@@ -17,7 +17,6 @@ from PySide6 import QtCore, QtWidgets
 from jabs.classifier import Classifier
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
-from .identity_combo_box import IdentityComboBox
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
 
@@ -25,8 +24,9 @@ from .label_count_widget import FrameLabelCountWidget
 class MainControlWidget(QtWidgets.QWidget):
     """Controls for classifier training, labeling, and settings.
 
-    Provides UI components and logic for managing behaviors, subject identities, classifier selection,
-    window sizes, label assignment, and related project-level settings. Emits signals for user actions
+    Provides UI components and logic for managing behaviors, subject
+    identities, classifier selection, window sizes, label assignment,
+    and related project-level settings. Emits signals for user actions
     and updates, and synchronizes UI state with project metadata.
 
     Args:
@@ -78,7 +78,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.addItems(self._behaviors)
         self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
 
-        self.identity_selection = IdentityComboBox()
+        self.identity_selection = QtWidgets.QComboBox()
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
@@ -145,17 +145,11 @@ class MainControlWidget(QtWidgets.QWidget):
         self._kslider.valueChanged.connect(self.kfold_changed)
         self._kslider.setEnabled(True)
 
-        self._use_balace_labels_checkbox = QtWidgets.QCheckBox(
-            "Balance Training Labels"
-        )
-        self._use_balace_labels_checkbox.stateChanged.connect(
-            self.use_balance_labels_changed
-        )
+        self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
+        self._use_balace_labels_checkbox.stateChanged.connect(self.use_balance_labels_changed)
 
         self._symmetric_behavior_checkbox = QtWidgets.QCheckBox("Symmetric Behavior")
-        self._symmetric_behavior_checkbox.stateChanged.connect(
-            self.use_symmetric_changed
-        )
+        self._symmetric_behavior_checkbox.stateChanged.connect(self.use_symmetric_changed)
 
         self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
         self._all_kfold_checkbox.stateChanged.connect(self._all_kfold_changed)
@@ -454,9 +448,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
         if project_settings.get("selected_behavior") in self._behaviors:
-            behavior_index = self._behaviors.index(
-                project_settings["selected_behavior"]
-            )
+            behavior_index = self._behaviors.index(project_settings["selected_behavior"])
 
         if len(self._behaviors) == 0:
             self._get_first_label()
@@ -528,8 +520,7 @@ class MainControlWidget(QtWidgets.QWidget):
         dialog.setOkButtonText("OK")
         dialog.setCancelButtonText("Quit JABS")
         dialog.setWindowFlags(
-            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint
-            | QtCore.Qt.CustomizeWindowHint
+            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint
         )
 
         if dialog.exec():
@@ -578,9 +569,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # grab the old sizes, grabbing the data (int) instead of the
         # text
-        sizes = [
-            self._window_size.itemData(i) for i in range(self._window_size.count())
-        ]
+        sizes = [self._window_size.itemData(i) for i in range(self._window_size.count())]
 
         # add our new value and sort
         sizes.append(new_size)
@@ -596,13 +585,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
-        self._label_behavior_button.setToolTip(
-            f"Label frames {self.current_behavior} [z]"
-        )
+        self._label_behavior_button.setToolTip(f"Label frames {self.current_behavior} [z]")
         self._label_not_behavior_button.setText(f"Not {self.current_behavior}")
-        self._label_not_behavior_button.setToolTip(
-            f"Label frames Not {self.current_behavior} [c]"
-        )
+        self._label_not_behavior_button.setToolTip(f"Label frames Not {self.current_behavior} [c]")
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):
