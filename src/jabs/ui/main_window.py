@@ -48,6 +48,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget(self)
         self._central_widget.status_message.connect(self.display_status_message)
+        self._central_widget.search_hit_loaded.connect(self._search_hit_loaded)
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -646,3 +647,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ALL
         elif self._timeline_selected_animal.isChecked():
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ACTIVE
+
+    def _search_hit_loaded(self, search_hit):
+        """Update the selected video in the video list when a search hit is loaded."""
+        if search_hit is not None:
+            self.video_list.select_video(search_hit.file, suppress_event=True)

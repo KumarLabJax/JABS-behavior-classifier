@@ -32,17 +32,46 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self.file_list = _VideoListWidget(self)
         self.setWidget(self.file_list)
         self._project = None
+        self._suppress_selection_event = False
         self.file_list.currentItemChanged.connect(self._selection_changed)
 
     def _selection_changed(self, current, _):
         """Emit signal when the selected video changes."""
+        if self._suppress_selection_event:
+            return
         if current:
-            self.selectionChanged.emit(current.text())
+            video = current.data(QtCore.Qt.ItemDataRole.UserRole)
+            self.selectionChanged.emit(video)
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""
         self._project = project
         self.file_list.clear()
-        self.file_list.addItems(self._project.video_manager.videos)
+
+        for video in self._project.video_manager.videos:
+            item = QtWidgets.QListWidgetItem(video)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, video)
+            self.file_list.addItem(item)
+
         if self._project.video_manager.videos:
             self.file_list.setCurrentRow(0)
+
+    def select_video(self, key, suppress_event: bool = False):
+        """
+        Select the video in the list whose UserRole data matches `key`.
+
+        If silence_event is True, suppress the selectionChanged signal.
+
+        Args:
+            key: The key to match against the UserRole data of the list items.
+            suppress_event: If True, suppress the selectionChanged signal during selection.
+        """
+        self._suppress_selection_event = suppress_event
+        try:
+            for i in range(self.file_list.count()):
+                item = self.file_list.item(i)
+                if item.data(QtCore.Qt.ItemDataRole.UserRole) == key:
+                    self.file_list.setCurrentItem(item)
+                    break
+        finally:
+            self._suppress_selection_event = False

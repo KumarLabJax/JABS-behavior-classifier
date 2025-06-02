@@ -145,17 +145,11 @@ class MainControlWidget(QtWidgets.QWidget):
         self._kslider.valueChanged.connect(self.kfold_changed)
         self._kslider.setEnabled(True)
 
-        self._use_balace_labels_checkbox = QtWidgets.QCheckBox(
-            "Balance Training Labels"
-        )
-        self._use_balace_labels_checkbox.stateChanged.connect(
-            self.use_balance_labels_changed
-        )
+        self._use_balace_labels_checkbox = QtWidgets.QCheckBox("Balance Training Labels")
+        self._use_balace_labels_checkbox.stateChanged.connect(self.use_balance_labels_changed)
 
         self._symmetric_behavior_checkbox = QtWidgets.QCheckBox("Symmetric Behavior")
-        self._symmetric_behavior_checkbox.stateChanged.connect(
-            self.use_symmetric_changed
-        )
+        self._symmetric_behavior_checkbox.stateChanged.connect(self.use_symmetric_changed)
 
         self._all_kfold_checkbox = QtWidgets.QCheckBox("All k-fold Cross Validation")
         self._all_kfold_checkbox.stateChanged.connect(self._all_kfold_changed)
@@ -425,6 +419,18 @@ class MainControlWidget(QtWidgets.QWidget):
         """set which identity is selected in the identity selection combobox"""
         self.identity_selection.setCurrentIndex(i)
 
+    def set_behavior(self, behavior: str):
+        """set the current behavior to the given behavior
+
+        Args:
+            behavior: the name of the behavior to set as current
+
+        Returns:
+            None
+        """
+        if behavior in self._behaviors:
+            self.behavior_selection.setCurrentText(behavior)
+
     def update_project_settings(self, project_settings: dict):
         """update controls from project settings
 
@@ -454,9 +460,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.clear()
         self.behavior_selection.addItems(self._behaviors)
         if project_settings.get("selected_behavior") in self._behaviors:
-            behavior_index = self._behaviors.index(
-                project_settings["selected_behavior"]
-            )
+            behavior_index = self._behaviors.index(project_settings["selected_behavior"])
 
         if len(self._behaviors) == 0:
             self._get_first_label()
@@ -528,8 +532,7 @@ class MainControlWidget(QtWidgets.QWidget):
         dialog.setOkButtonText("OK")
         dialog.setCancelButtonText("Quit JABS")
         dialog.setWindowFlags(
-            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint
-            | QtCore.Qt.CustomizeWindowHint
+            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint
         )
 
         if dialog.exec():
@@ -578,9 +581,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # grab the old sizes, grabbing the data (int) instead of the
         # text
-        sizes = [
-            self._window_size.itemData(i) for i in range(self._window_size.count())
-        ]
+        sizes = [self._window_size.itemData(i) for i in range(self._window_size.count())]
 
         # add our new value and sort
         sizes.append(new_size)
@@ -596,13 +597,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
-        self._label_behavior_button.setToolTip(
-            f"Label frames {self.current_behavior} [z]"
-        )
+        self._label_behavior_button.setToolTip(f"Label frames {self.current_behavior} [z]")
         self._label_not_behavior_button.setText(f"Not {self.current_behavior}")
-        self._label_not_behavior_button.setToolTip(
-            f"Label frames Not {self.current_behavior} [c]"
-        )
+        self._label_not_behavior_button.setToolTip(f"Label frames Not {self.current_behavior} [c]")
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):
