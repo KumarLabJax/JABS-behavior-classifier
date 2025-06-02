@@ -111,6 +111,7 @@ class SearchBarWidget(QtWidgets.QWidget):
                 self.current_search_hit_changed.emit(None)
                 print("No results found.")
 
+        self._update_result_count_label()
         self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_prev_clicked(self):
@@ -122,10 +123,7 @@ class SearchBarWidget(QtWidgets.QWidget):
 
     def _on_next_clicked(self):
         print("Next button clicked")
-        if (
-            self._search_results
-            and self._current_result_index < len(self._search_results) - 1
-        ):
+        if self._search_results and self._current_result_index < len(self._search_results) - 1:
             self._current_result_index += 1
             self._update_result_count_label()
             self.current_search_hit_changed.emit(self.current_search_hit)
@@ -153,17 +151,13 @@ class SearchBarWidget(QtWidgets.QWidget):
 def _describe_query(query: BehaviorSearchQuery) -> str:
     """Return a descriptive string for the given search query."""
     match query:
-        case LabelBehaviorSearchQuery(
-            behavior_label=None, positive=True, negative=True
-        ):
+        case LabelBehaviorSearchQuery(behavior_label=None, positive=True, negative=True):
             return "All behaviors positive & negative labels"
         case LabelBehaviorSearchQuery(behavior_label=None, positive=True):
             return "All behaviors positive labels"
         case LabelBehaviorSearchQuery(behavior_label=None, negative=True):
             return "All behaviors negative labels"
-        case LabelBehaviorSearchQuery(
-            behavior_label=behavior_label, positive=True, negative=True
-        ):
+        case LabelBehaviorSearchQuery(behavior_label=behavior_label, positive=True, negative=True):
             return f"{behavior_label} & Not {behavior_label} labels"
         case LabelBehaviorSearchQuery(behavior_label=behavior_label, positive=True):
             return f"{behavior_label} labels"
