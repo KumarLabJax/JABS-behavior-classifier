@@ -401,6 +401,16 @@ class MainControlWidget(QtWidgets.QWidget):
         """set the classify button to enabled or disabled"""
         self._classify_button.setEnabled(enabled)
 
+    @property
+    def select_button_enabled(self) -> bool:
+        """return true if the select button is enabled"""
+        return self._select_button.isEnabled()
+
+    @select_button_enabled.setter
+    def select_button_enabled(self, enabled: bool) -> None:
+        """set the select button to enabled or disabled"""
+        self._select_button.setEnabled(enabled)
+
     def select_button_set_enabled(self, enabled: bool):
         """set the select button to enabled or disabled"""
         self._select_button.setEnabled(enabled)

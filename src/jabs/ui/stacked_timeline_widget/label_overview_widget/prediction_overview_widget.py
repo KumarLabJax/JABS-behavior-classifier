@@ -37,5 +37,5 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     def reset(self):
         """Reset the widget to its initial state."""
         self._timeline_widget.reset()
-        self._label_widget.set_predictions(None, None)
+        self._label_widget.set_labels(None, None)
         self._num_frames = 0
