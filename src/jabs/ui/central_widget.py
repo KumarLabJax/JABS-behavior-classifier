@@ -629,7 +629,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
 
-        Sets enabled state of the train button to True or False depending
+        Sets enabled state of the train button to True or False depending on
         whether the labeling meets some threshold set by the classifier module
 
         NOTE: must be called after _update_label_counts() so that it has the
