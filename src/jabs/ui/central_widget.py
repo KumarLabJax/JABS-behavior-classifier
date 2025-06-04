@@ -842,15 +842,14 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.select_button_set_checked(False)
             self._stacked_timeline.clear_selection()
 
-        # if no video is loaded, or if there are no identities, disable the select button
-        if self._loaded_video is None or (
-            self._pose_est is not None and self._pose_est.num_identities == 0
+        # disable select frames button if no video is loaded, there are
+        # no identities to label, or the current view mode is predictions
+        # only (which does not allow selection of frames)
+        if (
+            self._loaded_video is None
+            or (self._pose_est is not None and self._pose_est.num_identities == 0)
+            or self._stacked_timeline.view_mode == self._stacked_timeline.view_mode.PREDICTIONS
         ):
-            disable_select_button()
-
-        if self._stacked_timeline.view_mode == self._stacked_timeline.view_mode.PREDICTIONS:
-            # If the view mode is predictions, disable the select button because there is
-            # no way for the user to see what they are labeling
             disable_select_button()
         else:
             self._controls.select_button_enabled = True
