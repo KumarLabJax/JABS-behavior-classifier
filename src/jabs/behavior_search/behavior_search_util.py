@@ -2,7 +2,9 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from jabs.project import Project
+import numpy as np
+
+from jabs.project import Project, TrackLabels
 
 
 @dataclass(frozen=True)
@@ -22,9 +24,10 @@ class LabelBehaviorSearchQuery(BehaviorSearchQuery):
 
 
 @dataclass(frozen=True)
-class PredictionLabelSearchQuery(BehaviorSearchQuery):
+class PredictionBehaviorSearchQuery(BehaviorSearchQuery):
     """Query for prediction label search."""
 
+    behavior_label: str | None = None
     prob_greater_value: float | None = None
     prob_less_value: float | None = None
     min_contiguous_frames: int | None = None
@@ -93,12 +96,58 @@ def _search_behaviors_gen(
                                             end_frame=block["end"],
                                         )
 
-        case PredictionLabelSearchQuery() as pred_query:  # noqa: F841
+        case PredictionBehaviorSearchQuery() as pred_query:
             print("Searching for predictions...")
-            # Your prediction search logic goes here
+            if pred_query.prob_greater_value is None and pred_query.prob_less_value is None:
+                return
+
+            proj_settings = project.settings_manager.project_settings
+            if pred_query.behavior_label is None:
+                behavior_dict = proj_settings.get("behavior", {})
+                behaviors = list(behavior_dict.keys())
+            else:
+                behaviors = [pred_query.behavior_label]
+
+            video_manager = project.video_manager
+            sorted_videos = sorted(video_manager.videos)
+            for video in sorted_videos:
+                for behavior in behaviors:
+                    # Load predictions for the video and behavior
+                    preds, probs, _ = project.prediction_manager.load_predictions(video, behavior)
+
+                    for aid, animal_probs in probs.items():
+                        # do a couple of checks before generating search hits
+                        animal_probs = probs.get(aid)
+                        if animal_probs is None or animal_probs.size == 0:
+                            continue
+
+                        animal_preds = preds.get(aid)
+                        if animal_preds is None or animal_preds.size != animal_probs.size:
+                            print(
+                                f"WARNING: Skipping {video} for {aid} as predictions and probabilities "
+                                f"do not match in size."
+                            )
+                            continue
+
+                        # get contiguous intervals of frames that meet the probability criteria
+                        for start, end in _gen_contig_true_intervals(
+                            pred_query, animal_preds, animal_probs
+                        ):
+                            if pred_query.min_contiguous_frames is not None:
+                                interval_length = end - start + 1
+                                if interval_length < pred_query.min_contiguous_frames:
+                                    continue
+
+                            yield SearchHit(
+                                file=video,
+                                identity=aid,
+                                behavior=behavior,
+                                start_frame=start,
+                                end_frame=end,
+                            )
 
         case _:
-            print("Unknown query type or unsupported search.")
+            raise ValueError("Unknown query type or unsupported search.")
 
 
 def _sorted_search_results(hits: Iterable[SearchHit]) -> list[SearchHit]:
@@ -125,3 +174,52 @@ def _sorted_search_results(hits: Iterable[SearchHit]) -> list[SearchHit]:
             hits,
             key=lambda hit: (hit.file, hit.start_frame, hit.identity, hit.behavior),
         )
+
+
+def _gen_contig_true_intervals(
+    pred_query: PredictionBehaviorSearchQuery,
+    animal_predictions: np.ndarray,
+    animal_probabilities: np.ndarray,
+) -> Iterable[tuple[int, int]]:
+    if animal_predictions.size == 0 or animal_probabilities.size == 0:
+        return
+
+    if animal_predictions.size != animal_probabilities.size:
+        print("WARNING: Predictions and probabilities do not match in size. Skipping this animal.")
+        return
+
+    # convert probabilities to a 0.0 to 1.0 scale where the most confident
+    # NOT_BEHAVIOR is 0.0 and the most confident BEHAVIOR is 1.0.
+    #
+    # Also note that we use eps to nudge probabilities away from 0.5 because
+    # you can end up with counterintuitive results if you don't.
+    not_behavior_mask = animal_predictions == TrackLabels.Label.NOT_BEHAVIOR.value
+    animal_probabilities = animal_probabilities.copy() + np.finfo(float).eps
+    animal_probabilities[not_behavior_mask] = 1.0 - animal_probabilities[not_behavior_mask]
+    animal_probabilities = np.clip(animal_probabilities, 0.0, 1.0)
+
+    crit_mask = np.isin(
+        animal_predictions,
+        [TrackLabels.Label.BEHAVIOR.value, TrackLabels.Label.NOT_BEHAVIOR.value],
+    )
+    if pred_query.prob_greater_value is not None:
+        crit_mask &= animal_probabilities >= pred_query.prob_greater_value
+    if pred_query.prob_less_value is not None:
+        crit_mask &= animal_probabilities <= pred_query.prob_less_value
+
+    # exit early if no criteria are met
+    if not np.any(crit_mask):
+        return
+
+    # find start and end of all contiguous true for crit_mask
+    crit_mask_diff = np.diff(crit_mask.astype(int))
+    starts = np.where(crit_mask_diff == 1)[0] + 1
+    ends = np.where(crit_mask_diff == -1)[0]
+
+    if crit_mask[0]:
+        starts = np.insert(starts, 0, 0)
+    if crit_mask[-1]:
+        ends = np.append(ends, crit_mask.size - 1)
+
+    # yield start and end indices of contiguous blocks
+    yield from zip(starts, ends, strict=True)

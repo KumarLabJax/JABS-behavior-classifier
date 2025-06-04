@@ -3,7 +3,7 @@ from PySide6 import QtGui, QtWidgets
 from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
-    PredictionLabelSearchQuery,
+    PredictionBehaviorSearchQuery,
 )
 from jabs.project.project import Project
 
@@ -38,15 +38,15 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         method_layout.addStretch()
         main_layout.addLayout(method_layout)
 
-        # checkboxes for limiting search scope
-        self.limit_to_video_checkbox = QtWidgets.QCheckBox(
-            "Limit search to selected video"
-        )
-        self.limit_to_identity_checkbox = QtWidgets.QCheckBox(
-            "Limit search to selected identity"
-        )
-        main_layout.addWidget(self.limit_to_video_checkbox)
-        main_layout.addWidget(self.limit_to_identity_checkbox)
+        # # checkboxes for limiting search scope
+        # self.limit_to_video_checkbox = QtWidgets.QCheckBox(
+        #     "Limit search to selected video"
+        # )
+        # self.limit_to_identity_checkbox = QtWidgets.QCheckBox(
+        #     "Limit search to selected identity"
+        # )
+        # main_layout.addWidget(self.limit_to_video_checkbox)
+        # main_layout.addWidget(self.limit_to_identity_checkbox)
 
         # === GroupBox container with stacked widget ===
         group_box = QtWidgets.QGroupBox()
@@ -73,9 +73,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
 
         # Radio buttons for label selection
         self.label_radio_group = QtWidgets.QButtonGroup(label_widget)
-        self.radio_both = QtWidgets.QRadioButton(
-            "Positive and negative behavior labels"
-        )
+        self.radio_both = QtWidgets.QRadioButton("Positive and negative behavior labels")
         self.radio_positive = QtWidgets.QRadioButton("Only positive behavior labels")
         self.radio_negative = QtWidgets.QRadioButton("Only negative behavior labels")
         self.radio_both.setChecked(True)
@@ -93,6 +91,16 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         # --- Prediction Search Panel ---
         prediction_widget = QtWidgets.QWidget()
         prediction_layout = QtWidgets.QVBoxLayout(prediction_widget)
+
+        # prediction behavior dropdown
+        prediction_behavior_row = QtWidgets.QHBoxLayout()
+        prediction_behavior_label = QtWidgets.QLabel("Behavior:")
+        self.prediction_behavior_combo = QtWidgets.QComboBox()
+        self.prediction_behavior_combo.addItems(["All Behaviors", *self._behavior_labels])
+        prediction_behavior_row.addWidget(prediction_behavior_label)
+        prediction_behavior_row.addWidget(self.prediction_behavior_combo)
+        prediction_behavior_row.addStretch()
+        prediction_layout.addLayout(prediction_behavior_row)
 
         # Probability range row
         prob_range_layout = QtWidgets.QHBoxLayout()
@@ -132,9 +140,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         main_layout.addWidget(button_box)
 
         # Update view based on combo box
-        self.method_combo.currentIndexChanged.connect(
-            self.stacked_widget.setCurrentIndex
-        )
+        self.method_combo.currentIndexChanged.connect(self.stacked_widget.setCurrentIndex)
 
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery:
@@ -154,11 +160,17 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
             )
 
         else:  # Prediction Search
+            behavior_label = (
+                self.prediction_behavior_combo.currentText()
+                if self.prediction_behavior_combo.currentIndex() != 0
+                else None
+            )
             prob_greater_value = float(self.prob_greater_value.text())
             prob_less_value = float(self.prob_less_value.text())
             min_frames = int(self.min_frame_count.text())
 
-            return PredictionLabelSearchQuery(
+            return PredictionBehaviorSearchQuery(
+                behavior_label=behavior_label,
                 prob_greater_value=prob_greater_value,
                 prob_less_value=prob_less_value,
                 min_contiguous_frames=min_frames,

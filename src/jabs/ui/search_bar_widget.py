@@ -3,7 +3,7 @@ from PySide6 import QtCore, QtWidgets
 from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
-    PredictionLabelSearchQuery,
+    PredictionBehaviorSearchQuery,
     SearchHit,
     search_behaviors,
 )
@@ -163,7 +163,7 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
             return f"{behavior_label} labels"
         case LabelBehaviorSearchQuery(behavior_label=behavior_label, negative=True):
             return f"Not {behavior_label} labels"
-        case PredictionLabelSearchQuery(
+        case PredictionBehaviorSearchQuery(
             prob_greater_value=gt, prob_less_value=lt, min_contiguous_frames=frames
         ):
             parts = []

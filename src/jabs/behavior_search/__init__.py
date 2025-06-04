@@ -3,7 +3,7 @@
 from .behavior_search_util import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
-    PredictionLabelSearchQuery,
+    PredictionBehaviorSearchQuery,
     SearchHit,
     search_behaviors,
 )
