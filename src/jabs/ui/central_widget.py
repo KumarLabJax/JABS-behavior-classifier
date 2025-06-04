@@ -43,6 +43,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._project = None
         self._labels = None
         self._pose_est = None
+        self._label_overlay_mode = PlayerWidget.LabelOverlay.NONE
         self._suppress_label_track_update = False
 
         #  classifier
@@ -156,6 +157,35 @@ class CentralWidget(QtWidgets.QWidget):
     def behaviors(self):
         """return the behaviors from the controls widget"""
         return self._controls.behaviors
+
+    @property
+    def label_overlay_mode(self) -> PlayerWidget.LabelOverlay:
+        """return the current label overlay mode of the player widget"""
+        return self._label_overlay_mode
+
+    @label_overlay_mode.setter
+    def label_overlay_mode(self, mode: PlayerWidget.LabelOverlay) -> None:
+        """set the label overlay mode of the player widget
+
+        If the mode is changed, update the player widget labels with
+        either the current labels or predictions based on the mode.
+
+        Args:
+            mode (PlayerWidget.LabelOverlay): The new label overlay mode to set.
+        """
+        if mode != self._label_overlay_mode:
+            self._label_overlay_mode = mode
+            # also update self._player_widget labels
+            if mode == PlayerWidget.LabelOverlay.LABEL:
+                self._player_widget.set_labels(
+                    [labels.get_labels() for labels in self._get_label_list()]
+                )
+            elif mode == PlayerWidget.LabelOverlay.PREDICTION:
+                prediction_list, _ = self._get_prediction_list()
+                self._player_widget.set_labels(prediction_list)
+            else:
+                # if the player is set to show nothing, clear the labels
+                self._player_widget.set_labels(None)
 
     def set_project(self, project):
         """set the currently opened project"""
@@ -398,6 +428,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._stacked_timeline.clear_selection()
         self._update_label_counts()
         self._set_train_button_enabled_state()
+        self._player_widget.reload_frame()
 
     def _set_identities(self, identities: list) -> None:
         """populate the identity_selection combobox"""
@@ -422,16 +453,28 @@ class CentralWidget(QtWidgets.QWidget):
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            label_list = [
-                self._labels.get_track_labels(str(i), behavior)
-                for i in range(self._pose_est.num_identities)
-            ]
+            label_list = self._get_label_list()
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
             self._stacked_timeline.set_labels(label_list, mask_list)
 
+            if self._label_overlay_mode == PlayerWidget.LabelOverlay.LABEL:
+                # if configured to show labels, update the player widget with the new labels
+                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+
         self._set_prediction_vis()
+
+    def _get_label_list(self):
+        """get a list of np.ndarray containing labels, one for each identity"""
+        behavior = self._controls.current_behavior
+        identity = self._controls.current_identity_index
+        if identity != -1 and behavior != "" and self._labels is not None:
+            return [
+                self._labels.get_track_labels(str(i), behavior)
+                for i in range(self._pose_est.num_identities)
+            ]
+        return []
 
     def _get_label_track(self) -> TrackLabels:
         """get the current label track for the currently selected identity and behavior"""
@@ -455,7 +498,8 @@ class CentralWidget(QtWidgets.QWidget):
             # if yes, we can enable the classify button
             self._controls.classify_button_set_enabled(True)
         else:
-            # if not, the classify button needs to be disabled until the user retrains
+            # if not, the classify button needs to be disabled until the
+            # user retrains
             self._controls.classify_button_set_enabled(False)
 
     def _train_button_clicked(self) -> None:
@@ -549,6 +593,14 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
+        prediction_list, probability_list = self._get_prediction_list()
+        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        if self._label_overlay_mode == PlayerWidget.LabelOverlay.PREDICTION:
+            # if the player is set to show predictions, update the player widget
+            self._player_widget.set_labels(prediction_list)
+
+    def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """get the prediction and probability list for each identity in the current video"""
         prediction_list = []
         probability_list = []
 
@@ -572,8 +624,7 @@ class CentralWidget(QtWidgets.QWidget):
             prediction_prob[indexes] = self._probabilities[i][indexes]
             prediction_list.append(prediction_labels)
             probability_list.append(prediction_prob)
-
-        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        return prediction_list, probability_list
 
     def _set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button

@@ -98,50 +98,6 @@ def label_identity(
         )
 
 
-def label_all_identities(
-    img: np.ndarray,
-    pose_est: PoseEstimation,
-    identities: list[int],
-    frame_index: int,
-    subject: int | None = None,
-):
-    """label all the identities in the frame
-
-    Args:
-        img: image to draw the labels on
-        pose_est: pose estimations for this video
-        identities: list of identity names
-        frame_index: index of frame, used to get all poses for frame
-        subject: identity to label as 'subject'
-
-    Returns:
-        None
-    """
-    for identity in identities:
-        shape = pose_est.get_identity_convex_hulls(identity)[frame_index]
-        if shape is not None:
-            center = shape.centroid
-
-            color = _ACTIVE_COLOR if identity == subject else _ID_COLOR
-            label = (
-                str(identity)
-                if not pose_est.external_identities
-                else str(pose_est.external_identities[identity])
-            )
-
-            # write the identity at that location
-            cv2.putText(
-                img,
-                label,
-                (int(center.x), int(center.y)),
-                cv2.FONT_HERSHEY_PLAIN,
-                __scale_annotation_size(img, 1.25),
-                color,
-                2,
-                lineType=cv2.LINE_AA,
-            )
-
-
 def draw_track(
     img: np.ndarray,
     pose_est: PoseEstimation,
@@ -181,21 +137,15 @@ def draw_track(
     else:
         # get points for 'future' track
         points, mask = pose_est.get_identity_poses(identity)
-        future_track_points = points[
-            frame_index : frame_index + future_points, point_index
-        ]
+        future_track_points = points[frame_index : frame_index + future_points, point_index]
         track_point_mask = mask[frame_index : frame_index + future_points, point_index]
         # filter out masked points
-        future_track_points = [
-            (p[0], p[1]) for p in future_track_points[track_point_mask != 0]
-        ]
+        future_track_points = [(p[0], p[1]) for p in future_track_points[track_point_mask != 0]]
 
         # get points for 'past' track points
         past_track_points = points[slice_start : frame_index + 1, point_index]
         track_point_mask = mask[slice_start : frame_index + 1, point_index]
-        past_track_points = [
-            (p[0], p[1]) for p in past_track_points[track_point_mask != 0]
-        ]
+        past_track_points = [(p[0], p[1]) for p in past_track_points[track_point_mask != 0]]
 
     # draw circles at each future point
     for p in future_track_points:
@@ -217,9 +167,7 @@ def draw_track(
     # draw circles at each past point
     for p in past_track_points:
         # draw a marker at this location.
-        cv2.circle(
-            img, (int(p[0]), int(p[1])), 2, _PAST_TRACK_COLOR, -1, lineType=cv2.LINE_AA
-        )
+        cv2.circle(img, (int(p[0]), int(p[1])), 2, _PAST_TRACK_COLOR, -1, lineType=cv2.LINE_AA)
 
     # draw line connecting points
     # convert to numpy array for opencv
@@ -227,9 +175,7 @@ def draw_track(
     cv2.polylines(img, [past_track_points], False, _PAST_TRACK_COLOR, 1)
 
 
-def overlay_pose(
-    img: np.ndarray, points: np.ndarray, mask: np.ndarray, color=(255, 255, 255)
-):
+def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray, color=(255, 255, 255)):
     """Overlay pose on a frame.
 
     Args:
@@ -305,9 +251,7 @@ def trim_seg_list(arr: np.ndarray) -> list:
     return [trim_seg(x) for x in arr if np.any(x != -1)]
 
 
-def draw_all_contours(
-    img: np.ndarray, seg_data: np.ndarray, color: tuple[int, int, int]
-):
+def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: tuple[int, int, int]):
     """Draw all contours given data for a particular mouse in a particular video frame.
 
     Args:
@@ -405,9 +349,7 @@ def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):
     # draw food hopper if present in pose file
     hopper_points = pose_est.static_objects.get("food_hopper")
     if hopper_points is not None:
-        cv2.polylines(
-            img, np.int32([hopper_points]), True, _HOPPER_COLOR, 1, lineType=cv2.LINE_AA
-        )
+        cv2.polylines(img, np.int32([hopper_points]), True, _HOPPER_COLOR, 1, lineType=cv2.LINE_AA)
 
 
 def __scale_annotation_size(img: np.ndarray, size: int | float) -> int | float:
