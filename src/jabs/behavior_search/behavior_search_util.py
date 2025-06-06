@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -78,11 +77,8 @@ def _search_behaviors_gen(
                 sorted_videos = sorted(video_manager.videos)
 
                 for video in sorted_videos:
-                    anno_path = video_manager.annotations_path(video)
-                    if anno_path.exists():
-                        with anno_path.open() as f:
-                            anno_dict = json.load(f)
-
+                    anno_dict = video_manager.load_annotations(video)
+                    if anno_dict is not None:
                         labels = anno_dict.get("labels", {})
                         for identity, identified_labels in labels.items():
                             for behavior, blocks in identified_labels.items():
