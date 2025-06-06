@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import Enum, auto
 
 import numpy as np
 
@@ -23,10 +24,19 @@ class LabelBehaviorSearchQuery(BehaviorSearchQuery):
     negative: bool = False
 
 
+class PredictionSearchKind(Enum):
+    """Enumeration for different kinds of prediction searches."""
+
+    POSITIVE_PREDICTION = auto()
+    NEGATIVE_PREDICTION = auto()
+    PROBABILITY_RANGE = auto()
+
+
 @dataclass(frozen=True)
 class PredictionBehaviorSearchQuery(BehaviorSearchQuery):
     """Query for prediction label search."""
 
+    search_kind: PredictionSearchKind
     behavior_label: str | None = None
     prob_greater_value: float | None = None
     prob_less_value: float | None = None
@@ -63,8 +73,6 @@ def _search_behaviors_gen(
 
     match search_query:
         case LabelBehaviorSearchQuery() as label_query:
-            print("Searching for labels...")
-
             if label_query.positive or label_query.negative:
                 video_manager = project.video_manager
                 sorted_videos = sorted(video_manager.videos)
@@ -72,7 +80,6 @@ def _search_behaviors_gen(
                 for video in sorted_videos:
                     anno_path = video_manager.annotations_path(video)
                     if anno_path.exists():
-                        print(f"Found annotations for {video} at {anno_path}")
                         with anno_path.open() as f:
                             anno_dict = json.load(f)
 
@@ -97,10 +104,6 @@ def _search_behaviors_gen(
                                         )
 
         case PredictionBehaviorSearchQuery() as pred_query:
-            print("Searching for predictions...")
-            if pred_query.prob_greater_value is None and pred_query.prob_less_value is None:
-                return
-
             proj_settings = project.settings_manager.project_settings
             if pred_query.behavior_label is None:
                 behavior_dict = proj_settings.get("behavior", {})
@@ -188,24 +191,33 @@ def _gen_contig_true_intervals(
         print("WARNING: Predictions and probabilities do not match in size. Skipping this animal.")
         return
 
-    # convert probabilities to a 0.0 to 1.0 scale where the most confident
-    # NOT_BEHAVIOR is 0.0 and the most confident BEHAVIOR is 1.0.
-    #
-    # Also note that we use eps to nudge probabilities away from 0.5 because
-    # you can end up with counterintuitive results if you don't.
-    not_behavior_mask = animal_predictions == TrackLabels.Label.NOT_BEHAVIOR.value
-    animal_probabilities = animal_probabilities.copy() + np.finfo(float).eps
-    animal_probabilities[not_behavior_mask] = 1.0 - animal_probabilities[not_behavior_mask]
-    animal_probabilities = np.clip(animal_probabilities, 0.0, 1.0)
+    match pred_query.search_kind:
+        case PredictionSearchKind.POSITIVE_PREDICTION:
+            print("Searching for positive predictions...")
+            crit_mask = animal_predictions == TrackLabels.Label.BEHAVIOR.value
+        case PredictionSearchKind.NEGATIVE_PREDICTION:
+            crit_mask = animal_predictions == TrackLabels.Label.NOT_BEHAVIOR.value
+        case PredictionSearchKind.PROBABILITY_RANGE:
+            # convert probabilities to a 0.0 to 1.0 scale where the most confident
+            # NOT_BEHAVIOR is 0.0 and the most confident BEHAVIOR is 1.0.
+            #
+            # Also note that we use eps to nudge probabilities away from 0.5 because
+            # you can end up with counterintuitive results if you don't.
+            not_behavior_mask = animal_predictions == TrackLabels.Label.NOT_BEHAVIOR.value
+            animal_probabilities = animal_probabilities.copy() + np.finfo(float).eps
+            animal_probabilities[not_behavior_mask] = 1.0 - animal_probabilities[not_behavior_mask]
+            animal_probabilities = np.clip(animal_probabilities, 0.0, 1.0)
 
-    crit_mask = np.isin(
-        animal_predictions,
-        [TrackLabels.Label.BEHAVIOR.value, TrackLabels.Label.NOT_BEHAVIOR.value],
-    )
-    if pred_query.prob_greater_value is not None:
-        crit_mask &= animal_probabilities >= pred_query.prob_greater_value
-    if pred_query.prob_less_value is not None:
-        crit_mask &= animal_probabilities <= pred_query.prob_less_value
+            crit_mask = np.isin(
+                animal_predictions,
+                [TrackLabels.Label.BEHAVIOR.value, TrackLabels.Label.NOT_BEHAVIOR.value],
+            )
+            if pred_query.prob_greater_value is not None:
+                crit_mask &= animal_probabilities >= pred_query.prob_greater_value
+            if pred_query.prob_less_value is not None:
+                crit_mask &= animal_probabilities <= pred_query.prob_less_value
+        case _:
+            raise ValueError(f"Unsupported search kind: {pred_query.search_kind}")
 
     # exit early if no criteria are met
     if not np.any(crit_mask):

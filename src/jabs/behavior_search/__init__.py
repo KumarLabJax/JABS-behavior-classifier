@@ -4,6 +4,7 @@ from .behavior_search_util import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
+    PredictionSearchKind,
     SearchHit,
     search_behaviors,
 )

@@ -4,6 +4,7 @@ from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
+    PredictionSearchKind,
     SearchHit,
     search_behaviors,
 )
@@ -16,6 +17,7 @@ class SearchBarWidget(QtWidgets.QWidget):
     # Signal emitted when the current search hit changes.
     # This will be either a SearchHit object or None if no hits are found.
     current_search_hit_changed = QtCore.Signal(object)
+    search_results_changed = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -98,31 +100,22 @@ class SearchBarWidget(QtWidgets.QWidget):
 
         if search_query is None:
             self.setVisible(False)
-            self.current_search_hit_changed.emit(None)
         else:
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
-            if self._search_results:
-                hit_count = len(self._search_results)
-                self.current_search_hit_changed.emit(self.current_search_hit)
-                print(f"Search found {hit_count} results.")
-            else:
-                self.current_search_hit_changed.emit(None)
-                print("No results found.")
 
         self._update_result_count_label()
+        self.search_results_changed.emit(self._search_results)
         self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_prev_clicked(self):
-        print("Previous button clicked")
         if self._search_results and self._current_result_index > 0:
             self._current_result_index -= 1
             self._update_result_count_label()
             self.current_search_hit_changed.emit(self.current_search_hit)
 
     def _on_next_clicked(self):
-        print("Next button clicked")
         if self._search_results and self._current_result_index < len(self._search_results) - 1:
             self._current_result_index += 1
             self._update_result_count_label()
@@ -164,19 +157,38 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
         case LabelBehaviorSearchQuery(behavior_label=behavior_label, negative=True):
             return f"Not {behavior_label} labels"
         case PredictionBehaviorSearchQuery(
-            prob_greater_value=gt, prob_less_value=lt, min_contiguous_frames=frames
+            search_kind=search_kind,
+            behavior_label=behavior_label,
+            prob_greater_value=gt,
+            prob_less_value=lt,
+            min_contiguous_frames=frames,
         ):
             parts = []
-            if gt is not None and lt is not None:
-                parts.append(f"{gt} < behavior prob. < {lt}")
-            elif gt is not None:
-                parts.append(f"behavior prob. > {gt}")
-            elif lt is not None:
-                parts.append(f"behavior prob. < {lt}")
-            if not parts:
-                return "No Search"
-            if frames is not None:
+            match search_kind:
+                case PredictionSearchKind.POSITIVE_PREDICTION:
+                    if behavior_label is None:
+                        parts.append("Positive behavior prediction")
+                    else:
+                        parts.append(f"{behavior_label} prediction")
+                case PredictionSearchKind.NEGATIVE_PREDICTION:
+                    if behavior_label is None:
+                        parts.append("Negative behavior prediction")
+                    else:
+                        parts.append(f"Not {behavior_label} prediction")
+                case PredictionSearchKind.PROBABILITY_RANGE:
+                    if behavior_label is not None:
+                        parts.append(f"{behavior_label} prediction")
+
+                    if gt is not None and lt is not None:
+                        parts.append(f"{gt} < behavior prob. < {lt}")
+                    elif gt is not None:
+                        parts.append(f"behavior prob. > {gt}")
+                    elif lt is not None:
+                        parts.append(f"behavior prob. < {lt}")
+
+            if frames is not None and frames > 1:
                 parts.append(f"with at least {frames} contiguous frames")
+
             return " ".join(parts)
         case _:
             return "No Search"

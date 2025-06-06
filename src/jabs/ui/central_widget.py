@@ -182,6 +182,11 @@ class CentralWidget(QtWidgets.QWidget):
         """return the behaviors from the controls widget"""
         return self._controls.behaviors
 
+    @property
+    def search_results_changed(self) -> QtCore.Signal:
+        """Signal emitted when search results change."""
+        return self._search_bar_widget.search_results_changed
+
     def set_project(self, project):
         """set the currently opened project"""
         self._project = project
@@ -787,8 +792,6 @@ class CentralWidget(QtWidgets.QWidget):
     def _update_search_hit(self, search_hit: SearchHit | None):
         """Handle updates when the current search hit changes."""
         if search_hit is not None and self._project is not None:
-            print(f"Loading video for search hit: {search_hit.file}")
-
             # load the video and seek to frame for the search hit
             self.load_video(self._project.video_manager.video_path(search_hit.file))
             self._player_widget.seek_to_frame(search_hit.start_frame)

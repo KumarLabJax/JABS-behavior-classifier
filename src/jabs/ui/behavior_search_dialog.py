@@ -4,6 +4,7 @@ from jabs.behavior_search import (
     BehaviorSearchQuery,
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
+    PredictionSearchKind,
 )
 from jabs.project.project import Project
 
@@ -102,6 +103,21 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         prediction_behavior_row.addStretch()
         prediction_layout.addLayout(prediction_behavior_row)
 
+        # --- Prediction radio buttons ---
+        self.pred_radio_group = QtWidgets.QButtonGroup(prediction_widget)
+        self.radio_pred_positive = QtWidgets.QRadioButton("Positive behavior predictions")
+        self.radio_pred_negative = QtWidgets.QRadioButton("Negative behavior predictions")
+        self.radio_pred_range = QtWidgets.QRadioButton("Behavior probability range:")
+        self.radio_pred_positive.setChecked(True)
+
+        self.pred_radio_group.addButton(self.radio_pred_positive, 0)
+        self.pred_radio_group.addButton(self.radio_pred_negative, 1)
+        self.pred_radio_group.addButton(self.radio_pred_range, 2)
+
+        prediction_layout.addWidget(self.radio_pred_positive)
+        prediction_layout.addWidget(self.radio_pred_negative)
+        prediction_layout.addWidget(self.radio_pred_range)
+
         # Probability range row
         prob_range_layout = QtWidgets.QHBoxLayout()
         self.prob_greater_value = QtWidgets.QLineEdit()
@@ -109,7 +125,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         self.prob_greater_value.setText("0.0")
         prob_range_layout.addWidget(self.prob_greater_value)
 
-        prob_range_layout.addWidget(QtWidgets.QLabel("≤ behavior probability ≤"))
+        prob_range_layout.addWidget(QtWidgets.QLabel("≤ probability ≤"))
 
         self.prob_less_value = QtWidgets.QLineEdit()
         self.prob_less_value.setValidator(QtGui.QDoubleValidator(0.0, 1.0, 3))
@@ -118,10 +134,23 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
 
         prediction_layout.addLayout(prob_range_layout)
 
+        # Enable/disable probability range fields based on radio selection
+        def update_prob_range_enabled():
+            enabled = self.radio_pred_range.isChecked()
+            self.prob_greater_value.setEnabled(enabled)
+            self.prob_less_value.setEnabled(enabled)
+
+        self.radio_pred_positive.toggled.connect(update_prob_range_enabled)
+        self.radio_pred_negative.toggled.connect(update_prob_range_enabled)
+        self.radio_pred_range.toggled.connect(update_prob_range_enabled)
+        update_prob_range_enabled()
+
+        prediction_layout.addSpacing(10)
+
         min_frame_layout = QtWidgets.QHBoxLayout()
         frame_label = QtWidgets.QLabel("Min contiguous matching frames:")
         self.min_frame_count = QtWidgets.QLineEdit()
-        self.min_frame_count.setValidator(QtGui.QIntValidator(1, 1000000))
+        self.min_frame_count.setValidator(QtGui.QIntValidator(1, 10000))
         self.min_frame_count.setText("1")
         min_frame_layout.addWidget(frame_label)
         min_frame_layout.addWidget(self.min_frame_count)
@@ -135,12 +164,44 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         button_box = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
         )
-        button_box.accepted.connect(self.accept)
+        button_box.accepted.connect(self.validate_and_accept)
         button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)
 
         # Update view based on combo box
         self.method_combo.currentIndexChanged.connect(self.stacked_widget.setCurrentIndex)
+
+    def validate_and_accept(self):
+        """Validate user input and accept the dialog if all checks pass."""
+        try:
+            low = float(self.prob_greater_value.text())
+            high = float(self.prob_less_value.text())
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Input",
+                "Please enter valid numbers for probability range.",
+            )
+            return
+
+        if not (0.0 <= low <= 1.0 and 0.0 <= high <= 1.0):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out of Range",
+                "Probability values must be between 0.0 and 1.0.",
+            )
+            return
+
+        if low > high:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Range",
+                "Minimum probability cannot be greater than maximum probability.",
+            )
+            return
+
+        # all checks passed
+        self.accept()
 
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery:
@@ -165,13 +226,28 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
                 if self.prediction_behavior_combo.currentIndex() != 0
                 else None
             )
-            prob_greater_value = float(self.prob_greater_value.text())
-            prob_less_value = float(self.prob_less_value.text())
             min_frames = int(self.min_frame_count.text())
 
-            return PredictionBehaviorSearchQuery(
-                behavior_label=behavior_label,
-                prob_greater_value=prob_greater_value,
-                prob_less_value=prob_less_value,
-                min_contiguous_frames=min_frames,
-            )
+            if self.radio_pred_positive.isChecked():
+                return PredictionBehaviorSearchQuery(
+                    search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
+                    behavior_label=behavior_label,
+                    min_contiguous_frames=min_frames,
+                )
+            elif self.radio_pred_negative.isChecked():
+                return PredictionBehaviorSearchQuery(
+                    search_kind=PredictionSearchKind.NEGATIVE_PREDICTION,
+                    behavior_label=behavior_label,
+                    min_contiguous_frames=min_frames,
+                )
+            else:
+                prob_greater_value = float(self.prob_greater_value.text())
+                prob_less_value = float(self.prob_less_value.text())
+
+                return PredictionBehaviorSearchQuery(
+                    search_kind=PredictionSearchKind.PROBABILITY_RANGE,
+                    behavior_label=behavior_label,
+                    prob_greater_value=prob_greater_value,
+                    prob_less_value=prob_less_value,
+                    min_contiguous_frames=min_frames,
+                )

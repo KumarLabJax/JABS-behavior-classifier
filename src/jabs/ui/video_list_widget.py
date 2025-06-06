@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
+from jabs.behavior_search import SearchHit
+
 
 class _VideoListWidget(QtWidgets.QListWidget):
     """QListView that has been modified to not allow deselecting current selection without selecting a new row"""
@@ -75,3 +77,24 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
                     break
         finally:
             self._suppress_selection_event = False
+
+    def show_search_results(self, search_results: list[SearchHit]):
+        """Update the video list with search results.
+
+        This will cause a hit count indicator to appear to the
+        right of each video in the list having at least one hit.
+
+        Args:
+            search_results: A list of SearchHit objects
+        """
+        count_map = {}
+        for hit in search_results:
+            count_map[hit.file] = count_map.get(hit.file, 0) + 1
+
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            video = item.data(QtCore.Qt.ItemDataRole.UserRole)
+            if video in count_map:
+                item.setText(f"{video} ({count_map[video]})")
+            else:
+                item.setText(video)

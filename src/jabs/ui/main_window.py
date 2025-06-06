@@ -274,6 +274,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._export_training.setEnabled
         )
 
+        # the video list needs to show search hit counts
+        self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
