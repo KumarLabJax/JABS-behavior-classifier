@@ -16,6 +16,7 @@ from .about_dialog import AboutDialog
 from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .central_widget import CentralWidget
 from .license_dialog import LicenseAgreementDialog
+from .player_widget import PlayerWidget
 from .project_loader_thread import ProjectLoaderThread
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
@@ -182,6 +183,27 @@ class MainWindow(QtWidgets.QMainWindow):
         # Set default checked actions
         self._timeline_labels_preds.setChecked(True)
         self._timeline_selected_animal.setChecked(True)
+
+        # label overlay menu
+        label_overlay_menu = QtWidgets.QMenu("Label Overlay", self)
+        view_menu.addMenu(label_overlay_menu)
+        # mutually exclusive group: None, Labels, Predictions
+        label_overlay_group = QtGui.QActionGroup(self)
+        label_overlay_group.setExclusive(True)
+
+        self._label_overlay_none = QtGui.QAction("No Overlay", self, checkable=True, checked=True)
+        self._label_overlay_labels = QtGui.QAction("Labels", self, checkable=True)
+        self._label_overlay_preds = QtGui.QAction("Predictions", self, checkable=True)
+        label_overlay_group.addAction(self._label_overlay_none)
+        label_overlay_group.addAction(self._label_overlay_labels)
+        label_overlay_group.addAction(self._label_overlay_preds)
+        label_overlay_menu.addAction(self._label_overlay_none)
+        label_overlay_menu.addAction(self._label_overlay_labels)
+        label_overlay_menu.addAction(self._label_overlay_preds)
+
+        self._label_overlay_none.triggered.connect(self._on_label_overlay_mode_changed)
+        self._label_overlay_labels.triggered.connect(self._on_label_overlay_mode_changed)
+        self._label_overlay_preds.triggered.connect(self._on_label_overlay_mode_changed)
 
         self.show_track = QtGui.QAction("Show Track", self)
         self.show_track.setCheckable(True)
@@ -655,3 +677,11 @@ class MainWindow(QtWidgets.QMainWindow):
         """Update the selected video in the video list when a search hit is loaded."""
         if search_hit is not None:
             self.video_list.select_video(search_hit.file, suppress_event=True)
+
+    def _on_label_overlay_mode_changed(self):
+        if self._label_overlay_none.isChecked():
+            self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.NONE
+        elif self._label_overlay_labels.isChecked():
+            self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.LABEL
+        elif self._label_overlay_preds.isChecked():
+            self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.PREDICTION

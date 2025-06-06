@@ -17,7 +17,6 @@ from PySide6 import QtCore, QtWidgets
 from jabs.classifier import Classifier
 
 from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
-from .identity_combo_box import IdentityComboBox
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
 
@@ -25,8 +24,9 @@ from .label_count_widget import FrameLabelCountWidget
 class MainControlWidget(QtWidgets.QWidget):
     """Controls for classifier training, labeling, and settings.
 
-    Provides UI components and logic for managing behaviors, subject identities, classifier selection,
-    window sizes, label assignment, and related project-level settings. Emits signals for user actions
+    Provides UI components and logic for managing behaviors, subject
+    identities, classifier selection, window sizes, label assignment,
+    and related project-level settings. Emits signals for user actions
     and updates, and synchronizes UI state with project metadata.
 
     Args:
@@ -78,19 +78,20 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.addItems(self._behaviors)
         self.behavior_selection.currentIndexChanged.connect(self._behavior_changed)
 
-        self.identity_selection = IdentityComboBox()
+        self.identity_selection = QtWidgets.QComboBox()
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
 
-        add_label_button = QtWidgets.QToolButton()
-        add_label_button.setText("+")
-        add_label_button.setToolTip("Add a new behavior label")
-        add_label_button.clicked.connect(self._new_label)
+        self._add_label_button = QtWidgets.QToolButton()
+        self._add_label_button.setText("+")
+        self._add_label_button.setToolTip("Add a new behavior label")
+        self._add_label_button.setEnabled(False)
+        self._add_label_button.clicked.connect(self._new_label)
 
         behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
-        behavior_layout.addWidget(add_label_button)
+        behavior_layout.addWidget(self._add_label_button)
         behavior_layout.setContentsMargins(5, 5, 5, 5)
 
         behavior_group = QtWidgets.QGroupBox("Behavior")
@@ -271,7 +272,8 @@ class MainControlWidget(QtWidgets.QWidget):
     def current_identity(self) -> str:
         """get the external identity
 
-        if the pose file doesn't have external identities this will be the string representation of the jabs identity
+        if the pose file doesn't have external identities this will be
+        the string representation of the jabs identity
         """
         return self.identity_selection.currentText()
 
@@ -399,6 +401,16 @@ class MainControlWidget(QtWidgets.QWidget):
         """set the classify button to enabled or disabled"""
         self._classify_button.setEnabled(enabled)
 
+    @property
+    def select_button_enabled(self) -> bool:
+        """return true if the select button is enabled"""
+        return self._select_button.isEnabled()
+
+    @select_button_enabled.setter
+    def select_button_enabled(self, enabled: bool) -> None:
+        """set the select button to enabled or disabled"""
+        self._select_button.setEnabled(enabled)
+
     def select_button_set_enabled(self, enabled: bool):
         """set the select button to enabled or disabled"""
         self._select_button.setEnabled(enabled)
@@ -439,11 +451,11 @@ class MainControlWidget(QtWidgets.QWidget):
 
         Returns:
             None
-        """
-        # TODO: This is one of the major locations where project settings
-        #   are owned by this widget, instead of the project class
 
-        # update behavior list
+        Todo:
+         - This is one of the major locations where project settings are owned by this
+           widget, instead of the project class
+        """
         # reset list of behaviors, then add any from the project metadata
         self._behaviors = []
 
@@ -452,6 +464,7 @@ class MainControlWidget(QtWidgets.QWidget):
         self.behavior_selection.currentIndexChanged.disconnect()
 
         self._set_window_sizes(project_settings["window_sizes"])
+        self._add_label_button.setEnabled(True)
 
         # select the behavior
         behavior_index = 0
@@ -488,7 +501,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
     def remove_behavior(self, behavior: str):
         """remove a behavior from the behavior selection box"""
-        idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchExactly)
+        idx = self.behavior_selection.findText(behavior, QtCore.Qt.MatchFlag.MatchExactly)
         if idx != -1:
             self.behavior_selection.removeItem(idx)
             self._behaviors.remove(behavior)
@@ -509,7 +522,7 @@ class MainControlWidget(QtWidgets.QWidget):
         behavior to the combo box, and select it
         """
         text, ok = QtWidgets.QInputDialog.getText(
-            self, "New Behavior", "New Behavior Name:", QtWidgets.QLineEdit.Normal
+            self, "New Behavior", "New Behavior Name:", QtWidgets.QLineEdit.EchoMode.Normal
         )
         if ok and text not in self._behaviors:
             self._behaviors.append(text)
@@ -532,7 +545,8 @@ class MainControlWidget(QtWidgets.QWidget):
         dialog.setOkButtonText("OK")
         dialog.setCancelButtonText("Quit JABS")
         dialog.setWindowFlags(
-            dialog.windowFlags() & ~QtCore.Qt.WindowCloseButtonHint | QtCore.Qt.CustomizeWindowHint
+            dialog.windowFlags() & ~QtCore.Qt.WindowType.WindowCloseButtonHint
+            | QtCore.Qt.WindowType.CustomizeWindowHint
         )
 
         if dialog.exec():
