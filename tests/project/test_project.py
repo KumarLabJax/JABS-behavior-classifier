@@ -1,11 +1,12 @@
+import contextlib
 import gzip
 import json
 import shutil
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
-from src.jabs.project import Project
-from src.jabs.project import VideoLabels
+from src.jabs.project import Project, VideoLabels
 from src.jabs.utils import hide_stderr
 
 
@@ -18,27 +19,24 @@ class TestProject(unittest.TestCase):
     """
 
     _EXISTING_PROJ_PATH = Path("test_project_with_data")
-    _FILENAMES = ["test_file_1.avi", "test_file_2.avi"]
+    _FILENAMES: ClassVar[list[str]] = ["test_file_1.avi", "test_file_2.avi"]
 
     # filenames of some compressed sample pose files in the test/data directory.
     # must be at least as long as _FILENAMES
-    _POSE_FILES = [
+    _POSE_FILES: ClassVar[list[str]] = [
         "identity_with_no_data_pose_est_v3.h5.gz",
         "sample_pose_est_v3.h5.gz",
     ]
 
     @classmethod
     def setUpClass(cls):
-        # create a project with empty video file and annotations
-
+        """create a project with empty video file and annotations"""
         test_data_dir = Path(__file__).parent.parent / "data"
 
         # make sure the test project dir is gone in case we previously
         # threw an exception during setup
-        try:
+        with contextlib.suppress(FileNotFoundError):
             shutil.rmtree(cls._EXISTING_PROJ_PATH)
-        except FileNotFoundError:
-            pass
 
         cls._EXISTING_PROJ_PATH.mkdir()
 
@@ -51,9 +49,8 @@ class TestProject(unittest.TestCase):
             pose_path = cls._EXISTING_PROJ_PATH / pose_filename
             pose_source = test_data_dir / cls._POSE_FILES[i]
 
-            with gzip.open(pose_source, "rb") as f_in:
-                with open(pose_path, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            with gzip.open(pose_source, "rb") as f_in, open(pose_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
 
         # set up a project directory with annotations
         Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
@@ -79,6 +76,7 @@ class TestProject(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """remove the test project directory"""
         shutil.rmtree(cls._EXISTING_PROJ_PATH)
 
     def test_create(self):
@@ -144,30 +142,30 @@ class TestProject(unittest.TestCase):
         ).open("r") as f:
             dict_from_file = json.load(f)
 
-        self.assertDictEqual(labels.as_dict(), dict_from_file)
+        # need to add the project labeler to the labels dict
+        labels_as_dict = labels.as_dict()
+        labels_as_dict["labeler"] = self.project.labeler
+
+        self.assertDictEqual(labels_as_dict, dict_from_file)
 
     def test_load_annotations_bad_filename(self):
-        """
-        test load annotations for a file that doesn't exist raises ValueError
-        """
+        """test load annotations for a file that doesn't exist raises ValueError"""
         with self.assertRaises(ValueError):
             self.project.video_manager.load_video_labels("bad_filename.avi")
 
     def test_no_saved_video_labels(self):
-        """
-        test loading labels for a video with no saved labels returns None
-        """
+        """test loading labels for a video with no saved labels returns None"""
         assert self.project.video_manager.load_video_labels(self._FILENAMES[1]) is None
 
     def test_bad_video_file(self):
-        with self.assertRaises(IOError):
-            with hide_stderr():
-                _ = Project(self._EXISTING_PROJ_PATH)
+        """test loading a video file that doesn't exist raises ValueError"""
+        with self.assertRaises(IOError), hide_stderr():
+            _ = Project(self._EXISTING_PROJ_PATH)
 
     def test_min_pose_version(self):
-        # dummy project contains version 3 and 4 pose files
-        # min should be 3
+        """dummy project contains version 3 and 4 pose files min should be 3"""
         self.assertEqual(self.project.feature_manager.min_pose_version, 3)
 
     def test_can_use_social_true(self):
+        """test that can_use_social_features is True when social features are enabled"""
         self.assertTrue(self.project.feature_manager.can_use_social_features)
