@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 from jabs.project import export_training_data
+from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from jabs.version import version_str
 
@@ -48,6 +49,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget(self)
         self._central_widget.status_message.connect(self.display_status_message)
+        self._central_widget.search_hit_loaded.connect(self._search_hit_loaded)
         self.setCentralWidget(self._central_widget)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -224,6 +226,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overlay_segmentation.triggered.connect(self._toggle_segmentation_overlay)
         view_menu.addAction(self.overlay_segmentation)
 
+        # add behavior search
+        self.behavior_search = QtGui.QAction("Search Behaviors", self)
+        self.behavior_search.setShortcut(QtGui.QKeySequence.Find)
+        self.behavior_search.setStatusTip("Search for behaviors")
+        self.behavior_search.setEnabled(False)
+        self.behavior_search.triggered.connect(self._search_behaviors)
+        view_menu.addAction(self.behavior_search)
+
         # Feature subset actions
         # All these settings should be updated whenever the behavior_changed event occurs
         self._central_widget.controls.behavior_changed.connect(self.behavior_changed_event)
@@ -285,6 +295,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.export_training_status_change.connect(
             self._export_training.setEnabled
         )
+
+        # the video list needs to show search hit counts
+        self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
@@ -478,6 +491,22 @@ class MainWindow(QtWidgets.QMainWindow):
         """show/hide segmentation overlay for subject."""
         self._central_widget.overlay_segmentation(checked)
 
+    def _search_behaviors(self):
+        """open a dialog to search for behaviors if a project is loaded."""
+        if self._project is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Project Loaded",
+                "Please load a project before searching for behaviors.",
+            )
+            return
+
+        # open the behavior search dialog
+        dialog = BehaviorSearchDialog(self._project, self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            search_query = dialog.behavior_search_query
+            self._central_widget.update_behavior_search_query(search_query)
+
     def _toggle_cm_units(self, checked: bool):
         """toggle project to use pixel units."""
         # TODO: Warn the user that features may need to be re-calculated
@@ -552,6 +581,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
+        self.behavior_search.setEnabled(True)
 
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
@@ -642,6 +672,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ALL
         elif self._timeline_selected_animal.isChecked():
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ACTIVE
+
+    def _search_hit_loaded(self, search_hit):
+        """Update the selected video in the video list when a search hit is loaded."""
+        if search_hit is not None:
+            self.video_list.select_video(search_hit.file, suppress_event=True)
 
     def _on_label_overlay_mode_changed(self):
         if self._label_overlay_none.isChecked():

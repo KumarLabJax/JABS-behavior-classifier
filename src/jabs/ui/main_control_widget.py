@@ -431,6 +431,18 @@ class MainControlWidget(QtWidgets.QWidget):
         """set which identity is selected in the identity selection combobox"""
         self.identity_selection.setCurrentIndex(i)
 
+    def set_behavior(self, behavior: str):
+        """set the current behavior to the given behavior
+
+        Args:
+            behavior: the name of the behavior to set as current
+
+        Returns:
+            None
+        """
+        if behavior in self._behaviors:
+            self.behavior_selection.setCurrentText(behavior)
+
     def update_project_settings(self, project_settings: dict):
         """update controls from project settings
 
