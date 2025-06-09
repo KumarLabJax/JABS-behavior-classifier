@@ -13,9 +13,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from rich.progress import BarColumn, Progress, TextColumn
 
 from jabs.classifier import Classifier
-from jabs.cli import cli_progress_bar
 from jabs.constants import APP_NAME
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
@@ -102,9 +102,7 @@ def classify_pose(
     pose_stem = get_pose_stem(input_pose_file)
 
     # allocate numpy arrays to write to h5 file
-    prediction_labels = np.full(
-        (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
-    )
+    prediction_labels = np.full((pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8)
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
     classifier_settings = classifier.project_settings
@@ -112,56 +110,50 @@ def classify_pose(
     print(f"Classifying {input_pose_file}...")
 
     # run prediction for each identity
-    for curr_id in pose_est.identities:
-        cli_progress_bar(
-            curr_id,
-            len(pose_est.identities),
-            complete_as_percent=False,
-            suffix="identities",
-        )
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed} of {task.total} identities"),
+    ) as progress:
+        task = progress.add_task("Processing", total=pose_est.num_identities)
+        for curr_id in pose_est.identities:
+            features = IdentityFeatures(
+                input_pose_file,
+                curr_id,
+                feature_dir,
+                pose_est,
+                fps=fps,
+                op_settings=classifier_settings,
+                cache_window=cache_window,
+            ).get_features(classifier_settings["window_size"])
 
-        features = IdentityFeatures(
-            input_pose_file,
-            curr_id,
-            feature_dir,
-            pose_est,
-            fps=fps,
-            op_settings=classifier_settings,
-            cache_window=cache_window,
-        ).get_features(classifier_settings["window_size"])
+            per_frame_features = pd.DataFrame(
+                IdentityFeatures.merge_per_frame_features(features["per_frame"])
+            )
+            window_features = pd.DataFrame(
+                IdentityFeatures.merge_window_features(features["window"])
+            )
 
-        per_frame_features = pd.DataFrame(
-            IdentityFeatures.merge_per_frame_features(features["per_frame"])
-        )
-        window_features = pd.DataFrame(
-            IdentityFeatures.merge_window_features(features["window"])
-        )
+            data = Classifier.combine_data(per_frame_features, window_features)
 
-        data = Classifier.combine_data(per_frame_features, window_features)
+            if data.shape[0] > 0:
+                pred = classifier.predict(data)
+                pred_prob = classifier.predict_proba(data)
 
-        if data.shape[0] > 0:
-            pred = classifier.predict(data)
-            pred_prob = classifier.predict_proba(data)
+                # Keep the probability for the predicted class only.
+                # The following code uses some
+                # numpy magic to use the pred array as column indexes
+                # for each row of the pred_prob array we just computed.
+                pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-            # Keep the probability for the predicted class only.
-            # The following code uses some
-            # numpy magic to use the pred array as column indexes
-            # for each row of the pred_prob array we just computed.
-            pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
-
-            # Only copy out predictions where there was a valid pose
-            prediction_labels[curr_id, features["frame_indexes"]] = pred[
-                features["frame_indexes"]
-            ]
-            prediction_prob[curr_id, features["frame_indexes"]] = pred_prob[
-                features["frame_indexes"]
-            ]
-    cli_progress_bar(
-        len(pose_est.identities),
-        len(pose_est.identities),
-        complete_as_percent=False,
-        suffix="identities",
-    )
+                # Only copy out predictions where there was a valid pose
+                prediction_labels[curr_id, features["frame_indexes"]] = pred[
+                    features["frame_indexes"]
+                ]
+                prediction_prob[curr_id, features["frame_indexes"]] = pred_prob[
+                    features["frame_indexes"]
+                ]
+            progress.update(task, advance=1)
 
     print(f"Writing predictions to {out_dir}")
 
@@ -227,13 +219,11 @@ def usage_main():
     print("commands:", file=sys.stderr)
     print(" classify   classify a pose file", file=sys.stderr)
     print(
-        " train      train a classifier that can be used to classify "
-        "multiple pose files",
+        " train      train a classifier that can be used to classify multiple pose files",
         file=sys.stderr,
     )
     print(
-        f"\nSee `{script_name()} COMMAND --help` for information on a "
-        "specific command.",
+        f"\nSee `{script_name()} COMMAND --help` for information on a specific command.",
         file=sys.stderr,
     )
 
@@ -261,9 +251,7 @@ def classify_main():
             help=f"Use {classifier_str}",
         )
 
-    source_group = parser.add_argument_group(
-        "Classifier Input (one of the following is required)"
-    )
+    source_group = parser.add_argument_group("Classifier Input (one of the following is required)")
     training_group = source_group.add_mutually_exclusive_group(required=True)
     training_group.add_argument(
         "--training", help=f"Training data h5 file exported from {APP_NAME}"
@@ -331,9 +319,7 @@ def classify_main():
 
         print(f"Classifying using trained classifier: {args.classifier}")
         try:
-            print(
-                f"  Classifier type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}"
-            )
+            print(f"  Classifier type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
         except KeyError:
             sys.exit("Error: Classifier type not supported on this platform")
         print(f"  Behavior: {behavior}")
@@ -358,9 +344,7 @@ def train_main():
     train_args = sys.argv[2:]
 
     parser = argparse.ArgumentParser(prog=f"{script_name()} train")
-    parser.add_argument(
-        "training_file", help=f"Training h5 file exported by {APP_NAME}"
-    )
+    parser.add_argument("training_file", help=f"Training h5 file exported by {APP_NAME}")
     parser.add_argument("out_file", help="output filename")
 
     args = parser.parse_args(train_args)
