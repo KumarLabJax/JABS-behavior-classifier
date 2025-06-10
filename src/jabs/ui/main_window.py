@@ -229,7 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add behavior search
         self.behavior_search = QtGui.QAction("Search Behaviors", self)
-        self.behavior_search.setShortcut(QtGui.QKeySequence.Find)
+        self.behavior_search.setShortcut(QtGui.QKeySequence.StandardKey.Find)
         self.behavior_search.setStatusTip("Search for behaviors")
         self.behavior_search.setEnabled(False)
         self.behavior_search.triggered.connect(self._search_behaviors)
@@ -277,7 +277,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # select all action
         select_all_action = QtGui.QAction(self)
-        select_all_action.setShortcut(QtGui.QKeySequence.SelectAll)
+        select_all_action.setShortcut(QtGui.QKeySequence.StandardKey.SelectAll)
         select_all_action.triggered.connect(self._handle_select_all)
         self.addAction(select_all_action)
 
