@@ -152,8 +152,7 @@ class ManualLabelWidget(QWidget):
             # turn labels into indices into color LUT, labels are -1, 0, 1 for no label, not behavior, behavior
             # add 1 to the labels to convert to indexes in color_lut
             color_indices = labels + 1
-            mask = self._identity_mask[slice_start : slice_end + 1]
-            gap_mask = mask == 0
+            gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
 
             # Map indices to RGBA colors
             colors = self.COLOR_LUT[color_indices]
