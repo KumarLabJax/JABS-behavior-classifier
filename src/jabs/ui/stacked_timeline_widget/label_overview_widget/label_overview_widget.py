@@ -146,13 +146,15 @@ class LabelOverviewWidget(QWidget):
         self._label_widget.reset()
         self._num_frames = 0
 
-    def start_selection(self, starting_frame: int) -> None:
+    def start_selection(self, starting_frame: int, ending_frame: int | None = None) -> None:
         """Start a selection from the given frame to the current frame.
 
         Args:
             starting_frame: The frame index where the selection begins.
+            ending_frame: Optional; the frame index where the selection ends. If None,
+                selection continues to current frame.
         """
-        self._label_widget.start_selection(starting_frame)
+        self._label_widget.start_selection(starting_frame, ending_frame)
 
     def clear_selection(self) -> None:
         """Clear the current selection.

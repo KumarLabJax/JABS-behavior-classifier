@@ -274,6 +274,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_segmentation_features.triggered.connect(self._toggle_segmentation_features)
         feature_menu.addAction(self.enable_segmentation_features)
 
+        # select all action
+        select_all_action = QtGui.QAction(self)
+        select_all_action.setShortcut(QtGui.QKeySequence.SelectAll)
+        select_all_action.triggered.connect(self._handle_select_all)
+        self.addAction(select_all_action)
+
         # playlist widget added to dock on left side of main window
         self.video_list = VideoListDockWidget(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.video_list)
@@ -685,3 +691,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.LABEL
         elif self._label_overlay_preds.isChecked():
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.PREDICTION
+
+    def _handle_select_all(self):
+        """Handle the Select All event"""
+        self._central_widget.select_all()

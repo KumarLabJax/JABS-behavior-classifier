@@ -70,6 +70,7 @@ class ManualLabelWidget(QWidget):
         # current position
         self._current_frame = 0
         self._selection_start = None
+        self._selection_end = None
 
         # information about the video needed to properly render widget
         self._num_frames = 0
@@ -230,7 +231,13 @@ class ManualLabelWidget(QWidget):
         painter.setBrush(self._selection_brush)
 
         # figure out the start and width of the selection rectangle
-        if self._selection_start < self._current_frame:
+        if self._selection_end is not None:
+            # we have an explicit end frame for the selection
+            selection_start = max(self._selection_start - start, 0)
+            selection_width = (
+                min(end, self._selection_end) - max(start, self._selection_start) + 1
+            ) * self._frame_width
+        elif self._selection_start < self._current_frame:
             # normal selection, start is lower than current frame
             selection_start = max(self._selection_start - start, 0)
             selection_width = (
@@ -328,15 +335,19 @@ class ManualLabelWidget(QWidget):
         """
         self._framerate = fps
 
-    def start_selection(self, start_frame: int) -> None:
+    def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:
         """Begin highlighting a selection range on the label bar.
 
-        Sets the starting frame for the selection overlay, which will extend to the current frame.
+        Sets the starting frame for the selection overlay, which will extend to the current frame
+        unless an end frame is specified.
 
         Args:
             start_frame: The frame index where the selection begins.
+            end_frame: Optional; the frame index where the selection ends. If not provided,
+                the selection will extend to the current frame.
         """
         self._selection_start = start_frame
+        self._selection_end = end_frame
 
     def clear_selection(self) -> None:
         """Stop highlighting the selection range.
@@ -344,6 +355,7 @@ class ManualLabelWidget(QWidget):
         Clears the selection overlay from the label bar.
         """
         self._selection_start = None
+        self._selection_end = None
 
     def reset(self) -> None:
         """Reset the widget to its initial state.
@@ -353,5 +365,6 @@ class ManualLabelWidget(QWidget):
         self._labels = None
         self._identity_mask = None
         self._selection_start = None
+        self._selection_end = None
         self._num_frames = 0
         self.update()

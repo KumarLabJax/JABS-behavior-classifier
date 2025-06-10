@@ -422,26 +422,52 @@ class CentralWidget(QtWidgets.QWidget):
         if pressed:
             self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame()
+            self._selection_end = None
             self._stacked_timeline.start_selection(self._selection_start)
         else:
             self._controls.disable_label_buttons()
             self._stacked_timeline.clear_selection()
 
+    def select_all(self):
+        """Select all frames in the current video for the current identity and behavior."""
+        if not self._controls.select_button_is_checked and self._controls.select_button_enabled:
+            self._controls.toggle_select_button()
+
+        if self._controls.select_button_enabled:
+            num_frames = self._player_widget.num_frames()
+            if num_frames > 0:
+                self._controls.enable_label_buttons()
+                self._selection_start = 0
+                self._selection_end = num_frames - 1
+                self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
+
+    @property
+    def _curr_selection_end(self):
+        """Get the end of the current selection.
+
+        If no selection end is set, return the current frame index.
+        """
+        return (
+            self._selection_end
+            if self._selection_end is not None
+            else self._player_widget.current_frame()
+        )
+
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
-        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
+        start, end = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self):
         """apply _not_ behavior label to currently selected range of frames"""
-        start, end = sorted([self._selection_start, self._player_widget.current_frame()])
+        start, end = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().label_not_behavior(start, end)
         self._label_button_common()
 
     def _clear_behavior_label(self):
         """clear all behavior/not behavior labels from current selection"""
-        label_range = sorted([self._selection_start, self._player_widget.current_frame()])
+        label_range = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().clear_labels(*label_range)
         self._label_button_common()
 
