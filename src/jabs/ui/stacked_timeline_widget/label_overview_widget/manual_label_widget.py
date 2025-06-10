@@ -155,9 +155,6 @@ class ManualLabelWidget(QWidget):
             mask = self._identity_mask[slice_start : slice_end + 1]
             gap_mask = mask == 0
 
-            # set color index to gap index (transparent) for any gaps in the identity
-            # color_indices[mask == 0] = self.GAP_INDEX
-
             # Map indices to RGBA colors
             colors = self.COLOR_LUT[color_indices]
             colors[gap_mask, 3] = 96  # set alpha for gaps to make them semi-transparent
