@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from src.jabs.project.project_paths import ProjectPaths
-from src.jabs.project.settings_manager import SettingsManager
-from src.jabs.project.video_manager import VideoManager
+from jabs.project.project_paths import ProjectPaths
+from jabs.project.settings_manager import SettingsManager
+from jabs.project.video_manager import VideoManager
 
 
 @pytest.fixture

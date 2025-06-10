@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from src.jabs.project import VideoLabels
+from jabs.project import VideoLabels
 
 mock_pose_est = MagicMock()
 mock_pose_est.identity_mask.return_value = np.full(100, 1, dtype=bool)

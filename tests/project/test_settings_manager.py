@@ -1,21 +1,22 @@
-import pytest
 import json
-from src.jabs.project.settings_manager import SettingsManager
+from unittest.mock import MagicMock
+
+import pytest
+
+from jabs.project.settings_manager import SettingsManager
 
 
 @pytest.fixture
 def mock_project(tmp_path):
     """Fixture to create a mock project with necessary paths."""
+    project_file = tmp_path / "project.json"
+    project_paths = MagicMock()
+    project_paths.project_file = project_file
 
-    class MockProjectPaths:
-        def __init__(self, base_path):
-            self.project_file = base_path / "project.json"
+    mock_project = MagicMock()
+    mock_project.project_paths = project_paths
 
-    class MockProject:
-        def __init__(self, base_path):
-            self.project_paths = MockProjectPaths(base_path)
-
-    return MockProject(tmp_path)
+    return mock_project
 
 
 def test_get_behavior(mock_project):
@@ -127,10 +128,7 @@ def test_save_behavior(mock_project):
 
     assert "Running" in updated_settings["behavior"]
     assert updated_settings["behavior"]["Running"] == new_behavior_settings
-    assert (
-        updated_settings["behavior"]["Walking"]
-        == initial_settings["behavior"]["Walking"]
-    )
+    assert updated_settings["behavior"]["Walking"] == initial_settings["behavior"]["Walking"]
 
     # Verify that the SettingsManager instance has the updated settings in memory
     behavior_settings = settings_manager.get_behavior("Running")
