@@ -421,7 +421,7 @@ class CentralWidget(QtWidgets.QWidget):
         and _clear_behavior_label(). To be called after the labels are changed
         for the current selection.
         """
-        self._project.save_annotations(self._labels)
+        self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
         self._stacked_timeline.clear_selection()
         self._update_label_counts()
