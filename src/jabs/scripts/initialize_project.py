@@ -11,10 +11,11 @@ import sys
 from multiprocessing import Pool
 from pathlib import Path
 
+from rich.progress import Progress
+
 import jabs.feature_extraction
 import jabs.pose_estimation
 import jabs.project
-from jabs.cli import cli_progress_bar
 from jabs.project.video_manager import VideoManager
 from jabs.types import ProjectDistanceUnit
 from jabs.video_reader import VideoReader
@@ -106,9 +107,7 @@ def window_size_type(x):
     """
     x = int(x)
     if x < 1:
-        raise argparse.ArgumentTypeError(
-            "window size must be greater than or equal to 1"
-        )
+        raise argparse.ArgumentTypeError("window size must be greater than or equal to 1")
     return x
 
 
@@ -169,22 +168,20 @@ def main():
     videos = VideoManager.get_videos(args.project_dir)
 
     # print the initial progress bar with 0% complete
-    cli_progress_bar(0, len(videos), prefix=" Checking for pose files: ")
 
     # iterate over each video and try to pair it with an h5 file
     # this test is quick, don't bother to parallelize
     results = []
-    for complete, v in enumerate(videos, 1):
-        results.append(match_to_pose(v, args.project_dir))
-        cli_progress_bar(complete, len(videos), prefix=" Checking for pose files: ")
+    with Progress() as progress:
+        task = progress.add_task(" Checking for pose files", total=len(videos))
+        for v in videos:
+            results.append(match_to_pose(v, args.project_dir))
+            progress.update(task, advance=1)
 
     failures = [r for r in results if r["okay"] is False]
 
     if failures:
-        print(
-            " The following errors were encountered, "
-            "please correct and run this script again:"
-        )
+        print(" The following errors were encountered, please correct and run this script again:")
         for f in failures:
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
@@ -196,26 +193,20 @@ def main():
         for video in videos:
             yield ({"video": video, "project_dir": args.project_dir})
 
-    # print the initial progress bar with 0% complete
-    cli_progress_bar(0, len(videos), prefix=" Validating Project: ")
-
-    complete = 0
-    results = []
     # do work in parallel (not really necessary for this test, but we already
     # have the work pool for generating features)
-    for result in pool.imap_unordered(validate_video_worker, validation_job_producer()):
-        # update progress bar
-        complete += 1
-        cli_progress_bar(complete, len(videos), prefix=" Validating Project: ")
-        results.append(result)
+    with Progress() as progress:
+        results = []
+        task = progress.add_task(" Validating videos", total=len(videos))
+        for result in pool.imap_unordered(validate_video_worker, validation_job_producer()):
+            # update progress bar
+            progress.update(task, advance=1)
+            results.append(result)
 
     failures = [r for r in results if r["okay"] is False]
 
     if failures:
-        print(
-            " The following errors were encountered, "
-            "please correct and run this script again:"
-        )
+        print(" The following errors were encountered, please correct and run this script again:")
         for f in failures:
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
@@ -242,15 +233,12 @@ def main():
                     }
                 )
 
-    # print the initial progress bar with 0% complete
-    cli_progress_bar(0, total_identities, prefix=" Computing Features: ")
-
     # compute features in parallel
-    complete = 0
-    for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
-        # update progress bar
-        complete += 1
-        cli_progress_bar(complete, total_identities, prefix=" Computing Features: ")
+    with Progress() as progress:
+        task = progress.add_task(" Computing Features", total=total_identities)
+        for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
+            # update progress bar
+            progress.update(task, advance=1)
 
     pool.close()
 
@@ -258,9 +246,7 @@ def main():
     deduped_window_sizes = set(
         project.settings_manager.project_settings.get("window_sizes", []) + window_sizes
     )
-    project.settings_manager.save_project_file(
-        {"window_sizes": list(deduped_window_sizes)}
-    )
+    project.settings_manager.save_project_file({"window_sizes": list(deduped_window_sizes)})
 
     print("\n" + "-" * 70)
     if args.force_pixel_distances:

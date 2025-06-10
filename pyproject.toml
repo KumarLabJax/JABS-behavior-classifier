@@ -33,6 +33,7 @@ toml = "^0.10.2"
 xgboost = "1.7.6"
 pyarrow = "^20.0.0"
 argparse-formatter = "^1.4"
+rich = "^14.0.0"
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.9.3"
