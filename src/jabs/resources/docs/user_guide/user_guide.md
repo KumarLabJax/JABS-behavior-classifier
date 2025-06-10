@@ -367,6 +367,10 @@ Overlays:
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
 
+Behavior search:
+
+- ctrl+f (windows) / cmd+f (Mac): open behavior search dialog
+
 ## The Command Line Classifier
 
 JABS includes a script called `jabs-classify`, which can be used to classify a

@@ -177,7 +177,6 @@ class VideoManager:
 
     def annotations_path(self, video_file) -> Path:
         """take a video file name and generate the path used to save associated annotations"""
-        # return self._paths.annotations_dir / Path(video_file).with_suffix(".json")
         video_filename = Path(video_file).name
         self.check_video_name(video_filename)
 

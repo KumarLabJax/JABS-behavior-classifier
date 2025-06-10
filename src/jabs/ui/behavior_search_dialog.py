@@ -6,7 +6,7 @@ from jabs.behavior_search import (
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
 )
-from jabs.project.project import Project
+from jabs.project import Project
 
 
 class BehaviorSearchDialog(QtWidgets.QDialog):
@@ -38,6 +38,9 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         method_layout.addWidget(self.method_combo)
         method_layout.addStretch()
         main_layout.addLayout(method_layout)
+
+        # Note: leaving the following commented out for future use
+        #       when we add limited scope to searches.
 
         # # checkboxes for limiting search scope
         # self.limit_to_video_checkbox = QtWidgets.QCheckBox(
