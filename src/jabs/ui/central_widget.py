@@ -563,7 +563,9 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_complete(self) -> None:
         """enable classify button once the training is complete"""
-        self._progress_dialog.reset()
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
         self.status_message.emit("Training Complete", 3000)
         self._controls.classify_button_set_enabled(True)
 
@@ -598,6 +600,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
         self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
