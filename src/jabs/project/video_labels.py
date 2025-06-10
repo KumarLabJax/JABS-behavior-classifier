@@ -119,7 +119,8 @@ class VideoLabels:
                     "behavior": [
                         {
                             "start": 25,
-                            "end": 50
+                            "end": 50,
+                            "present": True
                         }
                     ]
                 }
