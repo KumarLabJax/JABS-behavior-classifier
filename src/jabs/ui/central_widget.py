@@ -17,6 +17,7 @@ from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
 from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
+from .util import create_progress_dialog
 
 _CLICK_THRESHOLD = 20
 
@@ -34,7 +35,7 @@ class CentralWidget(QtWidgets.QWidget):
         # search bar
         self._search_bar_widget = SearchBarWidget(self)
         self._search_bar_widget.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
         self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
 
@@ -556,7 +557,7 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._setup_progress_dialog("Training", total_steps)
+        self._progress_dialog = create_progress_dialog(self, "Training", total_steps)
 
         # start training thread
         self._training_thread.start()
@@ -589,7 +590,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-        self._setup_progress_dialog("Predicting", self._project.total_project_identities + 1)
+        self._progress_dialog = create_progress_dialog(
+            self, "Predicting", self._project.total_project_identities + 1
+        )
 
         # start classification thread
         self._classify_thread.start()
@@ -902,23 +905,3 @@ class CentralWidget(QtWidgets.QWidget):
             disable_select_button()
         else:
             self._controls.select_button_enabled = True
-
-    def _setup_progress_dialog(self, text: str, steps: int) -> None:
-        """Setup the progress dialog for training or classification tasks."""
-        self._progress_dialog = QtWidgets.QProgressDialog(text, None, 0, steps, self)
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-
-        if sys.platform == "darwin":
-            self._progress_dialog.setWindowFlags(
-                QtCore.Qt.WindowType.Dialog
-                | QtCore.Qt.WindowType.FramelessWindowHint
-                | QtCore.Qt.WindowType.WindowStaysOnTopHint
-            )
-        else:
-            self._progress_dialog.setWindowFlags(
-                QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.CustomizeWindowHint
-            )
-
-        self._progress_dialog.reset()
-        self._progress_dialog.show()

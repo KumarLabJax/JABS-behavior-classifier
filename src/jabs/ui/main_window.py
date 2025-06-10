@@ -20,6 +20,7 @@ from .player_widget import PlayerWidget
 from .project_loader_thread import ProjectLoaderThread
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
+from .util import create_progress_dialog
 from .video_list_widget import VideoListDockWidget
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
@@ -356,21 +357,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project(self, project_path: str):
         """open a new project directory"""
-        self._progress_dialog = QtWidgets.QProgressDialog("Loading project...", None, 0, 0, self)
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-
-        if sys.platform == "darwin":
-            self._progress_dialog.setWindowFlags(
-                QtCore.Qt.WindowType.Dialog
-                | QtCore.Qt.WindowType.FramelessWindowHint
-                | QtCore.Qt.WindowType.WindowStaysOnTopHint
-            )
-        else:
-            self._progress_dialog.setWindowFlags(
-                QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.CustomizeWindowHint
-            )
-        self._progress_dialog.show()
+        self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
 
         self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
