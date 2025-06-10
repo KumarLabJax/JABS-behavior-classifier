@@ -78,3 +78,25 @@ class TestVideoLabels(unittest.TestCase):
             {"start": 160, "end": 200, "present": True},
         ]
         self.assertEqual(label_blocks["Walking"], expected_blocks)
+
+    def test_unfragmented_labels_not_split_by_identity_gaps(self):
+        """test that unfragmented_labels are not fragmented by identity gaps"""
+        identity_mask = np.full(1000, True, dtype=bool)
+        identity_mask[150:160] = False  # gap from 150 to 159
+
+        mock_pose = MagicMock()
+        mock_pose.identity_mask.return_value = identity_mask
+        mock_pose.num_frames = 1000
+
+        labels = VideoLabels("test.avi", 1000)
+        walking_labels = labels.get_track_labels("0", "Walking")
+        walking_labels.label_behavior(100, 200)
+
+        labels_dict = labels.as_dict(mock_pose)
+        unfragmented_blocks = labels_dict["unfragmented_labels"]["0"]["Walking"]
+
+        # Should be a single block: 100-200
+        expected_unfragmented = [
+            {"start": 100, "end": 200, "present": True},
+        ]
+        self.assertEqual(unfragmented_blocks, expected_unfragmented)
