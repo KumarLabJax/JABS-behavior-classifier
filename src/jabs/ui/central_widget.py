@@ -6,9 +6,11 @@ from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
 import jabs.feature_extraction
+from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
 from jabs.project import VideoLabels
 from jabs.project.track_labels import TrackLabels
+from jabs.ui.search_bar_widget import SearchBarWidget
 
 from .classification_thread import ClassifyThread
 from .main_control_widget import MainControlWidget
@@ -24,9 +26,17 @@ class CentralWidget(QtWidgets.QWidget):
 
     export_training_status_change = QtCore.Signal(bool)
     status_message = QtCore.Signal(str, int)  # message, timeout (ms)
+    search_hit_loaded = QtCore.Signal(SearchHit)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # search bar
+        self._search_bar_widget = SearchBarWidget(self)
+        self._search_bar_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+        )
+        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
 
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
@@ -78,7 +88,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
 
-        # main layout
+        # main grid layout
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 2, 1)
@@ -88,7 +98,18 @@ class CentralWidget(QtWidgets.QWidget):
         layout.setRowStretch(0, 1)  # Player row expands
         layout.setRowStretch(1, 0)  # Label overview
 
-        self.setLayout(layout)
+        # container for the grid layout
+        grid_container = QtWidgets.QWidget()
+        grid_container.setLayout(layout)
+
+        # main vertical layout to hold the search bar and grid container
+        main_vbox = QtWidgets.QVBoxLayout()
+        main_vbox.setContentsMargins(0, 0, 0, 0)
+        main_vbox.setSpacing(0)
+        main_vbox.addWidget(self._search_bar_widget)
+        main_vbox.addWidget(grid_container, 1)
+
+        self.setLayout(main_vbox)
 
         # progress bar dialog used when running the training or classify threads
         self._progress_dialog = None
@@ -99,6 +120,10 @@ class CentralWidget(QtWidgets.QWidget):
         # from grabbing focus on Windows (which breaks arrow key video nav)
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+
+    def update_behavior_search_query(self, search_query):
+        """Update the search query for the search bar widget"""
+        self._search_bar_widget.update_search(search_query)
 
     def eventFilter(self, source, event):
         """filter events emitted by progress dialog
@@ -158,6 +183,11 @@ class CentralWidget(QtWidgets.QWidget):
         return self._controls.behaviors
 
     @property
+    def search_results_changed(self) -> QtCore.Signal:
+        """Signal emitted when search results change."""
+        return self._search_bar_widget.search_results_changed
+
+    @property
     def label_overlay_mode(self) -> PlayerWidget.LabelOverlay:
         """return the current label overlay mode of the player widget"""
         return self._label_overlay_mode
@@ -198,6 +228,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.settings)
+        self._search_bar_widget.update_project(project)
 
     def load_video(self, path):
         """load a new video file into self._player_widget
@@ -798,6 +829,33 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_classifier_controls()
         else:
             self._controls.classify_button_set_enabled(False)
+
+    def _update_search_hit(self, search_hit: SearchHit | None) -> None:
+        """Handle updates when the current search hit changes."""
+        if search_hit is not None and self._project is not None:
+            # load the video and seek to frame for the search hit
+            self.load_video(self._project.video_manager.video_path(search_hit.file))
+            self._player_widget.seek_to_frame(search_hit.start_frame)
+
+            # set the current identity based on the search hit
+            try:
+                selected_id = int(search_hit.identity)
+            except ValueError:
+                selected_id = None
+
+            num_identities = self._pose_est.num_identities
+            if selected_id is not None and selected_id < num_identities:
+                self._controls.set_identity_index(selected_id)
+            else:
+                print(f"Invalid identity for search hit: {search_hit.identity}")
+
+            # update the behavior in the controls to match the search hit
+            if search_hit.behavior is not None:
+                self._controls.set_behavior(search_hit.behavior)
+            else:
+                print("Search hit has no behavior, using current behavior.")
+
+            self.search_hit_loaded.emit(search_hit)
 
     def _increment_identity_index(self) -> None:
         """Increment the identity selection index, rolling over if necessary."""

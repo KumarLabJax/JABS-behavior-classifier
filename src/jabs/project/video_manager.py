@@ -175,3 +175,26 @@ class VideoManager:
     def video_path(self, video_file) -> Path:
         """take a video file name and generate the path used to open it"""
         return Path(self._paths.project_dir, video_file)
+
+    def annotations_path(self, video_file) -> Path:
+        """take a video file name and generate the path used to save associated annotations"""
+        video_filename = Path(video_file).name
+        self.check_video_name(video_filename)
+
+        return self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
+
+    def load_annotations(self, video_file: str) -> dict | None:
+        """Load annotations for a video file.
+
+        Args:
+            video_file: Name of the video file
+
+        Returns:
+            Annotations dictionary if it exists, otherwise None
+        """
+        path = self.annotations_path(video_file)
+        if path.exists():
+            with path.open() as f:
+                return json.load(f)
+
+        return None

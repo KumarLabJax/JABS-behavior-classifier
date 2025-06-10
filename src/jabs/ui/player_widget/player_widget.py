@@ -380,18 +380,7 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frames: optional, number of frames to advance
         """
-        # don't do anything if a video hasn't been loaded or if the video is playing
-        if self._player_thread is None or self._playing:
-            return
-
-        new_frame = min(self._position_slider.value() + frames, self._position_slider.maximum())
-
-        # if new_frame == the current value of the position slider we are at
-        # the end of the video, don't do anything. Otherwise, show the next
-        # frame and advance the slider.
-        if new_frame != self._position_slider.value():
-            self._position_slider.setValue(new_frame)
-            self._player_thread.seek(new_frame)
+        self.seek_to_frame(self._position_slider.value() + frames)
 
     def previous_frame(self, frames: int = 1) -> None:
         """go back to the previous frame and display it
@@ -399,11 +388,23 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frames: optional number of frames to move back
         """
-        # don't do anything if a video hasn't been loaded or if the video is playing
+        self.seek_to_frame(self._position_slider.value() - frames)
+
+    def seek_to_frame(self, frame_number: int):
+        """seek to a specific frame number and display it
+
+        Args:
+            frame_number: frame number to seek to
+        """
+        # don't do anything if a video isn't loaded or if the video is playing
         if self._video_stream is None or self._playing:
             return
 
-        new_frame = max(self._position_slider.value() - frames, 0)
+        # the frame number should be bounded by the number of frames in the video
+        num_frames = self._video_stream.num_frames
+        if num_frames == 0:
+            return
+        new_frame = max(0, min(frame_number, num_frames - 1))
 
         # if new_frame == current value of the position slider we are at the
         # beginning of the video, don't do anything. Otherwise, seek to the
