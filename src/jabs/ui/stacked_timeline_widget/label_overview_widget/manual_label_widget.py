@@ -54,7 +54,7 @@ class ManualLabelWidget(QWidget):
         ],
         dtype=np.uint8,
     )
-    GAP_INDEX = 3
+    GAP_ALPHA = 96  # semi-transparent for gaps
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -152,11 +152,13 @@ class ManualLabelWidget(QWidget):
             # turn labels into indices into color LUT, labels are -1, 0, 1 for no label, not behavior, behavior
             # add 1 to the labels to convert to indexes in color_lut
             color_indices = labels + 1
-            gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
 
             # Map indices to RGBA colors
             colors = self.COLOR_LUT[color_indices]
-            colors[gap_mask, 3] = 96  # set alpha for gaps to make them semi-transparent
+
+            # set alpha for frames with dropped identity to make them semi-transparent
+            gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
+            colors[gap_mask, 3] = self.GAP_ALPHA
 
             # expand color array to bar height
             # shape (bar_height, frames in view, 4)
