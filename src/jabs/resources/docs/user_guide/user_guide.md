@@ -360,6 +360,10 @@ While not in select mode:
 
 - z, x, c: enter select mode
 
+In all modes:
+
+- ctrl+a (windows) / cmd+a (Mac): select all frames for the current timeline
+
 ### Other
 
 Switching subject:
