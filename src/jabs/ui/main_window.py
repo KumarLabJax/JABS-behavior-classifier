@@ -629,7 +629,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _add_recent_project(self, project_path: Path):
         """add a project to the recent projects list"""
         # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
-        path_str = str(project_path)
+        path_str = str(project_path.absolute())
 
         recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
 

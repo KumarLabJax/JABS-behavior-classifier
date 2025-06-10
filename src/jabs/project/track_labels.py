@@ -30,7 +30,7 @@ class TrackLabels:
         PAD = 3
 
     def __init__(self, num_frames):
-        self._labels = np.full(num_frames, self.Label.NONE.value, dtype=np.byte)
+        self._labels = np.full(num_frames, self.Label.NONE, dtype=np.byte)
 
     def label_behavior(self, start, end, mask=None):
         """label range [start, end] as showing behavior"""
@@ -110,12 +110,18 @@ class TrackLabels:
         """return the label and bout counts"""
         return self.label_count, self.bout_count
 
-    def get_blocks(self):
+    def get_blocks(self, mask: np.ndarray | None = None):
         """get blocks for entire label array
 
         see _array_to_blocks() for return type
         """
-        return self._array_to_blocks(self._labels)
+        if mask is not None:
+            labels = np.copy(self._labels)
+            labels[mask == 0] = self.Label.NONE
+        else:
+            labels = self._labels
+
+        return self._array_to_blocks(labels)
 
     def get_slice_blocks(self, start, end):
         """get label blocks for a slice of frames
@@ -147,9 +153,7 @@ class TrackLabels:
             return {
                 cls.Label.NONE: np.count_nonzero(array == cls.Label.NONE.value),
                 cls.Label.BEHAVIOR: np.count_nonzero(array == cls.Label.BEHAVIOR.value),
-                cls.Label.NOT_BEHAVIOR: np.count_nonzero(
-                    array == cls.Label.NOT_BEHAVIOR.value
-                ),
+                cls.Label.NOT_BEHAVIOR: np.count_nonzero(array == cls.Label.NOT_BEHAVIOR.value),
             }
 
         # we may need to pad the label array if it is not evenly divisible by
@@ -172,17 +176,11 @@ class TrackLabels:
 
             if counts[cls.Label.NONE] == len(binned[i]):
                 downsampled[i] = cls.Label.NONE.value
-            elif (
-                counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0
-            ):
+            elif counts[cls.Label.BEHAVIOR] != 0 and counts[cls.Label.NOT_BEHAVIOR] == 0:
                 downsampled[i] = cls.Label.BEHAVIOR.value
-            elif (
-                counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0
-            ):
+            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] == 0:
                 downsampled[i] = cls.Label.NOT_BEHAVIOR.value
-            elif (
-                counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0
-            ):
+            elif counts[cls.Label.NOT_BEHAVIOR] != 0 and counts[cls.Label.BEHAVIOR] != 0:
                 downsampled[i] = cls.Label.MIX.value
             else:
                 downsampled[i] = cls.Label.PAD.value

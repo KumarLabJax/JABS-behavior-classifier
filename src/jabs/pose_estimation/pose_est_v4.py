@@ -78,9 +78,14 @@ class PoseEstimationV4(PoseEstimation):
                     )
 
             self._num_frames = len(all_points)
-            self._num_identities = np.max(
-                np.ma.array(instance_embed_id[...], mask=id_mask[...])
-            )
+
+            if instance_embed_id.shape[1] > 0:
+                self._num_identities = np.max(
+                    np.ma.array(instance_embed_id[...], mask=id_mask[...])
+                )
+            else:
+                print(f"Warning: No identities found in pose file: {file_path}")
+                self._num_identities = 0
 
             # generate list of identities based on the max number of instances
             # in the pose file
@@ -104,9 +109,7 @@ class PoseEstimationV4(PoseEstimation):
                 points_tmp = np.transpose(points_tmp, [1, 0, 2, 3])
 
                 # transform confidence values for mask as well
-                confidence_by_id_tmp = np.zeros(
-                    tmp_shape[:3], dtype=all_confidence.dtype
-                )
+                confidence_by_id_tmp = np.zeros(tmp_shape[:3], dtype=all_confidence.dtype)
                 confidence_by_id_tmp[
                     np.where(id_mask == 0)[0], instance_embed_id[id_mask == 0] - 1, :
                 ] = all_confidence[id_mask == 0, :]

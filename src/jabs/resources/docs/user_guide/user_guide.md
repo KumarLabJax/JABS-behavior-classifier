@@ -321,6 +321,14 @@ the predicted class visualization, the gaps are colored white.
 
 <img src="imgs/identity_gaps.png" alt="Identity Gaps" width=900 />
 
+Labels can be saved on frames where the identity is missing; however, these labels
+are excluded from classifier training. In the label timeline, labels applied to 
+identity gaps are displayed with partial transparency, allowing the gap pattern
+fill to remain visible.
+
+<img src="imgs/identity_gaps_with_label.png" alt="Identity Gaps with Labels" />
+
+
 ## All Keyboard Shortcuts
 
 ### File Menu

@@ -106,8 +106,5 @@ def get_points_per_lixit(path: Path) -> int:
     if get_pose_file_major_version(path) >= 5:
         with h5py.File(path, "r") as pose_h5:
             if "static_objects" in pose_h5 and "lixit" in pose_h5["static_objects"]:
-                if pose_h5["static_objects"]["lixit"].ndim == 3:
-                    points_per_lixit = 3
-                else:
-                    points_per_lixit = 1
+                points_per_lixit = 3 if pose_h5["static_objects"]["lixit"].ndim == 3 else 1
     return points_per_lixit

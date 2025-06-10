@@ -11,7 +11,6 @@ from jabs.classifier import Classifier
 from jabs.project import VideoLabels
 from jabs.project.track_labels import TrackLabels
 from jabs.ui.search_bar_widget import SearchBarWidget
-from jabs.video_reader.utilities import get_frame_count
 
 from .classification_thread import ClassifyThread
 from .main_control_widget import MainControlWidget
@@ -256,8 +255,9 @@ class CentralWidget(QtWidgets.QWidget):
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
-                nframes = get_frame_count(str(path))
-                self._labels = VideoLabels(path.name, nframes, self._pose_est.external_identities)
+                self._labels = VideoLabels(
+                    path.name, self._pose_est.num_frames, self._pose_est.external_identities
+                )
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
@@ -430,15 +430,13 @@ class CentralWidget(QtWidgets.QWidget):
     def _label_behavior(self):
         """Apply behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._player_widget.current_frame()])
-        mask = self._pose_est.identity_mask(self._controls.current_identity_index)
-        self._get_label_track().label_behavior(start, end, mask[start : end + 1])
+        self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self):
         """apply _not_ behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._player_widget.current_frame()])
-        mask = self._pose_est.identity_mask(self._controls.current_identity_index)
-        self._get_label_track().label_not_behavior(start, end, mask[start : end + 1])
+        self._get_label_track().label_not_behavior(start, end)
         self._label_button_common()
 
     def _clear_behavior_label(self):
@@ -454,7 +452,7 @@ class CentralWidget(QtWidgets.QWidget):
         and _clear_behavior_label(). To be called after the labels are changed
         for the current selection.
         """
-        self._project.save_annotations(self._labels)
+        self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
         self._stacked_timeline.clear_selection()
         self._update_label_counts()

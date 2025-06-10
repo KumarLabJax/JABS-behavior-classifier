@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jabs-behavior-classifier"
-version = "0.25.1"
+version = "0.27.0"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
@@ -33,6 +33,7 @@ toml = "^0.10.2"
 xgboost = "1.7.6"
 pyarrow = "^20.0.0"
 argparse-formatter = "^1.4"
+rich = "^14.0.0"
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.9.3"
