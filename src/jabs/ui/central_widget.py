@@ -556,11 +556,7 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = QtWidgets.QProgressDialog("Training", None, 0, total_steps, self)
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        self._progress_dialog.reset()
-        self._progress_dialog.show()
+        self._setup_progress_dialog("Training", total_steps)
 
         # start training thread
         self._training_thread.start()
@@ -591,15 +587,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-
-        # setup progress dialog
-        self._progress_dialog = QtWidgets.QProgressDialog(
-            "Predicting", None, 0, self._project.total_project_identities + 1, self
-        )
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        self._progress_dialog.reset()
-        self._progress_dialog.show()
+        self._setup_progress_dialog("Predicting", self._project.total_project_identities + 1)
 
         # start classification thread
         self._classify_thread.start()
@@ -909,3 +897,23 @@ class CentralWidget(QtWidgets.QWidget):
             disable_select_button()
         else:
             self._controls.select_button_enabled = True
+
+    def _setup_progress_dialog(self, text: str, steps: int) -> None:
+        """Setup the progress dialog for training or classification tasks."""
+        self._progress_dialog = QtWidgets.QProgressDialog(text, None, 0, steps, self)
+        self._progress_dialog.installEventFilter(self)
+        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+
+        if sys.platform == "darwin":
+            self._progress_dialog.setWindowFlags(
+                QtCore.Qt.WindowType.Dialog
+                | QtCore.Qt.WindowType.FramelessWindowHint
+                | QtCore.Qt.WindowType.WindowStaysOnTopHint
+            )
+        else:
+            self._progress_dialog.setWindowFlags(
+                QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.CustomizeWindowHint
+            )
+
+        self._progress_dialog.reset()
+        self._progress_dialog.show()
