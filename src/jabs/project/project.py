@@ -58,16 +58,12 @@ class Project:
         self._enabled_extended_features = {}
 
         self._settings_manager = SettingsManager(self._paths)
-        self._video_manager = VideoManager(
-            self._paths, self._settings_manager, enable_video_check
-        )
+        self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
         self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
         self._prediction_manager = PredictionManager(self)
 
         # write out the defaults to the project file
-        self._settings_manager.save_project_file(
-            {"defaults": self.get_project_defaults()}
-        )
+        self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
@@ -165,20 +161,19 @@ class Project:
 
         return open_pose_file(get_pose_path(video_path), self._paths.cache_dir)
 
-    def save_annotations(self, annotations: VideoLabels):
+    def save_annotations(self, annotations: VideoLabels, pose: PoseEstimation):
         """save state of a VideoLabels object to the project directory
 
         Args:
             annotations: VideoLabels object
+            pose: PoseEstimation, identity mask is used to account for dropped identity when generating intervals
 
         Returns:
             None
         """
-        path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(
-            ".json"
-        )
+        path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(".json")
 
-        annotations = annotations.as_dict()
+        annotations = annotations.as_dict(pose)
         annotations["labeler"] = self.labeler
 
         with path.open(mode="w", newline="\n") as f:
@@ -237,9 +232,7 @@ class Project:
             classifier: the classifier to save
             behavior: string behavior name. This affects the path we save to
         """
-        classifier.save(
-            self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
-        )
+        classifier.save(self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle"))
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
@@ -255,9 +248,7 @@ class Project:
             True if load is successful and False if the file doesn't
             exist
         """
-        classifier_path = self._paths.classifier_dir / (
-            to_safe_name(behavior) + ".pickle"
-        )
+        classifier_path = self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
         try:
             classifier.load(classifier_path)
             return True
@@ -306,21 +297,19 @@ class Project:
             nframes = poses.num_frames
 
             # allocate numpy arrays to write to h5 file
-            prediction_labels = np.full(
-                (poses.num_identities, nframes), -1, dtype=np.int8
-            )
+            prediction_labels = np.full((poses.num_identities, nframes), -1, dtype=np.int8)
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
             # populate numpy arrays
             for identity in predictions[video]:
                 inferred_indexes = frame_indexes[video][identity]
 
-                prediction_labels[identity, inferred_indexes] = predictions[video][
-                    identity
-                ][inferred_indexes]
-                prediction_prob[identity, inferred_indexes] = probabilities[video][
-                    identity
-                ][inferred_indexes]
+                prediction_labels[identity, inferred_indexes] = predictions[video][identity][
+                    inferred_indexes
+                ]
+                prediction_prob[identity, inferred_indexes] = probabilities[video][identity][
+                    inferred_indexes
+                ]
 
             # write to h5 file
             self._prediction_manager.write_predictions(
@@ -366,24 +355,21 @@ class Project:
             if labels is None:
                 continue
 
-            annotations = labels.as_dict()
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            annotations = labels.as_dict(pose)
             for ident in annotations["labels"]:
                 if behavior in annotations["labels"][ident]:
                     if video not in archived_labels:
-                        archived_labels[video] = {
-                            "num_frames": annotations["num_frames"]
-                        }
+                        archived_labels[video] = {"num_frames": annotations["num_frames"]}
                         archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations["labels"][
-                        ident
-                    ].pop(behavior)
-            self.save_annotations(VideoLabels.load(annotations))
+                    archived_labels[video][behavior][ident] = annotations["labels"][ident].pop(
+                        behavior
+                    )
+            self.save_annotations(VideoLabels.load(annotations), pose)
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        with gzip.open(
-            self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt"
-        ) as f:
+        with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
             json.dump(archived_labels, f, indent=True)
 
         # save project file
@@ -470,9 +456,11 @@ class Project:
             for identity in pose_est.identities:
                 group_mapping[group_id] = {"video": video, "identity": identity}
 
-                labels = video_labels.get_track_labels(
-                    str(identity), behavior
-                ).get_labels()
+                labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
+
+                # because we're allowing the user to label frames where the identity drops out,
+                # we need to mask out labels where the identity does not exist
+                labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
 
                 # if there are no labels for this identity, skip it
                 if (
@@ -505,9 +493,7 @@ class Project:
                 window_features = features.get_window_features(
                     self._settings_manager.get_behavior(behavior)["window_size"], labels
                 )
-                window_features = fe.IdentityFeatures.merge_window_features(
-                    window_features
-                )
+                window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
 

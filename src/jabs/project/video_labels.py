@@ -1,3 +1,5 @@
+from jabs.pose_estimation import PoseEstimation
+
 from .track_labels import TrackLabels
 
 
@@ -18,9 +20,7 @@ class VideoLabels:
         in several places, identities are currently handled as strings for serialization compatibility.
     """
 
-    def __init__(
-        self, filename, num_frames, external_identities: list[int] | None = None
-    ):
+    def __init__(self, filename, num_frames, external_identities: list[int] | None = None):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
@@ -90,7 +90,7 @@ class VideoLabels:
                 counts.append((identity, c[0], c[1]))
         return counts
 
-    def as_dict(self) -> dict:
+    def as_dict(self, pose: PoseEstimation) -> dict:
         """return dict representation of video labels
 
         useful for JSON serialization and saving to disk or caching in memory without storing the full
@@ -113,6 +113,16 @@ class VideoLabels:
                         }
                     ]
                 }
+            },
+            "unfragmented_labels": {
+                "jabs identity": {
+                    "behavior": [
+                        {
+                            "start": 25,
+                            "end": 50
+                        }
+                    ]
+                }
             }
         }
 
@@ -121,12 +131,20 @@ class VideoLabels:
             "file": self._filename,
             "num_frames": self._num_frames,
             "labels": {},
+            "unfragmented_labels": {},
         }
 
         for identity in self._identity_labels:
+            label_dict["unfragmented_labels"][identity] = {}
             label_dict["labels"][identity] = {}
             for behavior in self._identity_labels[identity]:
-                blocks = self._identity_labels[identity][behavior].get_blocks()
+                labels = self._identity_labels[identity][behavior]
+
+                blocks = labels.get_blocks()
+                if len(blocks):
+                    label_dict["unfragmented_labels"][identity][behavior] = blocks
+
+                blocks = labels.get_blocks(mask=pose.identity_mask(int(identity)))
                 if len(blocks):
                     label_dict["labels"][identity][behavior] = blocks
 
@@ -138,15 +156,18 @@ class VideoLabels:
         return label_dict
 
     @classmethod
-    def load(cls, video_label_dict):
+    def load(cls, video_label_dict: dict):
         """return a VideoLabels object initialized with data from a dict previously exported using the export() method"""
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
-        for identity in video_label_dict["labels"]:
+
+        key = "unfragmented_labels" if "unfragmented_labels" in video_label_dict else "labels"
+
+        for identity in video_label_dict[key]:
             labels._identity_labels[identity] = {}
-            for behavior in video_label_dict["labels"][identity]:
+            for behavior in video_label_dict[key][identity]:
                 labels._identity_labels[identity][behavior] = TrackLabels.load(
                     video_label_dict["num_frames"],
-                    video_label_dict["labels"][identity][behavior],
+                    video_label_dict[key][identity][behavior],
                 )
 
         return labels

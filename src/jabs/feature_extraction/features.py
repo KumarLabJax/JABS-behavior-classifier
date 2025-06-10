@@ -99,6 +99,7 @@ class IdentityFeatures:
         self._fps = fps
         self._pose_hash = pose_est.hash
         self._identity = identity
+        self._identity_mask = pose_est.identity_mask(identity)
         self._op_settings = dict(op_settings) if op_settings else None
         self._distance_scale_factor = (
             pose_est.cm_per_pixel if op_settings.get("cm_units", False) else None
@@ -114,9 +115,7 @@ class IdentityFeatures:
         self._compute_social_features = pose_est.format_major_version >= 3
         self._compute_segmentation_features = pose_est.format_major_version >= 6
         distance_scale = (
-            self._distance_scale_factor
-            if self._distance_scale_factor is not None
-            else 1.0
+            self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
         )
 
         self._feature_modules = {}
@@ -127,10 +126,7 @@ class IdentityFeatures:
                 continue
             # don't include segmentation features if it is not supported by
             # the pose file
-            if (
-                not self._compute_segmentation_features
-                and m is SegmentationFeatureGroup
-            ):
+            if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
@@ -143,10 +139,10 @@ class IdentityFeatures:
         self._frame_valid = None
 
         # per frame features
-        identity_mask = pose_est.get_identity_point_mask(identity)
+        point_mask = pose_est.get_identity_point_mask(identity)
         self._keypoint_mask = {
             "point_mask": {
-                f"point_mask {keypoint.name}": identity_mask[:, keypoint.value]
+                f"point_mask {keypoint.name}": point_mask[:, keypoint.value]
                 for keypoint in PoseEstimation.KeypointIndex
             }
         }
@@ -216,9 +212,7 @@ class IdentityFeatures:
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get(
-                "distance_scale_factor", None
-            ):
+            if self._distance_scale_factor != features_h5.attrs.get("distance_scale_factor", None):
                 raise DistanceScaleException
 
             self._frame_valid = features_h5["frame_valid"][:]
@@ -249,9 +243,7 @@ class IdentityFeatures:
             for feature_key in features_h5["features/per_frame"]:
                 module_name, feature_name = feature_key.split(" ", 1)
                 cur_module = self._per_frame.get(module_name, {})
-                cur_module[feature_name] = features_h5[
-                    f"features/per_frame/{feature_key}"
-                ][:]
+                cur_module[feature_name] = features_h5[f"features/per_frame/{feature_key}"][:]
                 assert len(cur_module[feature_name]) == self._num_frames
                 self._per_frame[module_name] = cur_module
 
@@ -279,9 +271,7 @@ class IdentityFeatures:
             )
 
             if self._compute_social_features:
-                closest_data = self._feature_modules[
-                    SocialFeatureGroup.name()
-                ].closest_identities
+                closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
 
                 features_h5.create_dataset(
                     "closest_identities",
@@ -297,9 +287,9 @@ class IdentityFeatures:
                 )
 
             if LandmarkFeatureGroup.name() in self._feature_modules:
-                corner_info = self._feature_modules[
-                    LandmarkFeatureGroup.name()
-                ].get_corner_info(self._identity)
+                corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(
+                    self._identity
+                )
                 corner_data = corner_info.get_closest_corner(self._identity)
                 wall_distances = corner_info.get_wall_distances(self._identity)
                 avg_wall_length = corner_info.get_avg_wall_length(self._identity)
@@ -320,9 +310,9 @@ class IdentityFeatures:
                             compression_opts=self._compression_opts,
                         )
 
-                lixit_info = self._feature_modules[
-                    LandmarkFeatureGroup.name()
-                ].get_lixit_info(self._identity)
+                lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(
+                    self._identity
+                )
                 lixit_data = lixit_info.get_closest_lixit(self._identity)
                 if lixit_data is not None:
                     features_h5.create_dataset(
@@ -413,9 +403,7 @@ class IdentityFeatures:
 
             # make sure distances are using the expected scale
             # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get(
-                "distance_scale_factor", None
-            ):
+            if self._distance_scale_factor != features_h5.attrs.get("distance_scale_factor", None):
                 raise DistanceScaleException
 
             assert features_h5.attrs["num_frames"] == self._num_frames
@@ -492,12 +480,13 @@ class IdentityFeatures:
             final_features = features
 
         else:
-            # return only features for labeled frames
+            # return only features for labeled frames where the identity exists
             final_features = {
                 feature_module_name: {
                     window_module_name: {
                         feature_name: feature_vector[
-                            labels != jabs.project.track_labels.TrackLabels.Label.NONE
+                            (labels != jabs.project.track_labels.TrackLabels.Label.NONE)
+                            & (self._identity_mask != 0)
                         ]
                         for feature_name, feature_vector in window_module.items()
                     }
@@ -544,11 +533,12 @@ class IdentityFeatures:
             features = self._per_frame
 
         else:
-            # return only features for labeled frames
+            # return only features for labeled frames where the identity exists
             features = {
                 feature_module_name: {
                     feature_name: feature_vector[
-                        labels != jabs.project.track_labels.TrackLabels.Label.NONE
+                        (labels != jabs.project.track_labels.TrackLabels.Label.NONE)
+                        & (self._identity_mask != 0)
                     ]
                     for feature_name, feature_vector in feature_module.items()
                 }
@@ -608,9 +598,9 @@ class IdentityFeatures:
             if isinstance(setting_val, dict):
                 for sub_setting, sub_val in setting_val.items():
                     if not sub_val:
-                        names_to_remove = names_to_remove + _BASE_FILTERS[
-                            setting_name
-                        ].get(sub_setting, [])
+                        names_to_remove = names_to_remove + _BASE_FILTERS[setting_name].get(
+                            sub_setting, []
+                        )
             else:
                 names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
         return {k: v for k, v in features.items() if k not in names_to_remove}
@@ -682,9 +672,7 @@ class IdentityFeatures:
 
         for key in self._feature_modules:
             window_features.update(
-                self._feature_modules[key].window(
-                    self._identity, window_size, self._per_frame
-                )
+                self._feature_modules[key].window(self._identity, window_size, self._per_frame)
             )
 
         return window_features
@@ -713,9 +701,7 @@ class IdentityFeatures:
                 print(f"Feature module: {feature_module_name} contains no features...")
                 continue
             for feature_name, feature_vector in feature_module.items():
-                merged_features[f"{feature_module_name} {feature_name}"] = (
-                    feature_vector
-                )
+                merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
 
         return merged_features
 
@@ -741,9 +727,9 @@ class IdentityFeatures:
         for feature_module_name, feature_module in features.items():
             for window_name, window_group in feature_module.items():
                 for feature_name, feature_vector in window_group.items():
-                    merged_features[
-                        f"{feature_module_name} {window_name} {feature_name}"
-                    ] = feature_vector
+                    merged_features[f"{feature_module_name} {window_name} {feature_name}"] = (
+                        feature_vector
+                    )
 
         return merged_features
 

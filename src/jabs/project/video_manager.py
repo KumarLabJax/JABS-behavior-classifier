@@ -68,6 +68,7 @@ class VideoManager:
 
         Args:
             video_name: filename of the video: string or pathlib.Path
+            pose_est: PoseEstimation object used to initialize the VideoLabels
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None
