@@ -294,10 +294,10 @@ class Project:
                 self._paths.cache_dir,
             )
 
-            nframes = poses.num_frames
-
             # allocate numpy arrays to write to h5 file
-            prediction_labels = np.full((poses.num_identities, nframes), -1, dtype=np.int8)
+            prediction_labels = np.full(
+                (poses.num_identities, poses.num_frames), -1, dtype=np.int8
+            )
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
             # populate numpy arrays
@@ -460,7 +460,8 @@ class Project:
 
                 # because we're allowing the user to label frames where the identity drops out,
                 # we need to mask out labels where the identity does not exist
-                labels = labels.copy()  # copy to avoid side effect
+                # copy labels array to avoid side effect
+                labels = labels.copy()
                 labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
 
                 # if there are no labels for this identity, skip it
@@ -537,7 +538,6 @@ class Project:
         """
         video_filename = Path(video).name
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
-
         counts = []
 
         if path.exists():

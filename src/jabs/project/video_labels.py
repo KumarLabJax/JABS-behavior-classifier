@@ -157,7 +157,7 @@ class VideoLabels:
 
     @classmethod
     def load(cls, video_label_dict: dict):
-        """return a VideoLabels object initialized with data from a dict previously exported using the export() method"""
+        """return a VideoLabels object initialized with data from a dict previously exported using the export method"""
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
 
         key = "unfragmented_labels" if "unfragmented_labels" in video_label_dict else "labels"
