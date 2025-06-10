@@ -5,9 +5,12 @@ import shutil
 import unittest
 from pathlib import Path
 from typing import ClassVar
+from unittest.mock import MagicMock
 
-from src.jabs.project import Project, VideoLabels
-from src.jabs.utils import hide_stderr
+import numpy as np
+
+from jabs.project import Project, VideoLabels
+from jabs.utils import hide_stderr
 
 
 class TestProject(unittest.TestCase):
@@ -55,6 +58,10 @@ class TestProject(unittest.TestCase):
         # set up a project directory with annotations
         Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
 
+        # Create a mock pose_est object with required methods
+        mock_pose_est = MagicMock()
+        mock_pose_est.identity_mask.return_value = np.full(10000, 1, dtype=bool)
+
         # create an annotation
         labels = VideoLabels(cls._FILENAMES[0], 10000)
         walking_labels = labels.get_track_labels("0", "Walking")
@@ -69,7 +76,7 @@ class TestProject(unittest.TestCase):
             / "annotations"
             / Path(cls._FILENAMES[0]).with_suffix(".json")
         ).open("w", newline="\n") as f:
-            json.dump(labels.as_dict(), f)
+            json.dump(labels.as_dict(mock_pose_est), f)
 
         # open project
         cls.project = Project(cls._EXISTING_PROJ_PATH, enable_video_check=False)
@@ -105,6 +112,10 @@ class TestProject(unittest.TestCase):
 
     def test_load_annotations(self):
         """test loading annotations from a saved project"""
+        mock_pose_est = MagicMock()
+        mock_pose_est.identity_mask.return_value = np.full(10000, 1, dtype=bool)
+        mock_pose_est.num_frames = 10000
+
         labels = self.project.video_manager.load_video_labels(self._FILENAMES[0])
 
         with (
@@ -119,10 +130,14 @@ class TestProject(unittest.TestCase):
 
         # check to see that calling as_dict() on the VideoLabels object
         # matches what was used to load the annotation track from disk
-        self.assertDictEqual(labels.as_dict(), dict_from_file)
+        self.assertDictEqual(labels.as_dict(mock_pose_est), dict_from_file)
 
     def test_save_annotations(self):
         """test saving annotations"""
+        mock_pose_est = MagicMock()
+        mock_pose_est.identity_mask.return_value = np.full(10000, 1, dtype=bool)
+        mock_pose_est.num_frames = 10000
+
         labels = self.project.video_manager.load_video_labels(self._FILENAMES[0])
         walking_labels = labels.get_track_labels("0", "Walking")
 
@@ -130,7 +145,7 @@ class TestProject(unittest.TestCase):
         walking_labels.label_behavior(5000, 5500)
 
         # save changes
-        self.project.save_annotations(labels)
+        self.project.save_annotations(labels, mock_pose_est)
 
         # make sure the .json file in the project directory matches the new
         # state
@@ -143,7 +158,7 @@ class TestProject(unittest.TestCase):
             dict_from_file = json.load(f)
 
         # need to add the project labeler to the labels dict
-        labels_as_dict = labels.as_dict()
+        labels_as_dict = labels.as_dict(mock_pose_est)
         labels_as_dict["labeler"] = self.project.labeler
 
         self.assertDictEqual(labels_as_dict, dict_from_file)

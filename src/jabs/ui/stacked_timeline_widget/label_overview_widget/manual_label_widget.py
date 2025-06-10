@@ -51,11 +51,10 @@ class ManualLabelWidget(QWidget):
             BACKGROUND_COLOR,
             NOT_BEHAVIOR_COLOR,
             BEHAVIOR_COLOR,
-            (0, 0, 0, 0),  # transparent color used for identity gaps
         ],
         dtype=np.uint8,
     )
-    GAP_INDEX = 3
+    GAP_ALPHA = 96  # semi-transparent for gaps
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -88,15 +87,9 @@ class ManualLabelWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
-        self._position_marker_pen = QPen(
-            self._POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine
-        )
-        self._selection_brush = QBrush(
-            self._SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern
-        )
-        self._padding_brush = QBrush(
-            self._BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern
-        )
+        self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
+        self._selection_brush = QBrush(self._SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern)
+        self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern)
 
     def sizeHint(self) -> QSize:
         """Return the recommended initial size for the widget.
@@ -159,13 +152,13 @@ class ManualLabelWidget(QWidget):
             # turn labels into indices into color LUT, labels are -1, 0, 1 for no label, not behavior, behavior
             # add 1 to the labels to convert to indexes in color_lut
             color_indices = labels + 1
-            mask = self._identity_mask[slice_start : slice_end + 1]
-
-            # set color index to gap index (transparent) for any gaps in the identity
-            color_indices[mask == 0] = self.GAP_INDEX
 
             # Map indices to RGBA colors
             colors = self.COLOR_LUT[color_indices]
+
+            # set alpha for frames with dropped identity to make them semi-transparent
+            gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
+            colors[gap_mask, 3] = self.GAP_ALPHA
 
             # expand color array to bar height
             # shape (bar_height, frames in view, 4)
@@ -218,9 +211,7 @@ class ManualLabelWidget(QWidget):
         """
         painter.setPen(self._BORDER_COLOR)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(
-            self._offset, 0, self._adjusted_width - 1, self._bar_height - 1
-        )
+        painter.drawRect(self._offset, 0, self._adjusted_width - 1, self._bar_height - 1)
 
     def _draw_selection_overlay(self, painter: QPainter) -> None:
         """Draw the selection overlay on the label bar.

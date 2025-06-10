@@ -2,11 +2,14 @@ import gzip
 import json
 import shutil
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
-from src.jabs.project.video_manager import VideoManager
-from src.jabs.project.project_paths import ProjectPaths
-from src.jabs.project.settings_manager import SettingsManager
+
+from jabs.project.project_paths import ProjectPaths
+from jabs.project.settings_manager import SettingsManager
+from jabs.project.video_manager import VideoManager
 
 
 @pytest.fixture
@@ -75,12 +78,14 @@ def test_check_video_name(video_manager):
 
 def test_load_video_labels(video_manager, project_paths):
     """Test loading video labels."""
-
     # Create a dummy annotation file
     annotation_file = project_paths.annotations_dir / "video1.json"
-    annotation_file.write_text(
-        '{"labels": {}, "num_frames": 1000, "file": "video1.avi"}'
-    )
+    annotation_file.write_text('{"labels": {}, "num_frames": 1000, "file": "video1.avi"}')
+
+    # Create a mock pose_est object
+    mock_pose_est = MagicMock()
+    mock_pose_est.identity_mask.return_value = np.full(1000, True, dtype=bool)
+    mock_pose_est.num_frames = 1000
 
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
