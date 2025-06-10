@@ -17,6 +17,7 @@ from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
 from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
+from .util import create_progress_dialog
 
 _CLICK_THRESHOLD = 20
 
@@ -34,7 +35,7 @@ class CentralWidget(QtWidgets.QWidget):
         # search bar
         self._search_bar_widget = SearchBarWidget(self)
         self._search_bar_widget.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
         self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
 
@@ -582,18 +583,16 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = QtWidgets.QProgressDialog("Training", None, 0, total_steps, self)
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        self._progress_dialog.reset()
-        self._progress_dialog.show()
+        self._progress_dialog = create_progress_dialog(self, "Training", total_steps)
 
         # start training thread
         self._training_thread.start()
 
     def _training_thread_complete(self) -> None:
         """enable classify button once the training is complete"""
-        self._progress_dialog.reset()
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
         self.status_message.emit("Training Complete", 3000)
         self._controls.classify_button_set_enabled(True)
 
@@ -617,15 +616,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.done.connect(self._classify_thread_complete)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-
-        # setup progress dialog
-        self._progress_dialog = QtWidgets.QProgressDialog(
-            "Predicting", None, 0, self._project.total_project_identities + 1, self
+        self._progress_dialog = create_progress_dialog(
+            self, "Predicting", self._project.total_project_identities + 1
         )
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        self._progress_dialog.reset()
-        self._progress_dialog.show()
 
         # start classification thread
         self._classify_thread.start()
@@ -636,6 +629,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
         self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 

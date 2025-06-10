@@ -20,6 +20,7 @@ from .player_widget import PlayerWidget
 from .project_loader_thread import ProjectLoaderThread
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
+from .util import create_progress_dialog
 from .video_list_widget import VideoListDockWidget
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
@@ -362,10 +363,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project(self, project_path: str):
         """open a new project directory"""
-        self._progress_dialog = QtWidgets.QProgressDialog("Loading project...", None, 0, 0, self)
-        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress_dialog.installEventFilter(self)
-        self._progress_dialog.show()
+        self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
+
         self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
@@ -421,7 +420,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_project_open_dialog(self):
         """prompt the user to select a project directory and open it"""
-        options = QtWidgets.QFileDialog.Options()
+        options = QtWidgets.QFileDialog.Option(0)
         if not USE_NATIVE_FILE_DIALOG:
             options |= QtWidgets.QFileDialog.Option.DontUseNativeDialog
 
