@@ -149,6 +149,35 @@ def test_label_query_query_none():
     assert hits == []
 
 
+def test_label_query_prefers_unfragmented_labels():
+    """Test that unfragmented_labels are preferred over labels if present."""
+    annotations = {
+        "video1": {
+            "labels": {
+                "1": {
+                    "foo": [
+                        {"start": 0, "end": 10, "present": True},  # Should be ignored
+                    ]
+                }
+            },
+            "unfragmented_labels": {
+                "1": {
+                    "foo": [
+                        {"start": 20, "end": 30, "present": True},  # Should be used
+                    ]
+                }
+            },
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = LabelBehaviorSearchQuery(behavior_label="foo", positive=True)
+    hits = list(_search_behaviors_gen(project, query))
+    # Only the unfragmented_labels block should be returned
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior="foo", start_frame=20, end_frame=30)
+    ]
+
+
 # --- PredictionBehaviorSearchQuery tests ---
 
 

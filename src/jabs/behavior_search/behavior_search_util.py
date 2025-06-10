@@ -79,7 +79,11 @@ def _search_behaviors_gen(
                 for video in sorted_videos:
                     anno_dict = video_manager.load_annotations(video)
                     if anno_dict is not None:
-                        labels = anno_dict.get("labels", {})
+                        labels = (
+                            anno_dict["unfragmented_labels"]
+                            if "unfragmented_labels" in anno_dict
+                            else anno_dict.get("labels", {})
+                        )
                         for identity, identified_labels in labels.items():
                             for behavior, blocks in identified_labels.items():
                                 for block in blocks:
