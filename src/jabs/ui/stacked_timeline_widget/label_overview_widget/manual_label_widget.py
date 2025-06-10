@@ -51,7 +51,6 @@ class ManualLabelWidget(QWidget):
             BACKGROUND_COLOR,
             NOT_BEHAVIOR_COLOR,
             BEHAVIOR_COLOR,
-            (0, 0, 0, 0),  # transparent color used for identity gaps
         ],
         dtype=np.uint8,
     )
