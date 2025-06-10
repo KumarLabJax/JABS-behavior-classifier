@@ -460,6 +460,7 @@ class Project:
 
                 # because we're allowing the user to label frames where the identity drops out,
                 # we need to mask out labels where the identity does not exist
+                labels = labels.copy()  # copy to avoid side effect
                 labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
 
                 # if there are no labels for this identity, skip it
