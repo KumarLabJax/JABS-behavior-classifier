@@ -508,7 +508,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # open the behavior search dialog
         dialog = BehaviorSearchDialog(self._project, self)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
             search_query = dialog.behavior_search_query
             self._central_widget.update_behavior_search_query(search_query)
 
@@ -596,6 +596,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _project_load_error_callback(self, error: Exception):
         """Callback function to be called when the project fails to load."""
+        self._project_loader_thread.deleteLater()
         self._project_loader_thread = None
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()

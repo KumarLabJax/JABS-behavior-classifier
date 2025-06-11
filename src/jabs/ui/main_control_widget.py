@@ -297,15 +297,20 @@ class MainControlWidget(QtWidgets.QWidget):
         """return true if the train button is enabled"""
         return self._train_button.isEnabled()
 
-    @property
-    def classify_button_enabled(self):
-        """set the classify button to enabled or disabled"""
-        return self._classify_button.isEnabled()
-
     @train_button_enabled.setter
     def train_button_enabled(self, enabled: bool):
         """set the train button to enabled or disabled"""
         self._train_button.setEnabled(enabled)
+
+    @property
+    def classify_button_enabled(self):
+        """is classify button enabled?"""
+        return self._classify_button.isEnabled()
+
+    @classify_button_enabled.setter
+    def classify_button_enabled(self, enabled: bool):
+        """set the classify button to enabled or disabled"""
+        self._classify_button.setEnabled(enabled)
 
     @property
     def classifier_type(self):
@@ -396,10 +401,6 @@ class MainControlWidget(QtWidgets.QWidget):
             bout_behavior_project,
             bout_not_behavior_project,
         )
-
-    def classify_button_set_enabled(self, enabled: bool):
-        """set the classify button to enabled or disabled"""
-        self._classify_button.setEnabled(enabled)
 
     @property
     def select_button_enabled(self) -> bool:
