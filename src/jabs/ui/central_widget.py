@@ -1,4 +1,6 @@
 import sys
+import traceback
+from pathlib import Path
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -8,8 +10,9 @@ from shapely.geometry import Point
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.project import VideoLabels
+from jabs.project import Project, VideoLabels
 from jabs.project.track_labels import TrackLabels
+from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
 
 from .classification_thread import ClassifyThread
@@ -29,7 +32,7 @@ class CentralWidget(QtWidgets.QWidget):
     status_message = QtCore.Signal(str, int)  # message, timeout (ms)
     search_hit_loaded = QtCore.Signal(SearchHit)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # search bar
@@ -66,7 +69,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._probabilities = {}
         self._frame_indexes = {}
 
-        self._selection_start = 0
+        self._selection_start = None
+        self._selection_end = None
 
         # options
         self._frame_jump = 10
@@ -122,11 +126,11 @@ class CentralWidget(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
-    def update_behavior_search_query(self, search_query):
+    def update_behavior_search_query(self, search_query) -> None:
         """Update the search query for the search bar widget"""
         self._search_bar_widget.update_search(search_query)
 
-    def eventFilter(self, source, event):
+    def eventFilter(self, source, event) -> bool:
         """filter events emitted by progress dialog
 
         The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
@@ -144,42 +148,42 @@ class CentralWidget(QtWidgets.QWidget):
         return super().eventFilter(source, event)
 
     @property
-    def behavior(self):
+    def behavior(self) -> str:
         """get the currently selected behavior"""
         return self._controls.current_behavior
 
     @property
-    def classifier_type(self):
+    def classifier_type(self) -> ClassifierType:
         """get the current classifier type"""
         return self._classifier.classifier_type
 
     @property
-    def window_size(self):
+    def window_size(self) -> int:
         """get current window size"""
         return self._window_size
 
     @property
-    def uses_balance(self):
+    def uses_balance(self) -> bool:
         """return true if the controls widget is set to use balanced labels, false otherwise"""
         return self._controls.use_balance_labels
 
     @property
-    def uses_symmetric(self):
+    def uses_symmetric(self) -> bool:
         """return true if the controls widget is set to use symmetric behavior, false otherwise"""
         return self._controls.use_symmetric
 
     @property
-    def all_kfold(self):
+    def all_kfold(self) -> bool:
         """return true if all kfold is selected in the controls widget, false otherwise"""
         return self._controls.all_kfold
 
     @property
-    def classify_button_enabled(self):
+    def classify_button_enabled(self) -> bool:
         """return true if the classify button is currently enabled, false otherwise"""
         return self._controls.classify_button_enabled
 
     @property
-    def behaviors(self):
+    def behaviors(self) -> list[str]:
         """return the behaviors from the controls widget"""
         return self._controls.behaviors
 
@@ -217,7 +221,7 @@ class CentralWidget(QtWidgets.QWidget):
                 # if the player is set to show nothing, clear the labels
                 self._player_widget.set_labels(None)
 
-    def set_project(self, project):
+    def set_project(self, project: Project) -> None:
         """set the currently opened project"""
         self._project = project
 
@@ -231,7 +235,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.update_project_settings(project.settings)
         self._search_bar_widget.update_project(project)
 
-    def load_video(self, path):
+    def load_video(self, path: Path) -> None:
         """load a new video file into self._player_widget
 
         Args:
@@ -288,10 +292,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.reset()
             raise e
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event) -> None:
         """handle key press events"""
 
-        def begin_select_mode():
+        def begin_select_mode() -> None:
             if (
                 not self._controls.select_button_is_checked
                 and self._controls.select_button_enabled
@@ -341,53 +345,53 @@ class CentralWidget(QtWidgets.QWidget):
             # show closest with no argument toggles the setting
             self._player_widget.show_closest()
 
-    def show_track(self, show: bool):
+    def show_track(self, show: bool) -> None:
         """set the show track property of the player widget"""
         self._player_widget.show_track(show)
 
-    def overlay_pose(self, checked: bool):
+    def overlay_pose(self, checked: bool) -> None:
         """set the overlay pose property of the player widget"""
         self._player_widget.overlay_pose(checked)
 
-    def overlay_landmarks(self, checked: bool):
+    def overlay_landmarks(self, checked: bool) -> None:
         """set the overlay landmarks property of the player widget"""
         self._player_widget.overlay_landmarks(checked)
 
-    def overlay_segmentation(self, checked: bool):
+    def overlay_segmentation(self, checked: bool) -> None:
         """set the overlay segmentation property of the player widget"""
         self._player_widget.overlay_segmentation(checked)
 
-    def remove_behavior(self, behavior: str):
+    def remove_behavior(self, behavior: str) -> None:
         """remove a behavior from the list of behaviors"""
         self._controls.remove_behavior(behavior)
 
     @property
-    def controls(self):
+    def controls(self) -> MainControlWidget:
         """return the controls widget"""
         return self._controls
 
     @property
-    def timeline_view_mode(self):
+    def timeline_view_mode(self) -> StackedTimelineWidget.ViewMode:
         """return the timeline view mode"""
         return self._stacked_timeline.view_mode
 
     @timeline_view_mode.setter
-    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode):
+    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode) -> None:
         """set the timeline view mode"""
         self._stacked_timeline.view_mode = view_mode
         self._update_select_button_state()
 
     @property
-    def timeline_identity_mode(self):
+    def timeline_identity_mode(self) -> StackedTimelineWidget.IdentityMode:
         """return the timeline identity mode"""
         return self._stacked_timeline.identity_mode
 
     @timeline_identity_mode.setter
-    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode):
+    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode) -> None:
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 
-    def _change_behavior(self, new_behavior):
+    def _change_behavior(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
         if self._project is None:
             return
@@ -414,7 +418,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._project.settings_manager.save_project_file({"selected_behavior": self.behavior})
 
-    def _start_selection(self, pressed):
+    def _start_selection(self, pressed: bool) -> None:
         """Handle a click on "select" button.
 
         If button was previously "unchecked" then enter "select mode". If the button was in the checked state,
@@ -429,7 +433,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.disable_label_buttons()
             self._stacked_timeline.clear_selection()
 
-    def select_all(self):
+    def select_all(self) -> None:
         """Select all frames in the current video for the current identity and behavior."""
         if not self._controls.select_button_is_checked and self._controls.select_button_enabled:
             self._controls.toggle_select_button()
@@ -443,7 +447,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
 
     @property
-    def _curr_selection_end(self):
+    def _curr_selection_end(self) -> int:
         """Get the end of the current selection.
 
         If no selection end is set, return the current frame index.
@@ -454,19 +458,19 @@ class CentralWidget(QtWidgets.QWidget):
             else self._player_widget.current_frame()
         )
 
-    def _label_behavior(self):
+    def _label_behavior(self) -> None:
         """Apply behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
-    def _label_not_behavior(self):
+    def _label_not_behavior(self) -> None:
         """apply _not_ behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().label_not_behavior(start, end)
         self._label_button_common()
 
-    def _clear_behavior_label(self):
+    def _clear_behavior_label(self) -> None:
         """clear all behavior/not behavior labels from current selection"""
         label_range = sorted([self._selection_start, self._curr_selection_end])
         self._get_label_track().clear_labels(*label_range)
@@ -521,8 +525,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._set_prediction_vis()
 
-    def _get_label_list(self):
-        """get a list of np.ndarray containing labels, one for each identity"""
+    def _get_label_list(self) -> list[TrackLabels]:
+        """get a list of TrackLabels, one for each identity"""
         behavior = self._controls.current_behavior
         identity = self._controls.current_identity_index
         if identity != -1 and behavior != "" and self._labels is not None:
@@ -552,11 +556,11 @@ class CentralWidget(QtWidgets.QWidget):
             and classifier_settings.get("symmetric_behavior", None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
-            self._controls.classify_button_set_enabled(True)
+            self._controls.classify_button_enabled = True
         else:
             # if not, the classify button needs to be disabled until the
             # user retrains
-            self._controls.classify_button_set_enabled(False)
+            self._controls.classify_button_enabled = False
 
     def _train_button_clicked(self) -> None:
         """handle user click on "Train" button"""
@@ -572,6 +576,7 @@ class CentralWidget(QtWidgets.QWidget):
             parent=self,
         )
         self._training_thread.training_complete.connect(self._training_thread_complete)
+        self._training_thread.error_callback.connect(self._training_thread_error_callback)
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
 
@@ -590,11 +595,63 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_complete(self) -> None:
         """enable classify button once the training is complete"""
-        self._progress_dialog.close()
-        self._progress_dialog.deleteLater()
-        self._progress_dialog = None
+        self._cleanup_training_thread()
+        self._cleanup_progress_dialog()
         self.status_message.emit("Training Complete", 3000)
-        self._controls.classify_button_set_enabled(True)
+        self._controls.classify_button_enabled = True
+
+    def _training_thread_error_callback(self, error: Exception) -> None:
+        """handle an error in the training thread"""
+        self._print_exception(error)
+        self._cleanup_training_thread()
+        self._cleanup_progress_dialog()
+        self.status_message.emit("Training Failed", 3000)
+        self._controls.classify_button_enabled = False
+        QtWidgets.QMessageBox.critical(
+            self, "Error", f"An exception occurred during training:\n{error}"
+        )
+
+    def _classify_thread_error_callback(self, error: Exception) -> None:
+        """handle an error in the classification thread"""
+        self._print_exception(error)
+        self._cleanup_classify_thread()
+        self._cleanup_progress_dialog()
+        self.status_message.emit("Classification Failed", 3000)
+        self._controls.train_button_enabled = True
+        QtWidgets.QMessageBox.critical(
+            self, "Error", f"An exception occurred during classification:\n{error}"
+        )
+
+    @staticmethod
+    def _print_exception(e: Exception) -> None:
+        """Print a formatted traceback for the given exception to the terminal.
+
+        This method outputs the full stack trace and exception details to help with debugging.
+        It can be extended in the future to support additional logging or error handling mechanisms.
+
+        Args:
+            e (Exception): The exception instance to print.
+        """
+        traceback.print_exception(e)
+
+    def _cleanup_progress_dialog(self) -> None:
+        """clean up the progress dialog"""
+        if self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog.deleteLater()
+            self._progress_dialog = None
+
+    def _cleanup_training_thread(self) -> None:
+        """clean up the training thread"""
+        if self._training_thread:
+            self._training_thread.deleteLater()
+            self._training_thread = None
+
+    def _cleanup_classify_thread(self) -> None:
+        """clean up the training thread"""
+        if self._classify_thread:
+            self._classify_thread.deleteLater()
+            self._classify_thread = None
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
@@ -613,7 +670,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._loaded_video.name,
             parent=self,
         )
-        self._classify_thread.done.connect(self._classify_thread_complete)
+        self._classify_thread.classification_complete.connect(self._classify_thread_complete)
+        self._classify_thread.error_callback.connect(self._classify_thread_error_callback)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
         self._progress_dialog = create_progress_dialog(
@@ -629,9 +687,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
-        self._progress_dialog.close()
-        self._progress_dialog.deleteLater()
-        self._progress_dialog = None
+        self._cleanup_progress_dialog()
+        self._cleanup_classify_thread()
         self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
@@ -753,7 +810,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle classifier selection change"""
         if self._classifier.classifier_type != self._controls.classifier_type:
             # changing classifier type, disable until retrained
-            self._controls.classify_button_set_enabled(False)
+            self._controls.classify_button_enabled = False
             self._classifier.set_classifier(self._controls.classifier_type)
 
     def _pixmap_clicked(self, event: dict[str, int]) -> None:
@@ -850,7 +907,7 @@ class CentralWidget(QtWidgets.QWidget):
         if classifier_loaded:
             self._update_classifier_controls()
         else:
-            self._controls.classify_button_set_enabled(False)
+            self._controls.classify_button_enabled = False
 
     def _update_search_hit(self, search_hit: SearchHit | None) -> None:
         """Handle updates when the current search hit changes."""
