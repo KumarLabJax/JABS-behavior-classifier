@@ -1,4 +1,5 @@
 import sys
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -601,6 +602,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
+        self._print_exception(error)
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
         self.status_message.emit("Training Failed", 3000)
@@ -611,6 +613,7 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classify_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the classification thread"""
+        self._print_exception(error)
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
         self.status_message.emit("Classification Failed", 3000)
@@ -618,6 +621,18 @@ class CentralWidget(QtWidgets.QWidget):
         QtWidgets.QMessageBox.critical(
             self, "Error", f"An exception occurred during classification:\n{error}"
         )
+
+    @staticmethod
+    def _print_exception(e: Exception) -> None:
+        """Print a formatted traceback for the given exception to the terminal.
+
+        This method outputs the full stack trace and exception details to help with debugging.
+        It can be extended in the future to support additional logging or error handling mechanisms.
+
+        Args:
+            e (Exception): The exception instance to print.
+        """
+        traceback.print_exception(e)
 
     def _cleanup_progress_dialog(self) -> None:
         """clean up the progress dialog"""
