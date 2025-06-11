@@ -614,7 +614,7 @@ class CentralWidget(QtWidgets.QWidget):
     def _classify_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the classification thread"""
         self._print_exception(error)
-        self._cleanup_training_thread()
+        self._cleanup_classify_thread()
         self._cleanup_progress_dialog()
         self.status_message.emit("Classification Failed", 3000)
         self._controls.train_button_enabled = True
@@ -646,6 +646,12 @@ class CentralWidget(QtWidgets.QWidget):
         if self._training_thread:
             self._training_thread.deleteLater()
             self._training_thread = None
+
+    def _cleanup_classify_thread(self) -> None:
+        """clean up the training thread"""
+        if self._classify_thread:
+            self._classify_thread.deleteLater()
+            self._classify_thread = None
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
@@ -681,9 +687,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._frame_indexes = output["frame_indexes"]
-        self._progress_dialog.close()
-        self._progress_dialog.deleteLater()
-        self._progress_dialog = None
+        self._cleanup_progress_dialog()
+        self._cleanup_classify_thread()
         self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
