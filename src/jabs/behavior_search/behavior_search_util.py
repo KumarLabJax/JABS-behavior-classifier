@@ -193,7 +193,6 @@ def _gen_contig_true_intervals(
 
     match pred_query.search_kind:
         case PredictionSearchKind.POSITIVE_PREDICTION:
-            print("Searching for positive predictions...")
             crit_mask = animal_predictions == TrackLabels.Label.BEHAVIOR.value
         case PredictionSearchKind.NEGATIVE_PREDICTION:
             crit_mask = animal_predictions == TrackLabels.Label.NOT_BEHAVIOR.value

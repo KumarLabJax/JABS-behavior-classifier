@@ -48,12 +48,13 @@ class StackedTimelineWidget(QWidget):
 
         self._active_identity_index = None
         self._selection_starting_frame = None
+        self._selection_ending_frame = None
         self._view_mode = self.ViewMode.LABELS_AND_PREDICTIONS
         self._identity_mode = self.IdentityMode.ACTIVE
         self._num_identities = 0
         self._num_frames = 0
         self._framerate = 0
-        self._label_overview_widgets = []
+        self._label_overview_widgets: list[LabelOverviewWidget] = []
         self._prediction_overview_widgets = []
         self._identity_frames = []
         self._frame_labels = FrameLabelsWidget(self)
@@ -230,7 +231,8 @@ class StackedTimelineWidget(QWidget):
             # Transfer selection to new active widget if selection is active
             if selection_frame is not None:
                 self._label_overview_widgets[self._active_identity_index].start_selection(
-                    selection_frame
+                    selection_frame,
+                    self._selection_ending_frame,
                 )
 
             # Set active state or frame border depending on display mode
@@ -370,18 +372,24 @@ class StackedTimelineWidget(QWidget):
             widget.framerate = self.framerate
             widget.set_labels(predictions_list[i], probabilities_list[i])
 
-    def start_selection(self, starting_frame: int) -> None:
-        """Start a selection from the given frame on the active identity's widget.
+    def start_selection(self, starting_frame: int, ending_frame: int | None = None) -> None:
+        """Start a selection from the given frame(s) on the active identity's widget.
 
         Records the starting frame and initiates selection mode on the currently active identity.
+        If `ending_frame` is provided, it sets the selection range to include that frame as well.
+        If `ending_frame` is None, the selection continues to the current frame.
 
         Args:
             starting_frame: The frame index where the selection begins.
+            ending_frame: Optional; the frame index where the selection ends. If None,
+                selection continues to current frame.
         """
         if self._active_identity_index is not None:
             self._selection_starting_frame = starting_frame
+            self._selection_ending_frame = ending_frame
             self._label_overview_widgets[self._active_identity_index].start_selection(
-                starting_frame
+                starting_frame,
+                ending_frame,
             )
             self._label_overview_widgets[self._active_identity_index].update()
 
@@ -393,6 +401,7 @@ class StackedTimelineWidget(QWidget):
         if self._active_identity_index is not None:
             self._label_overview_widgets[self._active_identity_index].clear_selection()
             self._selection_starting_frame = None
+            self._selection_ending_frame = None
             self._label_overview_widgets[self._active_identity_index].update_labels()
 
     def reset(self) -> None:
