@@ -167,6 +167,23 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
+    def _cleanup_player_thread(self) -> None:
+        """cleanup function to stop the player thread if it is running"""
+        if self._player_thread is not None:
+            self._player_thread.stop_playback()
+            self._player_thread.wait()
+            try:
+                self._player_thread.newImage.disconnect()
+                self._player_thread.updatePosition.disconnect()
+                self._player_thread.endOfFile.disconnect()
+            except TypeError:
+                # Already disconnected
+                pass
+            self._player_thread.deleteLater()
+            self._player_thread = None
+            # Process pending events to flush any queued signals
+            QtWidgets.QApplication.processEvents()
+
     @property
     def current_frame(self) -> int:
         """return the current frame"""
@@ -481,23 +498,6 @@ class PlayerWidget(QtWidgets.QWidget):
         """start video playback in player thread"""
         self._player_thread.start()
         self._playing = True
-
-    def _cleanup_player_thread(self) -> None:
-        """cleanup function to stop the player thread if it is running"""
-        if self._player_thread is not None:
-            self._player_thread.stop_playback()
-            self._player_thread.wait()
-            try:
-                self._player_thread.newImage.disconnect()
-                self._player_thread.updatePosition.disconnect()
-                self._player_thread.endOfFile.disconnect()
-            except TypeError:
-                # Already disconnected
-                pass
-            self._player_thread.deleteLater()
-            self._player_thread = None
-            # Process pending events to flush any queued signals
-            QtWidgets.QApplication.processEvents()
 
     def _on_speed_changed_combo(self, index: int) -> None:
         speed = self._speed_combo.itemData(index)
