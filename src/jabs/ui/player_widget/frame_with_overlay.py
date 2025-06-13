@@ -56,9 +56,9 @@ class FrameWidgetWithOverlay(FrameWidget):
         the same size as the widget, because we never get a mouseMoveEvent with coordinates
         outside the pixmap area.
         """
+        super().leaveEvent(event)
         self._over_pixmap = False
         self.update()
-        super().leaveEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
         """Handle mouse move events to update the overlay state and menu visibility.
@@ -70,6 +70,7 @@ class FrameWidgetWithOverlay(FrameWidget):
         because the widget might be larger than the pixmap, and we want to show the overlay only
         when the mouse is over the actual pixmap area.
         """
+        super().mouseMoveEvent(event)
         x, y = event.x(), event.y()
         self._over_pixmap = (
             self._scaled_pix_x <= x < self._scaled_pix_x + self._scaled_pix_width
@@ -79,7 +80,6 @@ class FrameWidgetWithOverlay(FrameWidget):
         if self._menu_open and self._menu and not self._over_pixmap:
             self._menu.close()
         self.update()
-        super().mouseMoveEvent(event)
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         """Paint the frame widget with an overlay for playback speed badge."""
