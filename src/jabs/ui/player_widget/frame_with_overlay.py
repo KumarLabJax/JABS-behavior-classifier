@@ -25,8 +25,8 @@ class FrameWidgetWithOverlay(FrameWidget):
     _BADGE_PADDING_HORIZONTAL = 16
     _BADGE_PADDING_VERTICAL = 8
     _BADGE_CORNER_RADIUS = 8
-    _BADGE_BACKGROUND_COLOR = QtGui.QColor(0, 0, 0, 180)
-    _BADGE_TEXT_COLOR = QtGui.QColor(255, 255, 255)
+    _BADGE_BACKGROUND_COLOR = QtGui.QColor(220, 220, 220, 230)
+    _BADGE_TEXT_COLOR = QtGui.QColor(0, 0, 0)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
