@@ -2,7 +2,7 @@ from enum import IntEnum
 
 import numpy as np
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QSizePolicy, QVBoxLayout, QWidget
 
 from jabs.project import TrackLabels
 
@@ -62,6 +62,11 @@ class StackedTimelineWidget(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
+
+        # handle palette changes
+        app = QApplication.instance()
+        if app and hasattr(app, "paletteChanged"):
+            app.paletteChanged.connect(self._on_palette_changed)
 
     def _label_overview_widget_factory(self, parent) -> LabelOverviewWidget:
         """Factory method to create a label overview widget."""
@@ -174,14 +179,21 @@ class StackedTimelineWidget(QWidget):
                 If active_index does not match any identity, no border is applied. (we pass -1 to clear all
                 borders)
         """
+        accent_color = self._get_accent_color()
         active_index = self._active_identity_index if active_index is None else active_index
         for i, frame in enumerate(self._identity_frames):
             if i == active_index:
                 frame.setStyleSheet(
-                    f"QFrame {{border: 2px solid {self._BORDER_COLOR}; border-radius: 8px;}}"
+                    f"QFrame {{border: 2px solid {accent_color}; border-radius: 8px;}}"
                 )
             else:
                 frame.setStyleSheet("QFrame {border: none; padding: 2px;}")
+
+    @staticmethod
+    def _get_accent_color() -> str:
+        """Get the accent color from the application palette."""
+        palette = QApplication.palette()
+        return palette.color(palette.ColorRole.Accent).name()
 
     @property
     def num_frames(self) -> int:
@@ -414,3 +426,7 @@ class StackedTimelineWidget(QWidget):
 
         for widget in self._prediction_overview_widgets:
             widget.reset()
+
+    def _on_palette_changed(self) -> None:
+        """Handle required updates if app palette changes."""
+        self._update_frame_border()
