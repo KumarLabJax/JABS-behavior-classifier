@@ -88,7 +88,7 @@ class FrameWidgetWithOverlay(FrameWidget):
 
         # now handle the video control overlay
         pixmap = self.pixmap()
-        if pixmap is not None and not pixmap.isNull() and self._over_pixmap:
+        if pixmap is not None and not pixmap.isNull() and (self._over_pixmap or self._menu_open):
             # currently the only overlay is the playback speed badge
             self._draw_badge()
 
