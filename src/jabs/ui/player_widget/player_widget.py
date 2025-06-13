@@ -7,8 +7,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import VideoReader
 
-from .frame_widget import FrameWidget
+from .frame_with_overlay import FrameWidgetWithOverlay
 from .player_thread import PlayerThread
+
+_SPEED_VALUES = [0.5, 1, 2, 4]
 
 
 class PlayerWidget(QtWidgets.QWidget):
@@ -66,7 +68,8 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidget()
+        self._frame_widget = FrameWidgetWithOverlay()
+        self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
 
@@ -141,14 +144,15 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # -- set up the layout of the components
 
-        # player control layout
+        # main player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
         player_control_layout.setContentsMargins(2, 0, 2, 0)
+        player_control_layout.setSpacing(2)
         player_control_layout.addWidget(self._play_button)
         player_control_layout.addWidget(self._position_slider)
         player_control_layout.addLayout(frame_button_layout)
 
-        # main widget layout
+        # widget layout
         player_layout = QtWidgets.QVBoxLayout()
         player_layout.addWidget(self._frame_widget)
         player_layout.addLayout(time_layout)
@@ -173,6 +177,7 @@ class PlayerWidget(QtWidgets.QWidget):
             # Process pending events to flush any queued signals
             QtWidgets.QApplication.processEvents()
 
+    @property
     def current_frame(self) -> int:
         """return the current frame"""
         return self._position_slider.value()
@@ -272,6 +277,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
+            playback_speed=self._frame_widget.playback_speed,
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
@@ -465,7 +471,7 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             image (QImage): frame ready for display as emitted by player thread
         """
-        self._frame_widget.update_frame(image, self.current_frame())
+        self._frame_widget.update_frame(image, self.current_frame)
 
     @QtCore.Slot(int)
     def _set_position(self, frame_number: int) -> None:
@@ -485,3 +491,8 @@ class PlayerWidget(QtWidgets.QWidget):
         """start video playback in player thread"""
         self._player_thread.start()
         self._playing = True
+
+    def _on_playback_speed_changed(self, speed: float) -> None:
+        """Handle playback speed changes."""
+        if self._player_thread is not None:
+            self._player_thread.setPlaybackSpeed.emit(speed)

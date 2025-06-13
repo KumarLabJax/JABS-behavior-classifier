@@ -426,7 +426,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if pressed:
             self._controls.enable_label_buttons()
-            self._selection_start = self._player_widget.current_frame()
+            self._selection_start = self._player_widget.current_frame
             self._selection_end = None
             self._stacked_timeline.start_selection(self._selection_start)
         else:
@@ -455,7 +455,7 @@ class CentralWidget(QtWidgets.QWidget):
         return (
             self._selection_end
             if self._selection_end is not None
-            else self._player_widget.current_frame()
+            else self._player_widget.current_frame
         )
 
     def _label_behavior(self) -> None:
