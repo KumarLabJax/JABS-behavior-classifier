@@ -284,7 +284,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
-            playback_speed=self._speed_combo.itemData(self._speed_combo.currentIndex()),
+            playback_speed=self._speed_combo.currentData(),
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
