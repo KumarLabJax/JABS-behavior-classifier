@@ -7,7 +7,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import VideoReader
 
-from .frame_widget import FrameWidget
+from .frame_with_overlay import FrameWidgetWithOverlay
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -68,7 +68,8 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidget()
+        self._frame_widget = FrameWidgetWithOverlay()
+        self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
 
@@ -141,13 +142,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.valueChanged.connect(self._on_slider_value_changed)
         self._position_slider.setEnabled(False)
 
-        self._speed_combo = QtWidgets.QComboBox()
-        for v in _SPEED_VALUES:
-            self._speed_combo.addItem(f"{v}x", userData=float(v))
-        self._speed_combo.setCurrentIndex(1)  # Default to 1x
-        self._speed_combo.setToolTip("Playback speed")
-        self._speed_combo.currentIndexChanged.connect(self._on_speed_changed_combo)
-
         # -- set up the layout of the components
 
         # main player control layout
@@ -155,7 +149,6 @@ class PlayerWidget(QtWidgets.QWidget):
         player_control_layout.setContentsMargins(2, 0, 2, 0)
         player_control_layout.setSpacing(2)
         player_control_layout.addWidget(self._play_button)
-        player_control_layout.addWidget(self._speed_combo)
         player_control_layout.addWidget(self._position_slider)
         player_control_layout.addLayout(frame_button_layout)
 
@@ -284,7 +277,7 @@ class PlayerWidget(QtWidgets.QWidget):
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
-            playback_speed=self._speed_combo.currentData(),
+            playback_speed=self._frame_widget.playback_speed,
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
@@ -499,7 +492,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.start()
         self._playing = True
 
-    def _on_speed_changed_combo(self, index: int) -> None:
-        speed = self._speed_combo.itemData(index)
+    def _on_playback_speed_changed(self, speed: float) -> None:
+        """Handle playback speed changes."""
         if self._player_thread is not None:
             self._player_thread.setPlaybackSpeed.emit(speed)
