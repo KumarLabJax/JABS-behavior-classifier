@@ -26,8 +26,6 @@ class StackedTimelineWidget(QWidget):
         show_only_active_identity (bool): Whether to display only the active identity.
     """
 
-    _BORDER_COLOR = "#0078d7"
-
     class ViewMode(IntEnum):
         """Enum for view modes of the widget."""
 
