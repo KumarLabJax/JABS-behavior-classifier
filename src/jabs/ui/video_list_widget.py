@@ -47,8 +47,10 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""
+        self._suppress_selection_event = True
         self._project = project
         self.file_list.clear()
+        self._suppress_selection_event = False
 
         for video in self._project.video_manager.videos:
             item = QtWidgets.QListWidgetItem(video)

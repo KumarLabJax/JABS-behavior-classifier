@@ -52,6 +52,7 @@ class PlayerThread(QtCore.QThread):
     setOverlaySegmentation = QtCore.Signal(bool)
     setOverlayLandmarks = QtCore.Signal(bool)
     setActiveIdentity = QtCore.Signal(int)
+    setPlaybackSpeed = QtCore.Signal(float)
 
     def __init__(
         self,
@@ -64,6 +65,7 @@ class PlayerThread(QtCore.QThread):
         overlay_landmarks_flag: bool = False,
         overlay_segmentation_flag: bool = False,
         label_closest: bool = False,
+        playback_speed: float = 1.0,
     ):
         super().__init__()
 
@@ -82,6 +84,7 @@ class PlayerThread(QtCore.QThread):
         self._overlay_landmarks = overlay_landmarks_flag
         self._label_closest = label_closest
         self._identities = identities if identities is not None else []
+        self._playback_speed = playback_speed
 
         self.setLabelClosest.connect(self._set_label_closest)
         self.setShowTrack.connect(self._set_show_track)
@@ -89,6 +92,7 @@ class PlayerThread(QtCore.QThread):
         self.setOverlaySegmentation.connect(self._set_overlay_segmentation)
         self.setOverlayLandmarks.connect(self._set_overlay_landmarks)
         self.setActiveIdentity.connect(self._set_identity)
+        self.setPlaybackSpeed.connect(self._set_playback_speed)
 
     def stop_playback(self):
         """tell run thread to stop playback"""
@@ -121,6 +125,10 @@ class PlayerThread(QtCore.QThread):
     def _set_overlay_landmarks(self, new_val: bool):
         """set the overlay landmarks property"""
         self._overlay_landmarks = new_val
+
+    @QtCore.Slot(float)
+    def _set_playback_speed(self, playback_speed: float):
+        self._playback_speed = playback_speed
 
     def _read_and_emit_frame(self):
         frame = self._video_reader.load_next_frame()
@@ -243,7 +251,7 @@ class PlayerThread(QtCore.QThread):
                     self.updatePosition.emit(frame["index"])
 
                 # update timestamp for when should the next frame be shown
-                next_timestamp += frame["duration"]
+                next_timestamp += frame["duration"] / self._playback_speed
 
             else:
                 # if the video stream reached the end of file let the UI know

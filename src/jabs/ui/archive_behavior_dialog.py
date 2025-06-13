@@ -14,14 +14,12 @@ class ArchiveBehaviorDialog(QDialog):
 
     behavior_archived = QtCore.Signal(str)
 
-    def __init__(self, behaviors: [str], *args, **kwargs):
+    def __init__(self, behaviors: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self._behavior_selection = QComboBox()
         self._behavior_selection.addItems(behaviors)
-        self._behavior_selection.currentIndexChanged.connect(
-            self.__behavior_selection_changed
-        )
+        self._behavior_selection.currentIndexChanged.connect(self.__behavior_selection_changed)
 
         self._confirm = QCheckBox("Confirm", self)
         self._confirm.setChecked(False)

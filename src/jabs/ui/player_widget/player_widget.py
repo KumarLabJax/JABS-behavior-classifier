@@ -139,16 +139,30 @@ class PlayerWidget(QtWidgets.QWidget):
         self._position_slider.valueChanged.connect(self._on_slider_value_changed)
         self._position_slider.setEnabled(False)
 
+        self._speed_values = [0.5, 1, 2, 4]
+        self._speed_combo = QtWidgets.QComboBox()
+        for v in self._speed_values:
+            self._speed_combo.addItem(f"{v}x", userData=v)
+        self._speed_combo.setCurrentIndex(1)  # Default to 1x
+        # self._speed_combo.setFixedWidth(70)
+        self._speed_combo.setToolTip("Playback speed")
+        self._speed_combo.currentIndexChanged.connect(self._on_speed_changed_combo)
+        font = self._speed_combo.font()
+        font.setPointSize(10)  # Set to desired size
+        self._speed_combo.setFont(font)
+
         # -- set up the layout of the components
 
-        # player control layout
+        # main player control layout
         player_control_layout = QtWidgets.QHBoxLayout()
         player_control_layout.setContentsMargins(2, 0, 2, 0)
+        player_control_layout.setSpacing(2)
         player_control_layout.addWidget(self._play_button)
+        player_control_layout.addWidget(self._speed_combo)
         player_control_layout.addWidget(self._position_slider)
         player_control_layout.addLayout(frame_button_layout)
 
-        # main widget layout
+        # widget layout
         player_layout = QtWidgets.QVBoxLayout()
         player_layout.addWidget(self._frame_widget)
         player_layout.addLayout(time_layout)
@@ -156,23 +170,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
-    def _cleanup_player_thread(self) -> None:
-        """cleanup function to stop the player thread if it is running"""
-        if self._player_thread is not None:
-            self._player_thread.stop_playback()
-            self._player_thread.wait()
-            try:
-                self._player_thread.newImage.disconnect()
-                self._player_thread.updatePosition.disconnect()
-                self._player_thread.endOfFile.disconnect()
-            except TypeError:
-                # Already disconnected
-                pass
-            self._player_thread.deleteLater()
-            self._player_thread = None
-            # Process pending events to flush any queued signals
-            QtWidgets.QApplication.processEvents()
-
+    @property
     def current_frame(self) -> int:
         """return the current frame"""
         return self._position_slider.value()
@@ -272,6 +270,9 @@ class PlayerWidget(QtWidgets.QWidget):
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
+            playback_speed=float(self._speed_values[self._speed_combo.currentIndex()])
+            if self._speed_combo
+            else 1.0,
         )
         self._player_thread.newImage.connect(self._display_image)
         self._player_thread.updatePosition.connect(self._set_position)
@@ -465,7 +466,7 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             image (QImage): frame ready for display as emitted by player thread
         """
-        self._frame_widget.update_frame(image, self.current_frame())
+        self._frame_widget.update_frame(image, self.current_frame)
 
     @QtCore.Slot(int)
     def _set_position(self, frame_number: int) -> None:
@@ -485,3 +486,25 @@ class PlayerWidget(QtWidgets.QWidget):
         """start video playback in player thread"""
         self._player_thread.start()
         self._playing = True
+
+    def _cleanup_player_thread(self) -> None:
+        """cleanup function to stop the player thread if it is running"""
+        if self._player_thread is not None:
+            self._player_thread.stop_playback()
+            self._player_thread.wait()
+            try:
+                self._player_thread.newImage.disconnect()
+                self._player_thread.updatePosition.disconnect()
+                self._player_thread.endOfFile.disconnect()
+            except TypeError:
+                # Already disconnected
+                pass
+            self._player_thread.deleteLater()
+            self._player_thread = None
+            # Process pending events to flush any queued signals
+            QtWidgets.QApplication.processEvents()
+
+    def _on_speed_changed_combo(self, index: int) -> None:
+        speed = float(self._speed_combo.itemData(index))
+        if self._player_thread is not None:
+            self._player_thread.setPlaybackSpeed.emit(speed)
