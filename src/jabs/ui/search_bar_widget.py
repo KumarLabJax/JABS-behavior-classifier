@@ -161,7 +161,8 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
             behavior_label=behavior_label,
             prob_greater_value=gt,
             prob_less_value=lt,
-            min_contiguous_frames=frames,
+            min_contiguous_frames=min_frames,
+            max_contiguous_frames=max_frames,
         ):
             parts = []
             match search_kind:
@@ -186,8 +187,12 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
                     elif lt is not None:
                         parts.append(f"behavior prob. < {lt}")
 
-            if frames is not None and frames > 1:
-                parts.append(f"with at least {frames} contiguous frames")
+            if max_frames is not None and min_frames is not None:
+                parts.append(f"with {min_frames} to {max_frames} contiguous frames")
+            elif min_frames is not None and min_frames > 1:
+                parts.append(f"with at least {min_frames} contiguous frames")
+            elif max_frames is not None and max_frames > 1:
+                parts.append(f"with at most {max_frames} contiguous frames")
 
             return " ".join(parts)
         case _:
