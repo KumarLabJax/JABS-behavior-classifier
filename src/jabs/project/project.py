@@ -4,6 +4,7 @@ import gzip
 import json
 import shutil
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -392,7 +393,10 @@ class Project:
         return counts
 
     def get_labeled_features(
-        self, behavior=None, progress_callable=None, should_terminate_callable=None
+        self,
+        behavior: str | None = None,
+        progress_callable: Callable[[], None] | None = None,
+        should_terminate_callable: Callable[[], None] | None = None,
     ) -> tuple[dict, dict]:
         """the features for all labeled frames
 
@@ -406,8 +410,9 @@ class Project:
                 with no args every time an identity is processed to facilitate
                 progress tracking
             should_terminate_callable: if provided this will be called to check if
-                the user has requested to terminate the operation. This should
-                raise an exception if the user has requested early termination.
+                the user has requested to terminate the operation. This callable
+                should raise a ThreadTerminatedError if the user has requested e
+                arly termination.
 
         Returns:
             two dicts: features, group_mappings
