@@ -17,10 +17,10 @@ from .archive_behavior_dialog import ArchiveBehaviorDialog
 from .central_widget import CentralWidget
 from .license_dialog import LicenseAgreementDialog
 from .player_widget import PlayerWidget
+from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
-from .util import create_progress_dialog
 from .video_list_widget import VideoListDockWidget
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)

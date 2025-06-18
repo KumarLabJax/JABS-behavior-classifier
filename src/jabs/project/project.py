@@ -391,7 +391,9 @@ class Project:
             counts[video] = self.__read_counts(video, behavior)
         return counts
 
-    def get_labeled_features(self, behavior=None, progress_callable=None):
+    def get_labeled_features(
+        self, behavior=None, progress_callable=None, should_terminate_callable=None
+    ) -> tuple[dict, dict]:
         """the features for all labeled frames
 
         NOTE: this will currently take a very long time to run if the features
@@ -403,6 +405,9 @@ class Project:
             progress_callable: if provided this will be called
                 with no args every time an identity is processed to facilitate
                 progress tracking
+            should_terminate_callable: if provided this will be called to check if
+                the user has requested to terminate the operation. This should
+                raise an exception if the user has requested early termination.
 
         Returns:
             two dicts: features, group_mappings
@@ -437,6 +442,10 @@ class Project:
 
         group_id = 0
         for video in self._video_manager.videos:
+            # check if early termination is requested
+            if should_terminate_callable:
+                should_terminate_callable()
+
             video_labels = self._video_manager.load_video_labels(video)
 
             # if there are no labels for this video, skip it
@@ -454,6 +463,10 @@ class Project:
             fps = get_fps(str(video_path))
 
             for identity in pose_est.identities:
+                # check if early termination is requested
+                if should_terminate_callable:
+                    should_terminate_callable()
+
                 group_mapping[group_id] = {"video": video, "identity": identity}
 
                 labels = video_labels.get_track_labels(str(identity), behavior).get_labels()

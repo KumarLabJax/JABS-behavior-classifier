@@ -5,6 +5,16 @@ from PySide6.QtCore import QThread, Signal, SignalInstance
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.video_reader.utilities import get_fps
 
+from .exceptions import ThreadTerminatedError
+
+
+class ClassificationCancelled(RuntimeError):
+    """Exception raised when classification is cancelled by the user."""
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self.message = "Classification was cancelled by the user" if not args else args[0]
+
 
 class ClassifyThread(QThread):
     """thread to run the classification to keep the main GUI thread responsive"""
@@ -30,6 +40,11 @@ class ClassifyThread(QThread):
         self._behavior = behavior
         self._tasks_complete = 0
         self._current_video = current_video
+        self._should_terminate = False
+
+    def request_termination(self) -> None:
+        """Request the thread to terminate."""
+        self._should_terminate = True
 
     def run(self):
         """thread's main function.
@@ -42,11 +57,17 @@ class ClassifyThread(QThread):
         probabilities = {}
         frame_indexes = {}
 
+        def check_termination_requested() -> None:
+            if self._should_terminate:
+                raise ThreadTerminatedError("Classification was cancelled by the user")
+
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
+                check_termination_requested()
+
                 video_path = self._project.video_manager.video_path(video)
 
                 # load the poses for this video
@@ -61,6 +82,8 @@ class ClassifyThread(QThread):
                 frame_indexes[video] = {}
 
                 for identity in pose_est.identities:
+                    check_termination_requested()
+
                     self.current_status.emit(f"Classifying {video},  Identity {identity}")
 
                     # get the features for this identity
@@ -76,8 +99,7 @@ class ClassifyThread(QThread):
                         project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
                     )
 
-                    # reformat the data in a single 2D numpy array to pass
-                    # to the classifier
+                    # reformat the data in a single 2D numpy array to pass to the classifier
                     per_frame_features = pd.DataFrame(
                         IdentityFeatures.merge_per_frame_features(feature_values["per_frame"])
                     )
@@ -86,6 +108,7 @@ class ClassifyThread(QThread):
                     )
                     data = self._classifier.combine_data(per_frame_features, window_features)
 
+                    check_termination_requested()
                     if data.shape[0] > 0:
                         # make predictions
                         predictions[video][identity] = self._classifier.predict(data)
