@@ -1,4 +1,5 @@
 import enum
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -13,12 +14,20 @@ from .player_thread import PlayerThread
 _SPEED_VALUES = [0.5, 1, 2, 4]
 
 
+@dataclass(frozen=True)
+class PlaybackRange:
+    """Dataclass to represent a playback range in the video."""
+
+    start: int
+    end: int
+
+
 class PlayerWidget(QtWidgets.QWidget):
     """Video Player Widget.
 
     Consists of a QLabel to display a frame image, and
     basic player controls below the frame (play/pause button, position slider,
-    previous/next frame buttons.
+    previous/next frame buttons).
 
     position slider can be dragged while video is paused or is playing and the
     position will be updated. If video was playing when the slider is dragged
@@ -32,24 +41,24 @@ class PlayerWidget(QtWidgets.QWidget):
         LABEL = 1
         PREDICTION = 2
 
-    # signal to allow other UI components to observe current frame number
-    updateFrameNumber = QtCore.Signal(int)
-
-    # let the main window UI know what the list of identities should be
-    updateIdentities = QtCore.Signal(list)
+    update_frame_number = QtCore.Signal(int)
+    update_identities = QtCore.Signal(list)
+    playback_finished = QtCore.Signal()
+    eof_reached = QtCore.Signal()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # make sure the player thread is stopped when quitting the application
+        # noinspection PyUnresolvedReferences
         QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)
 
         # keep track of the current state
         self._playing = False
         self._resume_playing = False
-
         self._video_stream = None
         self._pose_est = None
+        self._playback_range: PlaybackRange | None = None
 
         # properties to control video overlays
         self._label_closest = False
@@ -177,17 +186,6 @@ class PlayerWidget(QtWidgets.QWidget):
             # Process pending events to flush any queued signals
             QtWidgets.QApplication.processEvents()
 
-    @property
-    def current_frame(self) -> int:
-        """return the current frame"""
-        return self._position_slider.value()
-
-    def num_frames(self) -> int:
-        """get total number of frames in the loaded video"""
-        if self._video_stream is None:
-            return 0
-        return self._video_stream.num_frames
-
     def reset(self) -> None:
         """reset video player before loading a new video"""
         self._video_stream = None
@@ -201,53 +199,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setText("")
         self._time_label.setText("")
         self._frame_widget.reset()
-
-    def stream_fps(self) -> int:
-        """get frames per second from loaded video"""
-        assert self._video_stream is not None
-        return self._video_stream.fps
-
-    def _set_overlay_attr(self, attr: str, signal: QtCore.Signal, enabled: bool | None) -> None:
-        """Toggle or set an overlay attribute and emit the corresponding signal.
-
-        Args:
-            attr: Name of the attribute to toggle or set.
-            signal: Signal to emit with the new value.
-            enabled: If provided, sets the attribute to this value; if None, toggles the current value.
-
-        This method also forces a redraw of the current frame with updated overlay settings if playback is paused in
-        order to force the current frame to be redrawn with the new overlay settings.
-        """
-        current = getattr(self, attr)
-        new_value = not current if enabled is None else enabled
-        setattr(self, attr, new_value)
-        if self._player_thread:
-            signal.emit(new_value)
-            self.reload_frame()
-
-    def show_closest(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'show closest' overlay state."""
-        self._set_overlay_attr("_label_closest", self._player_thread.setLabelClosest, enabled)
-
-    def show_track(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'show track' overlay state."""
-        self._set_overlay_attr("_show_track", self._player_thread.setShowTrack, enabled)
-
-    def overlay_pose(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr("_overlay_pose", self._player_thread.setOverlayPose, enabled)
-
-    def overlay_segmentation(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_segmentation", self._player_thread.setOverlaySegmentation, enabled
-        )
-
-    def overlay_landmarks(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay segmentation' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_landmarks", self._player_thread.setOverlayLandmarks, enabled
-        )
 
     def load_video(self, path: Path, pose_est: PoseEstimation) -> None:
         """load a new video source
@@ -280,8 +231,8 @@ class PlayerWidget(QtWidgets.QWidget):
             playback_speed=self._frame_widget.playback_speed,
         )
         self._player_thread.newImage.connect(self._display_image)
-        self._player_thread.updatePosition.connect(self._set_position)
-        self._player_thread.endOfFile.connect(self.stop)
+        self._player_thread.updatePosition.connect(self._on_frame_number_changed)
+        self._player_thread.endOfFile.connect(self._on_eof)
 
         # set up the position slider
         self._seek(0)
@@ -309,6 +260,92 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self._enable_frame_buttons()
         self._playing = False
+        self._playback_range = None
+
+    def play_range(self, start: int, end: int) -> None:
+        """play a range of frames in the video
+
+        Args:
+            start: starting frame number
+            end: ending frame number
+        """
+        if self._video_stream is None or self._playing:
+            return
+
+        # ensure the range is valid
+        if start < 0 or end >= self.num_frames or start >= end:
+            return
+
+        self.stop()
+        self._playback_range = PlaybackRange(start=start, end=end)
+
+        # set the position slider to the start frame
+        # self._position_slider.setValue(start)
+        self._seek(start)
+
+        # start playback
+        self._start_player_thread()
+
+    @property
+    def current_frame(self) -> int:
+        """return the current frame"""
+        return self._position_slider.value()
+
+    @property
+    def num_frames(self) -> int:
+        """get total number of frames in the loaded video"""
+        if self._video_stream is None:
+            return 0
+        return self._video_stream.num_frames
+
+    @property
+    def stream_fps(self) -> int:
+        """get frames per second from loaded video"""
+        assert self._video_stream is not None
+        return self._video_stream.fps
+
+    def _set_overlay_attr(self, attr: str, signal: QtCore.Signal, enabled: bool | None) -> None:
+        """Toggle or set an overlay attribute and emit the corresponding signal.
+
+        Args:
+            attr: Name of the attribute to toggle or set.
+            signal: Signal to emit with the new value.
+            enabled: If provided, sets the attribute to this value; if None, toggles the current value.
+
+        This method also forces a redraw of the current frame with updated overlay settings if playback is paused in
+        order to force the current frame to be redrawn with the new overlay settings.
+        """
+        current = getattr(self, attr)
+        new_value = not current if enabled is None else enabled
+        setattr(self, attr, new_value)
+        if self._player_thread:
+            # noinspection PyUnresolvedReferences
+            signal.emit(new_value)
+            self.reload_frame()
+
+    def show_closest(self, enabled: bool | None = None) -> None:
+        """Toggle or set the 'show closest' overlay state."""
+        self._set_overlay_attr("_label_closest", self._player_thread.setLabelClosest, enabled)
+
+    def show_track(self, enabled: bool | None = None) -> None:
+        """Toggle or set the 'show track' overlay state."""
+        self._set_overlay_attr("_show_track", self._player_thread.setShowTrack, enabled)
+
+    def overlay_pose(self, enabled: bool | None = None) -> None:
+        """Toggle or set the 'overlay pose' overlay state."""
+        self._set_overlay_attr("_overlay_pose", self._player_thread.setOverlayPose, enabled)
+
+    def overlay_segmentation(self, enabled: bool | None = None) -> None:
+        """Toggle or set the 'overlay segmentation' overlay state."""
+        self._set_overlay_attr(
+            "_overlay_segmentation", self._player_thread.setOverlaySegmentation, enabled
+        )
+
+    def overlay_landmarks(self, enabled: bool | None = None) -> None:
+        """Toggle or set the 'overlay segmentation' overlay state."""
+        self._set_overlay_attr(
+            "_overlay_landmarks", self._player_thread.setOverlayLandmarks, enabled
+        )
 
     def reload_frame(self) -> None:
         """reload the current frame in the player thread.
@@ -321,7 +358,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _seek(self, position: int) -> None:
         self._player_thread.seek(position)
-        self.updateFrameNumber.emit(position)
+        self.update_frame_number.emit(position)
         self._update_time_display(position)
 
     def _position_slider_clicked(self) -> None:
@@ -474,6 +511,26 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.update_frame(image, self.current_frame)
 
     @QtCore.Slot(int)
+    def _on_frame_number_changed(self, frame_number: int) -> None:
+        """Handle frame number changes from the player thread.
+
+        Args:
+            frame_number (int): The new frame number to display.
+        """
+        # update the position slider and time display
+        self._set_position(frame_number)
+
+        # If we have a playback range, check if we reached the end
+        if self._playback_range and frame_number >= self._playback_range.end:
+            self.stop()
+            self.playback_finished.emit()
+
+    @QtCore.Slot()
+    def _on_eof(self) -> None:
+        """Handle end of file signal from the player thread."""
+        self.stop()
+        self.eof_reached.emit()
+
     def _set_position(self, frame_number: int) -> None:
         """update the position slider during playback
 
@@ -485,7 +542,7 @@ class PlayerWidget(QtWidgets.QWidget):
             return
         self._position_slider.setValue(frame_number)
         self._update_time_display(frame_number)
-        self.updateFrameNumber.emit(frame_number)
+        self.update_frame_number.emit(frame_number)
 
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
