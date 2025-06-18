@@ -1,39 +1,53 @@
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import QThread, Signal, SignalInstance
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QWidget
 
+from jabs.classifier import Classifier
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
-from jabs.video_reader.utilities import get_fps
+from jabs.project import Project
 
 from .exceptions import ThreadTerminatedError
 
 
-class ClassificationCancelled(RuntimeError):
-    """Exception raised when classification is cancelled by the user."""
-
-    def __init__(self, *args) -> None:
-        super().__init__(*args)
-        self.message = "Classification was cancelled by the user" if not args else args[0]
-
-
 class ClassifyThread(QThread):
-    """thread to run the classification to keep the main GUI thread responsive"""
+    """
+    Thread used to run classification in the background, keeping the Qt main GUI thread responsive.
 
-    # signal so that the main GUI thread can be notified when classification is complete
-    classification_complete: SignalInstance = Signal(dict)
+    Signals:
+        classification_complete: QtCore.Signal(dict)
+            Emitted when classification is finished successfully. The emitted dict
+            contains predictions, probabilities, and frame indexes for the current video.
+        current_status: QtCore.Signal(str)
+            Emitted to update the main GUI thread with a status message (e.g., for a status bar).
+        update_progress: QtCore.Signal(int)
+            Emitted to inform the main GUI thread of the number of completed tasks
+            (e.g., for a progress bar).
+        error_callback: QtCore.Signal(Exception)
+            Emitted if an error occurs during classification, passing the exception
+            to the main GUI thread.
 
-    # allow the thread to send a status string to the main GUI thread so that
-    # we can update a status bar if we want
-    current_status: SignalInstance = Signal(str)
+    Args:
+        classifier (Classifier): The classifier instance to use for predictions.
+        project (Project): The project containing data and settings.
+        behavior (str): The behavior label to classify.
+        current_video (str): The video currently being classified.
+        parent (QWidget or None, optional): Optional parent widget.
+    """
 
-    # signal to inform the main GUI thread of the number of tasks completed
-    # so that it can update a progress bar
-    update_progress: SignalInstance = Signal(int)
+    classification_complete = Signal(dict)
+    current_status = Signal(str)
+    update_progress = Signal(int)
+    error_callback = Signal(Exception)
 
-    # inform the main GUI thread if there was an error during training
-    error_callback: SignalInstance = Signal(Exception)
-
-    def __init__(self, classifier, project, behavior, current_video, parent=None):
+    def __init__(
+        self,
+        classifier: Classifier,
+        project: Project,
+        behavior: str,
+        current_video: str,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent=parent)
         self._classifier = classifier
         self._project = project
@@ -43,10 +57,20 @@ class ClassifyThread(QThread):
         self._should_terminate = False
 
     def request_termination(self) -> None:
-        """Request the thread to terminate."""
+        """Request the thread to terminate early.
+
+        This method sets a flag that is periodically checked by the worker thread.
+        It is safe to call this method from the main Qt GUI thread. Since the flag
+        is a simple boolean this is generally thread safe in CPython because
+        assignment to a boolean is atomic and therefore it does not require
+        additional synchronization in this scenario.
+
+        For maximum robustness or if porting to other Python implementations,
+        consider using QAtomicBool.
+        """
         self._should_terminate = True
 
-    def run(self):
+    def run(self) -> None:
         """thread's main function.
 
         runs the classifier for each identity in each video
@@ -69,12 +93,8 @@ class ClassifyThread(QThread):
                 check_termination_requested()
 
                 video_path = self._project.video_manager.video_path(video)
-
-                # load the poses for this video
                 pose_est = self._project.load_pose_est(video_path)
-                # fps used to scale some features from per pixel time unit to
-                # per second
-                fps = get_fps(str(video_path))
+                fps = pose_est.fps
 
                 # make predictions for each identity in this video
                 predictions[video] = {}

@@ -3,7 +3,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
@@ -130,23 +130,6 @@ class CentralWidget(QtWidgets.QWidget):
     def update_behavior_search_query(self, search_query) -> None:
         """Update the search query for the search bar widget"""
         self._search_bar_widget.update_search(search_query)
-
-    def eventFilter(self, source, event) -> bool:
-        """filter events emitted by progress dialog
-
-        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
-        """
-        if source == self._progress_dialog and (
-            event.type() == QtCore.QEvent.Type.Close
-            or (
-                event.type() == QtCore.QEvent.Type.KeyPress
-                and isinstance(event, QtGui.QKeyEvent)
-                and event.key() == Qt.Key.Key_Escape
-            )
-        ):
-            event.accept()
-            return True
-        return super().eventFilter(source, event)
 
     @property
     def behavior(self) -> str:
@@ -570,8 +553,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup training thread
         self._training_thread = TrainingThread(
-            self._project,
             self._classifier,
+            self._project,
             self._controls.current_behavior,
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
@@ -590,6 +573,7 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             total_steps += self._controls.kfold_value
         self._progress_dialog = create_cancelable_progress_dialog(self, "Training", total_steps)
+        self._progress_dialog.show()
         self._progress_dialog.canceled.connect(self._training_thread.request_termination)
 
         # start training thread
@@ -686,6 +670,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = create_cancelable_progress_dialog(
             self, "Predicting", self._project.total_project_identities + 1
         )
+        self._progress_dialog.show()
         self._progress_dialog.canceled.connect(self._classify_thread.request_termination)
 
         # start classification thread

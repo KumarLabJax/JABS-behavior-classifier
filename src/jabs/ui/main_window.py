@@ -364,6 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_project(self, project_path: str):
         """open a new project directory"""
         self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
+        self._progress_dialog.show()
 
         self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
