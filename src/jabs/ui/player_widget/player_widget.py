@@ -29,7 +29,13 @@ class PlayerWidget(QtWidgets.QWidget):
     basic player controls below the frame (play/pause button, position slider,
     previous/next frame buttons).
 
-    position slider can be dragged while video is paused or is playing and the
+    Signals:
+        update_frame_number (int): Emitted when the current frame number changes.
+        update_identities (list): Emitted when the list of identities is updated.
+        playback_finished (): Emitted when playback of a range finishes.
+        eof_reached (): Emitted when the end of the video file is reached.
+
+    The position slider can be dragged while video is paused or is playing and the
     position will be updated. If video was playing when the slider is dragged
     the playback will resume after the slider is released.
     """
