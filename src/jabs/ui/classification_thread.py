@@ -66,8 +66,7 @@ class ClassifyThread(QThread):
         assignment to a boolean is atomic and therefore it does not require
         additional synchronization in this scenario.
 
-        For maximum robustness or if porting to other Python implementations,
-        consider using QAtomicBool.
+        Could consider using QAtomicBool, but a standard bool should be fine here.
         """
         self._should_terminate = True
 
