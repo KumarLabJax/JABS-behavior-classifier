@@ -17,7 +17,8 @@ class ClassifyThread(QThread):
     Signals:
         classification_complete: QtCore.Signal(dict)
             Emitted when classification is finished successfully. The emitted dict
-            contains predictions, probabilities, and frame indexes for the current video.
+            contains predictions, probabilities, and frame indexes for the current video so that
+            the UI can update accordingly.
         current_status: QtCore.Signal(str)
             Emitted to update the main GUI thread with a status message (e.g., for a status bar).
         update_progress: QtCore.Signal(int)
@@ -31,7 +32,7 @@ class ClassifyThread(QThread):
         classifier (Classifier): The classifier instance to use for predictions.
         project (Project): The project containing data and settings.
         behavior (str): The behavior label to classify.
-        current_video (str): The video currently being classified.
+        current_video (str): The video currently loaded in the video player.
         parent (QWidget or None, optional): Optional parent widget.
     """
 
@@ -152,7 +153,7 @@ class ClassifyThread(QThread):
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)
 
-            # save predictions
+            # save predictions to disk
             self.current_status.emit("Saving Predictions")
             self._project.save_predictions(
                 predictions, probabilities, frame_indexes, self._behavior, self._classifier
@@ -160,6 +161,9 @@ class ClassifyThread(QThread):
 
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
+            # emits the predictions, probabilities, and frame indexes for the video currently loaded in
+            # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(
                 {
                     "predictions": predictions[self._current_video],
