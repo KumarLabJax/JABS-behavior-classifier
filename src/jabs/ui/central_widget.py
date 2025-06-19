@@ -351,7 +351,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, checked: bool) -> None:
         """set the overlay pose property of the player widget"""
-        self._player_widget.overlay_pose(checked)
+        if checked:
+            self._player_widget.pose_overlay_mode = PlayerWidget.PoseOverlayMode.ALL
+        else:
+            self._player_widget.pose_overlay_mode = PlayerWidget.PoseOverlayMode.NONE
 
     def overlay_landmarks(self, checked: bool) -> None:
         """set the overlay landmarks property of the player widget"""

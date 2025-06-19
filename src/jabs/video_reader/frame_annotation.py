@@ -14,63 +14,14 @@ _LIXIT_COLOR = (215, 222, 0)
 _HOPPER_COLOR = (0, 255, 0)
 
 
-__CONNECTED_SEGMENTS = [
-    [
-        PoseEstimation.KeypointIndex.LEFT_FRONT_PAW,
-        PoseEstimation.KeypointIndex.CENTER_SPINE,
-        PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW,
-    ],
-    [
-        PoseEstimation.KeypointIndex.LEFT_REAR_PAW,
-        PoseEstimation.KeypointIndex.BASE_TAIL,
-        PoseEstimation.KeypointIndex.RIGHT_REAR_PAW,
-    ],
-    [
-        PoseEstimation.KeypointIndex.NOSE,
-        PoseEstimation.KeypointIndex.BASE_NECK,
-        PoseEstimation.KeypointIndex.CENTER_SPINE,
-        PoseEstimation.KeypointIndex.BASE_TAIL,
-        PoseEstimation.KeypointIndex.MID_TAIL,
-        PoseEstimation.KeypointIndex.TIP_TAIL,
-    ],
-]
-
-
-def __gen_line_fragments(exclude_points: np.ndarray):
-    """generate line fragments from the connected segments.
-
-    This will break up segments if a point within the segment is excluded,
-    or will remove the segment completely if it does not have at least two points
-
-    Args:
-        exclude_points: list of points to exclude when generating
-            segments
-
-    Returns:
-        yields lists of Keypoint indexes that make up the segments to draw
-    """
-    curr_fragment = []
-    for curr_pt_indexes in __CONNECTED_SEGMENTS:
-        for curr_pt_index in curr_pt_indexes:
-            if curr_pt_index.value in exclude_points:
-                if len(curr_fragment) >= 2:
-                    yield curr_fragment
-                curr_fragment = []
-            else:
-                curr_fragment.append(curr_pt_index.value)
-        if len(curr_fragment) >= 2:
-            yield curr_fragment
-        curr_fragment = []
-
-
-def label_identity(
+def mark_identity(
     img: np.ndarray,
     pose_est: PoseEstimation,
     identity: int,
     frame_index: int,
     color: tuple[int, int, int] = _ID_COLOR,
 ):
-    """label the identity on an image
+    """mark the identity on an image
 
     Args:
         img: image to label
@@ -173,53 +124,6 @@ def draw_track(
     # convert to numpy array for opencv
     past_track_points = np.asarray(past_track_points, dtype=np.int32)
     cv2.polylines(img, [past_track_points], False, _PAST_TRACK_COLOR, 1)
-
-
-def overlay_pose(img: np.ndarray, points: np.ndarray, mask: np.ndarray, color=(255, 255, 255)):
-    """Overlay pose on a frame.
-
-    Args:
-        img: frame image
-        points: pose points to overlay
-        mask: points mask to indicate which points are valid
-        color: color for overlay, defaults to white
-    """
-    if points is None:
-        return
-
-    # draw connections
-    for seg in __gen_line_fragments(np.flatnonzero(mask == 0)):
-        segment_points = [(p[0], p[1]) for p in points[seg]]
-        # draw a wide black line
-        cv2.polylines(
-            img,
-            [np.asarray(segment_points, dtype=np.int32)],
-            False,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
-        # now draw a thin line with the specified color
-        cv2.polylines(
-            img,
-            [np.asarray(segment_points, dtype=np.int32)],
-            False,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
-
-    # draw points at each keypoint of the pose (if it exists at this frame)
-    for point, point_mask in zip(points, mask, strict=True):
-        if point_mask:
-            cv2.circle(
-                img,
-                (int(point[0]), int(point[1])),
-                __scale_annotation_size(img, 2),
-                color,
-                -1,
-                lineType=cv2.LINE_AA,
-            )
 
 
 def trim_seg(arr: np.ndarray) -> np.ndarray | None:

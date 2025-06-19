@@ -8,9 +8,8 @@ from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.video_reader import (
     VideoReader,
     draw_track,
-    label_identity,
+    mark_identity,
     overlay_landmarks,
-    overlay_pose,
     overlay_segmentation,
 )
 
@@ -25,7 +24,6 @@ class PlayerThread(QtCore.QThread):
         pose_est (PoseEstimation): The pose estimation object.
         identity (int): The active identity to track.
         show_track (bool, optional): Whether to show the track overlay. Defaults to False.
-        overlay_pose_flag (bool, optional): Whether to overlay pose. Defaults to False.
         identities (list[str], optional): List of all identities. Defaults to None.
         overlay_landmarks_flag (bool, optional): Whether to overlay landmarks. Defaults to False.
         overlay_segmentation_flag (bool, optional): Whether to overlay segmentation. Defaults to False.
@@ -48,7 +46,6 @@ class PlayerThread(QtCore.QThread):
     # signals used to update the properties of PlayerThread in a thread-safe manner
     setLabelClosest = QtCore.Signal(bool)
     setShowTrack = QtCore.Signal(bool)
-    setOverlayPose = QtCore.Signal(bool)
     setOverlaySegmentation = QtCore.Signal(bool)
     setOverlayLandmarks = QtCore.Signal(bool)
     setActiveIdentity = QtCore.Signal(int)
@@ -60,7 +57,6 @@ class PlayerThread(QtCore.QThread):
         pose_est: PoseEstimation,
         identity: int,
         show_track: bool = False,
-        overlay_pose_flag: bool = False,
         identities: list[str] | None = None,
         overlay_landmarks_flag: bool = False,
         overlay_segmentation_flag: bool = False,
@@ -79,7 +75,6 @@ class PlayerThread(QtCore.QThread):
         self._identity = identity
         self._label_closest = False
         self._show_track = show_track
-        self._overlay_pose = overlay_pose_flag
         self._overlay_segmentation = overlay_segmentation_flag
         self._overlay_landmarks = overlay_landmarks_flag
         self._label_closest = label_closest
@@ -88,7 +83,6 @@ class PlayerThread(QtCore.QThread):
 
         self.setLabelClosest.connect(self._set_label_closest)
         self.setShowTrack.connect(self._set_show_track)
-        self.setOverlayPose.connect(self._set_overlay_pose)
         self.setOverlaySegmentation.connect(self._set_overlay_segmentation)
         self.setOverlayLandmarks.connect(self._set_overlay_landmarks)
         self.setActiveIdentity.connect(self._set_identity)
@@ -110,11 +104,6 @@ class PlayerThread(QtCore.QThread):
     @QtCore.Slot(bool)
     def _set_show_track(self, value: bool):
         self._show_track = value
-
-    @QtCore.Slot(bool)
-    def _set_overlay_pose(self, new_val: bool):
-        """set overlay pose property"""
-        self._overlay_pose = new_val
 
     @QtCore.Slot(bool)
     def _set_overlay_segmentation(self, new_val: bool):
@@ -144,11 +133,6 @@ class PlayerThread(QtCore.QThread):
             if self._show_track:
                 draw_track(frame["data"], self._pose_est, self._identity, frame["index"])
 
-            if self._overlay_pose:
-                overlay_pose(
-                    frame["data"],
-                    *self._pose_est.get_points(frame["index"], self._identity),
-                )
             if self._overlay_segmentation:
                 overlay_segmentation(
                     frame["data"],
@@ -156,6 +140,7 @@ class PlayerThread(QtCore.QThread):
                     identity=self._identity,
                     frame_index=frame["index"],
                 )
+
             if self._overlay_landmarks:
                 overlay_landmarks(frame["data"], self._pose_est)
 
@@ -164,7 +149,7 @@ class PlayerThread(QtCore.QThread):
                     frame["index"], ClosestIdentityInfo.HALF_FOV_DEGREE
                 )
                 if closest_fov_id is not None:
-                    label_identity(
+                    mark_identity(
                         frame["data"],
                         self._pose_est,
                         closest_fov_id,
@@ -174,7 +159,7 @@ class PlayerThread(QtCore.QThread):
 
                 closest_id = self._get_closest_animal_id(frame["index"])
                 if closest_id is not None and closest_id != closest_fov_id:
-                    label_identity(
+                    mark_identity(
                         frame["data"],
                         self._pose_est,
                         closest_id,
