@@ -411,8 +411,8 @@ class Project:
                 progress tracking
             should_terminate_callable: if provided this will be called to check if
                 the user has requested to terminate the operation. This callable
-                should raise a ThreadTerminatedError if the user has requested e
-                arly termination.
+                should raise a ThreadTerminatedError if the user has requested
+                early termination.
 
         Returns:
             two dicts: features, group_mappings
