@@ -294,6 +294,11 @@ class FrameWidget(QtWidgets.QLabel):
             if not all_identities and identity != self._active_identity:
                 continue
 
+            points, mask = self._pose.get_points(self._frame_number, identity)
+
+            if points is None or mask is None:
+                continue
+
             # Adjust alpha for non-active identities
             if identity != self._active_identity:
                 line_color = QtGui.QColor(_LINE_SEGMENT_COLOR)
@@ -304,11 +309,6 @@ class FrameWidget(QtWidgets.QLabel):
             pen = QtGui.QPen(line_color)
             pen.setWidth(3)
             painter.setPen(pen)
-
-            points, mask = self._pose.get_points(self._frame_number, identity)
-
-            if points is None or mask is None:
-                continue
 
             for seg in gen_line_fragments(np.flatnonzero(mask == 0)):
                 segment_points = [self._image_to_widget_coords(p[0], p[1]) for p in points[seg]]
