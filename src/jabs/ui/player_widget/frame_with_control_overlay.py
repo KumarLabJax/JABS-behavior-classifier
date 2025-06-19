@@ -3,7 +3,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from .frame_widget import FrameWidget
 
 
-class FrameWidgetWithOverlay(FrameWidget):
+class FrameWidgetWithControlOverlay(FrameWidget):
     """
     A `FrameWidget` subclass that adds an interactive overlay for playback controls.
 
@@ -37,10 +37,10 @@ class FrameWidgetWithOverlay(FrameWidget):
         self._playback_speed = 1.0
         self._speeds = [0.5, 1.0, 2.0, 4.0]
         self._menu: QtWidgets.QMenu | None = None
-        self._font = QtGui.QFont()
-        self._font.setBold(True)
-        self._font.setPointSize(12)
-        self._font_metrics = QtGui.QFontMetrics(self._font)
+        self._badge_font = QtGui.QFont()
+        self._badge_font.setBold(True)
+        self._badge_font.setPointSize(12)
+        self._badge_font_metrics = QtGui.QFontMetrics(self._badge_font)
 
     @property
     def playback_speed(self) -> float:
@@ -147,8 +147,9 @@ class FrameWidgetWithOverlay(FrameWidget):
 
         # figure out the size and position of the badge
         w, h = (
-            self._font_metrics.horizontalAdvance(badge_text) + self._BADGE_PADDING_HORIZONTAL,
-            self._font_metrics.height() + self._BADGE_PADDING_VERTICAL,
+            self._badge_font_metrics.horizontalAdvance(badge_text)
+            + self._BADGE_PADDING_HORIZONTAL,
+            self._badge_font_metrics.height() + self._BADGE_PADDING_VERTICAL,
         )
         x = self._scaled_pix_x + self._BADGE_OFFSET
         y = self._scaled_pix_y + self._scaled_pix_height - h - self._BADGE_OFFSET
@@ -156,7 +157,7 @@ class FrameWidgetWithOverlay(FrameWidget):
 
         # draw playback speed badge
         painter = QtGui.QPainter(self)
-        painter.setFont(self._font)
+        painter.setFont(self._badge_font)
         painter.setBrush(self._BADGE_BACKGROUND_COLOR)
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
         painter.drawRoundedRect(

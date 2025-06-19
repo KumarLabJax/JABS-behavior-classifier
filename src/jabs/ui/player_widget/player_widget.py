@@ -8,7 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import VideoReader
 
-from .frame_with_overlay import FrameWidgetWithOverlay
+from .frame_with_control_overlay import FrameWidgetWithControlOverlay
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -39,11 +39,13 @@ class PlayerWidget(QtWidgets.QWidget):
     # let the main window UI know what the list of identities should be
     updateIdentities = QtCore.Signal(list)
 
+    PoseOverlayMode = FrameWidgetWithControlOverlay.PoseOverlayMode
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # make sure the player thread is stopped when quitting the application
-        QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)
+        QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)  # type: ignore
 
         # keep track of the current state
         self._playing = False
@@ -78,7 +80,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidgetWithOverlay()
+        self._frame_widget = FrameWidgetWithControlOverlay()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
@@ -170,6 +172,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
+    @property
+    def pose_overlay_mode(self) -> PoseOverlayMode:
+        """return the current pose overlay mode from the frame widget"""
+        return self._frame_widget.pose_overlay_mode
+
+    @pose_overlay_mode.setter
+    def pose_overlay_mode(self, mode: PoseOverlayMode) -> None:
+        """set the pose overlay mode in the frame widget"""
+        self._frame_widget.pose_overlay_mode = mode
+
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
@@ -243,10 +255,6 @@ class PlayerWidget(QtWidgets.QWidget):
         """Toggle or set the 'show track' overlay state."""
         self._set_overlay_attr("_show_track", self._player_thread.setShowTrack, enabled)
 
-    def overlay_pose(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr("_overlay_pose", self._player_thread.setOverlayPose, enabled)
-
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay segmentation' overlay state."""
         self._set_overlay_attr(
@@ -283,7 +291,6 @@ class PlayerWidget(QtWidgets.QWidget):
             self._pose_est,
             self._active_identity,
             self._show_track,
-            self._overlay_pose,
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
