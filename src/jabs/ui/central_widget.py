@@ -592,7 +592,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._cleanup_progress_dialog()
 
         if isinstance(error, ThreadTerminatedError):
-            self.status_message.emit("Training Cancelled", 3000)
+            self.status_message.emit("Training Canceled", 3000)
         else:
             self._print_exception(error)
             self.status_message.emit("Training Failed", 3000)
@@ -607,7 +607,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._cleanup_progress_dialog()
 
         if isinstance(error, ThreadTerminatedError):
-            self.status_message.emit("Classification Cancelled", 3000)
+            self.status_message.emit("Classification Canceled", 3000)
         else:
             self._print_exception(error)
             self.status_message.emit("Classification Failed", 3000)
