@@ -16,10 +16,15 @@ _SPEED_VALUES = [0.5, 1, 2, 4]
 
 @dataclass(frozen=True)
 class PlaybackRange:
-    """Dataclass to represent a playback range in the video."""
+    """Dataclass to represent a playback range in the video.
 
-    start: int
-    end: int
+    Attributes:
+        start_frame (int): The starting frame number of the playback range.
+        end_frame (int): The ending frame number of the playback range. (inclusive)
+    """
+
+    start_frame: int
+    end_frame: int
 
 
 class PlayerWidget(QtWidgets.QWidget):
@@ -283,11 +288,10 @@ class PlayerWidget(QtWidgets.QWidget):
             return
 
         self.stop()
-        self._playback_range = PlaybackRange(start=start, end=end)
+        self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
 
         # set the position slider to the start frame
-        # self._position_slider.setValue(start)
-        self._seek(start)
+        self._seek(self._playback_range.start_frame)
 
         # start playback
         self._start_player_thread()
@@ -527,7 +531,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._set_position(frame_number)
 
         # If we have a playback range, check if we reached the end
-        if self._playback_range and frame_number >= self._playback_range.end:
+        if self._playback_range and frame_number >= self._playback_range.end_frame:
             self.stop()
             self.playback_finished.emit()
 
@@ -552,7 +556,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
-        self._player_thread.start()
+        self._player_thread.start_frame()
         self._playing = True
 
     def _on_playback_speed_changed(self, speed: float) -> None:
