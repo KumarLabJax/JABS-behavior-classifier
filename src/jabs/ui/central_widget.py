@@ -47,14 +47,16 @@ class CentralWidget(QtWidgets.QWidget):
 
         # video player
         self._player_widget = PlayerWidget(self)
-        self._player_widget.updateFrameNumber.connect(self._frame_change)
-        self._player_widget.updateFrameNumber.connect(self._stacked_timeline.set_current_frame)
+        self._player_widget.update_frame_number.connect(self._frame_change)
+        self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
 
         self._loaded_video = None
         self._project = None
         self._labels = None
+        self._prediction_list = None
+        self._probability_list = None
         self._pose_est = None
         self._label_overlay_mode = PlayerWidget.LabelOverlay.NONE
         self._suppress_label_track_update = False
@@ -215,8 +217,8 @@ class CentralWidget(QtWidgets.QWidget):
                     [labels.get_labels() for labels in self._get_label_list()]
                 )
             elif mode == PlayerWidget.LabelOverlay.PREDICTION:
-                prediction_list, _ = self._get_prediction_list()
-                self._player_widget.set_labels(prediction_list)
+                # prediction_list, _ = self._get_prediction_list()
+                self._player_widget.set_labels(self._prediction_list)
             else:
                 # if the player is set to show nothing, clear the labels
                 self._player_widget.set_labels(None)
@@ -278,7 +280,7 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._set_identities(self._pose_est.identities)
 
-            self._stacked_timeline.framerate = self._player_widget.stream_fps()
+            self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
@@ -305,6 +307,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         key = event.key()
         shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        alt_pressed = event.modifiers() & Qt.KeyboardModifier.AltModifier
 
         if key == QtCore.Qt.Key.Key_Left:
             self._player_widget.previous_frame()
@@ -321,7 +324,12 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key.Key_Space:
-            self._player_widget.toggle_play()
+            if alt_pressed:
+                self._play_current_bout(True)
+            elif shift_pressed:
+                self._play_current_bout()
+            else:
+                self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key.Key_Z:
             if self._controls.select_button_is_checked:
                 self._label_behavior()
@@ -442,7 +450,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.toggle_select_button()
 
         if self._controls.select_button_enabled:
-            num_frames = self._player_widget.num_frames()
+            num_frames = self._player_widget.num_frames
             if num_frames > 0:
                 self._controls.enable_label_buttons()
                 self._selection_start = 0
@@ -704,11 +712,11 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        prediction_list, probability_list = self._get_prediction_list()
-        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        self._prediction_list, self._probability_list = self._get_prediction_list()
+        self._stacked_timeline.set_predictions(self._prediction_list, self._probability_list)
         if self._label_overlay_mode == PlayerWidget.LabelOverlay.PREDICTION:
             # if the player is set to show predictions, update the player widget
-            self._player_widget.set_labels(prediction_list)
+            self._player_widget.set_labels(self._prediction_list)
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""
@@ -717,12 +725,12 @@ class CentralWidget(QtWidgets.QWidget):
 
         for i in range(self._pose_est.num_identities):
             prediction_labels = np.full(
-                (self._player_widget.num_frames()),
+                self._player_widget.num_frames,
                 TrackLabels.Label.NONE.value,
                 dtype=np.byte,
             )
 
-            prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
+            prediction_prob = np.zeros(self._player_widget.num_frames, dtype=np.float64)
 
             try:
                 indexes = self._frame_indexes[i]
@@ -991,3 +999,55 @@ class CentralWidget(QtWidgets.QWidget):
             disable_select_button()
         else:
             self._controls.select_button_enabled = True
+
+    def _play_current_bout(self, use_predictions: bool = False) -> None:
+        """Play the current bout: contiguous frames with the same label as the current frame.
+
+        Args:
+            use_predictions (bool): If True, use prediction labels instead of manual labels.
+        """
+        if self._labels is None or self._pose_est is None:
+            return
+
+        # stop if we are currently playing
+        self._player_widget.stop()
+
+        current_frame = self._player_widget.current_frame
+        identity = self._controls.current_identity_index
+        behavior = self._controls.current_behavior
+
+        if identity == -1 or behavior == "":
+            return
+
+        if use_predictions:
+            if not self._prediction_list or identity >= len(self._prediction_list):
+                return
+            labels = self._prediction_list[identity]
+        else:
+            track_labels = self._labels.get_track_labels(str(identity), behavior)
+            labels = track_labels.get_labels()
+
+        if labels is None or len(labels) == 0:
+            return
+
+        current_label = labels[current_frame]
+        # Only play if current label is BEHAVIOR or NOT_BEHAVIOR
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return
+
+        # Find start of bout
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        # Find end of bout (inclusive)
+        num_frames = len(labels)
+        end = current_frame
+        while end < num_frames and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        self._player_widget.play_range(start, end)
