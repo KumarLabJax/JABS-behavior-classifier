@@ -66,7 +66,6 @@ class PlayerWidget(QtWidgets.QWidget):
         # make sure the player thread is stopped when quitting the application
         QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)  # type: ignore
 
-
         # keep track of the current state
         self._playing = False
         self._resume_playing = False
@@ -589,7 +588,7 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
-        self._player_thread.start_frame()
+        self._player_thread.start()
         self._playing = True
 
     def _on_playback_speed_changed(self, speed: float) -> None:
