@@ -3,7 +3,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
@@ -16,11 +16,12 @@ from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
 
 from .classification_thread import ClassifyThread
+from .exceptions import ThreadTerminatedError
 from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
+from .progress_dialog import create_cancelable_progress_dialog
 from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
-from .util import create_progress_dialog
 
 _CLICK_THRESHOLD = 20
 
@@ -131,23 +132,6 @@ class CentralWidget(QtWidgets.QWidget):
     def update_behavior_search_query(self, search_query) -> None:
         """Update the search query for the search bar widget"""
         self._search_bar_widget.update_search(search_query)
-
-    def eventFilter(self, source, event) -> bool:
-        """filter events emitted by progress dialog
-
-        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
-        """
-        if source == self._progress_dialog and (
-            event.type() == QtCore.QEvent.Type.Close
-            or (
-                event.type() == QtCore.QEvent.Type.KeyPress
-                and isinstance(event, QtGui.QKeyEvent)
-                and event.key() == Qt.Key.Key_Escape
-            )
-        ):
-            event.accept()
-            return True
-        return super().eventFilter(source, event)
 
     @property
     def behavior(self) -> str:
@@ -580,8 +564,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup training thread
         self._training_thread = TrainingThread(
-            self._project,
             self._classifier,
+            self._project,
             self._controls.current_behavior,
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
@@ -599,7 +583,9 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = create_progress_dialog(self, "Training", total_steps)
+        self._progress_dialog = create_cancelable_progress_dialog(self, "Training", total_steps)
+        self._progress_dialog.show()
+        self._progress_dialog.canceled.connect(self._training_thread.request_termination)
 
         # start training thread
         self._training_thread.start()
@@ -613,25 +599,32 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
-        self._print_exception(error)
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
-        self.status_message.emit("Training Failed", 3000)
-        self._controls.classify_button_enabled = False
-        QtWidgets.QMessageBox.critical(
-            self, "Error", f"An exception occurred during training:\n{error}"
-        )
+
+        if isinstance(error, ThreadTerminatedError):
+            self.status_message.emit("Training Canceled", 3000)
+        else:
+            self._print_exception(error)
+            self.status_message.emit("Training Failed", 3000)
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"An exception occurred during training:\n{error}"
+            )
+            self._controls.classify_button_enabled = False
 
     def _classify_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the classification thread"""
-        self._print_exception(error)
         self._cleanup_classify_thread()
         self._cleanup_progress_dialog()
-        self.status_message.emit("Classification Failed", 3000)
-        self._controls.train_button_enabled = True
-        QtWidgets.QMessageBox.critical(
-            self, "Error", f"An exception occurred during classification:\n{error}"
-        )
+
+        if isinstance(error, ThreadTerminatedError):
+            self.status_message.emit("Classification Canceled", 3000)
+        else:
+            self._print_exception(error)
+            self.status_message.emit("Classification Failed", 3000)
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"An exception occurred during classification:\n{error}"
+            )
 
     @staticmethod
     def _print_exception(e: Exception) -> None:
@@ -685,9 +678,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.error_callback.connect(self._classify_thread_error_callback)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-        self._progress_dialog = create_progress_dialog(
+        self._progress_dialog = create_cancelable_progress_dialog(
             self, "Predicting", self._project.total_project_identities + 1
         )
+        self._progress_dialog.show()
+        self._progress_dialog.canceled.connect(self._classify_thread.request_termination)
 
         # start classification thread
         self._classify_thread.start()

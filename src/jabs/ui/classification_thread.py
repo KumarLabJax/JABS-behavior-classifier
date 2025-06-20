@@ -1,37 +1,76 @@
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import QThread, Signal, SignalInstance
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QWidget
 
+from jabs.classifier import Classifier
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
-from jabs.video_reader.utilities import get_fps
+from jabs.project import Project
+
+from .exceptions import ThreadTerminatedError
 
 
 class ClassifyThread(QThread):
-    """thread to run the classification to keep the main GUI thread responsive"""
+    """
+    Thread used to run classification in the background, keeping the Qt main GUI thread responsive.
 
-    # signal so that the main GUI thread can be notified when classification is complete
-    classification_complete: SignalInstance = Signal(dict)
+    Signals:
+        classification_complete: QtCore.Signal(dict)
+            Emitted when classification is finished successfully. The emitted dict
+            contains predictions, probabilities, and frame indexes for the current video so that
+            the UI can update accordingly.
+        current_status: QtCore.Signal(str)
+            Emitted to update the main GUI thread with a status message (e.g., for a status bar).
+        update_progress: QtCore.Signal(int)
+            Emitted to inform the main GUI thread of the number of completed tasks
+            (e.g., for a progress bar).
+        error_callback: QtCore.Signal(Exception)
+            Emitted if an error occurs during classification, passing the exception
+            to the main GUI thread.
 
-    # allow the thread to send a status string to the main GUI thread so that
-    # we can update a status bar if we want
-    current_status: SignalInstance = Signal(str)
+    Args:
+        classifier (Classifier): The classifier instance to use for predictions.
+        project (Project): The project containing data and settings.
+        behavior (str): The behavior label to classify.
+        current_video (str): The video currently loaded in the video player.
+        parent (QWidget or None, optional): Optional parent widget.
+    """
 
-    # signal to inform the main GUI thread of the number of tasks completed
-    # so that it can update a progress bar
-    update_progress: SignalInstance = Signal(int)
+    classification_complete = Signal(dict)
+    current_status = Signal(str)
+    update_progress = Signal(int)
+    error_callback = Signal(Exception)
 
-    # inform the main GUI thread if there was an error during training
-    error_callback: SignalInstance = Signal(Exception)
-
-    def __init__(self, classifier, project, behavior, current_video, parent=None):
+    def __init__(
+        self,
+        classifier: Classifier,
+        project: Project,
+        behavior: str,
+        current_video: str,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent=parent)
         self._classifier = classifier
         self._project = project
         self._behavior = behavior
         self._tasks_complete = 0
         self._current_video = current_video
+        self._should_terminate = False
 
-    def run(self):
+    def request_termination(self) -> None:
+        """Request the thread to terminate early.
+
+        This method sets a flag that is periodically checked by the worker thread.
+        It is safe to call this method from the main Qt GUI thread. Since the flag
+        is a simple boolean this is generally thread safe in CPython because
+        assignment to a boolean is atomic and therefore it does not require
+        additional synchronization in this scenario.
+
+        Could consider using QAtomicBool, but a standard bool should be fine here.
+        """
+        self._should_terminate = True
+
+    def run(self) -> None:
         """thread's main function.
 
         runs the classifier for each identity in each video
@@ -42,18 +81,20 @@ class ClassifyThread(QThread):
         probabilities = {}
         frame_indexes = {}
 
+        def check_termination_requested() -> None:
+            if self._should_terminate:
+                raise ThreadTerminatedError("Classification was cancelled by the user")
+
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
-                video_path = self._project.video_manager.video_path(video)
+                check_termination_requested()
 
-                # load the poses for this video
+                video_path = self._project.video_manager.video_path(video)
                 pose_est = self._project.load_pose_est(video_path)
-                # fps used to scale some features from per pixel time unit to
-                # per second
-                fps = get_fps(str(video_path))
+                fps = pose_est.fps
 
                 # make predictions for each identity in this video
                 predictions[video] = {}
@@ -61,6 +102,8 @@ class ClassifyThread(QThread):
                 frame_indexes[video] = {}
 
                 for identity in pose_est.identities:
+                    check_termination_requested()
+
                     self.current_status.emit(f"Classifying {video},  Identity {identity}")
 
                     # get the features for this identity
@@ -76,8 +119,7 @@ class ClassifyThread(QThread):
                         project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
                     )
 
-                    # reformat the data in a single 2D numpy array to pass
-                    # to the classifier
+                    # reformat the data in a single 2D numpy array to pass to the classifier
                     per_frame_features = pd.DataFrame(
                         IdentityFeatures.merge_per_frame_features(feature_values["per_frame"])
                     )
@@ -86,6 +128,7 @@ class ClassifyThread(QThread):
                     )
                     data = self._classifier.combine_data(per_frame_features, window_features)
 
+                    check_termination_requested()
                     if data.shape[0] > 0:
                         # make predictions
                         predictions[video][identity] = self._classifier.predict(data)
@@ -109,7 +152,7 @@ class ClassifyThread(QThread):
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)
 
-            # save predictions
+            # save predictions to disk
             self.current_status.emit("Saving Predictions")
             self._project.save_predictions(
                 predictions, probabilities, frame_indexes, self._behavior, self._classifier
@@ -117,6 +160,9 @@ class ClassifyThread(QThread):
 
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
+            # emits the predictions, probabilities, and frame indexes for the video currently loaded in
+            # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(
                 {
                     "predictions": predictions[self._current_video],
