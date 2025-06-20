@@ -313,8 +313,9 @@ class PlayerWidget(QtWidgets.QWidget):
         # set the position slider to the start frame
         self._seek(self._playback_range.start_frame)
 
-        # start playback
-        self._start_player_thread()
+        # start playback, pause for 250 ms first to let things settle after moving
+        # the position to the start of the range.
+        QtCore.QTimer.singleShot(250, self._start_player_thread)
 
     @property
     def current_frame(self) -> int:
