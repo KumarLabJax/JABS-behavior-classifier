@@ -1,4 +1,5 @@
 import enum
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import VideoReader
 
-from .frame_with_overlay import FrameWidgetWithOverlay
+from .frame_with_control_overlay import FrameWidgetWithControlOverlay
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -57,12 +58,14 @@ class PlayerWidget(QtWidgets.QWidget):
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
 
+    PoseOverlayMode = FrameWidgetWithControlOverlay.PoseOverlayMode
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # make sure the player thread is stopped when quitting the application
-        # noinspection PyUnresolvedReferences
-        QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)
+        QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)  # type: ignore
+
 
         # keep track of the current state
         self._playing = False
@@ -85,10 +88,19 @@ class PlayerWidget(QtWidgets.QWidget):
         # player thread to read and prepare frames for display
         self._player_thread = None
 
+        # debounce seeking by frame
+        self._seek_timer = QtCore.QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.timeout.connect(self._do_pending_seek)
+        self._pending_seek_frame = None
+        self._debounce_interval_ms = 50  # Final frame after 50ms of inactivity
+        self._throttle_interval_ms = 100  # Show at most every 100ms during seeking
+        self._last_seek_time = 0
+
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidgetWithOverlay()
+        self._frame_widget = FrameWidgetWithControlOverlay()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
@@ -180,6 +192,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         self.setLayout(player_layout)
 
+    @property
+    def pose_overlay_mode(self) -> PoseOverlayMode:
+        """return the current pose overlay mode from the frame widget"""
+        return self._frame_widget.pose_overlay_mode
+
+    @pose_overlay_mode.setter
+    def pose_overlay_mode(self, mode: PoseOverlayMode) -> None:
+        """set the pose overlay mode in the frame widget"""
+        self._frame_widget.pose_overlay_mode = mode
+
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
@@ -235,7 +257,6 @@ class PlayerWidget(QtWidgets.QWidget):
             self._pose_est,
             self._active_identity,
             self._show_track,
-            self._overlay_pose,
             self._identities,
             self._overlay_landmarks,
             self._overlay_segmentation,
@@ -459,12 +480,24 @@ class PlayerWidget(QtWidgets.QWidget):
             return
         new_frame = max(0, min(frame_number, num_frames - 1))
 
-        # if new_frame == current value of the position slider we are at the
-        # beginning of the video, don't do anything. Otherwise, seek to the
-        # new frame and display it.
-        if new_frame != self._position_slider.value():
-            self._position_slider.setValue(new_frame)
+        self._position_slider.setValue(new_frame)  # Always update slider
+
+        now = int(time.time() * 1000)
+        # Throttle: only redraw frame if enough time has passed
+        if now - self._last_seek_time >= self._throttle_interval_ms:
             self._player_thread.seek(new_frame)
+            self._last_seek_time = now
+
+        # Debounce: always show the final frame after user stops seeking
+        self._pending_seek_frame = new_frame
+        self._seek_timer.start(self._debounce_interval_ms)
+
+    def _do_pending_seek(self):
+        if self._pending_seek_frame is not None:
+            self._position_slider.setValue(self._pending_seek_frame)
+            self._player_thread.seek(self._pending_seek_frame)
+            self._last_seek_time = int(time.time() * 1000)
+            self._pending_seek_frame = None
 
     def set_active_identity(self, identity: int) -> None:
         """set an active identity, which will be labeled in the video"""
