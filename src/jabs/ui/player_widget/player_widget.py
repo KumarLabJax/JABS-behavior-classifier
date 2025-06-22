@@ -22,10 +22,12 @@ class PlaybackRange:
     Attributes:
         start_frame (int): The starting frame number of the playback range.
         end_frame (int): The ending frame number of the playback range. (inclusive)
+        loop (bool): Whether to loop the playback range.
     """
 
     start_frame: int
     end_frame: int
+    loop: bool
 
 
 class PlayerWidget(QtWidgets.QWidget):
@@ -66,12 +68,14 @@ class PlayerWidget(QtWidgets.QWidget):
         # make sure the player thread is stopped when quitting the application
         QtCore.QCoreApplication.instance().aboutToQuit.connect(self._cleanup_player_thread)  # type: ignore
 
-        # keep track of the current state
+        # properties used to keep track of the current playback state
         self._playing = False
         self._resume_playing = False
         self._video_stream = None
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
+        # playback timer is used to delay starting playback when jumping to the start of a playback range
+        self._playback_timer: QtCore.QTimer | None = None
 
         # properties to control video overlays
         self._label_closest = False
@@ -93,7 +97,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._seek_timer.timeout.connect(self._do_pending_seek)
         self._pending_seek_frame = None
         self._debounce_interval_ms = 50  # Final frame after 50ms of inactivity
-        self._throttle_interval_ms = 100  # Show at most every 100ms during seeking
+        self._throttle_interval_ms = 150  # Show at most every 100ms during seeking
         self._last_seek_time = 0
 
         #  - setup Widget UI components
@@ -276,29 +280,25 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def stop(self) -> None:
         """stop playing and reset the play button to its initial state"""
-        # if we have an active player thread, terminate
-        if self._player_thread:
-            self._player_thread.stop_playback()
-            self._player_thread.wait()
+        self._reset_playback_state()
+        self._playback_range = None
 
-        # change the icon to play
+        # change the icon to play and set the state to "off""
         self._play_button.setIcon(
             self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPlay)
         )
-
-        # switch the button state to off
         self._play_button.setChecked(False)
 
+        # enable next/previous frame buttons
         self._enable_frame_buttons()
-        self._playing = False
-        self._playback_range = None
 
-    def play_range(self, start: int, end: int) -> None:
+    def play_range(self, start: int, end: int, loop: bool = True) -> None:
         """play a range of frames in the video
 
         Args:
             start: starting frame number
             end: ending frame number
+            loop: whether to loop the playback range
         """
         if self._video_stream is None or self._playing:
             return
@@ -307,15 +307,18 @@ class PlayerWidget(QtWidgets.QWidget):
         if start < 0 or end >= self.num_frames or start >= end:
             return
 
-        self.stop()
-        self._playback_range = PlaybackRange(start_frame=start, end_frame=end)
+        self._playback_range = PlaybackRange(start_frame=start, end_frame=end, loop=loop)
 
         # set the position slider to the start frame
         self._seek(self._playback_range.start_frame)
 
-        # start playback, pause for 250 ms first to let things settle after moving
+        # start playback
+        # We use a QTimer to delay for 250 ms first to let things settle after moving
         # the position to the start of the range.
-        QtCore.QTimer.singleShot(250, self._start_player_thread)
+        self._playback_timer = QtCore.QTimer(self)
+        self._playback_timer.setSingleShot(True)
+        self._playback_timer.timeout.connect(self._start_player_thread)
+        self._playback_timer.start(250)  # 250 ms delay before starting playback
 
     @property
     def current_frame(self) -> int:
@@ -436,16 +439,12 @@ class PlayerWidget(QtWidgets.QWidget):
         if self._player_thread is None or self._position_slider.isSliderDown():
             return
 
-        if self._playing:
+        # if currently playing, or we have pending playback timer, stop playback
+        if self._playing or self._playback_timer:
             # if we are playing, stop
             self.stop()
-
         else:
             # we weren't already playing so start
-            self._play_button.setIcon(
-                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
-            )
-            self._disable_frame_buttons()
             self._start_player_thread()
 
     def next_frame(self, frames: int = 1) -> None:
@@ -470,8 +469,8 @@ class PlayerWidget(QtWidgets.QWidget):
         Args:
             frame_number: frame number to seek to
         """
-        # don't do anything if a video isn't loaded or if the video is playing
-        if self._video_stream is None or self._playing:
+        # don't do anything if a video isn't loaded or if the video is playing or there is a delayed playback timer
+        if self._video_stream is None or self._playing or self._playback_timer:
             return
 
         # the frame number should be bounded by the number of frames in the video
@@ -565,8 +564,16 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # If we have a playback range, check if we reached the end
         if self._playback_range and frame_number >= self._playback_range.end_frame:
-            self.stop()
-            self.playback_finished.emit()
+            if self._playback_range.loop:
+                self._reset_playback_state()
+                self.play_range(
+                    self._playback_range.start_frame,
+                    self._playback_range.end_frame,
+                    self._playback_range.loop,
+                )
+            else:
+                self.stop()
+                self.playback_finished.emit()
 
     @QtCore.Slot()
     def _on_eof(self) -> None:
@@ -589,10 +596,33 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def _start_player_thread(self) -> None:
         """start video playback in player thread"""
+        if self._playback_timer:
+            self._playback_timer.deleteLater()
+            self._playback_timer = None
         self._player_thread.start()
         self._playing = True
+        self._play_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaPause)
+        )
+        self._play_button.setChecked(True)
+        self._disable_frame_buttons()
 
     def _on_playback_speed_changed(self, speed: float) -> None:
         """Handle playback speed changes."""
         if self._player_thread is not None:
             self._player_thread.setPlaybackSpeed.emit(speed)
+
+    def _reset_playback_state(self) -> None:
+        """Reset the playback state.
+
+        Lighter than stop() as it does not reset the video stream or change the play button state. This
+        us useful when looping playback ranges to reset between loops.
+        """
+        if self._playback_timer:
+            self._playback_timer.stop()
+            self._playback_timer.deleteLater()
+            self._playback_timer = None
+        if self._player_thread:
+            self._player_thread.stop_playback()
+            self._player_thread.wait()
+        self._playing = False
