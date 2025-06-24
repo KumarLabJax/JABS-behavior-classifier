@@ -3,7 +3,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from shapely.geometry import Point
 
@@ -16,11 +16,12 @@ from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
 
 from .classification_thread import ClassifyThread
+from .exceptions import ThreadTerminatedError
 from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
+from .progress_dialog import create_cancelable_progress_dialog
 from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
-from .util import create_progress_dialog
 
 _CLICK_THRESHOLD = 20
 
@@ -50,14 +51,16 @@ class CentralWidget(QtWidgets.QWidget):
 
         # video player
         self._player_widget = PlayerWidget(self)
-        self._player_widget.updateFrameNumber.connect(self._frame_change)
-        self._player_widget.updateFrameNumber.connect(self._stacked_timeline.set_current_frame)
+        self._player_widget.update_frame_number.connect(self._frame_change)
+        self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
         self._curr_frame_index = 0
 
         self._loaded_video = None
         self._project = None
         self._labels = None
+        self._prediction_list = None
+        self._probability_list = None
         self._pose_est = None
         self._label_overlay_mode = PlayerWidget.LabelOverlay.NONE
         self._suppress_label_track_update = False
@@ -132,23 +135,6 @@ class CentralWidget(QtWidgets.QWidget):
     def update_behavior_search_query(self, search_query) -> None:
         """Update the search query for the search bar widget"""
         self._search_bar_widget.update_search(search_query)
-
-    def eventFilter(self, source, event) -> bool:
-        """filter events emitted by progress dialog
-
-        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
-        """
-        if source == self._progress_dialog and (
-            event.type() == QtCore.QEvent.Type.Close
-            or (
-                event.type() == QtCore.QEvent.Type.KeyPress
-                and isinstance(event, QtGui.QKeyEvent)
-                and event.key() == Qt.Key.Key_Escape
-            )
-        ):
-            event.accept()
-            return True
-        return super().eventFilter(source, event)
 
     @property
     def behavior(self) -> str:
@@ -230,8 +216,8 @@ class CentralWidget(QtWidgets.QWidget):
                     [labels.get_labels() for labels in self._get_label_list()]
                 )
             elif mode == PlayerWidget.LabelOverlay.PREDICTION:
-                prediction_list, _ = self._get_prediction_list()
-                self._player_widget.set_labels(prediction_list)
+                # prediction_list, _ = self._get_prediction_list()
+                self._player_widget.set_labels(self._prediction_list)
             else:
                 # if the player is set to show nothing, clear the labels
                 self._player_widget.set_labels(None)
@@ -294,7 +280,7 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._set_identities(self._pose_est.identities)
 
-            self._stacked_timeline.framerate = self._player_widget.stream_fps()
+            self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
@@ -323,6 +309,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         key = event.key()
         shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        alt_pressed = event.modifiers() & Qt.KeyboardModifier.AltModifier
 
         if key == QtCore.Qt.Key.Key_Left:
             self._player_widget.previous_frame()
@@ -339,7 +326,12 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 self._player_widget.previous_frame(self._frame_jump)
         elif key == QtCore.Qt.Key.Key_Space:
-            self._player_widget.toggle_play()
+            if alt_pressed:
+                self._play_current_bout(True)
+            elif shift_pressed:
+                self._play_current_bout()
+            else:
+                self._player_widget.toggle_play()
         elif key == QtCore.Qt.Key.Key_Z:
             if self._controls.select_button_is_checked:
                 self._label_behavior()
@@ -369,7 +361,10 @@ class CentralWidget(QtWidgets.QWidget):
 
     def overlay_pose(self, checked: bool) -> None:
         """set the overlay pose property of the player widget"""
-        self._player_widget.overlay_pose(checked)
+        if checked:
+            self._player_widget.pose_overlay_mode = PlayerWidget.PoseOverlayMode.ALL
+        else:
+            self._player_widget.pose_overlay_mode = PlayerWidget.PoseOverlayMode.NONE
 
     def overlay_landmarks(self, checked: bool) -> None:
         """set the overlay landmarks property of the player widget"""
@@ -457,7 +452,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.toggle_select_button()
 
         if self._controls.select_button_enabled:
-            num_frames = self._player_widget.num_frames()
+            num_frames = self._player_widget.num_frames
             if num_frames > 0:
                 self._controls.enable_label_buttons()
                 self._selection_start = 0
@@ -587,8 +582,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup training thread
         self._training_thread = TrainingThread(
-            self._project,
             self._classifier,
+            self._project,
             self._controls.current_behavior,
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
@@ -606,7 +601,9 @@ class CentralWidget(QtWidgets.QWidget):
             total_steps += self._classifier.count_label_threshold(project_counts)
         else:
             total_steps += self._controls.kfold_value
-        self._progress_dialog = create_progress_dialog(self, "Training", total_steps)
+        self._progress_dialog = create_cancelable_progress_dialog(self, "Training", total_steps)
+        self._progress_dialog.show()
+        self._progress_dialog.canceled.connect(self._training_thread.request_termination)
 
         # start training thread
         self._training_thread.start()
@@ -620,25 +617,32 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
-        self._print_exception(error)
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
-        self.status_message.emit("Training Failed", 3000)
-        self._controls.classify_button_enabled = False
-        QtWidgets.QMessageBox.critical(
-            self, "Error", f"An exception occurred during training:\n{error}"
-        )
+
+        if isinstance(error, ThreadTerminatedError):
+            self.status_message.emit("Training Canceled", 3000)
+        else:
+            self._print_exception(error)
+            self.status_message.emit("Training Failed", 3000)
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"An exception occurred during training:\n{error}"
+            )
+            self._controls.classify_button_enabled = False
 
     def _classify_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the classification thread"""
-        self._print_exception(error)
         self._cleanup_classify_thread()
         self._cleanup_progress_dialog()
-        self.status_message.emit("Classification Failed", 3000)
-        self._controls.train_button_enabled = True
-        QtWidgets.QMessageBox.critical(
-            self, "Error", f"An exception occurred during classification:\n{error}"
-        )
+
+        if isinstance(error, ThreadTerminatedError):
+            self.status_message.emit("Classification Canceled", 3000)
+        else:
+            self._print_exception(error)
+            self.status_message.emit("Classification Failed", 3000)
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"An exception occurred during classification:\n{error}"
+            )
 
     @staticmethod
     def _print_exception(e: Exception) -> None:
@@ -692,9 +696,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.error_callback.connect(self._classify_thread_error_callback)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-        self._progress_dialog = create_progress_dialog(
+        self._progress_dialog = create_cancelable_progress_dialog(
             self, "Predicting", self._project.total_project_identities + 1
         )
+        self._progress_dialog.show()
+        self._progress_dialog.canceled.connect(self._classify_thread.request_termination)
 
         # start classification thread
         self._classify_thread.start()
@@ -719,11 +725,11 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        prediction_list, probability_list = self._get_prediction_list()
-        self._stacked_timeline.set_predictions(prediction_list, probability_list)
+        self._prediction_list, self._probability_list = self._get_prediction_list()
+        self._stacked_timeline.set_predictions(self._prediction_list, self._probability_list)
         if self._label_overlay_mode == PlayerWidget.LabelOverlay.PREDICTION:
             # if the player is set to show predictions, update the player widget
-            self._player_widget.set_labels(prediction_list)
+            self._player_widget.set_labels(self._prediction_list)
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""
@@ -732,12 +738,12 @@ class CentralWidget(QtWidgets.QWidget):
 
         for i in range(self._pose_est.num_identities):
             prediction_labels = np.full(
-                (self._player_widget.num_frames()),
+                self._player_widget.num_frames,
                 TrackLabels.Label.NONE.value,
                 dtype=np.byte,
             )
 
-            prediction_prob = np.zeros((self._player_widget.num_frames()), dtype=np.float64)
+            prediction_prob = np.zeros(self._player_widget.num_frames, dtype=np.float64)
 
             try:
                 indexes = self._frame_indexes[i]
@@ -1006,3 +1012,55 @@ class CentralWidget(QtWidgets.QWidget):
             disable_select_button()
         else:
             self._controls.select_button_enabled = True
+
+    def _play_current_bout(self, use_predictions: bool = False) -> None:
+        """Play the current bout: contiguous frames with the same label as the current frame.
+
+        Args:
+            use_predictions (bool): If True, use prediction labels instead of manual labels.
+        """
+        if self._labels is None or self._pose_est is None:
+            return
+
+        # stop if we are currently playing
+        self._player_widget.stop()
+
+        current_frame = self._player_widget.current_frame
+        identity = self._controls.current_identity_index
+        behavior = self._controls.current_behavior
+
+        if identity == -1 or behavior == "":
+            return
+
+        if use_predictions:
+            if not self._prediction_list or identity >= len(self._prediction_list):
+                return
+            labels = self._prediction_list[identity]
+        else:
+            track_labels = self._labels.get_track_labels(str(identity), behavior)
+            labels = track_labels.get_labels()
+
+        if labels is None or len(labels) == 0:
+            return
+
+        current_label = labels[current_frame]
+        # Only play if current label is BEHAVIOR or NOT_BEHAVIOR
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return
+
+        # Find start of bout
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        # Find end of bout (inclusive)
+        num_frames = len(labels)
+        end = current_frame
+        while end < num_frames and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        self._player_widget.play_range(start, end)

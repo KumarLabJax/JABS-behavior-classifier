@@ -1,38 +1,72 @@
 import numpy as np
-from PySide6.QtCore import QThread, Signal, SignalInstance
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QWidget
 from tabulate import tabulate
 
+from jabs.classifier import Classifier
+from jabs.project import Project
 from jabs.types import ProjectDistanceUnit
 from jabs.utils import FINAL_TRAIN_SEED
 
+from .exceptions import ThreadTerminatedError
+
 
 class TrainingThread(QThread):
-    """Thread used to run the training to keep the Qt main GUI thread responsive."""
+    """Thread used to run classifier training in the background, keeping the Qt main GUI thread responsive.
 
-    # signal so that the main GUI thread can be notified when the training is
-    # complete
-    training_complete: SignalInstance = Signal()
+    Signals:
+        training_complete: QtCore.Signal()
+            Emitted when training is finished successfully.
+        current_status: QtCore.Signal(str)
+            Emitted to update the main GUI thread with a status message (e.g., for a status bar).
+        update_progress: QtCore.Signal(int)
+            Emitted to inform the main GUI thread of the number of completed tasks (e.g., for a progress bar).
+        error_callback: QtCore.Signal(Exception)
+            Emitted if an error occurs during training, passing the exception to the main GUI thread.
 
-    # allow the thread to send a status string to the main GUI thread so that
-    # we can update a status bar if we want
-    current_status: SignalInstance = Signal(str)
+    Args:
+        classifier (Classifier): The classifier instance to train.
+        project (Project): The project containing data and settings.
+        behavior (str): The behavior label to train on.
+        k (int, optional): Number of cross-validation splits. Defaults to 1.
+        parent (QWidget or None, optional): Optional parent widget.
+    """
 
-    # signal to inform the main GUI thread of the number of tasks completed
-    # so that it can update a progress bar
-    update_progress: SignalInstance = Signal(int)
+    training_complete = Signal()
+    current_status = Signal(str)
+    update_progress = Signal(int)
+    error_callback = Signal(Exception)
 
-    # inform the main GUI thread if there was an error during training
-    error_callback: SignalInstance = Signal(Exception)
-
-    def __init__(self, project, classifier, behavior, k=1, parent=None):
+    def __init__(
+        self,
+        classifier: Classifier,
+        project: Project,
+        behavior: str,
+        k: int = 1,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent=parent)
         self._project = project
         self._classifier = classifier
         self._behavior = behavior
         self._tasks_complete = 0
         self._k = k
+        self._should_terminate = False
 
-    def run(self):
+    def request_termination(self) -> None:
+        """Request the thread to terminate early.
+
+        This method sets a flag that is periodically checked by the worker thread.
+        It is safe to call this method from the main Qt GUI thread. Since the flag
+        is a simple boolean this is generally thread safe in CPython because
+        assignment to a boolean is atomic and therefore it does not require
+        additional synchronization in this scenario.
+
+        Could consider using QAtomicBool, but a standard bool should be fine here.
+        """
+        self._should_terminate = True
+
+    def run(self) -> None:
         """thread's main function
 
         Will get the feature set for all labeled frames, do the leave one group out train/test split,
@@ -41,15 +75,26 @@ class TrainingThread(QThread):
         """
         self._tasks_complete = 0
 
-        def id_processed():
+        def check_termination_requested() -> None:
+            if self._should_terminate:
+                raise ThreadTerminatedError("Training was cancelled by the user")
+
+        def id_processed() -> None:
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+            check_termination_requested()
 
         try:
             self.current_status.emit("Extracting Features")
             features, group_mapping = self._project.get_labeled_features(
-                self._behavior, id_processed
+                self._behavior,
+                progress_callable=id_processed,
+                should_terminate_callable=check_termination_requested,
             )
+
+            # if the user requested to terminate the training while we were extracting features,
+            # we should stop here
+            check_termination_requested()
 
             self.current_status.emit("Generating train/test splits")
             data_generator = self._classifier.leave_one_group_out(
@@ -72,6 +117,8 @@ class TrainingThread(QThread):
 
             if self._k > 0:
                 for i, data in enumerate(data_generator):
+                    check_termination_requested()
+
                     if i + 1 > self._k:
                         break
                     self.current_status.emit(f"cross validation iteration {i + 1} of {self._k}")
@@ -166,6 +213,7 @@ class TrainingThread(QThread):
                 print("-" * 70)
 
             # retrain with all training data and fixed random seed before saving:
+            check_termination_requested()
             self.current_status.emit("Training and saving final classifier")
             full_dataset = self._classifier.combine_data(features["per_frame"], features["window"])
             self._classifier.train(

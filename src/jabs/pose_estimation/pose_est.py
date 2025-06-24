@@ -75,6 +75,27 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
+    CONNECTED_SEGMENTS = (
+        (
+            KeypointIndex.LEFT_FRONT_PAW,
+            KeypointIndex.CENTER_SPINE,
+            KeypointIndex.RIGHT_FRONT_PAW,
+        ),
+        (
+            KeypointIndex.LEFT_REAR_PAW,
+            KeypointIndex.BASE_TAIL,
+            KeypointIndex.RIGHT_REAR_PAW,
+        ),
+        (
+            KeypointIndex.NOSE,
+            KeypointIndex.BASE_NECK,
+            KeypointIndex.CENTER_SPINE,
+            KeypointIndex.BASE_TAIL,
+            KeypointIndex.MID_TAIL,
+            KeypointIndex.TIP_TAIL,
+        ),
+    )
+
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         """initialize new object from h5 file
 
