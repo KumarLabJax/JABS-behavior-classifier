@@ -4,6 +4,12 @@ import numpy as np
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QApplication, QFrame, QSizePolicy, QVBoxLayout, QWidget
 
+from jabs.behavior_search import (
+    BehaviorSearchQuery,
+    LabelBehaviorSearchQuery,
+    PredictionBehaviorSearchQuery,
+    SearchHit,
+)
 from jabs.project import TrackLabels
 
 from .frame_labels_widget import FrameLabelsWidget
@@ -381,6 +387,35 @@ class StackedTimelineWidget(QWidget):
             widget.num_frames = self.num_frames
             widget.framerate = self.framerate
             widget.set_labels(predictions_list[i], probabilities_list[i])
+
+    def set_search_results(
+        self, behavior_search_query: BehaviorSearchQuery, search_results: list[SearchHit]
+    ) -> None:
+        """Set search results for timelines.
+
+        Args:
+            behavior_search_query: The BehaviorSearchQuery used to obtain the search results.
+            search_results: List of SearchHit objects containing search results.
+        """
+        for i, label_overview_widget in enumerate(self._label_overview_widgets):
+            curr_search_results: list[SearchHit] = []
+            match behavior_search_query:
+                case LabelBehaviorSearchQuery():
+                    for hit in search_results:
+                        if hit.identity == str(i):
+                            curr_search_results.append(hit)
+
+            label_overview_widget.set_search_results(curr_search_results)
+
+        for i, prediction_overview_widget in enumerate(self._prediction_overview_widgets):
+            curr_search_results: list[SearchHit] = []
+            match behavior_search_query:
+                case PredictionBehaviorSearchQuery():
+                    for hit in search_results:
+                        if hit.identity == str(i):
+                            curr_search_results.append(hit)
+
+            prediction_overview_widget.set_search_results(curr_search_results)
 
     def start_selection(self, starting_frame: int, ending_frame: int | None = None) -> None:
         """Start a selection from the given frame(s) on the active identity's widget.

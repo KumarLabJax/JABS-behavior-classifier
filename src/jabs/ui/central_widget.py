@@ -41,6 +41,9 @@ class CentralWidget(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
         self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
+        self._search_bar_widget.search_results_changed.connect(
+            lambda _: self._update_timeline_search_results()
+        )
 
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
@@ -192,6 +195,18 @@ class CentralWidget(QtWidgets.QWidget):
         """Signal emitted when search results change."""
         return self._search_bar_widget.search_results_changed
 
+    def _update_timeline_search_results(self) -> None:
+        """Update the timeline with search results."""
+        search_results = self._search_bar_widget.search_results
+        behavior_search_query = self._search_bar_widget.behavior_search_query
+        video_name = self._loaded_video.name if self._loaded_video else None
+        if not self._loaded_video or not video_name:
+            self._stacked_timeline.set_search_results(None, [])
+        else:
+            # Filter search results for the currently loaded video
+            filtered_results = [hit for hit in search_results if hit.file == video_name]
+            self._stacked_timeline.set_search_results(behavior_search_query, filtered_results)
+
     @property
     def label_overlay_mode(self) -> PlayerWidget.LabelOverlay:
         """return the current label overlay mode of the player widget"""
@@ -234,6 +249,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._controls.update_project_settings(project.settings)
         self._search_bar_widget.update_project(project)
+        self._update_timeline_search_results()
 
     def load_video(self, path: Path) -> None:
         """load a new video file into self._player_widget
@@ -282,6 +298,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
+
+            self._update_timeline_search_results()
 
         except OSError as e:
             # error loading

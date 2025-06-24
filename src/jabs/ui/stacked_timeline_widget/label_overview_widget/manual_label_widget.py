@@ -1,5 +1,5 @@
 import numpy as np
-from PySide6.QtCore import QSize, Qt, Slot
+from PySide6.QtCore import QPoint, QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -7,10 +7,12 @@ from PySide6.QtGui import (
     QPainter,
     QPaintEvent,
     QPen,
+    QPolygon,
     QResizeEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from jabs.behavior_search import SearchHit
 from jabs.project import TrackLabels
 
 from ...colors import (
@@ -79,6 +81,9 @@ class ManualLabelWidget(QWidget):
         # TrackLabels object containing labels for current behavior & identity
         self._labels: np.ndarray | None = None
         self._identity_mask: np.ndarray | None = None
+
+        # search results to render in the bar
+        self._search_results: list[SearchHit] = []
 
         self._bar_height = self._BAR_HEIGHT
 
@@ -181,6 +186,42 @@ class ManualLabelWidget(QWidget):
         # Draw selection overlay if in select mode
         if self._selection_start is not None:
             self._draw_selection_overlay(qp)
+
+        # Draww the search results
+        def diamond_at(x, y, w, h):
+            return QPolygon(
+                [
+                    QPoint(x, y - h),  # top
+                    QPoint(x + w, y),  # right
+                    QPoint(x, y + h),  # bottom
+                    QPoint(x - w, y),  # left
+                ]
+            )
+
+        qp.setPen(QPen(Qt.GlobalColor.green, 1, Qt.PenStyle.SolidLine))
+        qp.setBrush(QBrush(Qt.GlobalColor.green, Qt.BrushStyle.SolidPattern))
+        center_y = self._bar_height // 2
+        diamond_w = self._bar_height // 8
+        diamond_h = self._bar_height // 8
+        for hit in self._search_results:
+            rel_start_frame = hit.start_frame - start
+            rel_end_frame = hit.end_frame - start + 1
+            bounded_rel_start = max(0, rel_start_frame)
+            bounded_rel_end = min(self._window_frames_total, rel_end_frame)
+
+            if bounded_rel_start > rel_end_frame or bounded_rel_end < rel_start_frame:
+                # skip search hits that are completely out of bounds
+                continue
+
+            start_pos = self._offset + (bounded_rel_start * self._frame_width)
+            end_pos = self._offset + (bounded_rel_end * self._frame_width)
+            qp.drawLine(start_pos, center_y, end_pos, center_y)
+
+            if bounded_rel_start == rel_start_frame:
+                qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
+
+            if bounded_rel_end == rel_end_frame:
+                qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
 
         self._draw_position_marker(qp)
         self._draw_bounding_box(qp)
@@ -298,6 +339,14 @@ class ManualLabelWidget(QWidget):
         self._labels = labels
         self._identity_mask = mask
         self.update()
+
+    def set_search_results(self, search_results: list[SearchHit]) -> None:
+        """Set the search results for the widget.
+
+        Args:
+            search_results (list[SearchHit]): List of SearchHit objects to display.
+        """
+        self._search_results = search_results
 
     @Slot(int)
     def set_current_frame(self, current_frame: int) -> None:

@@ -92,6 +92,11 @@ class SearchBarWidget(QtWidgets.QWidget):
         """Get the current behavior search query."""
         return self._search_query
 
+    @property
+    def search_results(self) -> list[SearchHit]:
+        """Get the current search results."""
+        return self._search_results
+
     def update_search(self, search_query: BehaviorSearchQuery | None):
         """Set the behavior search query and update the text label."""
         self._search_query = search_query

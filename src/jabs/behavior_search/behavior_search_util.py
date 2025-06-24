@@ -98,7 +98,7 @@ def _search_behaviors_gen(
                                     if block_matches_query:
                                         yield SearchHit(
                                             file=video,
-                                            identity=identity,
+                                            identity=str(identity),
                                             behavior=behavior,
                                             start_frame=block["start"],
                                             end_frame=block["end"],
@@ -153,7 +153,7 @@ def _search_behaviors_gen(
 
                             yield SearchHit(
                                 file=video,
-                                identity=aid,
+                                identity=str(aid),
                                 behavior=behavior,
                                 start_frame=start,
                                 end_frame=end,
