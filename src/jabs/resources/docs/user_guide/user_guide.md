@@ -23,7 +23,8 @@ VIDEO_5_pose_est_v3.h5
 VIDEO_6.avi
 VIDEO_6_pose_est_v3.h5
 VIDEO_7.avi
-VIDEO_7_pose_est_v3.h5 jabs
+VIDEO_7_pose_est_v3.h5
+jabs/
 ```
 
 ## Initializing A JABS Project Directory
