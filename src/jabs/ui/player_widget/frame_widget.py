@@ -270,7 +270,7 @@ class FrameWidget(QtWidgets.QLabel):
                         case _:
                             prediction_color = BACKGROUND_COLOR
 
-                    painter.setBrush(QtGui.QColor(*prediction_color))  # type: ignore
+                    painter.setBrush(prediction_color)  # type: ignore
                     painter.setPen(_BEHAVIOR_LABEL_OUTLINE_COLOR)
                     painter.drawRect(
                         behavior_x, behavior_y, _BEHAVIOR_LABEL_SIZE, _BEHAVIOR_LABEL_SIZE

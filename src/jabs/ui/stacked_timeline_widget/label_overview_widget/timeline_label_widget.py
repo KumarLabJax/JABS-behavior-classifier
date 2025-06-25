@@ -4,7 +4,6 @@ import numpy as np
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
-    QColor,
     QImage,
     QPainter,
     QPaintEvent,
@@ -42,15 +41,14 @@ class TimelineLabelWidget(QWidget):
     # Define color LUT (RGBA)
     COLOR_LUT = np.array(
         [
-            BACKGROUND_COLOR,
-            NOT_BEHAVIOR_COLOR,
-            BEHAVIOR_COLOR,
-            [144, 102, 132, 255],  # MIX
-            [0, 0, 0, 0],  # PAD
+            BACKGROUND_COLOR.getRgb(),
+            NOT_BEHAVIOR_COLOR.getRgb(),
+            BEHAVIOR_COLOR.getRgb(),
+            (144, 102, 132, 255),  # MIX
+            (0, 0, 0, 0),  # PAD
         ],
         dtype=np.uint8,
     )
-    _RANGE_COLOR = QColor(*POSITION_MARKER_COLOR)
     _BAR_HEIGHT = 8  # height of the bar in pixels
     _BAR_PADDING = 3  # padding around the bar in pixels
     _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
@@ -127,8 +125,8 @@ class TimelineLabelWidget(QWidget):
         start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
 
         # highlight the current position
-        qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.PenStyle.SolidLine))
-        qp.setBrush(QBrush(self._RANGE_COLOR, Qt.BrushStyle.Dense4Pattern))
+        qp.setPen(QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine))
+        qp.setBrush(QBrush(POSITION_MARKER_COLOR, Qt.BrushStyle.Dense4Pattern))
         qp.drawRect(start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1)
 
         # draw the actual bar
