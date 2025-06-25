@@ -111,7 +111,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         """Filter the video list based on the text entered in the filter box."""
         for i in range(self._file_list.count()):
             item = self._file_list.item(i)
-            item.setHidden(text.lower() not in item.text().lower())
+            item.setHidden(text.strip().lower() not in item.text().lower())
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""
