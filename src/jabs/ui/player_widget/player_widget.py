@@ -1,5 +1,4 @@
 import enum
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,15 +85,6 @@ class PlayerWidget(QtWidgets.QWidget):
 
         # player thread to read and prepare frames for display
         self._player_thread = None
-
-        # debounce seeking by frame
-        self._seek_timer = QtCore.QTimer(self)
-        self._seek_timer.setSingleShot(True)
-        self._seek_timer.timeout.connect(self._do_pending_seek)
-        self._pending_seek_frame = None
-        self._debounce_interval_ms = 50  # Final frame after 50ms of inactivity
-        self._throttle_interval_ms = 100  # Show at most every 100ms during seeking
-        self._last_seek_time = 0
 
         #  - setup Widget UI components
 
@@ -480,24 +470,9 @@ class PlayerWidget(QtWidgets.QWidget):
             return
         new_frame = max(0, min(frame_number, num_frames - 1))
 
-        self._position_slider.setValue(new_frame)  # Always update slider
-
-        now = int(time.time() * 1000)
-        # Throttle: only redraw frame if enough time has passed
-        if now - self._last_seek_time >= self._throttle_interval_ms:
+        if new_frame != self._position_slider.value():
+            self._position_slider.setValue(new_frame)
             self._player_thread.seek(new_frame)
-            self._last_seek_time = now
-
-        # Debounce: always show the final frame after user stops seeking
-        self._pending_seek_frame = new_frame
-        self._seek_timer.start(self._debounce_interval_ms)
-
-    def _do_pending_seek(self):
-        if self._pending_seek_frame is not None:
-            self._position_slider.setValue(self._pending_seek_frame)
-            self._player_thread.seek(self._pending_seek_frame)
-            self._last_seek_time = int(time.time() * 1000)
-            self._pending_seek_frame = None
 
     def set_active_identity(self, identity: int) -> None:
         """set an active identity, which will be labeled in the video"""
