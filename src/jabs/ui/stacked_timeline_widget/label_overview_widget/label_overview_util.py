@@ -1,5 +1,5 @@
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QBrush, QColor, QPen, QPolygon
+from PySide6.QtGui import QBrush, QPen, QPolygon
 
 from ...colors import SEARCH_HIT_COLOR
 
@@ -40,8 +40,8 @@ def render_search_hits(
         bar_height (int): The height of the bar.
         window_frames_total (int): Total number of frames in the window.
     """
-    qp.setPen(QPen(QColor(*SEARCH_HIT_COLOR), 1, Qt.PenStyle.SolidLine))
-    qp.setBrush(QBrush(QColor(*SEARCH_HIT_COLOR), Qt.BrushStyle.SolidPattern))
+    qp.setPen(QPen(SEARCH_HIT_COLOR, 1, Qt.PenStyle.SolidLine))
+    qp.setBrush(QBrush(SEARCH_HIT_COLOR, Qt.BrushStyle.SolidPattern))
     center_y = bar_height // 2
     diamond_w = bar_height // 8
     diamond_h = bar_height // 8

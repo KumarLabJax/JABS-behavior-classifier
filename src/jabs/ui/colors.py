@@ -4,14 +4,14 @@ from PySide6.QtGui import QColor
 
 from jabs.pose_estimation import PoseEstimation
 
-POSITION_MARKER_COLOR = (231, 66, 126)
-SELECTION_COLOR = (255, 255, 0)
+POSITION_MARKER_COLOR = QColor(231, 66, 126, 255)
+SELECTION_COLOR = QColor(255, 255, 0, 255)
 
-BACKGROUND_COLOR = (128, 128, 128, 255)
-NOT_BEHAVIOR_COLOR = (0, 86, 229, 255)
-BEHAVIOR_COLOR = (255, 159, 0, 255)
+BACKGROUND_COLOR = QColor(128, 128, 128, 255)
+NOT_BEHAVIOR_COLOR = QColor(0, 86, 229, 255)
+BEHAVIOR_COLOR = QColor(255, 159, 0, 255)
 
-SEARCH_HIT_COLOR = (0, 255, 0, 255)
+SEARCH_HIT_COLOR = QColor(0, 255, 0, 255)
 
 
 def __rainbow_palette(n: int) -> list[tuple[int, ...]]:

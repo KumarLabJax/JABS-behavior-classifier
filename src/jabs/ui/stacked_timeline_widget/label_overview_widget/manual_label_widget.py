@@ -37,11 +37,6 @@ class ManualLabelWidget(QWidget):
     """
 
     _BORDER_COLOR = QColor(212, 212, 212)
-    _SELECTION_COLOR = QColor(*SELECTION_COLOR)
-    _POSITION_MARKER_COLOR = QColor(*POSITION_MARKER_COLOR)
-    _BACKGROUND_COLOR = QColor(*BACKGROUND_COLOR)
-    _BEHAVIOR_COLOR = QColor(*BEHAVIOR_COLOR)
-    _NOT_BEHAVIOR_COLOR = QColor(*NOT_BEHAVIOR_COLOR)
 
     _BAR_HEIGHT = 30
     _DEFAULT_WIDTH = 400
@@ -50,9 +45,9 @@ class ManualLabelWidget(QWidget):
 
     COLOR_LUT: np.ndarray = np.array(
         [
-            BACKGROUND_COLOR,
-            NOT_BEHAVIOR_COLOR,
-            BEHAVIOR_COLOR,
+            BACKGROUND_COLOR.getRgb(),
+            NOT_BEHAVIOR_COLOR.getRgb(),
+            BEHAVIOR_COLOR.getRgb(),
         ],
         dtype=np.uint8,
     )
@@ -93,9 +88,9 @@ class ManualLabelWidget(QWidget):
         self._offset = (self.size().width() - self._adjusted_width) // 2
 
         # initialize some brushes and pens once rather than every paintEvent
-        self._position_marker_pen = QPen(self._POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
-        self._selection_brush = QBrush(self._SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern)
-        self._padding_brush = QBrush(self._BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern)
+        self._position_marker_pen = QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
+        self._selection_brush = QBrush(SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern)
+        self._padding_brush = QBrush(BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern)
 
     def sizeHint(self) -> QSize:
         """Return the recommended initial size for the widget.
