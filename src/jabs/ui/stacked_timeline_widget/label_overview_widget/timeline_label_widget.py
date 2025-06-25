@@ -1,7 +1,7 @@
 import math
 
 import numpy as np
-from PySide6.QtCore import QPoint, QSize, Qt, Slot
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -10,7 +10,6 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QPixmap,
-    QPolygon,
     QResizeEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -24,6 +23,7 @@ from ...colors import (
     NOT_BEHAVIOR_COLOR,
     POSITION_MARKER_COLOR,
 )
+from .label_overview_util import diamond_at
 
 
 class TimelineLabelWidget(QWidget):
@@ -133,17 +133,6 @@ class TimelineLabelWidget(QWidget):
 
         # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
-
-        # draw the search results
-        def diamond_at(x, y, w, h):
-            return QPolygon(
-                [
-                    QPoint(x, y - h),  # top
-                    QPoint(x + w, y),  # right
-                    QPoint(x, y + h),  # bottom
-                    QPoint(x - w, y),  # left
-                ]
-            )
 
         qp.setPen(QPen(Qt.GlobalColor.green, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(Qt.GlobalColor.green, Qt.BrushStyle.SolidPattern))

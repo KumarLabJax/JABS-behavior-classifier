@@ -1,7 +1,8 @@
 import numpy as np
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QBrush, QImage, QPainter, QPaintEvent, QPen, QPolygon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
+from .label_overview_util import render_search_hits
 from .manual_label_widget import ManualLabelWidget
 
 
@@ -101,41 +102,15 @@ class PredictedLabelWidget(ManualLabelWidget):
             )
             qp.drawImage(self._offset + start_padding, 0, img)
 
-        # Draww the search results
-        def diamond_at(x, y, w, h):
-            return QPolygon(
-                [
-                    QPoint(x, y - h),  # top
-                    QPoint(x + w, y),  # right
-                    QPoint(x, y + h),  # bottom
-                    QPoint(x - w, y),  # left
-                ]
-            )
-
-        qp.setPen(QPen(Qt.GlobalColor.green, 1, Qt.PenStyle.SolidLine))
-        qp.setBrush(QBrush(Qt.GlobalColor.green, Qt.BrushStyle.SolidPattern))
-        center_y = self._bar_height // 2
-        diamond_w = self._bar_height // 8
-        diamond_h = self._bar_height // 8
-        for hit in self._search_results:
-            rel_start_frame = hit.start_frame - start
-            rel_end_frame = hit.end_frame - start + 1
-            bounded_rel_start = max(0, rel_start_frame)
-            bounded_rel_end = min(self._window_frames_total, rel_end_frame)
-
-            if bounded_rel_start > rel_end_frame or bounded_rel_end < rel_start_frame:
-                # skip search hits that are completely out of bounds
-                continue
-
-            start_pos = self._offset + (bounded_rel_start * self._frame_width)
-            end_pos = self._offset + (bounded_rel_end * self._frame_width)
-            qp.drawLine(start_pos, center_y, end_pos, center_y)
-
-            if bounded_rel_start == rel_start_frame:
-                qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
-
-            if bounded_rel_end == rel_end_frame:
-                qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
+        render_search_hits(
+            qp,
+            self._search_results,
+            self._offset,
+            start,
+            self._frame_width,
+            self._bar_height,
+            self._window_frames_total,
+        )
 
         self._draw_position_marker(qp)
         self._draw_bounding_box(qp)
