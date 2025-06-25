@@ -34,11 +34,15 @@ class _VideoListWidget(QtWidgets.QListWidget):
             if option.state & QtWidgets.QStyle.StateFlag.State_Selected:  # type: ignore[attr-defined]
                 painter.save()
 
+                # Use highlight color from the palette
+                highlight_color = option.palette.color(QtGui.QPalette.ColorRole.Highlight)  # type: ignore[attr-defined]
+                text_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)  # type: ignore[attr-defined]
+
                 # Fill background with current accent color
-                painter.fillRect(option.rect, option.palette.accent())  # type: ignore[attr-defined]
+                painter.fillRect(option.rect, highlight_color)  # type: ignore[attr-defined]
 
                 # Set pen to highlighted text color
-                painter.setPen(option.palette.color(QtGui.QPalette.ColorRole.HighlightedText))  # type: ignore[attr-defined]
+                painter.setPen(text_color)
 
                 # Draw the text manually
                 text = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
