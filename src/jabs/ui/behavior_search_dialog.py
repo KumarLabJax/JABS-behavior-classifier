@@ -150,15 +150,22 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
 
         prediction_layout.addSpacing(10)
 
-        min_frame_layout = QtWidgets.QHBoxLayout()
-        frame_label = QtWidgets.QLabel("Min contiguous matching frames:")
+        # Frame count range
+        prediction_layout.addWidget(QtWidgets.QLabel("Limit results by interval frame count:"))
+        frame_count_range_layout = QtWidgets.QHBoxLayout()
         self.min_frame_count = QtWidgets.QLineEdit()
-        self.min_frame_count.setValidator(QtGui.QIntValidator(1, 10000))
-        self.min_frame_count.setText("1")
-        min_frame_layout.addWidget(frame_label)
-        min_frame_layout.addWidget(self.min_frame_count)
+        self.min_frame_count.setValidator(QtGui.QIntValidator(0, 100000))
+        self.min_frame_count.setPlaceholderText("1 (default)")
+        frame_count_range_layout.addWidget(self.min_frame_count)
 
-        prediction_layout.addLayout(min_frame_layout)
+        frame_count_range_layout.addWidget(QtWidgets.QLabel("≤ frame count ≤"))
+
+        self.max_frame_count = QtWidgets.QLineEdit()
+        self.max_frame_count.setValidator(QtGui.QIntValidator(0, 100000))
+        self.max_frame_count.setPlaceholderText("∞ (default)")
+        frame_count_range_layout.addWidget(self.max_frame_count)
+
+        prediction_layout.addLayout(frame_count_range_layout)
         prediction_layout.addStretch()
 
         self.stacked_widget.addWidget(prediction_widget)
@@ -176,35 +183,110 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
 
     def validate_and_accept(self):
         """Validate user input and accept the dialog if all checks pass."""
-        try:
-            low = float(self.prob_greater_value.text())
-            high = float(self.prob_less_value.text())
-        except ValueError:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Input",
-                "Please enter valid numbers for probability range.",
-            )
-            return
+        # validation for prediction search
+        if self.method_combo.currentIndex() == 1:
+            # if radio_pred_range is selected, check probability values
+            if self.radio_pred_range.isChecked():
+                try:
+                    min_prob = self._text_to_maybe_float(self.prob_greater_value.text())
+                    max_prob = self._text_to_maybe_float(self.prob_less_value.text())
+                    if min_prob is None and max_prob is None:
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            "Invalid Input",
+                            "Please enter at least one probability value for the range.",
+                        )
+                        return
 
-        if not (0.0 <= low <= 1.0 and 0.0 <= high <= 1.0):
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Out of Range",
-                "Probability values must be between 0.0 and 1.0.",
-            )
-            return
+                    min_prob = min_prob if min_prob is not None else 0.0
+                    max_prob = max_prob if max_prob is not None else 1.0
+                except ValueError:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Invalid Input",
+                        "Please enter valid numbers for probability range.",
+                    )
+                    return
 
-        if low > high:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Range",
-                "Minimum probability cannot be greater than maximum probability.",
-            )
-            return
+                if not (0.0 <= min_prob <= 1.0 and 0.0 <= max_prob <= 1.0):
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Out of Range",
+                        "Probability values must be between 0.0 and 1.0.",
+                    )
+                    return
+
+                if min_prob > max_prob:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Invalid Range",
+                        "Minimum probability cannot be greater than maximum probability.",
+                    )
+                    return
+
+            # check frame range values
+            try:
+                min_frames = self._text_to_maybe_int(self.min_frame_count.text())
+                max_frames = self._text_to_maybe_int(self.max_frame_count.text())
+
+                min_frames = min_frames if min_frames is not None else 1
+                max_frames = max_frames if max_frames is not None else float("inf")
+            except ValueError:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid Input",
+                    "Please enter valid integers for frame count.",
+                )
+                return
+
+            if min_frames < 1 or max_frames < 1:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid Frame Count",
+                    "Frame counts must be positive integers.",
+                )
+                return
+
+            if min_frames > max_frames:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid Frame Range",
+                    "Minimum frame count cannot be greater than maximum frame count.",
+                )
+                return
 
         # all checks passed
         self.accept()
+
+    def _text_to_maybe_float(self, text: str) -> float | None:
+        """Convert text to float, returning None if empty.
+
+        Args:
+            text (str): The text to convert.
+
+        Returns:
+            float | None: The converted float or None if the text is empty.
+
+        Raises:
+            ValueError: If the text cannot be converted to a float.
+        """
+        text = text.strip()
+        return float(text) if text else None
+
+    def _text_to_maybe_int(self, text: str) -> int | None:
+        """Convert text to int, returning None if empty.
+
+        Args:
+            text (str): The text to convert.
+
+        Returns:
+            int | None: The converted int or None if the text is empty.
+
+        Raises:
+            ValueError: If the text cannot be converted to an int.
+        """
+        text = text.strip()
+        return int(text) if text else None
 
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery:
@@ -229,23 +311,26 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
                 if self.prediction_behavior_combo.currentIndex() != 0
                 else None
             )
-            min_frames = int(self.min_frame_count.text())
+            min_frames = self._text_to_maybe_int(self.min_frame_count.text())
+            max_frames = self._text_to_maybe_int(self.max_frame_count.text())
 
             if self.radio_pred_positive.isChecked():
                 return PredictionBehaviorSearchQuery(
                     search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
                     behavior_label=behavior_label,
                     min_contiguous_frames=min_frames,
+                    max_contiguous_frames=max_frames,
                 )
             elif self.radio_pred_negative.isChecked():
                 return PredictionBehaviorSearchQuery(
                     search_kind=PredictionSearchKind.NEGATIVE_PREDICTION,
                     behavior_label=behavior_label,
                     min_contiguous_frames=min_frames,
+                    max_contiguous_frames=max_frames,
                 )
             else:
-                prob_greater_value = float(self.prob_greater_value.text())
-                prob_less_value = float(self.prob_less_value.text())
+                prob_greater_value = self._text_to_maybe_float(self.prob_greater_value.text())
+                prob_less_value = self._text_to_maybe_float(self.prob_less_value.text())
 
                 return PredictionBehaviorSearchQuery(
                     search_kind=PredictionSearchKind.PROBABILITY_RANGE,
@@ -253,4 +338,5 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
                     prob_greater_value=prob_greater_value,
                     prob_less_value=prob_less_value,
                     min_contiguous_frames=min_frames,
+                    max_contiguous_frames=max_frames,
                 )

@@ -2,6 +2,7 @@ import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
+from .label_overview_util import render_search_hits
 from .manual_label_widget import ManualLabelWidget
 
 
@@ -83,9 +84,7 @@ class PredictedLabelWidget(ManualLabelWidget):
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:
-                alphas = (
-                    self._probabilities[slice_start : slice_end + 1] * 255
-                ).astype(np.uint8)
+                alphas = (self._probabilities[slice_start : slice_end + 1] * 255).astype(np.uint8)
                 colors[:, 3] = alphas
 
             # Expand to bar height: shape = (bar_height, frames in view, 4)
@@ -102,6 +101,16 @@ class PredictedLabelWidget(ManualLabelWidget):
                 QImage.Format.Format_RGBA8888,
             )
             qp.drawImage(self._offset + start_padding, 0, img)
+
+        render_search_hits(
+            qp,
+            self._search_results,
+            self._offset,
+            start,
+            self._frame_width,
+            self._bar_height,
+            self._window_frames_total,
+        )
 
         self._draw_position_marker(qp)
         self._draw_bounding_box(qp)

@@ -291,6 +291,68 @@ def test_prediction_min_contiguous_frames():
     assert hits2 == []
 
 
+def test_prediction_max_contiguous_frames():
+    """Test max_contiguous_frames filters out long intervals."""
+    preds = {"1": np.array([1, 1, 1, 0, 1])}
+    probs = {"1": _correct_probs(preds["1"], np.array([0.9, 0.85, 0.88, 0.1, 0.95]))}
+    predictions = {("video1", "foo"): preds}
+    probabilities = {("video1", "foo"): probs}
+    project_settings = {"behavior": {"foo": {}}}
+
+    project = _make_project(
+        videos=["video1"],
+        predictions=predictions,
+        probabilities=probabilities,
+        project_settings=project_settings,
+    )
+
+    # Interval [0,2] has length 3, should be excluded with max=2
+    # Interval [4,4] has length 1, should be included
+    query = PredictionBehaviorSearchQuery(
+        search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
+        behavior_label="foo",
+        max_contiguous_frames=2,
+    )
+    hits = list(_search_behaviors_gen(project, query))
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior="foo", start_frame=4, end_frame=4)
+    ]
+
+
+def test_prediction_min_max_contiguous_frames():
+    """Test min and max contiguous frames together filter intervals correctly."""
+    preds = {"1": np.array([1, 1, 1, 0, 1, 1, 0, 1])}
+    probs = {
+        "1": _correct_probs(preds["1"], np.array([0.9, 0.85, 0.88, 0.1, 0.92, 0.93, 0.05, 0.91]))
+    }
+    predictions = {("video1", "foo"): preds}
+    probabilities = {("video1", "foo"): probs}
+    project_settings = {"behavior": {"foo": {}}}
+
+    project = _make_project(
+        videos=["video1"],
+        predictions=predictions,
+        probabilities=probabilities,
+        project_settings=project_settings,
+    )
+
+    # Intervals:
+    # [0,2] -> length 3 (too long)
+    # [4,5] -> length 2 (OK)
+    # [7,7] -> length 1 (too short if min=2)
+
+    query = PredictionBehaviorSearchQuery(
+        search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
+        behavior_label="foo",
+        min_contiguous_frames=2,
+        max_contiguous_frames=2,
+    )
+    hits = list(_search_behaviors_gen(project, query))
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior="foo", start_frame=4, end_frame=5)
+    ]
+
+
 def test_prediction_size_mismatch():
     """Test prediction/probabilities size mismatch skips animal."""
     preds = {"1": np.array([1, 1, 0])}

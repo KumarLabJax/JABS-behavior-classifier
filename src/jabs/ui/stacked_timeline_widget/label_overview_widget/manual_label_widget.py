@@ -11,6 +11,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from jabs.behavior_search import SearchHit
 from jabs.project import TrackLabels
 
 from ...colors import (
@@ -20,6 +21,7 @@ from ...colors import (
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
+from .label_overview_util import render_search_hits
 
 
 class ManualLabelWidget(QWidget):
@@ -79,6 +81,9 @@ class ManualLabelWidget(QWidget):
         # TrackLabels object containing labels for current behavior & identity
         self._labels: np.ndarray | None = None
         self._identity_mask: np.ndarray | None = None
+
+        # search results to render in the bar
+        self._search_results: list[SearchHit] = []
 
         self._bar_height = self._BAR_HEIGHT
 
@@ -181,6 +186,16 @@ class ManualLabelWidget(QWidget):
         # Draw selection overlay if in select mode
         if self._selection_start is not None:
             self._draw_selection_overlay(qp)
+
+        render_search_hits(
+            qp,
+            self._search_results,
+            self._offset,
+            start,
+            self._frame_width,
+            self._bar_height,
+            self._window_frames_total,
+        )
 
         self._draw_position_marker(qp)
         self._draw_bounding_box(qp)
@@ -298,6 +313,14 @@ class ManualLabelWidget(QWidget):
         self._labels = labels
         self._identity_mask = mask
         self.update()
+
+    def set_search_results(self, search_results: list[SearchHit]) -> None:
+        """Set the search results for the widget.
+
+        Args:
+            search_results (list[SearchHit]): List of SearchHit objects to display.
+        """
+        self._search_results = search_results
 
     @Slot(int)
     def set_current_frame(self, current_frame: int) -> None:

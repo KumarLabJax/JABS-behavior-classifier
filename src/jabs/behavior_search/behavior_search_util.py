@@ -40,6 +40,7 @@ class PredictionBehaviorSearchQuery(BehaviorSearchQuery):
     prob_greater_value: float | None = None
     prob_less_value: float | None = None
     min_contiguous_frames: int | None = None
+    max_contiguous_frames: int | None = None
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ def _search_behaviors_gen(
                                     if block_matches_query:
                                         yield SearchHit(
                                             file=video,
-                                            identity=identity,
+                                            identity=str(identity),
                                             behavior=behavior,
                                             start_frame=block["start"],
                                             end_frame=block["end"],
@@ -136,14 +137,23 @@ def _search_behaviors_gen(
                         for start, end in _gen_contig_true_intervals(
                             pred_query, animal_preds, animal_probs
                         ):
-                            if pred_query.min_contiguous_frames is not None:
-                                interval_length = end - start + 1
-                                if interval_length < pred_query.min_contiguous_frames:
-                                    continue
+                            # check if the search hit meets the min/max contiguous frames criteria
+                            interval_length = end - start + 1
+                            if (
+                                pred_query.min_contiguous_frames is not None
+                                and interval_length < pred_query.min_contiguous_frames
+                            ):
+                                continue
+
+                            if (
+                                pred_query.max_contiguous_frames is not None
+                                and interval_length > pred_query.max_contiguous_frames
+                            ):
+                                continue
 
                             yield SearchHit(
                                 file=video,
-                                identity=aid,
+                                identity=str(aid),
                                 behavior=behavior,
                                 start_frame=start,
                                 end_frame=end,

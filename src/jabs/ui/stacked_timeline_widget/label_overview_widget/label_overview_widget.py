@@ -2,6 +2,7 @@ import numpy as np
 from PySide6.QtCore import QSize, Slot
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from jabs.behavior_search import SearchHit
 from jabs.project import TrackLabels
 
 from .manual_label_widget import ManualLabelWidget
@@ -126,6 +127,15 @@ class LabelOverviewWidget(QWidget):
         """
         self._timeline_widget.set_labels(labels)
         self._label_widget.set_labels(labels, mask)
+
+    def set_search_results(self, search_results: list[SearchHit]) -> None:
+        """Set the search results for the widget.
+
+        Args:
+            search_results: List of SearchHit objects to display in the label widget.
+        """
+        self._timeline_widget.set_search_results(search_results)
+        self._label_widget.set_search_results(search_results)
 
     @Slot(int)
     def set_current_frame(self, current_frame: int) -> None:

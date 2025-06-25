@@ -14,6 +14,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from jabs.behavior_search import SearchHit
 from jabs.project import TrackLabels
 
 from ...colors import (
@@ -22,6 +23,7 @@ from ...colors import (
     NOT_BEHAVIOR_COLOR,
     POSITION_MARKER_COLOR,
 )
+from .label_overview_util import diamond_at
 
 
 class TimelineLabelWidget(QWidget):
@@ -67,6 +69,9 @@ class TimelineLabelWidget(QWidget):
 
         # TrackLabels object containing labels for current behavior & identity
         self._labels = None
+
+        # search results to render in the bar
+        self._search_results: list[SearchHit] = []
 
         # In order to indicate where the current frame is on the bar,
         # we need to know out which element it corresponds to in the downsampled
@@ -119,21 +124,27 @@ class TimelineLabelWidget(QWidget):
 
         # get the current position
         mapped_position = self._current_frame // self._bin_size
-        start = (
-            mapped_position
-            - (self._window_size // self._bin_size)
-            + self._pixmap_offset
-        )
+        start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
 
         # highlight the current position
         qp.setPen(QPen(self._RANGE_COLOR, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(self._RANGE_COLOR, Qt.BrushStyle.Dense4Pattern))
-        qp.drawRect(
-            start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1
-        )
+        qp.drawRect(start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1)
 
         # draw the actual bar
         qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
+
+        qp.setPen(QPen(Qt.GlobalColor.green, 1, Qt.PenStyle.SolidLine))
+        qp.setBrush(QBrush(Qt.GlobalColor.green, Qt.BrushStyle.SolidPattern))
+        center_y = self.size().height() // 2
+        diamond_w = self.size().height() // 8
+        diamond_h = self.size().height() // 8
+        for hit in self._search_results:
+            start_pos = hit.start_frame // self._bin_size + self._pixmap_offset
+            end_pos = (hit.end_frame + 1) // self._bin_size + self._pixmap_offset
+            qp.drawLine(start_pos, center_y, end_pos, center_y)
+            qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
+            qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
 
     def set_labels(self, labels: TrackLabels) -> None:
         """Load and display a new label track.
@@ -143,6 +154,14 @@ class TimelineLabelWidget(QWidget):
         """
         self._labels = labels
         self.update_labels()
+
+    def set_search_results(self, search_results: list[SearchHit]) -> None:
+        """Set the search results for the widget.
+
+        Args:
+            search_results (list[SearchHit]): List of SearchHit objects to display.
+        """
+        self._search_results = search_results
 
     @Slot(int)
     def set_current_frame(self, current_frame: int) -> None:
@@ -235,9 +254,7 @@ class TimelineLabelWidget(QWidget):
         if width and self._num_frames:
             # calculate the bin size based on the number of frames and the
             # width of the widget
-            pad_size = (
-                math.ceil(float(self._num_frames) / width) * width - self._num_frames
-            )
+            pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
             self._bin_size = int(self._num_frames + pad_size) // width
 
             padding = (self._bin_size * width - self._num_frames) // self._bin_size
