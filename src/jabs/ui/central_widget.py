@@ -24,6 +24,7 @@ from .stacked_timeline_widget import StackedTimelineWidget
 from .training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
+_DEBOUNCE_SEARCH_DELAY_MS = 100
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -36,15 +37,19 @@ class CentralWidget(QtWidgets.QWidget):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        # search bar
+        # behavior search bar
         self._search_bar_widget = SearchBarWidget(self)
         self._search_bar_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit)
+        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit_later)
         self._search_bar_widget.search_results_changed.connect(
             lambda _: self._update_timeline_search_results()
         )
+        self._debounce_search_hit_timer = QtCore.QTimer(self)
+        self._debounce_search_hit_timer.setSingleShot(True)
+        self._debounce_search_hit_timer.setInterval(_DEBOUNCE_SEARCH_DELAY_MS)
+        self._debounce_search_hit_timer.timeout.connect(self._update_search_hit)
 
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
@@ -933,11 +938,18 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._controls.classify_button_enabled = False
 
-    def _update_search_hit(self, search_hit: SearchHit | None) -> None:
+    def _update_search_hit_later(self, _: SearchHit | None) -> None:
+        """Update the search hit after a short delay to allow UI updates to complete."""
+        self._debounce_search_hit_timer.start()
+
+    def _update_search_hit(self) -> None:
         """Handle updates when the current search hit changes."""
+        search_hit = self._search_bar_widget.current_search_hit
         if search_hit is not None and self._project is not None:
             # load the video and seek to frame for the search hit
-            self.load_video(self._project.video_manager.video_path(search_hit.file))
+            video_to_load = self._project.video_manager.video_path(search_hit.file)
+            if video_to_load != self._loaded_video:
+                self.load_video(video_to_load)
             self._player_widget.seek_to_frame(search_hit.start_frame)
 
             # set the current identity based on the search hit
