@@ -325,15 +325,22 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Key.Key_Shift,
         ]:
             self.centralWidget().keyPressEvent(event)
-        elif key == Qt.Key.Key_T:
-            self.show_track.trigger()
-        elif key == Qt.Key.Key_P:
-            self.overlay_pose.trigger()
-        elif key == Qt.Key.Key_L:
-            self.overlay_landmark.trigger()
-        else:
-            # anything else pass on to the super class keyPressEvent
-            super().keyPressEvent(event)
+            return
+
+        match key:
+            case Qt.Key.Key_T:
+                self.show_track.trigger()
+            case Qt.Key.Key_P:
+                self.overlay_pose.trigger()
+            case Qt.Key.Key_L:
+                self.overlay_landmark.trigger()
+            case Qt.Key.Key_Comma:
+                self.video_list.select_previous_video()
+            case Qt.Key.Key_Period:
+                self.video_list.select_next_video()
+            case _:
+                # anything else pass on to the super class keyPressEvent
+                super().keyPressEvent(event)
 
     def eventFilter(self, source: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """filter events emitted by progress dialog
