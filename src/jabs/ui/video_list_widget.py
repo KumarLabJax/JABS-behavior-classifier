@@ -169,3 +169,26 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
                 item.setText(f"{video} ({count_map[video]})")
             else:
                 item.setText(video)
+
+    def select_previous_video(self) -> None:
+        """Select the previous video in the list, if possible.
+
+        Does nothing if already at the start or the list is empty.
+        """
+        if self._file_list.count() == 0:
+            return
+        current_row = self._file_list.currentRow()
+        if current_row > 0:
+            self._file_list.setCurrentRow(current_row - 1)
+
+    def select_next_video(self) -> None:
+        """Select the next video in the list, if possible.
+
+        Does nothing if already at the end or the list is empty.
+        """
+        count = self._file_list.count()
+        if count == 0:
+            return
+        current_row = self._file_list.currentRow()
+        if 0 <= current_row < count - 1:
+            self._file_list.setCurrentRow(current_row + 1)

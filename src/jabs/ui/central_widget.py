@@ -316,49 +316,51 @@ class CentralWidget(QtWidgets.QWidget):
         shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
         alt_pressed = event.modifiers() & Qt.KeyboardModifier.AltModifier
 
-        if key == QtCore.Qt.Key.Key_Left:
-            self._player_widget.previous_frame()
-        elif key == QtCore.Qt.Key.Key_Right:
-            self._player_widget.next_frame()
-        elif key == QtCore.Qt.Key.Key_Up:
-            if shift_pressed:
-                self._increment_identity_index()
-            else:
-                self._player_widget.next_frame(self._frame_jump)
-        elif key == QtCore.Qt.Key.Key_Down:
-            if shift_pressed:
-                self._decrement_identity_index()
-            else:
-                self._player_widget.previous_frame(self._frame_jump)
-        elif key == QtCore.Qt.Key.Key_Space:
-            if alt_pressed:
-                self._play_current_bout(True)
-            elif shift_pressed:
-                self._play_current_bout()
-            else:
-                self._player_widget.toggle_play()
-        elif key == QtCore.Qt.Key.Key_Z:
-            if self._controls.select_button_is_checked:
-                self._label_behavior()
-            else:
-                begin_select_mode()
-        elif key == QtCore.Qt.Key.Key_X:
-            if self._controls.select_button_is_checked:
-                self._clear_behavior_label()
-            else:
-                begin_select_mode()
-        elif key == QtCore.Qt.Key.Key_C:
-            if self._controls.select_button_is_checked:
-                self._label_not_behavior()
-            else:
-                begin_select_mode()
-        elif key == QtCore.Qt.Key.Key_Escape:
-            if self._controls.select_button_is_checked:
-                self._controls.select_button_set_checked(False)
-                self._start_selection(False)
-        elif key == QtCore.Qt.Key.Key_Question:
-            # show closest with no argument toggles the setting
-            self._player_widget.show_closest()
+        match key:
+            case QtCore.Qt.Key.Key_Left:
+                self._player_widget.previous_frame()
+            case QtCore.Qt.Key.Key_Right:
+                self._player_widget.next_frame()
+            case QtCore.Qt.Key.Key_Up:
+                if shift_pressed:
+                    self._increment_identity_index()
+                else:
+                    self._player_widget.next_frame(self._frame_jump)
+            case QtCore.Qt.Key.Key_Down:
+                if shift_pressed:
+                    self._decrement_identity_index()
+                else:
+                    self._player_widget.previous_frame(self._frame_jump)
+            case QtCore.Qt.Key.Key_Space:
+                if alt_pressed:
+                    self._play_current_bout(True)
+                elif shift_pressed:
+                    self._play_current_bout()
+                else:
+                    self._player_widget.toggle_play()
+            case QtCore.Qt.Key.Key_Z:
+                if self._controls.select_button_is_checked:
+                    self._label_behavior()
+                else:
+                    begin_select_mode()
+            case QtCore.Qt.Key.Key_X:
+                if self._controls.select_button_is_checked:
+                    self._clear_behavior_label()
+                else:
+                    begin_select_mode()
+            case QtCore.Qt.Key.Key_C:
+                if self._controls.select_button_is_checked:
+                    self._label_not_behavior()
+                else:
+                    begin_select_mode()
+            case QtCore.Qt.Key.Key_Escape:
+                if self._controls.select_button_is_checked:
+                    self._controls.select_button_set_checked(False)
+                    self._start_selection(False)
+            case QtCore.Qt.Key.Key_Question:
+                self._player_widget.show_closest()
+            case _:
+                pass
 
     def show_track(self, show: bool) -> None:
         """set the show track property of the player widget"""

@@ -348,7 +348,9 @@ Actions under the file menu have keyboard shortcuts.
 - right arrow: move to next frame
 - up arrow: move forward 10 frames (TODO: make configurable)
 - down arrow: move back 10 frames (TODO: make configurable)
-- space bar: toggle play/pause
+- comma: previous video
+- period: next video
+
 
 ### Labeling
 
@@ -369,6 +371,10 @@ In all modes:
 - ctrl+a (windows) / cmd+a (Mac): select all frames for the current timeline
 
 ### Other
+
+Video Player Controls:
+
+- space bar: toggle play/pause
 
 Switching subject:
 
