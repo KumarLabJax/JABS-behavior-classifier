@@ -180,7 +180,7 @@ class MainControlWidget(QtWidgets.QWidget):
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                                            stop: 0 rgb(255, 195, 77),
-                                           stop: 1.0 rgba{BEHAVIOR_COLOR});
+                                           stop: 1.0 rgba{BEHAVIOR_COLOR.getRgb()});
                         border-radius: 4px;
                         padding: 2px;
                         color: white;
@@ -201,7 +201,7 @@ class MainControlWidget(QtWidgets.QWidget):
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                                            stop: 0 rgb(50, 119, 234),
-                                           stop: 1.0 rgba{NOT_BEHAVIOR_COLOR});
+                                           stop: 1.0 rgba{NOT_BEHAVIOR_COLOR.getRgb()});
                         border-radius: 4px;
                         padding: 2px;
                         color: white;
