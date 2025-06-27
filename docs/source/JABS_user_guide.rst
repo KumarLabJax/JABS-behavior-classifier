@@ -3,7 +3,7 @@ JABS User Guide
 .. The JABS Project Directory: 
 The JABS Project Directory
 ==========================================
-A JABS project is a directory of video files and their corresponding pose estimation files. The first time a project directory is opened in JABS, it will create a subdirectory called "rotta", which contains various files created by JABS to save project state, including labels and current predictions.
+A JABS project is a directory of video files and their corresponding pose estimation files. The first time a project directory is opened in JABS, it will create a subdirectory called "jabs", which contains various files created by JABS to save project state, including labels and current predictions.
 
 Example JABS project directory listing:
 ---------------------------------------
@@ -14,26 +14,26 @@ Example JABS project directory listing:
 Initializing  A JABS Project Directory
 ========================================
 
-The first time you open a project directory in with JABS it will create the "
-rotta" subdirectory. Features will be computed the first time the "Train" button
+The first time you open a project directory in with JABS it will create the "jabs"
+subdirectory. Features will be computed the first time the "Train" button
 is clicked. This can be very time consuming depending on the number and length
 of videos in the project directory.
 
-The initialize_project.py script can also be used to initialize a project
+The jabs-init command can also be used to initialize a project
 directory before it is opened in the JABS GUI. This script checks to make sure
 that a pose file exists for each video in the directory, and that the pose file
 and video have the same number of frames. Then, after these basic checks, the
 script will compute features for all of the videos in the project. Since
-initialize_project.py can compute features for multiple videos in parallel, it
+jabs-init can compute features for multiple videos in parallel, it
 is significantly faster than doing so through the GUI during the training
 process.
 
-initialize_project.py usage:
+jabs-init usage:
 
 
 .. code-block:: console
 
-  initialize_project.py [-h] [-f] [-p PROCESSES] [-w WINDOW*SIZE]
+  jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW*SIZE]
 
 							 [\-\-force\-pixel\-distances]
 
@@ -72,59 +72,57 @@ initialize_project.py usage:
 
 
 
-example initialize_project.py command
+example jabs-init command
 
-The following command runs the initialize_project.py script to compute features
+The following command runs the jabs-init script to compute features
 
 using window sizes of 2, 5, and 10. The script will use up to 8 processes for
 
-computing features (-p8). If no -p argument is passed, initialize_project.py
+computing features (-p8). If no -p argument is passed, jabs-init
 
 will use up to 4 processes.
 
 .. code-block:: console
-  ./initialize_project.py -p8 -w2 -w5 -w10 <path/to/project/dir>`
+  jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>`
 
-.. The Rotta Directory :
-The Rotta Directory
+.. The jabs Directory :
+The jabs Directory
 =====================
 
-JABS creates a subdirectory called "rotta" inside the project directory (this
-directory is called "rotta" for historical reasons and may change prior to the
-1.0.0 release of JABS). This directory contains app-specific data such as
-project settings, generated features, user labels, cache files, and the latest
-predictions.
+JABS creates a subdirectory called "jabs" inside the project directory. This
+directory contains app-specific data such as project settings, generated
+features, user labels, cache files, and the latest predictions.
 
 project.json This file contains project settings and metadata.
 
-rotta/annotations
+jabs/annotations
 -----------------
 
 This directory stores the user's labels, stored in one JSON file per labeled
 video.
 
-rotta/archive
+jabs/archive
 -----------------
 
 This directory contains archived labels. These are compressed files (gzip)
 containing labels for behaviors that the user has removed from the project.
-Rotta only archives labels. Trained classifiers and predictions are deleted if a
+JABS only archives labels. Trained classifiers and predictions are deleted if a
 user removes a behavior from a project.
 
-rotta/cache
+jabs/cache
 -----------------
 
 Files cached by JABS to speed up performance. Some of these files may not be
 portable, so this directory should be deleted if a JABS project is copied to a
 different platform.
 
-rotta/classifiers
+jabs/classifiers
 -----------------
 
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable.
 
-rotta/features
+jabs/features
 -----------------
 
 This directory contains the computed features. There is one directory per
@@ -133,13 +131,13 @@ directory per identity. Feature files are usually portable, but JABS may need
 to recompute the features if they were created with a different version of
 JABS.
 
-rotta/predictions
+jabs/predictions
 -----------------
 This directory contains prediction files. There will be one subdirectory per
 behavior containing one prediction file per video. Prediction files are
 automatically opened and displayed by JABS if they exist. Prediction files are
 portable, and are the same format as the output of the command line classifier
-tool (`classify.py`).
+tool (`jabs-classify`).
 
 .. JABS GUI:
 GUI
@@ -245,7 +243,7 @@ Menu
 
   has the form `<Behavior*Name>*training*<YYYYMMDD*hhmmss>.h5`. This file is
 
-  used as one input for the `classify.py` script.
+  used as one input for the `jabs-classify` script.
 - **View→View Playlist:** can be used to hide/show video playlist
 - **View→Show Track:** show/hide track overlay for the subject. The track
   overlay shows the nose position for the previous 5 frames and the next 10
@@ -398,13 +396,13 @@ Other
 The Command Line Classifier
 =============================
 
-JABS includes a script called `classify.py`, which can be used to classify a
+JABS includes a script called `jabs-classify`, which can be used to classify a
 
 single video from the command line.
 
 .. code-block:: console
 
-  usage: classify.py COMMAND COMMAND_ARGS
+  usage: jabs-classify COMMAND COMMAND_ARGS
 
   commands:
 
@@ -412,13 +410,13 @@ single video from the command line.
 
   train      train a classifier that can be used to classify multiple pose files
 
-  See `classify.py COMMAND --help` for information on a specific command.
+  See `jabs-classify COMMAND --help` for information on a specific command.
 
 
 
 .. code-block:: console
 
-  usage: classify.py classify [-h] [--random-forest | --gradient-boosting | --xgboost]
+  usage: jabs-classify classify [-h] [--random-forest | --gradient-boosting | --xgboost]
 
 							(\-\-training TRAINING | \-\-classifier CLASSIFIER) \-\-input\-pose
 
@@ -464,13 +462,13 @@ Classifier Input (one of the following is required):
 
   --classifier CLASSIFIER
 
-						Classifier file produced from the `classify.py train` command
+						Classifier file produced from the `jabs-classify train` command
 
 
 
 .. code-block:: console
 
-  usage: classify.py train [-h] [--random-forest | --gradient-boosting | --xgboost]
+  usage: jabs-classify train [-h] [--random-forest | --gradient-boosting | --xgboost]
 
 						 training\_file out\_file
 
@@ -497,7 +495,7 @@ Classifier Input (one of the following is required):
 
 Note: xgboost may be unavailable on Mac OS if libomp is not installed.
 
-See `classify.py classify --help` output for list of classifiers supported in
+See `jabs-classify classify --help` output for list of classifiers supported in
 
 the current execution environment.
 
@@ -522,7 +520,7 @@ An inference file represents the predicted classes for each identity present in 
 Location
 ----------
 
-The prediction files are saved in `<JABS project dir>/rotta/predictions/<behavior*name>/<video*name>.h5` if they were generated by the JABS GUI. The `classify.py` script saves inference
+The prediction files are saved in `<JABS project dir>/jabs/predictions/<behavior*name>/<video*name>.h5` if they were generated by the JABS GUI. The `jabs-classify` script saves inference
 
 files in `<out-dir>/<behavior*name>/<video*name>.h5`
 
