@@ -63,9 +63,6 @@ class VideoManager:
     def load_video_labels(self, video_name) -> VideoLabels | None:
         """load labels for a video
 
-        Labels can be loaded either from the project directory or from a cache of annotations that have previously
-        been opened and not yet saved
-
         Args:
             video_name: filename of the video: string or pathlib.Path
             pose_est: PoseEstimation object used to initialize the VideoLabels
@@ -79,7 +76,6 @@ class VideoManager:
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
 
         # if annotations already exist for this video file in the project open
-        # it, otherwise create a new empty VideoLabels
         if path.exists():
             with path.open() as f:
                 return VideoLabels.load(json.load(f))

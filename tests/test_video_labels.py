@@ -8,6 +8,7 @@ from jabs.project import VideoLabels
 mock_pose_est = MagicMock()
 mock_pose_est.identity_mask.return_value = np.full(100, 1, dtype=bool)
 mock_pose_est.num_frames = 100
+mock_pose_est.external_identities = None
 
 
 class TestVideoLabels(unittest.TestCase):
