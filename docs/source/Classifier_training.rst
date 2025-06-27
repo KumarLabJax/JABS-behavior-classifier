@@ -85,7 +85,7 @@ To classify the video :
 
 .. code-block:: console
 
-    python classify.py --training <Training_data_file> --input-pose <Posefile_for_video> --out-dir <Directory_to_save_to>
+    jabs-classify --training <Training_data_file> --input-pose <Posefile_for_video> --out-dir <Directory_to_save_to>
 
 
 This will save the inference file in the directory listed for ‘--out-dir’.  

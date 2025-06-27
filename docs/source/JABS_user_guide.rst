@@ -3,7 +3,7 @@ JABS User Guide
 .. The JABS Project Directory: 
 The JABS Project Directory
 ==========================================
-A JABS project is a directory of video files and their corresponding pose estimation files. The first time a project directory is opened in JABS, it will create a subdirectory called "rotta", which contains various files created by JABS to save project state, including labels and current predictions.
+A JABS project is a directory of video files and their corresponding pose estimation files. The first time a project directory is opened in JABS, it will create a subdirectory called "jabs", which contains various files created by JABS to save project state, including labels and current predictions.
 
 Example JABS project directory listing:
 ---------------------------------------
@@ -78,12 +78,12 @@ The following command runs the jabs-init script to compute features
 
 using window sizes of 2, 5, and 10. The script will use up to 8 processes for
 
-computing features (-p8). If no -p argument is passed, initialize_project.py
+computing features (-p8). If no -p argument is passed, jabs-init
 
 will use up to 4 processes.
 
 .. code-block:: console
-  ./initialize_project.py -p8 -w2 -w5 -w10 <path/to/project/dir>`
+  jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>`
 
 .. The jabs Directory :
 The jabs Directory
@@ -243,7 +243,7 @@ Menu
 
   has the form `<Behavior*Name>*training*<YYYYMMDD*hhmmss>.h5`. This file is
 
-  used as one input for the `classify.py` script.
+  used as one input for the `jabs-classify` script.
 - **View→View Playlist:** can be used to hide/show video playlist
 - **View→Show Track:** show/hide track overlay for the subject. The track
   overlay shows the nose position for the previous 5 frames and the next 10
@@ -462,7 +462,7 @@ Classifier Input (one of the following is required):
 
   --classifier CLASSIFIER
 
-						Classifier file produced from the `classify.py train` command
+						Classifier file produced from the `jabs-classify train` command
 
 
 
