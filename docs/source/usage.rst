@@ -16,10 +16,9 @@ executable may be named ``python`` or ``python3`` depending on your installation
 
 .. code-block:: console
 
-   cd <path-to-JABS-folder>
    python -m venv jabs.venv
    source jabs.venv/bin/activate
-   pip install -r requirements.txt
+   pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git
 
 Activating
 #####
@@ -40,19 +39,6 @@ The virtual environment can be deactivated if you no longer need it:
    
    deactivate
 
-Installing on Apple M1/M2 Silicone
-#####
-
-To install the app on Apple's newer M1/M2 macbooks, the user needs to install via `anaconda <https://www.anaconda.com/download#macos>`_
-using the following instructions:
-
-.. code-block:: console
-
-   conda env create -n jabs -f environment_jabs.yml
-   conda activate jabs 
-   python app.py 
-
-
 Enabling XGBoost Classifier
 #####
 
@@ -67,12 +53,13 @@ Launching JABS GUI
 ------------------
 
 To launch JABS from the command prompt, open a command prompt in the JABS 
-directory and run the following commands:
+directory and run the following commands (replace ``jabs.venv\Scripts\activate.bat``
+with ``source jabs.venv/bin/activate`` if you are using macOS or Linux):
 
 .. code-block:: console
 
    jabs.venv\Scripts\activate.bat
-   python app.py
+   jabs
 
 If everything runs smoothly, you should see a JABS startup window like the following:
 
@@ -88,11 +75,11 @@ Preparing the JABS Project
 --------------------------
 
 Once the JABS environment is activated, prepare your project folder. The folder should contain the videos for labeling and the corresponding pose file for each video. 
-Once prepared, you may either proceed to open the JABS GUI or initialize the project folder prior to working using initialize_project.py.
+Once prepared, you may either proceed to open the JABS GUI or initialize the project folder prior to working using jabs-init.
 
 .. code-block:: console
 
-    python initialize_project.py <project_dir>
+    jabs-init <project_dir>
 
 
 
@@ -104,6 +91,6 @@ You can open the JABS GUI with the command:
 
 .. code-block:: console
 
-    python app.py
+    jabs
 
 
