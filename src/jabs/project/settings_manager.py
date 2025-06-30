@@ -63,6 +63,15 @@ class SettingsManager:
         """
         return dict(self._project_info)
 
+    @property
+    def behaviors(self) -> list[str]:
+        """Get a list of all behaviors defined in the project settings.
+
+        Returns:
+            List of behavior names.
+        """
+        return list(self._project_info.get("behavior", {}).keys())
+
     def save_behavior(self, behavior: str, data: dict):
         """Save a behavior to project file.
 

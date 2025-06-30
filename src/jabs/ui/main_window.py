@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
-from jabs.project import export_training_data
+from jabs.project import export_training_data, get_videos_to_prune
 from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from jabs.version import version_str
@@ -19,8 +19,10 @@ from .license_dialog import LicenseAgreementDialog
 from .player_widget import PlayerWidget
 from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
+from .project_pruning_dialogs import ProjectPruningConfirmationDialog, ProjectPruningDialog
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
+from .util import send_file_to_recycle_bin
 from .video_list_widget import VideoListDockWidget
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
@@ -44,7 +46,7 @@ class MainWindow(QtWidgets.QMainWindow):
         **kwargs: Additional keyword arguments for QMainWindow.
     """
 
-    def __init__(self, app_name: str, app_name_long: str, *args, **kwargs):
+    def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
@@ -130,6 +132,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._archive_behavior.setEnabled(False)
         self._archive_behavior.triggered.connect(self._open_archive_behavior_dialog)
         file_menu.addAction(self._archive_behavior)
+
+        # prune project action
+        self._prune_action = QtGui.QAction("Prune Project", self)
+        self._prune_action.setStatusTip("Remove videos with no labels")
+        self._prune_action.setEnabled(False)
+        self._prune_action.triggered.connect(self._show_project_pruning_dialog)
+        file_menu.addAction(self._prune_action)
 
         # Setup View Menu
         # video playlist menu item
@@ -306,7 +315,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # the video list needs to show search hit counts
         self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
 
@@ -368,7 +377,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().resizeEvent(event)
         self._settings.setValue("main_window_size", self.size())
 
-    def open_project(self, project_path: str):
+    def open_project(self, project_path: str) -> None:
         """open a new project directory"""
         self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
         self._progress_dialog.show()
@@ -378,7 +387,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
         self._project_loader_thread.start()
 
-    def behavior_changed_event(self, new_behavior: str):
+    def behavior_changed_event(self, new_behavior: str) -> None:
         """menu items to change when a new behavior is selected."""
         # skip if no behavior assigned (only should occur during new project)
         if new_behavior is None or new_behavior == "":
@@ -395,7 +404,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for static_object, menu_item in self.enable_landmark_features.items():
             menu_item.setChecked(static_settings.get(static_object, False))
 
-    def behavior_label_add_event(self, behaviors: list[str]):
+    def behavior_label_add_event(self, behaviors: list[str]) -> None:
         """handle project updates required when user adds new behavior labels"""
         # check for new behaviors
         for behavior in behaviors:
@@ -403,7 +412,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # save new behavior with default settings
                 self._project.settings_manager.save_behavior(behavior, {})
 
-    def display_status_message(self, message: str, duration: int = 3000):
+    def display_status_message(self, message: str, duration: int = 3000) -> None:
         """display a message in the main window status bar
 
         Args:
@@ -418,7 +427,7 @@ class MainWindow(QtWidgets.QMainWindow):
             raise ValueError("duration must be >= 0")
         self._status_bar.showMessage(message, duration)
 
-    def clear_status_bar(self):
+    def clear_status_bar(self) -> None:
         """clear the status bar message
 
         Returns:
@@ -426,7 +435,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         self._status_bar.clearMessage()
 
-    def _show_project_open_dialog(self):
+    def _show_project_open_dialog(self) -> None:
         """prompt the user to select a project directory and open it"""
         options = QtWidgets.QFileDialog.Option(0)
         if not USE_NATIVE_FILE_DIALOG:
@@ -443,11 +452,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if directory:
             self.open_project(directory)
 
-    def _show_about_dialog(self):
+    def _show_about_dialog(self) -> None:
         dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})", self)
         dialog.exec_()
 
-    def _open_user_guide(self):
+    def _open_user_guide(self) -> None:
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
@@ -455,7 +464,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         self._user_guide_window.show()
 
-    def _export_training_data(self):
+    def _export_training_data(self) -> None:
         if not self._central_widget.classify_button_enabled:
             # classify button disabled, don't allow exporting training data
             QtWidgets.QMessageBox.warning(
@@ -479,7 +488,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except OSError as e:
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
-    def _toggle_video_list(self, checked: bool):
+    def _toggle_video_list(self, checked: bool) -> None:
         """show/hide video list"""
         if not checked:
             # user unchecked
@@ -488,23 +497,23 @@ class MainWindow(QtWidgets.QMainWindow):
             # user checked
             self.video_list.show()
 
-    def _toggle_track(self, checked: bool):
+    def _toggle_track(self, checked: bool) -> None:
         """show/hide track overlay for subject."""
         self._central_widget.show_track(checked)
 
-    def _toggle_pose_overlay(self, checked: bool):
+    def _toggle_pose_overlay(self, checked: bool) -> None:
         """show/hide pose overlay for subject."""
         self._central_widget.overlay_pose(checked)
 
-    def _toggle_landmark_overlay(self, checked: bool):
+    def _toggle_landmark_overlay(self, checked: bool) -> None:
         """show/hide landmark features."""
         self._central_widget.overlay_landmarks(checked)
 
-    def _toggle_segmentation_overlay(self, checked: bool):
+    def _toggle_segmentation_overlay(self, checked: bool) -> None:
         """show/hide segmentation overlay for subject."""
         self._central_widget.overlay_segmentation(checked)
 
-    def _search_behaviors(self):
+    def _search_behaviors(self) -> None:
         """open a dialog to search for behaviors if a project is loaded."""
         if self._project is None:
             QtWidgets.QMessageBox.warning(
@@ -520,28 +529,28 @@ class MainWindow(QtWidgets.QMainWindow):
             search_query = dialog.behavior_search_query
             self._central_widget.update_behavior_search_query(search_query)
 
-    def _toggle_cm_units(self, checked: bool):
+    def _toggle_cm_units(self, checked: bool) -> None:
         """toggle project to use pixel units."""
         # TODO: Warn the user that features may need to be re-calculated
         self._project.save_behavior(self._central_widget.behavior, {"cm_units": checked})
 
-    def _toggle_social_features(self, checked: bool):
+    def _toggle_social_features(self, checked: bool) -> None:
         """toggle project to use social features."""
         self._project.save_behavior(self._central_widget.behavior, {"social": checked})
 
-    def _toggle_window_features(self, checked: bool):
+    def _toggle_window_features(self, checked: bool) -> None:
         """toggle project to use window features."""
         self._project.save_behavior(self._central_widget.behavior, {"window": checked})
 
-    def _toggle_fft_features(self, checked: bool):
+    def _toggle_fft_features(self, checked: bool) -> None:
         """toggle project to use fft features."""
         self._project.save_behavior(self._central_widget.behavior, {"fft": checked})
 
-    def _toggle_segmentation_features(self, checked: bool):
+    def _toggle_segmentation_features(self, checked: bool) -> None:
         """toggle project to use segmentation features."""
         self._project.save_behavior(self._central_widget.behavior, {"segmentation": checked})
 
-    def _toggle_static_object_feature(self, checked: bool):
+    def _toggle_static_object_feature(self, checked: bool) -> None:
         """toggle project to use a specific static object feature set."""
         # get the key from the caller
         key = self.sender().text().split(" ")[1].lower()
@@ -553,7 +562,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.behavior, {"static_objects": all_object_settings}
         )
 
-    def _video_list_selection(self, filename: str):
+    def _video_list_selection(self, filename: str) -> None:
         """handle a click on a new video in the list loaded into the main window dock"""
         try:
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
@@ -561,16 +570,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.display_status_message(f"Unable to load video: {e}")
             self._project_load_error_callback(e)
 
-    def _open_archive_behavior_dialog(self):
+    def _open_archive_behavior_dialog(self) -> None:
         dialog = ArchiveBehaviorDialog(self._central_widget.behaviors, self)
         dialog.behavior_archived.connect(self._archive_behavior_callback)
         dialog.exec_()
 
-    def _archive_behavior_callback(self, behavior: str):
+    def _archive_behavior_callback(self, behavior: str) -> None:
         self._project.archive_behavior(behavior)
         self._central_widget.remove_behavior(behavior)
 
-    def _project_loaded_callback(self):
+    def _project_loaded_callback(self) -> None:
         """Callback function to be called when the project is loaded."""
         self._project = self._project_loader_thread.project
         self._project_loader_thread = None
@@ -581,6 +590,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update which controls should be available
         self._archive_behavior.setEnabled(True)
+        self._prune_action.setEnabled(True)
         self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
         self.enable_social_features.setEnabled(
             self._project.feature_manager.can_use_social_features
@@ -602,7 +612,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
 
-    def _project_load_error_callback(self, error: Exception):
+    def _project_load_error_callback(self, error: Exception) -> None:
         """Callback function to be called when the project fails to load."""
         self._project_loader_thread.deleteLater()
         self._project_loader_thread = None
@@ -611,7 +621,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog = None
         QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
 
-    def show_license_dialog(self):
+    def show_license_dialog(self) -> QtWidgets.QDialog.DialogCode:
         """prompt the user to accept the license agreement if they haven't already"""
         # check to see if user already accepted the license
         if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
@@ -627,9 +637,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._settings.setValue(LICENSE_VERSION_KEY, version_str())
             self._settings.sync()
 
-        return result
+        return QtWidgets.QDialog.DialogCode(result)
 
-    def _update_recent_projects(self):
+    def _update_recent_projects(self) -> None:
         """update the contents of the Recent Projects menu"""
         self._open_recent_menu.clear()
         recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
@@ -640,7 +650,7 @@ class MainWindow(QtWidgets.QMainWindow):
             action.setData(project_path)
             action.triggered.connect(self._open_recent_project)
 
-    def _add_recent_project(self, project_path: Path):
+    def _add_recent_project(self, project_path: Path) -> None:
         """add a project to the recent projects list"""
         # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
         path_str = str(project_path.absolute())
@@ -663,7 +673,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # update the menu
         self._update_recent_projects()
 
-    def _open_recent_project(self):
+    def _open_recent_project(self) -> None:
         """open a recent project"""
         action = self.sender()
         if isinstance(action, QAction):
@@ -671,7 +681,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if project_path:
                 self.open_project(project_path)
 
-    def _on_timeline_view_mode_changed(self):
+    def _on_timeline_view_mode_changed(self) -> None:
         if self._timeline_labels_preds.isChecked():
             self._central_widget.timeline_view_mode = (
                 StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
@@ -681,18 +691,18 @@ class MainWindow(QtWidgets.QMainWindow):
         elif self._timeline_preds.isChecked():
             self._central_widget.timeline_view_mode = StackedTimelineWidget.ViewMode.PREDICTIONS
 
-    def _on_timeline_identity_mode_changed(self):
+    def _on_timeline_identity_mode_changed(self) -> None:
         if self._timeline_all_animals.isChecked():
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ALL
         elif self._timeline_selected_animal.isChecked():
             self._central_widget.timeline_identity_mode = StackedTimelineWidget.IdentityMode.ACTIVE
 
-    def _search_hit_loaded(self, search_hit):
+    def _search_hit_loaded(self, search_hit) -> None:
         """Update the selected video in the video list when a search hit is loaded."""
         if search_hit is not None:
             self.video_list.select_video(search_hit.file, suppress_event=True)
 
-    def _on_label_overlay_mode_changed(self):
+    def _on_label_overlay_mode_changed(self) -> None:
         if self._label_overlay_none.isChecked():
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.NONE
         elif self._label_overlay_labels.isChecked():
@@ -700,6 +710,76 @@ class MainWindow(QtWidgets.QMainWindow):
         elif self._label_overlay_preds.isChecked():
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlay.PREDICTION
 
-    def _handle_select_all(self):
+    def _handle_select_all(self) -> None:
         """Handle the Select All event"""
         self._central_widget.select_all()
+
+    def _show_project_pruning_dialog(self) -> None:
+        """Handle the Prune Project menu action."""
+        dialog = ProjectPruningDialog(self._project, parent=self)
+        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
+            mode, behavior = dialog.get_selection()
+            if mode == ProjectPruningDialog.PruningMode.ANY:
+                videos = get_videos_to_prune(self._project)
+            else:
+                videos = get_videos_to_prune(self._project, behavior)
+
+            # don't let the user remove all videos from the project
+            if len(videos) == len(self._project.video_manager.videos):
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "All Videos Selected",
+                    "This action would remove all videos from the project. Aborting.",
+                )
+                return
+
+            # no videos match the criteria, show a message and return
+            if not videos:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "No Videos Selected",
+                    "There are no videos matching the criteria for pruning.",
+                )
+                return
+
+            video_names = [video.video_path.name for video in videos]
+            confirmation_dialog = ProjectPruningConfirmationDialog(video_names)
+            result = confirmation_dialog.exec_()
+
+            if result == QtWidgets.QDialog.DialogCode.Accepted:
+                # User confirmed to prune videos. Create a Set of all files to delete.
+                files_to_delete = {video.video_path for video in videos}
+                files_to_delete.update(video.pose_path for video in videos)
+                files_to_delete.update(video.annotation_path for video in videos)
+                self._move_files_to_recycle_bin_with_delete_fallback(files_to_delete)
+
+                for video in videos:
+                    self._project.video_manager.remove_video(video.video_path.name)
+                self.video_list.set_project(self._project)
+
+    def _move_files_to_recycle_bin_with_delete_fallback(self, files: set[Path]) -> None:
+        """Attempt to move files to recycle bin, fallback to permanently delete if user agrees."""
+        delete_on_failure: bool | None = None
+        for file in files:
+            removed = send_file_to_recycle_bin(file)
+            if not removed:
+                if delete_on_failure is None:
+                    delete_on_failure = (
+                        QtWidgets.QMessageBox.question(
+                            self,
+                            "Delete Failed",
+                            f"Unable to move file to the recycle bin. Delete permanently?\n{file}",
+                            QtWidgets.QMessageBox.StandardButton.Yes
+                            | QtWidgets.QMessageBox.StandardButton.No,
+                        )
+                        == QtWidgets.QMessageBox.StandardButton.Yes
+                    )
+                if delete_on_failure:
+                    try:
+                        file.unlink(missing_ok=True)
+                        self._status_bar.showMessage(f"{file} permanently deleted", 3000)
+                    except OSError as e:
+                        self._status_bar.showMessage(f"Unable to delete {file}", 3000)
+                        print(f"Error deleting file {file}: {e}", file=sys.stderr)
+            else:
+                self._status_bar.showMessage(f"Moved {file} to recycle bin", 3000)

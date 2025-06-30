@@ -55,6 +55,17 @@ class VideoManager:
         """Get the list of video filenames in the project."""
         return self._videos
 
+    def remove_video(self, video_name: str):
+        """Remove a video from the project.
+
+        Args:
+            video_name: Name of the video file to remove.
+        """
+        self.check_video_name(video_name)
+        self._videos.remove(video_name)
+        del self._video_identity_count[video_name]
+        self._settings_manager.save_project_file()
+
     @property
     def total_project_identities(self) -> int:
         """Get the total number of identities across all videos."""
