@@ -277,7 +277,6 @@ class CentralWidget(QtWidgets.QWidget):
             None
         """
         self._suppress_label_track_update = True
-        self._search_bar_widget.video_frame_position_changed(path.name, 0)
         if self._labels is not None:
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
@@ -1005,9 +1004,10 @@ class CentralWidget(QtWidgets.QWidget):
             if selected_id is not None and selected_id < num_identities:
                 self._controls.set_identity_index(selected_id)
 
+            # XXX this block commented out for one-off change for labelers
             # update the behavior in the controls to match the search hit
-            if search_hit.behavior is not None:
-                self._controls.set_behavior(search_hit.behavior)
+            #if search_hit.behavior is not None:
+            #    self._controls.set_behavior(search_hit.behavior)
 
             self.search_hit_loaded.emit(search_hit)
 
