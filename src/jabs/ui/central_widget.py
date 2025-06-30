@@ -252,6 +252,7 @@ class CentralWidget(QtWidgets.QWidget):
             None
         """
         self._suppress_label_track_update = True
+        self._search_bar_widget.video_frame_position_changed(path.name, 0)
         if self._labels is not None:
             self._start_selection(False)
             self._controls.select_button_set_checked(False)
@@ -521,6 +522,14 @@ class CentralWidget(QtWidgets.QWidget):
     def _frame_change(self, new_frame: int) -> None:
         """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
+
+        # if there is a pending "next" or "previous" search hit, we don't
+        # update the search bar with the new frame
+        if not self._debounce_search_hit_timer.isActive() and self._loaded_video is not None:
+            self._search_bar_widget.video_frame_position_changed(
+                self._loaded_video.name,
+                new_frame,
+            )
 
     def _set_label_track(self) -> None:
         """loads new set of labels in self.manual_labels when the selected behavior or identity is changed"""
