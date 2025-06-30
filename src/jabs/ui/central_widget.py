@@ -964,11 +964,12 @@ class CentralWidget(QtWidgets.QWidget):
             else:
                 print(f"Invalid identity for search hit: {search_hit.identity}")
 
+            # XXX this block commented out for one-off change for labelers
             # update the behavior in the controls to match the search hit
-            if search_hit.behavior is not None:
-                self._controls.set_behavior(search_hit.behavior)
-            else:
-                print("Search hit has no behavior, using current behavior.")
+            # if search_hit.behavior is not None:
+            #    self._controls.set_behavior(search_hit.behavior)
+            # else:
+            #    print("Search hit has no behavior, using current behavior.")
 
             self.search_hit_loaded.emit(search_hit)
 
