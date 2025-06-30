@@ -14,17 +14,15 @@ class VideoLabels:
     Args:
         filename: Name of the video file this object represents.
         num_frames: Total number of frames in the video.
-        external_identities (list[int] | None, optional): Optional mapping of external identity indices.
 
     Note:
         in several places, identities are currently handled as strings for serialization compatibility.
     """
 
-    def __init__(self, filename, num_frames, external_identities: list[int] | None = None):
+    def __init__(self, filename, num_frames):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
-        self._external_identities = external_identities
 
     @property
     def filename(self):
@@ -93,8 +91,7 @@ class VideoLabels:
     def as_dict(self, pose: PoseEstimation) -> dict:
         """return dict representation of video labels
 
-        useful for JSON serialization and saving to disk or caching in memory without storing the full
-        numpy label array when user switches to a different video
+        useful for JSON serialization and saving to disk
 
         example return value:
         {
@@ -149,9 +146,9 @@ class VideoLabels:
                 if len(blocks):
                     label_dict["labels"][identity][behavior] = blocks
 
-        if self._external_identities is not None:
+        if pose.external_identities is not None:
             label_dict["external_identities"] = {}
-            for i, identity in enumerate(self._external_identities):
+            for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
 
         return label_dict

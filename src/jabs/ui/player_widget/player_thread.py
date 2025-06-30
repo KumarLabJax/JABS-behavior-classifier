@@ -141,9 +141,6 @@ class PlayerThread(QtCore.QThread):
                     frame_index=frame["index"],
                 )
 
-            if self._overlay_landmarks:
-                overlay_landmarks(frame["data"], self._pose_est)
-
             if self._label_closest:
                 closest_fov_id = self._get_closest_animal_id(
                     frame["index"], ClosestIdentityInfo.HALF_FOV_DEGREE
@@ -166,6 +163,9 @@ class PlayerThread(QtCore.QThread):
                         frame["index"],
                         color=self._CLOSEST_LABEL_COLOR,
                     )
+
+        if self._overlay_landmarks:
+            overlay_landmarks(frame["data"], self._pose_est)
 
         # using numpy slicing to convert from OpenCV BGR to Qt RGB format is more efficient
         # than using QImage.rgbSwapped() because QImage.rgbSwapped() creates a a QImage in BGR
