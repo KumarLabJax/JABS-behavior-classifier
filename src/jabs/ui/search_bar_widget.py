@@ -22,10 +22,16 @@ class SearchBarWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._project: Project = None
-        self._search_query = None
+        self._project: Project | None = None
+        self._search_query: BehaviorSearchQuery | None = None
         self._search_results: list[SearchHit] = []
-        self._current_result_index = 0
+        self._current_result_index: int | None = None
+
+        # we pay attention to the video name and frame position
+        # because we want "next" and "previous" to be relative
+        # to the current position in the selected video
+        self._current_video_name: str | None = None
+        self._current_frame_position: int = -1
 
         self.label = QtWidgets.QLabel("Searching for:")
         self.text_label = QtWidgets.QLabel("")
@@ -84,8 +90,22 @@ class SearchBarWidget(QtWidgets.QWidget):
     def update_project(self, project: Project | None):
         """Update the current project."""
         self._project = project
+        self.video_frame_position_changed(None, -1)
         if self._search_query is not None:
             self.update_search(self._search_query)
+
+    def video_frame_position_changed(self, video_name: str | None, frame_position: int):
+        """Update the current video name and frame position.
+
+        This is used to determine the current position in the video which
+        influences the "next" and "previous" search results.
+
+        Args:
+            video_name (str | None): The name of the current video, or None if not applicable.
+            frame_position (int): The current frame position in the video.
+        """
+        self._current_video_name = video_name
+        self._current_frame_position = frame_position
 
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery | None:
@@ -101,7 +121,7 @@ class SearchBarWidget(QtWidgets.QWidget):
         """Set the behavior search query and update the text label."""
         self._search_query = search_query
         self._search_results = []
-        self._current_result_index = 0
+        self._current_result_index = None
 
         if search_query is None:
             self.setVisible(False)
@@ -114,17 +134,136 @@ class SearchBarWidget(QtWidgets.QWidget):
         self.search_results_changed.emit(self._search_results)
         self.current_search_hit_changed.emit(self.current_search_hit)
 
-    def _on_prev_clicked(self):
-        if self._search_results and self._current_result_index > 0:
-            self._current_result_index -= 1
+    def _find_search_result_at_current_video_frame(self) -> tuple[SearchHit | None, int] | None:
+        """Find the search result that matches the current video and frame position.
+
+        Returns:
+            tuple[SearchHit | None, int] | None:
+                A tuple of (SearchHit object or None, index) unless the current
+                video/frame position is invalid, in which case it returns None.
+        """
+        if self._current_video_name is None or self._current_frame_position < 0:
+            # If we don't have a current video name or frame position return None
+            return None
+        else:
+            file_frame_key_dict = {
+                "video_name": self._current_video_name,
+                "frame_index": self._current_frame_position,
+            }
+            return _binary_search_with_comparator(
+                self._search_results,
+                file_frame_key_dict,
+                _compare_file_frame_vs_search_hit,
+            )
+
+    def _search_hit_intersects_current_frame(self, hit: SearchHit | None) -> bool:
+        """Check if the given search hit intersects with the current video and frame position."""
+        if hit is None:
+            return False
+
+        return (
+            hit.file == self._current_video_name
+            and hit.start_frame <= self._current_frame_position <= hit.end_frame
+        )
+
+    def _seek_to_search_result(self, hit_index: int | None):
+        """Seek to the search result at the given index.
+
+        This safely updates the current result index and emits the
+        current_search_hit_changed signal if the hit_index is not None.
+
+        This method also resets the current video name and frame
+        position to None and -1, respectively, when seeking to a
+        new search result.
+
+        Args:
+            hit_index (int | None): The index of the search result to
+                seek to, or None to indicate no search results.
+        """
+        if not self._search_results:
+            # force the hit index to None if there are no search results
+            hit_index = None
+
+        if hit_index is not None:
+            # clamp the hit index to a valid range if it is not None
+            hit_index = max(0, min(hit_index, len(self._search_results) - 1))
+
+            # We can discard the current video name and frame position because
+            # we are seeking to a new search result.
+            self._current_video_name = None
+            self._current_frame_position = -1
+
+            self._current_result_index = hit_index
             self._update_result_count_label()
             self.current_search_hit_changed.emit(self.current_search_hit)
 
+    def _on_prev_clicked(self):
+        if self._search_hit_intersects_current_frame(self.current_search_hit):
+            # If the current search hit intersects with the current frame, we can
+            # just decrement the index without checking the current video/frame position.
+            self._seek_to_search_result(
+                self._current_result_index - 1 if self._current_result_index is not None else 0
+            )
+        else:
+            # we need to find the index of the search results that corresponds
+            # to the current video and frame position and then decrement
+            match self._find_search_result_at_current_video_frame():
+                case None:
+                    # there is not current video/frame position, so we just
+                    # decrement the index
+                    self._seek_to_search_result(
+                        self._current_result_index - 1
+                        if self._current_result_index is not None
+                        else 0
+                    )
+                case (None, index):
+                    # our search gave us an insertion index, so we decrement from that
+                    # to find the previous result
+                    self._seek_to_search_result(index - 1)
+                case (_, index):
+                    # we found a search hit that overlaps the current video/frame position.
+                    # rewind from that until we get a hit that does not overlap
+                    while index > 0:
+                        index -= 1
+                        curr_hit = self._search_results[index]
+                        if not self._search_hit_intersects_current_frame(curr_hit):
+                            break
+
+                    self._seek_to_search_result(index)
+
     def _on_next_clicked(self):
-        if self._search_results and self._current_result_index < len(self._search_results) - 1:
-            self._current_result_index += 1
-            self._update_result_count_label()
-            self.current_search_hit_changed.emit(self.current_search_hit)
+        if self._search_hit_intersects_current_frame(self.current_search_hit):
+            # If the current search hit intersects with the current frame, we can
+            # just increment the index without checking the current video/frame position.
+            self._seek_to_search_result(
+                self._current_result_index + 1 if self._current_result_index is not None else 0
+            )
+        else:
+            # we need to find the index of the search results that corresponds
+            # to the current video and frame position and then increment
+            match self._find_search_result_at_current_video_frame():
+                case None:
+                    # there is not current video/frame position, so we just
+                    # increment the index
+                    self._seek_to_search_result(
+                        self._current_result_index + 1
+                        if self._current_result_index is not None
+                        else 0
+                    )
+                case (None, index):
+                    # our search gave us an insertion index, so that should be
+                    # the index of the next result
+                    self._seek_to_search_result(index)
+                case (_, index):
+                    # we found a search hit that overlaps the current video/frame position.
+                    # fast forward from that until we get a hit that does not overlap
+                    while index < len(self._search_results) - 1:
+                        index += 1
+                        curr_hit = self._search_results[index]
+                        if not self._search_hit_intersects_current_frame(curr_hit):
+                            break
+
+                    self._seek_to_search_result(index)
 
     def _on_done_clicked(self):
         self.update_search(None)
@@ -133,6 +272,8 @@ class SearchBarWidget(QtWidgets.QWidget):
         if self._search_results:
             self.result_count_label.setText(
                 f"({self._current_result_index + 1} of {len(self._search_results)})"
+                if self._current_result_index is not None
+                else f"({len(self._search_results)} results)"
             )
         else:
             self.result_count_label.setText("(Not found)")
@@ -140,7 +281,8 @@ class SearchBarWidget(QtWidgets.QWidget):
     @property
     def current_search_hit(self) -> SearchHit | None:
         """Get the current search hit based on the current index."""
-        if self._current_result_index < len(self._search_results):
+        curr_index_valid = self._current_result_index is not None
+        if curr_index_valid and 0 <= self._current_result_index < len(self._search_results):
             return self._search_results[self._current_result_index]
 
         return None
@@ -202,3 +344,61 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
             return " ".join(parts)
         case _:
             return "No Search"
+
+
+def _binary_search_with_comparator(arr, key, cmp):
+    """
+    Binary search on a sorted array using a custom comparator.
+
+    Args:
+        arr: Sorted list to search.
+        key: Target value to find.
+        cmp: Comparator function taking (key, element) and returning:
+            - Negative if key < element,
+            - Zero if key == element,
+            - Positive if key > element.
+
+    Returns:
+        A tuple (found_item, index) where:
+        - found_item is the item found in the array, or None if not found.
+        - index is the index of the found item, or the insertion point if not found.
+    """
+    lo, hi = 0, len(arr) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        curr_item = arr[mid]
+        comparison = cmp(key, curr_item)
+        if comparison < 0:
+            hi = mid - 1
+        elif comparison > 0:
+            lo = mid + 1
+        else:
+            return (curr_item, mid)
+
+    return (None, lo)
+
+
+def _compare_file_frame_vs_search_hit(file_frame_key_dict: dict, search_hit: SearchHit) -> int:
+    """
+    Compare a file/frame dictionary to a SearchHit object for binary search.
+
+    Compares the video name and frame index of file_frame_key_dict (which must have
+    keys "video_name" and "frame_index") against a SearchHit object.
+
+    Returns:
+        -1 if the key is before the search hit,
+         0 if the key overlaps the search hit,
+         1 if the key is after the search hit.
+    """
+    video_name_key = file_frame_key_dict["video_name"]
+    frame_index_key = file_frame_key_dict["frame_index"]
+
+    if video_name_key != search_hit.file:
+        return -1 if video_name_key < search_hit.file else 1
+
+    if frame_index_key < search_hit.start_frame:
+        return -1
+    elif frame_index_key > search_hit.end_frame:
+        return 1
+    else:
+        return 0
