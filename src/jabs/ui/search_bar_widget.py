@@ -22,8 +22,8 @@ class SearchBarWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._project: Project = None
-        self._search_query = None
+        self._project: Project | None = None
+        self._search_query: BehaviorSearchQuery | None = None
         self._search_results: list[SearchHit] = []
         self._current_result_index: int | None = None
 
@@ -139,8 +139,8 @@ class SearchBarWidget(QtWidgets.QWidget):
 
         Returns:
             tuple[SearchHit | None, int] | None:
-                A tuple of (SearchHit object or None, index) if a search was attempted,
-                or None if the current video/frame position is invalid.
+                A tuple of (SearchHit object or None, index) unless the current
+                video/frame position is invalid, in which case it returns None.
         """
         if self._current_video_name is None or self._current_frame_position < 0:
             # If we don't have a current video name or frame position return None
@@ -170,9 +170,7 @@ class SearchBarWidget(QtWidgets.QWidget):
         """Seek to the search result at the given index.
 
         This safely updates the current result index and emits the
-        current_search_hit_changed signal if the index has changed.
-        The given hit_index is clamped to a valid range if it is not
-        None, and if there are no search results, it is set to None.
+        current_search_hit_changed signal if the hit_index is not None.
 
         This method also resets the current video name and frame
         position to None and -1, respectively, when seeking to a
