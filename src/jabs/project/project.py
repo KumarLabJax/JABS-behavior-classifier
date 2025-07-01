@@ -389,7 +389,7 @@ class Project:
         """
         counts = {}
         for video in self._video_manager.videos:
-            counts[video] = self.__read_counts(video, behavior)
+            counts[video] = self.read_counts(video, behavior)
         return counts
 
     def get_labeled_features(
@@ -542,7 +542,7 @@ class Project:
             return False
         return True
 
-    def __read_counts(self, video, behavior):
+    def read_counts(self, video, behavior):
         """read labeled frame and bout counts from json file
 
         Returns:

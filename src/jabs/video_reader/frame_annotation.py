@@ -174,7 +174,7 @@ def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: tuple[int, i
 def overlay_segmentation(
     img: np.ndarray, pose_est: PoseEstimationV6, identity: int, frame_index: int
 ):
-    """overlay the segmentation on a frame fo ra given identity
+    """overlay the segmentation on a frame for a given identity
 
     Args:
         img: The current video frame.

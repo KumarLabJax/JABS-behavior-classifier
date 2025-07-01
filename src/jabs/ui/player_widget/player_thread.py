@@ -4,7 +4,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui
 
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
+from jabs.pose_estimation import PoseEstimation
 from jabs.video_reader import (
     VideoReader,
     draw_track,
@@ -65,18 +65,13 @@ class PlayerThread(QtCore.QThread):
     ):
         super().__init__()
 
-        if overlay_segmentation_flag and not isinstance(pose_est, PoseEstimationV6):
-            raise ValueError(
-                "Overlay segmentation is only supported with PoseEstimationV6 or greater."
-            )
-
         self._video_reader = video_reader
         self._pose_est = pose_est
         self._identity = identity
         self._label_closest = False
         self._show_track = show_track
-        self._overlay_segmentation = overlay_segmentation_flag
         self._overlay_landmarks = overlay_landmarks_flag
+        self._overlay_segmentation = overlay_segmentation_flag
         self._label_closest = label_closest
         self._identities = identities if identities is not None else []
         self._playback_speed = playback_speed

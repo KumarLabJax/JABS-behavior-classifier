@@ -31,14 +31,14 @@ jabs/
 
 The first time you open a project directory in with JABS it will create the "
 jabs" subdirectory. Features will be computed the first time the "Train" button
-is clicked. This can be very time consuming depending on the number and length
+is clicked. This can be very time-consuming depending on the number and length
 of videos in the project directory.
 
 The `jabs-init` script can also be used to initialize a project
 directory before it is opened in the JABS GUI. This script checks to make sure
 that a pose file exists for each video in the directory, and that the pose file
 and video have the same number of frames. Then, after these basic checks, the
-script will compute features for all of the videos in the project. Since
+script will compute features for all the videos in the project. Since
 `jabs-int` can compute features for multiple videos in parallel, it
 is significantly faster than doing so through the GUI during the training
 process.
@@ -226,6 +226,10 @@ them.
   share a classifier. This exported file is written to the project directory and
   has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is
   used as one input for the `jabs-classify` script.
+- **File→Archive Behavior:** Remove behavior and its labels from project. Labels 
+  are archived in the `jabs/archive` directory.
+- **File→Prune Project:** Remove videos and pose files that are not
+  labeled. 
 - **View:** Menu to control various display options.
   - **View→View Playlist:** can be used to hide/show video playlist
   - **View→Timeline:** Menu to control the timeline display. 
