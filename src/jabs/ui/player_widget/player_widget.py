@@ -325,7 +325,9 @@ class PlayerWidget(QtWidgets.QWidget):
         assert self._video_stream is not None
         return self._video_stream.fps
 
-    def _set_overlay_attr(self, attr: str, signal: QtCore.Signal, enabled: bool | None) -> None:
+    def _set_overlay_attr(
+        self, attr: str, signal: QtCore.Signal | None, enabled: bool | None
+    ) -> None:
         """Toggle or set an overlay attribute and emit the corresponding signal.
 
         Args:
@@ -339,33 +341,49 @@ class PlayerWidget(QtWidgets.QWidget):
         current = getattr(self, attr)
         new_value = not current if enabled is None else enabled
         setattr(self, attr, new_value)
-        if self._player_thread:
+        if signal:
             # noinspection PyUnresolvedReferences
             signal.emit(new_value)
             self.reload_frame()
 
     def show_closest(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show closest' overlay state."""
-        self._set_overlay_attr("_label_closest", self._player_thread.setLabelClosest, enabled)
+        self._set_overlay_attr(
+            "_label_closest",
+            self._player_thread.setLabelClosest if self._player_thread else None,
+            enabled,
+        )
 
     def show_track(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'show track' overlay state."""
-        self._set_overlay_attr("_show_track", self._player_thread.setShowTrack, enabled)
+        self._set_overlay_attr(
+            "_show_track",
+            self._player_thread.setShowTrack if self._player_thread else None,
+            enabled,
+        )
 
     def overlay_pose(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr("_overlay_pose", self._player_thread.setOverlayPose, enabled)
+        self._set_overlay_attr(
+            "_overlay_pose",
+            self._player_thread.setOverlayPose if self._player_thread else None,
+            enabled,
+        )
 
     def overlay_segmentation(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay segmentation' overlay state."""
         self._set_overlay_attr(
-            "_overlay_segmentation", self._player_thread.setOverlaySegmentation, enabled
+            "_overlay_segmentation",
+            self._player_thread.setOverlaySegmentation if self._player_thread else None,
+            enabled,
         )
 
     def overlay_landmarks(self, enabled: bool | None = None) -> None:
         """Toggle or set the 'overlay segmentation' overlay state."""
         self._set_overlay_attr(
-            "_overlay_landmarks", self._player_thread.setOverlayLandmarks, enabled
+            "_overlay_landmarks",
+            self._player_thread.setOverlayLandmarks if self._player_thread else None,
+            enabled,
         )
 
     def reload_frame(self) -> None:

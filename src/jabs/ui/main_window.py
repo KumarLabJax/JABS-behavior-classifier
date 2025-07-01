@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
-from jabs.project import export_training_data, get_videos_to_prune
+from jabs.project import export_training_data
 from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED, get_bool_env_var, hide_stderr
 from jabs.version import version_str
@@ -19,7 +19,7 @@ from .license_dialog import LicenseAgreementDialog
 from .player_widget import PlayerWidget
 from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
-from .project_pruning_dialogs import ProjectPruningConfirmationDialog, ProjectPruningDialog
+from .project_pruning_dialog import ProjectPruningDialog
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_viewer_widget import UserGuideDialog
 from .util import send_file_to_recycle_bin
@@ -718,14 +718,14 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle the Prune Project menu action."""
         dialog = ProjectPruningDialog(self._project, parent=self)
         if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
-            mode, behavior = dialog.get_selection()
-            if mode == ProjectPruningDialog.PruningMode.ANY:
-                videos = get_videos_to_prune(self._project)
-            else:
-                videos = get_videos_to_prune(self._project, behavior)
+            videos_to_prune = dialog.videos_to_prune
+
+            # there were no videos selected for pruning, nothing to do
+            if not videos_to_prune:
+                return
 
             # don't let the user remove all videos from the project
-            if len(videos) == len(self._project.video_manager.videos):
+            if len(videos_to_prune) == len(self._project.video_manager.videos):
                 QtWidgets.QMessageBox.critical(
                     self,
                     "All Videos Selected",
@@ -733,29 +733,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 return
 
-            # no videos match the criteria, show a message and return
-            if not videos:
-                QtWidgets.QMessageBox.information(
-                    self,
-                    "No Videos Selected",
-                    "There are no videos matching the criteria for pruning.",
-                )
-                return
+            # User confirmed to prune videos. Create a Set of all files to delete.
+            files_to_delete = {video.video_path for video in videos_to_prune}
+            files_to_delete.update(video.pose_path for video in videos_to_prune)
+            files_to_delete.update(video.annotation_path for video in videos_to_prune)
+            self._move_files_to_recycle_bin_with_delete_fallback(files_to_delete)
 
-            video_names = [video.video_path.name for video in videos]
-            confirmation_dialog = ProjectPruningConfirmationDialog(video_names)
-            result = confirmation_dialog.exec_()
-
-            if result == QtWidgets.QDialog.DialogCode.Accepted:
-                # User confirmed to prune videos. Create a Set of all files to delete.
-                files_to_delete = {video.video_path for video in videos}
-                files_to_delete.update(video.pose_path for video in videos)
-                files_to_delete.update(video.annotation_path for video in videos)
-                self._move_files_to_recycle_bin_with_delete_fallback(files_to_delete)
-
-                for video in videos:
-                    self._project.video_manager.remove_video(video.video_path.name)
-                self.video_list.set_project(self._project)
+            for video in videos_to_prune:
+                self._project.video_manager.remove_video(video.video_path.name)
+            self.video_list.set_project(self._project)
 
     def _move_files_to_recycle_bin_with_delete_fallback(self, files: set[Path]) -> None:
         """Attempt to move files to recycle bin, fallback to permanently delete if user agrees."""
