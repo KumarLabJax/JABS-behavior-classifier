@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from jabs.project import Project, get_videos_to_prune
-from jabs.project.project_pruner import VideoPaths
+from jabs.project.project_pruning import VideoPaths
 
 
 class ProjectPruningDialog(QDialog):

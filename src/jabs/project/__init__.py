@@ -2,7 +2,7 @@
 
 from .export_training import export_training_data
 from .project import Project
-from .project_pruner import get_videos_to_prune
+from .project_pruning import get_videos_to_prune
 from .read_training import load_training_data
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
