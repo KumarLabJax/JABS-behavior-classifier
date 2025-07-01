@@ -739,8 +739,11 @@ class MainWindow(QtWidgets.QMainWindow):
             files_to_delete.update(video.annotation_path for video in videos_to_prune)
             self._move_files_to_recycle_bin_with_delete_fallback(files_to_delete)
 
+            # Remove videos from the project video manager, which keeps track of the project's videos.
             for video in videos_to_prune:
                 self._project.video_manager.remove_video(video.video_path.name)
+
+            # Force the video list to update its contents
             self.video_list.set_project(self._project)
 
     def _move_files_to_recycle_bin_with_delete_fallback(self, files: set[Path]) -> None:
