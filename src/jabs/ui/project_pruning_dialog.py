@@ -46,7 +46,7 @@ class ProjectPruningDialog(QDialog):
     def __init__(self, project: Project, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Project Pruning")
-        self._behaviors = project.settings_manager.behaviors
+        self._behaviors = project.settings_manager.behavior_names
         self._project = project
         self._layout = QVBoxLayout(self)
         self._init_pruning_options_ui()

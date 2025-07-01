@@ -61,10 +61,14 @@ class VideoManager:
         Args:
             video_name: Name of the video file to remove.
         """
-        self.check_video_name(video_name)
-        self._videos.remove(video_name)
-        del self._video_identity_count[video_name]
-        self._settings_manager.save_project_file()
+        try:
+            self.check_video_name(video_name)
+        except ValueError as e:
+            print(f"Error removing video {video_name}: {e}", file=sys.stderr)
+        else:
+            self._videos.remove(video_name)
+            del self._video_identity_count[video_name]
+            self._settings_manager.save_project_file()
 
     @property
     def total_project_identities(self) -> int:

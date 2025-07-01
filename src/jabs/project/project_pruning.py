@@ -37,7 +37,7 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
             counts = project.read_counts(video, behavior)
             has_labels = check_label_counts(counts)
         else:
-            for b in project.settings_manager.behaviors:
+            for b in project.settings_manager.behavior_names:
                 counts = project.read_counts(video, b)
                 has_labels = check_label_counts(counts)
 

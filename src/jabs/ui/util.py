@@ -17,4 +17,4 @@ def send_file_to_recycle_bin(file_path: Path) -> bool:
     if not file_path.exists():
         return True  # Ignore missing files
     file = QFile(str(file_path))
-    return bool(file.moveToTrash())
+    return file.moveToTrash()
