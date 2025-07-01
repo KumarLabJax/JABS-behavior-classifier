@@ -729,7 +729,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.critical(
                     self,
                     "All Videos Selected",
-                    "This action would remove all videos from the project. Aborting.",
+                    "ERROR: This action would remove all videos from the project.",
                 )
                 return
 
