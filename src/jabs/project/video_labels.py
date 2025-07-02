@@ -1,6 +1,11 @@
+from typing import TYPE_CHECKING
+
 from jabs.pose_estimation import PoseEstimation
 
 from .track_labels import TrackLabels
+
+if TYPE_CHECKING:
+    from .project_merge import MergeStrategy
 
 
 class VideoLabels:
@@ -169,3 +174,21 @@ class VideoLabels:
                 )
 
         return labels
+
+    def merge(self, other: "VideoLabels", strategy: "MergeStrategy") -> None:
+        """Merges another VideoLabels object into this one.
+
+        For each identity and behavior present in the other VideoLabels object, merges the corresponding
+        TrackLabels into this instance according to the provided merge strategy.
+
+        Args:
+            other (VideoLabels): The VideoLabels object to merge from.
+            strategy (MergeStrategy): The strategy to use when merging TrackLabels.
+
+        Returns:
+            None
+        """
+        for identity, behaviors in other._identity_labels.items():
+            for behavior, other_track_labels in behaviors.items():
+                track_labels = self.get_track_labels(identity, behavior)
+                track_labels.merge(other_track_labels, strategy)

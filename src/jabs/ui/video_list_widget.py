@@ -109,9 +109,22 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
 
     def _filter_list(self, text):
         """Filter the video list based on the text entered in the filter box."""
+        text = text.strip().lower()
+        current_item = self._file_list.currentItem()
         for i in range(self._file_list.count()):
             item = self._file_list.item(i)
-            item.setHidden(text.strip().lower() not in item.text().lower())
+            is_hidden = text not in item.text().lower()
+
+            # if the current item is being filtered out, deselect it to
+            # avoid Qt accessibility error messages in the console
+            if current_item and item == current_item:
+                # suppress selection event to avoid updating the UI -- the current
+                # video will still be displayed in the player widget until the user selects a new one
+                self._suppress_selection_event = True
+                self._file_list.setCurrentItem(None)  # type: ignore
+                self._suppress_selection_event = False
+
+            item.setHidden(is_hidden)
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""
