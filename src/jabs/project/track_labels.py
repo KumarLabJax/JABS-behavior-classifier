@@ -4,6 +4,8 @@ from itertools import groupby
 
 import numpy as np
 
+from .project_merge import MergeStrategy
+
 
 class TrackLabels:
     """
@@ -238,3 +240,41 @@ class TrackLabels:
                 )
             block_start += count
         return blocks
+
+    def merge(self, other: "TrackLabels", strategy: MergeStrategy) -> None:
+        """Merge another TrackLabels object into this one.
+
+        Args:
+            other (TrackLabels): Another TrackLabels object to merge.
+            strategy (MergeStrategy): Strategy to resolve conflicts between labels.
+        """
+        if self._labels.size != other._labels.size:
+            raise ValueError("Cannot merge TrackLabels with different sizes")
+
+        # copy labels from other where self is not labeled
+        self._labels = np.where(
+            self._labels == self.Label.NONE,
+            other._labels,
+            self._labels,
+        )
+
+        # now deal with locations that have labels in both TrackLabels objects
+        # combine labels based on the merge strategy
+        if strategy == MergeStrategy.BEHAVIOR_WINS:
+            # if either label is BEHAVIOR, set label on self to BEHAVIOR
+            self._labels = np.where(
+                (self._labels == self.Label.BEHAVIOR) | (other._labels == self.Label.BEHAVIOR),
+                self.Label.BEHAVIOR,
+                self._labels,
+            )
+        elif strategy == MergeStrategy.NOT_BEHAVIOR_WINS:
+            # if either label is NOT_BEHAVIOR, set to NOT_BEHAVIOR
+            self._labels = np.where(
+                (self._labels == self.Label.NOT_BEHAVIOR)
+                | (other._labels == self.Label.NOT_BEHAVIOR),
+                self.Label.NOT_BEHAVIOR,
+                self._labels,
+            )
+        elif strategy == MergeStrategy.DESTINATION_WINS:
+            # keep self labels, ignore other. Condition included for completeness.
+            pass
