@@ -54,6 +54,7 @@ class FrameWidget(QtWidgets.QLabel):
         self._pose = None
         self._labels = None
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
+        self._overlay_identity = True
 
         self.setMinimumSize(400, 400)
 
@@ -71,6 +72,22 @@ class FrameWidget(QtWidgets.QLabel):
         """
         if self._pose_overlay_mode != mode:
             self._pose_overlay_mode = mode
+            self.update()
+
+    @property
+    def overlay_identity(self) -> bool:
+        """Get whether the identity overlay is enabled."""
+        return self._overlay_identity
+
+    @overlay_identity.setter
+    def overlay_identity(self, enabled: bool) -> None:
+        """Set whether the identity overlay is enabled.
+
+        Args:
+            enabled (bool): True to enable identity overlay, False to disable.
+        """
+        if self._overlay_identity != enabled:
+            self._overlay_identity = enabled
             self.update()
 
     def set_pose(self, pose: PoseEstimation) -> None:
@@ -91,7 +108,7 @@ class FrameWidget(QtWidgets.QLabel):
     def set_label_overlay(self, labels: list[np.ndarray]) -> None:
         """set label values to use for overlaying on the frame.
 
-        Labels are used to indicated behavior or not behavior label or predction for each identity
+        Labels are used to indicated behavior or not behavior label or prediction for each identity
 
         Args:
             labels (list[np.ndarray]): list of label arrays, one for each identity.
@@ -210,7 +227,9 @@ class FrameWidget(QtWidgets.QLabel):
                 self._overlay_pose(painter, all_identities=True)
             elif self._pose_overlay_mode == self.PoseOverlayMode.ACTIVE_IDENTITY:
                 self._overlay_pose(painter, all_identities=False)
-            self._overlay_identities(painter)
+
+            if self._overlay_identity:
+                self._overlay_identities(painter)
 
         else:
             # if we don't have a pixmap to display just call the original QLabel

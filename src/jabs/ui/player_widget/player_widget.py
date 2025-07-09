@@ -191,6 +191,16 @@ class PlayerWidget(QtWidgets.QWidget):
         """set the pose overlay mode in the frame widget"""
         self._frame_widget.pose_overlay_mode = mode
 
+    @property
+    def overlay_identity(self) -> bool:
+        """return the current overlay identity state from the frame widget"""
+        return self._frame_widget.overlay_identity
+
+    @overlay_identity.setter
+    def overlay_identity(self, enabled: bool) -> None:
+        """set the overlay identity in the frame widget"""
+        self._frame_widget.overlay_identity = enabled
+
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
         if self._player_thread is not None:
