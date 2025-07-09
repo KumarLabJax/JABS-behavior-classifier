@@ -142,6 +142,16 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.update_search(search_query)
 
     @property
+    def overlay_identity(self) -> bool:
+        """get the identity to overlay on the player widget."""
+        return self._player_widget.overlay_identity
+
+    @overlay_identity.setter
+    def overlay_identity(self, new_val: bool) -> None:
+        """Set the identity to overlay on the player widget."""
+        self._player_widget.overlay_identity = new_val
+
+    @property
     def behavior(self) -> str:
         """get the currently selected behavior"""
         return self._controls.current_behavior
