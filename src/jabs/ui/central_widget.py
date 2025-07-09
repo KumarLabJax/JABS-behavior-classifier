@@ -143,12 +143,12 @@ class CentralWidget(QtWidgets.QWidget):
 
     @property
     def overlay_identity(self) -> bool:
-        """get the identity to overlay on the player widget."""
+        """get the identity overlay enabled status from player widget."""
         return self._player_widget.overlay_identity
 
     @overlay_identity.setter
     def overlay_identity(self, new_val: bool) -> None:
-        """Set the identity to overlay on the player widget."""
+        """Set the identity overlay enabled status on the player widget."""
         self._player_widget.overlay_identity = new_val
 
     @property
