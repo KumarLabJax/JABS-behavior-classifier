@@ -62,7 +62,7 @@ class AnnotationOverlay(Overlay):
         for i, annotation in enumerate(annotations):
             tag = annotation.data["tag"]
             color_str = annotation.data["color"]
-            identity = annotation.data.get("identity", None)
+            identity = annotation.data.get("animal_id", None)
 
             text = tag if identity is None else f"{identity}: {tag}"
 
