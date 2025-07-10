@@ -6,9 +6,10 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
+from jabs.project import VideoLabels
 from jabs.video_reader import VideoReader
 
-from .frame_with_control_overlay import FrameWidgetWithControlOverlay
+from .frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -57,7 +58,7 @@ class PlayerWidget(QtWidgets.QWidget):
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
 
-    PoseOverlayMode = FrameWidgetWithControlOverlay.PoseOverlayMode
+    PoseOverlayMode = FrameWidgetWithInteractiveOverlays.PoseOverlayMode
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -89,7 +90,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidgetWithControlOverlay()
+        self._frame_widget = FrameWidgetWithInteractiveOverlays()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
@@ -232,12 +233,13 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText("")
         self._frame_widget.reset()
 
-    def load_video(self, path: Path, pose_est: PoseEstimation) -> None:
+    def load_video(self, path: Path, pose_est: PoseEstimation, video_labels: VideoLabels) -> None:
         """load a new video source
 
         Args:
             path: path to video file
             pose_est: pose file for this video
+            video_labels: video labels (behavior and interval annotations) for this video
         """
         # cleanup the old player thread if it exists
         self._cleanup_player_thread()
@@ -250,6 +252,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = pose_est
         self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
+        self._frame_widget.annotations = video_labels.interval_annotations
 
         self._player_thread = PlayerThread(
             self._video_stream,

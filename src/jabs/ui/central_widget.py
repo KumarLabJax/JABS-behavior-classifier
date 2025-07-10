@@ -286,7 +286,7 @@ class CentralWidget(QtWidgets.QWidget):
             )
 
             # load video into player
-            self._player_widget.load_video(path, self._pose_est)
+            self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # update ui components with properties of new video
             if self._pose_est.external_identities:

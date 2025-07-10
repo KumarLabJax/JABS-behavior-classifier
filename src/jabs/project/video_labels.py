@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from intervaltree import IntervalTree
+
 from jabs.pose_estimation import PoseEstimation
 
 from .track_labels import TrackLabels
@@ -28,6 +30,7 @@ class VideoLabels:
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
+        self._annotations: IntervalTree | None = None
 
     @property
     def filename(self):
@@ -38,6 +41,11 @@ class VideoLabels:
     def num_frames(self):
         """return number of frames in video this object represents"""
         return self._num_frames
+
+    @property
+    def interval_annotations(self) -> IntervalTree | None:
+        """return interval annotations for this video, if any"""
+        return self._annotations
 
     def get_track_labels(self, identity, behavior):
         """return a TrackLabels for an identity & behavior
@@ -126,7 +134,24 @@ class VideoLabels:
                         }
                     ]
                 }
-            }
+            },
+            annotations: [
+                {
+                    "start": 10,
+                    "end": 20,
+                    "tag": "annotationTag",
+                    "color": "#FF0000",
+                    "description": "Description for the annotation"
+                },
+                {
+                    "start": 30,
+                    "end": 40,
+                    "tag": "anotherTag",
+                    "color": "#00FF00",
+                    "description": "Another optional description",
+                    "identity": 0  # optional, if the annotation is associated with an identity
+                }
+            ]
         }
 
         """
@@ -156,6 +181,27 @@ class VideoLabels:
             for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
 
+        for annotation in self._annotations:
+            try:
+                annotation_data = {
+                    "start": annotation.begin,
+                    "end": annotation.end,
+                    "tag": annotation.data["tag"],
+                    "description": annotation.data["description"],
+                    "color": annotation.data["color"],
+                }
+            except KeyError as e:
+                print(f"Missing required annotation data: {e}")
+                continue
+
+            # optional fields
+            if "identity" in annotation.data:
+                annotation_data["identity"] = annotation.data["identity"]
+
+            if "annotations" not in label_dict:
+                label_dict["annotations"] = []
+            label_dict["annotations"].append(annotation_data)
+
         return label_dict
 
     @classmethod
@@ -172,6 +218,38 @@ class VideoLabels:
                     video_label_dict["num_frames"],
                     video_label_dict[key][identity][behavior],
                 )
+
+        # load non-behavior annotations if they exist
+        if "annotations" in video_label_dict:
+            labels._annotations = IntervalTree()
+            for annotation in video_label_dict["annotations"]:
+                start = annotation["start"]
+                end = annotation["end"]
+                tag = annotation["tag"]
+                color = annotation["color"]
+                description = annotation.get("description", "")
+                identity = annotation.get("animal_id", None)
+
+                # Create a data dict for the interval
+                data = {
+                    "tag": tag,
+                    "color": color,
+                    "description": description,
+                }
+                if identity is not None:
+                    if "external_identities" in video_label_dict:
+                        try:
+                            data["identity"] = video_label_dict["external_identities"][identity]
+                        except KeyError:
+                            print(
+                                f"Warning: Identity {identity} not found in external identities."
+                            )
+                            data["identity"] = identity
+                    else:
+                        data["identity"] = identity
+
+                # Create the interval and add it to the IntervalTree
+                labels._annotations[start:end] = data
 
         return labels
 

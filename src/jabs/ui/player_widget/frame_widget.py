@@ -5,11 +5,16 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
 from jabs.project import TrackLabels
-from jabs.ui.colors import BACKGROUND_COLOR, BEHAVIOR_COLOR, KEYPOINT_COLOR_MAP, NOT_BEHAVIOR_COLOR
+from jabs.ui.colors import (
+    ACTIVE_ID_COLOR,
+    BACKGROUND_COLOR,
+    BEHAVIOR_COLOR,
+    INACTIVE_ID_COLOR,
+    KEYPOINT_COLOR_MAP,
+    NOT_BEHAVIOR_COLOR,
+)
 from jabs.utils.pose_util import gen_line_fragments
 
-_ID_COLOR = QtGui.QColor(0, 222, 215)
-_ACTIVE_COLOR = QtGui.QColor(255, 0, 0)
 _BEHAVIOR_LABEL_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
 _FONT_SIZE = 16  # size of the font used for identity labels
 _BEHAVIOR_LABEL_SIZE = 10  # size of the behavior label square
@@ -51,8 +56,8 @@ class FrameWidget(QtWidgets.QLabel):
         self._scaled_pix_height = 0
         self._frame_number = 0
         self._active_identity = 0
-        self._pose = None
-        self._labels = None
+        self._pose: PoseEstimation | None = None
+        self._labels: list[np.ndarray] | None = None
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._overlay_identity = True
 
@@ -89,6 +94,31 @@ class FrameWidget(QtWidgets.QLabel):
         if self._overlay_identity != enabled:
             self._overlay_identity = enabled
             self.update()
+
+    @property
+    def scaled_pix_x(self):
+        """Get the scaled x-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_x
+
+    @property
+    def scaled_pix_y(self):
+        """Get the scaled y-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_y
+
+    @property
+    def scaled_pix_height(self):
+        """Get the scaled height of the pixmap in the widget."""
+        return self._scaled_pix_height
+
+    @property
+    def scaled_pix_width(self):
+        """Get the scaled width of the pixmap in the widget."""
+        return self._scaled_pix_width
+
+    @property
+    def frame_number(self) -> int:
+        """Get the current frame number."""
+        return self._frame_number
 
     def set_pose(self, pose: PoseEstimation) -> None:
         """Set the pose estimation for the frame widget.
@@ -199,6 +229,7 @@ class FrameWidget(QtWidgets.QLabel):
             size = self.size()
 
             painter = QtGui.QPainter(self)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
             point = QtCore.QPoint(0, 0)
 
             # scale the image to the current size of the widget.
@@ -258,7 +289,7 @@ class FrameWidget(QtWidgets.QLabel):
             if shape is not None:
                 center = shape.centroid
 
-                color = _ACTIVE_COLOR if identity == self._active_identity else _ID_COLOR
+                color = ACTIVE_ID_COLOR if identity == self._active_identity else INACTIVE_ID_COLOR
                 label = (
                     str(identity)
                     if not self._pose.external_identities
