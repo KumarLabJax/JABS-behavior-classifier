@@ -100,19 +100,17 @@ class MainControlWidget(QtWidgets.QWidget):
         behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(self._add_label_button)
-        behavior_layout.setContentsMargins(5, 5, 5, 5)
 
         # identity selection form layout
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
-        identity_layout.setContentsMargins(5, 5, 5, 5)
 
         # combine behavior and identity layouts into a single layout
         behavior_identity_layout = QtWidgets.QVBoxLayout()
         behavior_identity_layout.addLayout(behavior_layout)
         behavior_identity_layout.addLayout(identity_layout)
+        behavior_identity_layout.setSpacing(2)
         behavior_identity_layout.setContentsMargins(5, 5, 5, 5)
-
         behavior_identity_group = QtWidgets.QGroupBox("Behavior && Subject")
         behavior_identity_group.setLayout(behavior_identity_layout)
 
