@@ -16,7 +16,14 @@ from PySide6 import QtCore, QtWidgets
 
 from jabs.classifier import Classifier
 
-from .colors import BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
+from .colors import (
+    BEHAVIOR_BUTTON_COLOR_BRIGHT,
+    BEHAVIOR_BUTTON_DISABLED_COLOR,
+    BEHAVIOR_COLOR,
+    NOT_BEHAVIOR_BUTTON_DISABLED_COLOR,
+    NOT_BEHAVIOR_COLOR,
+    NOT_BEHAVIOR_COLOR_BRIGHT,
+)
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
 
@@ -89,21 +96,25 @@ class MainControlWidget(QtWidgets.QWidget):
         self._add_label_button.setEnabled(False)
         self._add_label_button.clicked.connect(self._new_label)
 
+        # behavior selection form layout
         behavior_layout = QtWidgets.QHBoxLayout()
         behavior_layout.addWidget(self.behavior_selection)
         behavior_layout.addWidget(self._add_label_button)
         behavior_layout.setContentsMargins(5, 5, 5, 5)
 
-        behavior_group = QtWidgets.QGroupBox("Behavior")
-        behavior_group.setLayout(behavior_layout)
-
-        # identity selection form components
-
+        # identity selection form layout
         identity_layout = QtWidgets.QVBoxLayout()
         identity_layout.addWidget(self.identity_selection)
         identity_layout.setContentsMargins(5, 5, 5, 5)
-        identity_group = QtWidgets.QGroupBox("Subject Identity")
-        identity_group.setLayout(identity_layout)
+
+        # combine behavior and identity layouts into a single layout
+        behavior_identity_layout = QtWidgets.QVBoxLayout()
+        behavior_identity_layout.addLayout(behavior_layout)
+        behavior_identity_layout.addLayout(identity_layout)
+        behavior_identity_layout.setContentsMargins(5, 5, 5, 5)
+
+        behavior_identity_group = QtWidgets.QGroupBox("Behavior && Subject")
+        behavior_identity_group.setLayout(behavior_identity_layout)
 
         # classifier controls
         #  buttons
@@ -179,17 +190,17 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                           stop: 0 rgb(255, 195, 77),
+                                           stop: 0 rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()},
                                            stop: 1.0 rgba{BEHAVIOR_COLOR.getRgb()});
                         border-radius: 4px;
                         padding: 2px;
                         color: white;
                     }}
                     QPushButton:pressed {{
-                        background-color: rgb(255, 195, 77);
+                        background-color: rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()};
                     }}
                     QPushButton:disabled {{
-                        background-color: rgb(229, 143, 0);
+                        background-color: rgba{BEHAVIOR_BUTTON_DISABLED_COLOR.getRgb()};
                         color: grey;
                     }}
                 """)
@@ -200,17 +211,17 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_not_behavior_button.setStyleSheet(f"""
                     QPushButton {{
                         background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                           stop: 0 rgb(50, 119, 234),
+                                           stop: 0 rgba{NOT_BEHAVIOR_COLOR_BRIGHT.getRgb()},
                                            stop: 1.0 rgba{NOT_BEHAVIOR_COLOR.getRgb()});
                         border-radius: 4px;
                         padding: 2px;
                         color: white;
                     }}
                     QPushButton:pressed {{
-                        background-color: rgb(50, 119, 234);
+                        background-color: rgba{NOT_BEHAVIOR_COLOR_BRIGHT.getRgb()};
                     }}
                     QPushButton:disabled {{
-                        background-color: rgb(0, 77, 206);
+                        background-color: rgba{NOT_BEHAVIOR_BUTTON_DISABLED_COLOR.getRgb()};
                         color: grey;
                     }}
                 """)
@@ -249,8 +260,7 @@ class MainControlWidget(QtWidgets.QWidget):
             control_layout.setSpacing(20)
         else:
             control_layout.setSpacing(10)
-        control_layout.addWidget(behavior_group)
-        control_layout.addWidget(identity_group)
+        control_layout.addWidget(behavior_identity_group)
         control_layout.addWidget(classifier_group)
         control_layout.addWidget(label_count_group)
         control_layout.addStretch()
