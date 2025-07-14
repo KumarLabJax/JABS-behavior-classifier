@@ -195,12 +195,12 @@ class PlayerWidget(QtWidgets.QWidget):
     @property
     def overlay_identity(self) -> bool:
         """return the current overlay identity state from the frame widget"""
-        return self._frame_widget.overlay_identity
+        return self._frame_widget.overlay_identity_enabled
 
     @overlay_identity.setter
     def overlay_identity(self, enabled: bool) -> None:
         """set the overlay identity in the frame widget"""
-        self._frame_widget.overlay_identity = enabled
+        self._frame_widget.overlay_identity_enabled = enabled
 
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""

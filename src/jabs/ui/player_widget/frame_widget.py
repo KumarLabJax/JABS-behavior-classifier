@@ -59,7 +59,7 @@ class FrameWidget(QtWidgets.QLabel):
         self._pose: PoseEstimation | None = None
         self._labels: list[np.ndarray] | None = None
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
-        self._overlay_identity = True
+        self._overlay_identity_enabled = True
 
         self.setMinimumSize(400, 400)
 
@@ -80,45 +80,20 @@ class FrameWidget(QtWidgets.QLabel):
             self.update()
 
     @property
-    def overlay_identity(self) -> bool:
+    def overlay_identity_enabled(self) -> bool:
         """Get whether the identity overlay is enabled."""
-        return self._overlay_identity
+        return self._overlay_identity_enabled
 
-    @overlay_identity.setter
-    def overlay_identity(self, enabled: bool) -> None:
+    @overlay_identity_enabled.setter
+    def overlay_identity_enabled(self, enabled: bool) -> None:
         """Set whether the identity overlay is enabled.
 
         Args:
             enabled (bool): True to enable identity overlay, False to disable.
         """
-        if self._overlay_identity != enabled:
-            self._overlay_identity = enabled
+        if self._overlay_identity_enabled != enabled:
+            self._overlay_identity_enabled = enabled
             self.update()
-
-    @property
-    def scaled_pix_x(self):
-        """Get the scaled x-coordinate of the pixmap in the widget."""
-        return self._scaled_pix_x
-
-    @property
-    def scaled_pix_y(self):
-        """Get the scaled y-coordinate of the pixmap in the widget."""
-        return self._scaled_pix_y
-
-    @property
-    def scaled_pix_height(self):
-        """Get the scaled height of the pixmap in the widget."""
-        return self._scaled_pix_height
-
-    @property
-    def scaled_pix_width(self):
-        """Get the scaled width of the pixmap in the widget."""
-        return self._scaled_pix_width
-
-    @property
-    def frame_number(self) -> int:
-        """Get the current frame number."""
-        return self._frame_number
 
     def convert_identity_to_external(self, identity: int) -> int:
         """Convert an internal identity index to an external identity index.
@@ -192,7 +167,7 @@ class FrameWidget(QtWidgets.QLabel):
 
         return x, y
 
-    def _image_to_widget_coords(self, pix_x: int, pix_y: int) -> tuple[int, int]:
+    def image_to_widget_coords(self, pix_x: int, pix_y: int) -> tuple[int, int]:
         """Convert true image coordinates to FrameWidget (QLabel) coordinates
 
         Accounts for scaling and centering to fit image in FrameWidget.
@@ -273,7 +248,7 @@ class FrameWidget(QtWidgets.QLabel):
             elif self._pose_overlay_mode == self.PoseOverlayMode.ACTIVE_IDENTITY:
                 self._overlay_pose(painter, all_identities=False)
 
-            if self._overlay_identity:
+            if self._overlay_identity_enabled:
                 self._overlay_identities(painter)
 
         else:
@@ -307,7 +282,7 @@ class FrameWidget(QtWidgets.QLabel):
                 label_text = str(self.convert_identity_to_external(identity))
 
                 # Convert image coordinates to widget coordinates and draw the label
-                widget_x, widget_y = self._image_to_widget_coords(center.x, center.y)
+                widget_x, widget_y = self.image_to_widget_coords(center.x, center.y)
                 painter.setPen(color)
                 painter.drawText(widget_x, widget_y, label_text)
 
@@ -372,7 +347,7 @@ class FrameWidget(QtWidgets.QLabel):
             painter.setPen(pen)
 
             for seg in gen_line_fragments(np.flatnonzero(mask == 0)):
-                segment_points = [self._image_to_widget_coords(p[0], p[1]) for p in points[seg]]
+                segment_points = [self.image_to_widget_coords(p[0], p[1]) for p in points[seg]]
 
                 # draw lines
                 if len(segment_points) >= 2:
@@ -389,7 +364,7 @@ class FrameWidget(QtWidgets.QLabel):
             for keypoint in PoseEstimation.KeypointIndex:
                 point_index = keypoint.value
                 if mask[point_index]:
-                    widget_x, widget_y = self._image_to_widget_coords(
+                    widget_x, widget_y = self.image_to_widget_coords(
                         points[point_index][0], points[point_index][1]
                     )
 

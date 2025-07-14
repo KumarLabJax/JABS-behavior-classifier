@@ -1,5 +1,6 @@
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui
+from shapely.geometry import Point
 
 from .frame_widget import FrameWidget
 from .overlays.annotation_overlay import AnnotationOverlay
@@ -10,17 +11,19 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
     """
     A `FrameWidget` subclass that adds an interactive overlays.
 
-    This widget displays a number of interactive overlays on top of the video frame, incuding
+    This widget displays a number of interactive overlays on top of the video frame, including
      * a controls overlay, which is displayed when the mouse is over the frame pixmap area.
      * an overlay for displaying timeline annotations for the current frame.
 
-    Currently, the controls overlay has one control: playback speed adjustment.
-    This control consists of a badge that shows the current playback speed
-    and allows the user to change the speed via a popup menu. The overlay
-    and menu are only visible when the mouse is over the displayed pixmap area.
-
     Signals:
         playback_speed_changed (float): Emitted when the playback speed is changed by the user.
+
+    Implements some additional properties and methods so that overlays can access
+    information from the frame widget.
+
+    Todo:
+        - Merge FrameWidget and FrameWidgetWithInteractiveOverlays into a single class, and
+          implement the identity and pose overlays as Overlay subclasses.
     """
 
     playback_speed_changed = QtCore.Signal(float)
@@ -35,6 +38,48 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self.overlays = [self._control_overlay, AnnotationOverlay(self)]
+
+    @property
+    def scaled_pix_x(self):
+        """Get the scaled x-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_x
+
+    @property
+    def scaled_pix_y(self):
+        """Get the scaled y-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_y
+
+    @property
+    def scaled_pix_height(self):
+        """Get the scaled height of the pixmap in the widget."""
+        return self._scaled_pix_height
+
+    @property
+    def scaled_pix_width(self):
+        """Get the scaled width of the pixmap in the widget."""
+        return self._scaled_pix_width
+
+    @property
+    def frame_number(self) -> int:
+        """Get the current frame number."""
+        return self._frame_number
+
+    def get_centroid(self, identity: int) -> Point | None:
+        """Get the centroid of the given identity in the current frame.
+
+        Args:
+            identity (int): The identity index to get the centroid for.
+
+        Returns:
+            tuple[float, float]: The (x, y) coordinates of the centroid or
+                None if there is no convex hull for the identity in the current frame.
+        """
+        convex_hull = self._pose.get_identity_convex_hulls(identity)[self._frame_number]
+
+        if convex_hull is None:
+            return None
+
+        return convex_hull.centroid
 
     @property
     def playback_speed(self) -> float:
