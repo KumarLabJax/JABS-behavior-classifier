@@ -150,7 +150,7 @@ class VideoLabels:
                     "tag": "anotherTag",
                     "color": "#00FF00",
                     "description": "Another optional description",
-                    "identity": 0  # optional, if the annotation is associated with an identity
+                    "animal_id": 0  # optional, if the annotation is associated with an identity (internal JABS ID)
                 }
             ]
         }
