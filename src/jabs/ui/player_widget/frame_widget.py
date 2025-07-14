@@ -120,6 +120,20 @@ class FrameWidget(QtWidgets.QLabel):
         """Get the current frame number."""
         return self._frame_number
 
+    def convert_identity_to_external(self, identity: int) -> int:
+        """Convert an internal identity index to an external identity index.
+
+        This is useful when the pose estimation uses external identities so that we can display
+        the external identity instead of the internal jabs identity index.
+        """
+        if self._pose and self._pose.external_identities:
+            try:
+                return self._pose.external_identities[identity]
+            except IndexError:
+                # If the identity is not found in external identities, fall through to return the original identity
+                pass
+        return identity
+
     def set_pose(self, pose: PoseEstimation) -> None:
         """Set the pose estimation for the frame widget.
 
@@ -290,15 +304,12 @@ class FrameWidget(QtWidgets.QLabel):
                 center = shape.centroid
 
                 color = ACTIVE_ID_COLOR if identity == self._active_identity else INACTIVE_ID_COLOR
-                label = (
-                    str(identity)
-                    if not self._pose.external_identities
-                    else str(self._pose.external_identities[identity])
-                )
+                label_text = str(self.convert_identity_to_external(identity))
+
                 # Convert image coordinates to widget coordinates and draw the label
                 widget_x, widget_y = self._image_to_widget_coords(center.x, center.y)
                 painter.setPen(color)
-                painter.drawText(widget_x, widget_y, label)
+                painter.drawText(widget_x, widget_y, label_text)
 
                 # also add an overlay with a behavior label if available
                 # (source of label can be manual label or model prediction)

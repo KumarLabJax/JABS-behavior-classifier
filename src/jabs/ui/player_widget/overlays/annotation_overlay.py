@@ -64,6 +64,9 @@ class AnnotationOverlay(Overlay):
             color_str = annotation.data["color"]
             identity = annotation.data.get("animal_id", None)
 
+            if identity is not None:
+                identity = self.parent.convert_identity_to_external(identity)
+
             text = tag if identity is None else f"{identity}: {tag}"
 
             text_width = self._font_metrics.horizontalAdvance(text)
