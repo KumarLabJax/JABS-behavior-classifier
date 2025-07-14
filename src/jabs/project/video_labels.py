@@ -238,9 +238,9 @@ class VideoLabels:
                     continue
                 else:
                     # validate the tag format:
-                    if len(tag) > 32:
+                    if 1 > len(tag) > 32:
                         print(
-                            f"Annotation tag must be 32 characters or less, skipping annotation: \n\t{annotation}",
+                            f"Annotation tag must be 1 to 32 characters in length, skipping annotation: \n\t{annotation}",
                             file=sys.stderr,
                         )
                         continue
