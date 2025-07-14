@@ -1,3 +1,4 @@
+import sys
 from typing import TYPE_CHECKING
 
 from intervaltree import IntervalTree
@@ -223,10 +224,34 @@ class VideoLabels:
         if "annotations" in video_label_dict:
             labels._annotations = IntervalTree()
             for annotation in video_label_dict["annotations"]:
-                start = annotation["start"]
-                end = annotation["end"]
-                tag = annotation["tag"]
-                color = annotation["color"]
+                try:
+                    start = annotation["start"]
+                    end = annotation["end"]
+                    tag = annotation["tag"]
+                    color = annotation["color"]
+                except KeyError:
+                    print(
+                        "Missing required annotation fields, skipping annotation:",
+                        annotation,
+                        file=sys.stderr,
+                    )
+                    continue
+                else:
+                    # validate the tag format:
+                    if len(tag) > 32:
+                        print(
+                            f"Annotation tag must be 32 characters or less, skipping annotation: \n\t{annotation}",
+                            file=sys.stderr,
+                        )
+                        continue
+                    # only allow alphanumeric characters, underscores, and hyphens
+                    if not all(c.isalnum() or c in "_-" for c in tag):
+                        print(
+                            f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
+                            file=sys.stderr,
+                        )
+                        continue
+
                 description = annotation.get("description", "")
                 animal_id = annotation.get("animal_id", None)
 

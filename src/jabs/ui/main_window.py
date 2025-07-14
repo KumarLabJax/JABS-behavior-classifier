@@ -215,6 +215,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._label_overlay_labels.triggered.connect(self._on_label_overlay_mode_changed)
         self._label_overlay_preds.triggered.connect(self._on_label_overlay_mode_changed)
 
+        overlay_annotations = QtGui.QAction("Overlay Annotations", self)
+        overlay_annotations.setCheckable(True)
+        overlay_annotations.setChecked(self._central_widget.overlay_annotations_enabled)
+        overlay_annotations.triggered.connect(
+            lambda checked: setattr(self._central_widget, "overlay_annotations_enabled", checked)
+        )
+        view_menu.addAction(overlay_annotations)
+
         self.show_track = QtGui.QAction("Show Track", self)
         self.show_track.setCheckable(True)
         self.show_track.triggered.connect(self._toggle_track)
@@ -228,7 +236,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._overlay_id = QtGui.QAction("Overlay Identity", self)
         self._overlay_id.setShortcut(QtGui.QKeySequence("Ctrl+I"))
         self._overlay_id.setCheckable(True)
-        self._overlay_id.setChecked(self._central_widget.overlay_identity)
+        self._overlay_id.setChecked(self._central_widget.overlay_identity_enabled)
         self._overlay_id.triggered.connect(self._toggle_id_overlay)
         view_menu.addAction(self._overlay_id)
 
@@ -514,7 +522,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_id_overlay(self, checked: bool) -> None:
         """show/hide identity overlay for subject."""
-        self._central_widget.overlay_identity = checked
+        self._central_widget.overlay_identity_enabled = checked
 
     def _toggle_landmark_overlay(self, checked: bool) -> None:
         """show/hide landmark features."""

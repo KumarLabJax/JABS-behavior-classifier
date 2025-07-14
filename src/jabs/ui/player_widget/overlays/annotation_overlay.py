@@ -36,6 +36,9 @@ class AnnotationOverlay(Overlay):
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints annotation tags for intervals overlapping the current frame."""
+        if not self.parent.overlay_annotations_enabled:
+            return
+
         self._rects_with_data.clear()
 
         if self.parent.pixmap() is None or self.parent.pixmap().isNull():

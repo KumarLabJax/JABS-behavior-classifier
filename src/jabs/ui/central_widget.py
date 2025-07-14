@@ -142,14 +142,24 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.update_search(search_query)
 
     @property
-    def overlay_identity(self) -> bool:
+    def overlay_identity_enabled(self) -> bool:
         """get the identity overlay enabled status from player widget."""
-        return self._player_widget.overlay_identity
+        return self._player_widget.overlay_identity_enabled
 
-    @overlay_identity.setter
-    def overlay_identity(self, new_val: bool) -> None:
+    @overlay_identity_enabled.setter
+    def overlay_identity_enabled(self, enabled: bool) -> None:
         """Set the identity overlay enabled status on the player widget."""
-        self._player_widget.overlay_identity = new_val
+        self._player_widget.overlay_identity_enabled = enabled
+
+    @property
+    def overlay_annotations_enabled(self) -> bool:
+        """get the annotation overlay enabled status from player widget."""
+        return self._player_widget.overlay_annotations_enabled
+
+    @overlay_annotations_enabled.setter
+    def overlay_annotations_enabled(self, enabled: bool) -> None:
+        """Set the annotation overlay enabled status on the player widget."""
+        self._player_widget.overlay_annotations_enabled = enabled
 
     @property
     def behavior(self) -> str:

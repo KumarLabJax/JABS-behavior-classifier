@@ -33,11 +33,24 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         self.setMouseTracking(True)
 
         self._annotations: IntervalTree | None = None
+        self._overlay_annotations_enabled = True
 
         # initialize overlays
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self.overlays = [self._control_overlay, AnnotationOverlay(self)]
+
+    @property
+    def overlay_annotations_enabled(self) -> bool:
+        """Get whether the annotation overlay is enabled."""
+        return self._overlay_annotations_enabled
+
+    @overlay_annotations_enabled.setter
+    def overlay_annotations_enabled(self, enabled: bool) -> None:
+        """Set whether the annotation overlay is enabled."""
+        if self._overlay_annotations_enabled != enabled:
+            self._overlay_annotations_enabled = enabled
+            self.update()
 
     @property
     def scaled_pix_x(self):
@@ -64,6 +77,21 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         """Get the current frame number."""
         return self._frame_number
 
+    @property
+    def playback_speed(self) -> float:
+        """Returns the current playback speed set by the control overlay."""
+        return self._control_overlay.playback_speed
+
+    @property
+    def annotations(self) -> IntervalTree | None:
+        """Returns the interval annotations for the annotation overlay."""
+        return self._annotations
+
+    @annotations.setter
+    def annotations(self, value: IntervalTree | None) -> None:
+        """Sets the interval annotations for the annotation overlay."""
+        self._annotations = value
+
     def get_centroid(self, identity: int) -> Point | None:
         """Get the centroid of the given identity in the current frame.
 
@@ -80,21 +108,6 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
             return None
 
         return convex_hull.centroid
-
-    @property
-    def playback_speed(self) -> float:
-        """Returns the current playback speed set by the control overlay."""
-        return self._control_overlay.playback_speed
-
-    @property
-    def annotations(self) -> IntervalTree | None:
-        """Returns the interval annotations for the annotation overlay."""
-        return self._annotations
-
-    @annotations.setter
-    def annotations(self, value: IntervalTree | None) -> None:
-        """Sets the interval annotations for the annotation overlay."""
-        self._annotations = value
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         """Handles the paint event for the widget and draws all overlays.

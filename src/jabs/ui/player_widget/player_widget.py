@@ -73,10 +73,9 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
 
-        # properties to control video overlays
+        # properties to control video overlays managed by PlayerThread
         self._label_closest = False
         self._show_track = False
-        self._overlay_pose = False
         self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
@@ -193,14 +192,24 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.pose_overlay_mode = mode
 
     @property
-    def overlay_identity(self) -> bool:
+    def overlay_identity_enabled(self) -> bool:
         """return the current overlay identity state from the frame widget"""
         return self._frame_widget.overlay_identity_enabled
 
-    @overlay_identity.setter
-    def overlay_identity(self, enabled: bool) -> None:
+    @overlay_identity_enabled.setter
+    def overlay_identity_enabled(self, enabled: bool) -> None:
         """set the overlay identity in the frame widget"""
         self._frame_widget.overlay_identity_enabled = enabled
+
+    @property
+    def overlay_annotations_enabled(self) -> bool:
+        """return the current overlay annotations state from the frame widget"""
+        return self._frame_widget.overlay_annotations_enabled
+
+    @overlay_annotations_enabled.setter
+    def overlay_annotations_enabled(self, enabled: bool) -> None:
+        """set the overlay annotations in the frame widget"""
+        self._frame_widget.overlay_annotations_enabled = enabled
 
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
@@ -372,14 +381,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._set_overlay_attr(
             "_show_track",
             self._player_thread.setShowTrack if self._player_thread else None,
-            enabled,
-        )
-
-    def overlay_pose(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_pose",
-            self._player_thread.setOverlayPose if self._player_thread else None,
             enabled,
         )
 
