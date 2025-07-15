@@ -1,4 +1,7 @@
+import sys
 from typing import TYPE_CHECKING
+
+from intervaltree import IntervalTree
 
 from jabs.pose_estimation import PoseEstimation
 
@@ -6,6 +9,9 @@ from .track_labels import TrackLabels
 
 if TYPE_CHECKING:
     from .project_merge import MergeStrategy
+
+
+MAX_TAG_LEN = 32
 
 
 class VideoLabels:
@@ -28,6 +34,7 @@ class VideoLabels:
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
+        self._annotations: IntervalTree | None = None
 
     @property
     def filename(self):
@@ -38,6 +45,11 @@ class VideoLabels:
     def num_frames(self):
         """return number of frames in video this object represents"""
         return self._num_frames
+
+    @property
+    def interval_annotations(self) -> IntervalTree | None:
+        """return interval annotations for this video, if any"""
+        return self._annotations
 
     def get_track_labels(self, identity, behavior):
         """return a TrackLabels for an identity & behavior
@@ -126,7 +138,24 @@ class VideoLabels:
                         }
                     ]
                 }
-            }
+            },
+            annotations: [
+                {
+                    "start": 10,
+                    "end": 20,
+                    "tag": "annotationTag",
+                    "color": "#FF0000",
+                    "description": "Description for the annotation"
+                },
+                {
+                    "start": 30,
+                    "end": 40,
+                    "tag": "anotherTag",
+                    "color": "#00FF00",
+                    "description": "Another optional description",
+                    "animal_id": 0  # optional, if the annotation is associated with an identity (internal JABS ID)
+                }
+            ]
         }
 
         """
@@ -156,6 +185,27 @@ class VideoLabels:
             for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
 
+        for annotation in self._annotations:
+            try:
+                annotation_data = {
+                    "start": annotation.begin,
+                    "end": annotation.end,
+                    "tag": annotation.data["tag"],
+                    "description": annotation.data["description"],
+                    "color": annotation.data["color"],
+                }
+            except KeyError as e:
+                print(f"Missing required annotation data: {e}")
+                continue
+
+            # optional fields
+            if "animal_id" in annotation.data:
+                annotation_data["animal_id"] = annotation.data["animal_id"]
+
+            if "annotations" not in label_dict:
+                label_dict["annotations"] = []
+            label_dict["annotations"].append(annotation_data)
+
         return label_dict
 
     @classmethod
@@ -172,6 +222,53 @@ class VideoLabels:
                     video_label_dict["num_frames"],
                     video_label_dict[key][identity][behavior],
                 )
+
+        # load non-behavior annotations if they exist
+        if "annotations" in video_label_dict:
+            labels._annotations = IntervalTree()
+            for annotation in video_label_dict["annotations"]:
+                try:
+                    start = annotation["start"]
+                    end = annotation["end"]
+                    tag = annotation["tag"]
+                    color = annotation["color"]
+                except KeyError:
+                    print(
+                        "Missing required annotation fields, skipping annotation:",
+                        annotation,
+                        file=sys.stderr,
+                    )
+                    continue
+
+                # validate the tag format:
+                if 1 > len(tag) > MAX_TAG_LEN:
+                    print(
+                        f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
+                        file=sys.stderr,
+                    )
+                    continue
+                # only allow alphanumeric characters, underscores, and hyphens
+                if not all(c.isalnum() or c in "_-" for c in tag):
+                    print(
+                        f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                description = annotation.get("description", "")
+                animal_id = annotation.get("animal_id", None)
+
+                # Create a data dict for the interval
+                data = {
+                    "tag": tag,
+                    "color": color,
+                    "description": description,
+                }
+                if animal_id is not None:
+                    data["animal_id"] = animal_id
+
+                # Create the interval and add it to the IntervalTree
+                labels._annotations[start : end + 1] = data
 
         return labels
 

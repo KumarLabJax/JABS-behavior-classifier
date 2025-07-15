@@ -41,11 +41,7 @@ class ClosestIdentityInfo:
             # identity has a valid nose point and base neck point (which is
             # used to calculate FoV).
             self_shape = poses.get_identity_convex_hulls(identity)[frame]
-            if (
-                self_shape is not None
-                and mask[idx.NOSE] == 1
-                and mask[idx.BASE_NECK] == 1
-            ):
+            if self_shape is not None and mask[idx.NOSE] == 1 and mask[idx.BASE_NECK] == 1:
                 closest_dist = None
                 closest_fov_dist = None
                 for curr_id in poses.identities:
@@ -61,8 +57,7 @@ class ClosestIdentityInfo:
                             self_base_neck_point = points[idx.BASE_NECK, :]
                             self_nose_point = points[idx.NOSE, :]
                             other_centroid = (
-                                np.array(other_shape.centroid.xy).squeeze()
-                                * self._pixel_scale
+                                np.array(other_shape.centroid.xy).squeeze() * self._pixel_scale
                             )
 
                             view_angle = self.compute_angle(
@@ -124,9 +119,7 @@ class ClosestIdentityInfo:
         self_convex_hulls = self._poses.get_identity_convex_hulls(self._identity)
 
         for frame in range(self._poses.num_frames):
-            points, mask = self._poses.get_points(
-                frame, self._identity, self._pixel_scale
-            )
+            points, mask = self._poses.get_points(frame, self._identity, self._pixel_scale)
 
             if points is None:
                 continue
@@ -164,16 +157,13 @@ class ClosestIdentityInfo:
         social_pt_indexes = [idx.value for idx in social_points]
 
         for frame in range(self._poses.num_frames):
-            points, mask = self._poses.get_points(
-                frame, self._identity, self._pixel_scale
-            )
+            closest_id = int(closest_identities[frame])
+            points, mask = self._poses.get_points(frame, self._identity, self._pixel_scale)
 
-            if points is None or closest_identities[frame] == -1:
+            if points is None or closest_id == -1:
                 continue
 
-            closest_points, _ = self._poses.get_points(
-                frame, closest_identities[frame], self._pixel_scale
-            )
+            closest_points, _ = self._poses.get_points(frame, closest_id, self._pixel_scale)
 
             values[frame] = self._compute_social_pairwise_distance(
                 points[social_pt_indexes, ...], closest_points[social_pt_indexes, ...]
