@@ -236,21 +236,21 @@ class VideoLabels:
                         file=sys.stderr,
                     )
                     continue
-                else:
-                    # validate the tag format:
-                    if 1 > len(tag) > 32:
-                        print(
-                            f"Annotation tag must be 1 to 32 characters in length, skipping annotation: \n\t{annotation}",
-                            file=sys.stderr,
-                        )
-                        continue
-                    # only allow alphanumeric characters, underscores, and hyphens
-                    if not all(c.isalnum() or c in "_-" for c in tag):
-                        print(
-                            f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
-                            file=sys.stderr,
-                        )
-                        continue
+
+                # validate the tag format:
+                if 1 > len(tag) > 32:
+                    print(
+                        f"Annotation tag must be 1 to 32 characters in length, skipping annotation: \n\t{annotation}",
+                        file=sys.stderr,
+                    )
+                    continue
+                # only allow alphanumeric characters, underscores, and hyphens
+                if not all(c.isalnum() or c in "_-" for c in tag):
+                    print(
+                        f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
+                        file=sys.stderr,
+                    )
+                    continue
 
                 description = annotation.get("description", "")
                 animal_id = annotation.get("animal_id", None)
@@ -265,7 +265,7 @@ class VideoLabels:
                     data["animal_id"] = animal_id
 
                 # Create the interval and add it to the IntervalTree
-                labels._annotations[start:end] = data
+                labels._annotations[start : end + 1] = data
 
         return labels
 
