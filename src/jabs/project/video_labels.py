@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from .project_merge import MergeStrategy
 
 
+MAX_TAG_LEN = 32
+
+
 class VideoLabels:
     """Stores and manages frame-level behavior labels for each identity in a video.
 
@@ -238,9 +241,9 @@ class VideoLabels:
                     continue
 
                 # validate the tag format:
-                if 1 > len(tag) > 32:
+                if 1 > len(tag) > MAX_TAG_LEN:
                     print(
-                        f"Annotation tag must be 1 to 32 characters in length, skipping annotation: \n\t{annotation}",
+                        f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
                         file=sys.stderr,
                     )
                     continue
