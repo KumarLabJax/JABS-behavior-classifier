@@ -479,7 +479,7 @@ class Project:
                 labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
 
                 # because we're allowing the user to label frames where the identity drops out,
-                # we need to mask out labels where the identity does not exist
+                # we need to exclude labels where the identity does not exist
                 # copy labels array to avoid side effect
                 labels = labels.copy()
                 labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE

@@ -209,6 +209,8 @@ class Classifier:
 
         Returns:
             int of the maximum number of cross validation to use
+
+        Note: labels excludes label for frames with no identity.
         """
         unique_groups = np.unique(groups)
         count_behavior = [
