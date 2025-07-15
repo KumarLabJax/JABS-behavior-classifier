@@ -63,20 +63,27 @@ class AnnotationOverlay(Overlay):
             else:
                 non_animal_annots.append(annotation)
 
+        # Get the frame boundaries in widget coordinates
+        frame_left = self.parent.scaled_pix_x
+        frame_top = self.parent.scaled_pix_y
+        frame_right = frame_left + self.parent.scaled_pix_width
+
         # Draw animal annotations (stacked per identity)
         for identity, animal_annotations in animal_annots.items():
+            # get all annotations for this identity
             animal_annotations = sorted(
                 animal_annotations, key=lambda a: a.data["tag"], reverse=True
             )
 
+            # if there is a centroid for this identity, draw the annotations connected to the centroid in the video frame
+            # otherwise, we will draw them in the upper left corner
             centroid = self.parent.get_centroid(identity)
             if centroid is not None:
                 widget_x, widget_y = self.parent.image_to_widget_coords(centroid.x, centroid.y)
-                frame_left = self.parent.scaled_pix_x
-                frame_top = self.parent.scaled_pix_y
-                frame_right = frame_left + self.parent.scaled_pix_width
 
+                # generate the rectangles for each annotation
                 rects = []
+                n_annotations = len(animal_annotations)
                 for idx, annotation in enumerate(animal_annotations):
                     text = annotation.data["tag"]
                     color_str = annotation.data["color"]
@@ -87,7 +94,12 @@ class AnnotationOverlay(Overlay):
 
                     # Default: center above centroid, stack vertically
                     x = widget_x - rect_width / 2
-                    y = widget_y - rect_height - self._ANNOTATION_OFFSET - idx * (rect_height + 2)
+                    y = (
+                        widget_y
+                        - rect_height
+                        - self._ANNOTATION_OFFSET
+                        - idx * (rect_height + self._SPACING)
+                    )
 
                     # Adjust horizontally if out of bounds
                     if x < frame_left:
@@ -96,16 +108,13 @@ class AnnotationOverlay(Overlay):
                         x = frame_right - rect_width
 
                     # Adjust vertically if out of bounds (above frame)
+                    # unlike when drawing above, the lower annotation index will be closer to the centroid
                     if y < frame_top:
                         y = (
                             widget_y
                             + self._ANNOTATION_OFFSET
-                            + idx * (rect_height + self._SPACING)
+                            + (n_annotations - 1 - idx) * (rect_height + self._SPACING)
                         )
-                        if x < frame_left:
-                            x = frame_left
-                        elif x + rect_width > frame_right:
-                            x = frame_right - rect_width
 
                     rects.append((x, y, rect_width, rect_height, annotation, text, color_str))
 
@@ -113,6 +122,7 @@ class AnnotationOverlay(Overlay):
                 closest_rect = min(rects, key=lambda r: abs((r[1] + r[3] / 2) - widget_y))
 
                 # Draw the line from this rect to the centroid
+                # Note: if the annotations get split with some above and some below, this will only draw the line to one group
                 line_x = int(closest_rect[0] + closest_rect[2] / 2)
                 if closest_rect[1] + closest_rect[3] / 2 < widget_y:
                     # Above centroid: line from bottom center
