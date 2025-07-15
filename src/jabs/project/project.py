@@ -560,7 +560,14 @@ class Project:
 
         if path.exists():
             with path.open() as f:
-                labels = json.load(f).get("labels")
+                data = json.load(f)
+                if "unfragmented_labels" in data:
+                    # for newer projects that use unfragmented labels
+                    labels = data["unfragmented_labels"]
+                else:
+                    # for backwards compatibility with old projects
+                    labels = data.get("labels")
+
                 for identity in labels:
                     blocks = labels[identity].get(behavior, [])
                     frames_behavior = 0
