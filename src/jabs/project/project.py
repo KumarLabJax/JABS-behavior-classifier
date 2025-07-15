@@ -383,8 +383,10 @@ class Project:
             dict where keys are video names and values are lists of
                 (
                     identity,
-                    (behavior frame count, not behavior frame count),
-                    (behavior bout count, not behavior bout count)
+                    (behavior frame count - fragmented, not behavior frame count - fragmented),
+                    (behavior bout count - fragmented, not behavior bout count - fragmented),
+                    (behavior frame count - unfragmented, not behavior frame count - unfragmented),
+                    (behavior bout count - unfragmented, not behavior bout count - unfragmented)
                 )
         """
         counts = {}
@@ -542,7 +544,7 @@ class Project:
             return False
         return True
 
-    def read_counts(self, video, behavior):
+    def read_counts(self, video, behavior) -> list[tuple]:
         """read labeled frame and bout counts from json file
 
         Returns:
@@ -550,10 +552,37 @@ class Project:
             the specified behavior. Each element in the list is a tuple of the form
             (
                 identity,
-                (behavior frame count, not behavior frame count)
-                (behavior bout count, not behavior bout count)
+                (fragmented behavior frame count, fragmented not behavior frame count),
+                (fragmented behavior bout count, fragmented not behavior bout count),
+                (unfragmented behavior frame count, unfragmented not behavior frame count)
+                (unfragmented behavior bout count, unfragmented not behavior bout count)
             )
+
+        Note: "unfragmented" counts labels where identity drops out. "fragmented" does not,
+            so if an identity drops out during a bout, the bout will be split in the fragmented counts but will
+            be counted as a single bout in the unfragmented counts.
+
+        Todo:
+            - with the addition of unfragmented counts, we should switch to a dict with descriptive key names instead of a tuple
         """
+
+        def count_labels(
+            behavior_labels: dict[str, list[dict]],
+        ) -> tuple[tuple[int, int], tuple[int, int]]:
+            blocks = behavior_labels.get(behavior, [])
+            frames_behavior = 0
+            frames_not_behavior = 0
+            bouts_behavior = 0
+            bouts_not_behavior = 0
+            for b in blocks:
+                if b["present"]:
+                    bouts_behavior += 1
+                    frames_behavior += b["end"] - b["start"] + 1
+                else:
+                    bouts_not_behavior += 1
+                    frames_not_behavior += b["end"] - b["start"] + 1
+            return (frames_behavior, frames_not_behavior), (bouts_behavior, bouts_not_behavior)
+
         video_filename = Path(video).name
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
         counts = []
@@ -561,32 +590,28 @@ class Project:
         if path.exists():
             with path.open() as f:
                 data = json.load(f)
-                if "unfragmented_labels" in data:
-                    # for newer projects that use unfragmented labels
-                    labels = data["unfragmented_labels"]
-                else:
-                    # for backwards compatibility with old projects
-                    labels = data.get("labels")
+                unfragmented_labels = data.get("unfragmented_labels", {})
+                labels = data.get("labels", {})
 
-                for identity in labels:
-                    blocks = labels[identity].get(behavior, [])
-                    frames_behavior = 0
-                    frames_not_behavior = 0
-                    bouts_behavior = 0
-                    bouts_not_behavior = 0
-                    for b in blocks:
-                        if b["present"]:
-                            bouts_behavior += 1
-                            frames_behavior += b["end"] - b["start"] + 1
-                        else:
-                            bouts_not_behavior += 1
-                            frames_not_behavior += b["end"] - b["start"] + 1
+                for identity in set(unfragmented_labels.keys()).union(labels.keys()):
+                    fragmented_counts = (
+                        count_labels(labels.get(identity, [])) if labels else ((0, 0), (0, 0))
+                    )
+
+                    if "unfragmented_labels" in data:
+                        unfragmented_counts = count_labels(unfragmented_labels.get(identity, []))
+                    else:
+                        # if the file doesn't have unfragmented labels, use the fragmented counts -- they're the same
+                        # unless the user creates some new labels over frames without identity
+                        unfragmented_counts = fragmented_counts
 
                     counts.append(
                         (
                             identity,
-                            (frames_behavior, frames_not_behavior),
-                            (bouts_behavior, bouts_not_behavior),
+                            fragmented_counts[0],
+                            fragmented_counts[1],
+                            unfragmented_counts[0],
+                            unfragmented_counts[1],
                         )
                     )
         return counts
