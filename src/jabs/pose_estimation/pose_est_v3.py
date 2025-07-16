@@ -111,9 +111,7 @@ class PoseEstimationV3(PoseEstimation):
 
             # maps track instances to identities
             # populate identity_map and identity_to_instance
-            self._identity_map = self._build_identity_map(
-                all_instance_count, all_track_id
-            )
+            self._identity_map = self._build_identity_map(all_instance_count, all_track_id)
 
             self._points = np.full(
                 (self._max_instances, self.num_frames, len(self.KeypointIndex), 2),
@@ -159,9 +157,7 @@ class PoseEstimationV3(PoseEstimation):
                     group.create_dataset("points", data=self._points)
                     group.create_dataset("point_mask", data=self._point_mask)
                     group.create_dataset("identity_mask", data=self._identity_mask)
-                    group.create_dataset(
-                        "identity_to_track", data=self.identity_to_track
-                    )
+                    group.create_dataset("identity_to_track", data=self.identity_to_track)
 
     @property
     def identity_to_track(self):
@@ -250,9 +246,18 @@ class PoseEstimationV3(PoseEstimation):
         """
         return self._point_mask[identity, :]
 
-    def _build_track_dict(
-        self, all_points, all_confidence, all_instance_count, all_track_id
-    ):
+    def get_reduced_point_mask(self):
+        """Returns a boolean array of length 12 indicating which keypoints are valid.
+
+        Determines which keypoints are valid for any identity across all frames.
+
+        Returns:
+            numpy array of shape (12,) with boolean values indicating validity
+            of each keypoint.
+        """
+        return np.any(self._point_mask, axis=(0, 1))
+
+    def _build_track_dict(self, all_points, all_confidence, all_instance_count, all_track_id):
         """iterate through frames and build track dict"""
         all_points_mask = all_confidence > MINIMUM_CONFIDENCE
         track_dict = {}
@@ -267,9 +272,7 @@ class PoseEstimationV3(PoseEstimation):
                 if curr_track_id in track_dict:
                     # we've seen this track before, append points
                     track_dict[curr_track_id]["points"].append(curr_track_points)
-                    track_dict[curr_track_id]["point_masks"].append(
-                        curr_track_points_mask
-                    )
+                    track_dict[curr_track_id]["point_masks"].append(curr_track_points_mask)
                 else:
                     # this is the first frame the track appears, create a
                     # new dict
@@ -301,9 +304,7 @@ class PoseEstimationV3(PoseEstimation):
 
         last_tracks = []
         for frame_index in range(self._num_frames):
-            current_tracks = all_track_id[frame_index][
-                : all_instance_count[frame_index]
-            ]
+            current_tracks = all_track_id[frame_index][: all_instance_count[frame_index]]
 
             # add identities back to the pool for any tracks that terminated
             for track in last_tracks:
