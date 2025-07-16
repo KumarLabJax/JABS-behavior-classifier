@@ -185,26 +185,27 @@ class VideoLabels:
             for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
 
-        for annotation in self._annotations:
-            try:
-                annotation_data = {
-                    "start": annotation.begin,
-                    "end": annotation.end,
-                    "tag": annotation.data["tag"],
-                    "description": annotation.data["description"],
-                    "color": annotation.data["color"],
-                }
-            except KeyError as e:
-                print(f"Missing required annotation data: {e}")
-                continue
+        if self._annotations is not None:
+            for annotation in self._annotations:
+                try:
+                    annotation_data = {
+                        "start": annotation.begin,
+                        "end": annotation.end,
+                        "tag": annotation.data["tag"],
+                        "description": annotation.data["description"],
+                        "color": annotation.data["color"],
+                    }
+                except KeyError as e:
+                    print(f"Missing required annotation data: {e}")
+                    continue
 
-            # optional fields
-            if "animal_id" in annotation.data:
-                annotation_data["animal_id"] = annotation.data["animal_id"]
+                # optional fields
+                if "animal_id" in annotation.data:
+                    annotation_data["animal_id"] = annotation.data["animal_id"]
 
-            if "annotations" not in label_dict:
-                label_dict["annotations"] = []
-            label_dict["annotations"].append(annotation_data)
+                if "annotations" not in label_dict:
+                    label_dict["annotations"] = []
+                label_dict["annotations"].append(annotation_data)
 
         return label_dict
 
