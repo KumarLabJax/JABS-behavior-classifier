@@ -1,5 +1,4 @@
 import enum
-import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -257,7 +256,7 @@ class PoseEstimation(ABC):
                 try:
                     with path.open("rb") as f:
                         convex_hulls = joblib.load(f)
-                except (OSError, EOFError, pickle.UnpicklingError):
+                except Exception:
                     # we weren't able to read in the cached convex hulls,
                     # just ignore the exception and we'll generate them
                     pass
