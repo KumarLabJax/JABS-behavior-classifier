@@ -3,6 +3,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from .pose_est import PoseEstimation
 from .pose_est_v4 import PoseEstimationV4
 
 OBJECTS_STORED_YX = [
@@ -28,6 +29,10 @@ class PoseEstimationV5(PoseEstimationV4):
 
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
+
+        # with V5 we try to infer if we use the full connected segments
+        # or the Envision connected segments
+        self._connected_segments = None
 
         # V5 files are the same as V4, except they have some additional datasets
         # in addition to the posest data. The pose data is all loaded from
@@ -69,6 +74,37 @@ class PoseEstimationV5(PoseEstimationV4):
                     # if the lixit data is 2D, it means we have 1 point per
                     # lixit (tip) and the shape is #lixit x 2
                     self._lixit_keypoints = 1
+
+    def get_connected_segments(self):
+        """Get the segments to use for rendering connections between the keypoints
+
+        Returns:
+            list of tuples, where each tuple contains the indexes of the keypoints
+            that form a connected segment
+        """
+        # if we have already cached the connected segments, we're done
+        if self._connected_segments is not None:
+            return self._connected_segments
+
+        # if we don't see any of the points that are missing from Envision Hydranet
+        # pose we use NVSN_CONNECTED_SEGMENTS, otherwise we use FULL_CONNECTED_SEGMENTS
+        points_missing_from_nvsn = [
+            PoseEstimation.KeypointIndex.BASE_NECK.value,
+            PoseEstimation.KeypointIndex.LEFT_FRONT_PAW.value,
+            PoseEstimation.KeypointIndex.RIGHT_FRONT_PAW.value,
+            PoseEstimation.KeypointIndex.CENTER_SPINE.value,
+            PoseEstimation.KeypointIndex.LEFT_REAR_PAW.value,
+            PoseEstimation.KeypointIndex.RIGHT_REAR_PAW.value,
+            PoseEstimation.KeypointIndex.MID_TAIL.value,
+        ]
+        reduced_mask = self.get_reduced_point_mask()
+        self._connected_segments = (
+            PoseEstimation.FULL_CONNECTED_SEGMENTS
+            if np.any(reduced_mask[points_missing_from_nvsn])
+            else PoseEstimation.NVSN_CONNECTED_SEGMENTS
+        )
+
+        return self._connected_segments
 
     @property
     def format_major_version(self) -> int:

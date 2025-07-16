@@ -50,9 +50,7 @@ class PoseEstimationV2(PoseEstimation):
             lambda x: 0 if np.sum(self._point_mask[x][:-2]) < 3 else 1,
             otypes=[np.uint8],
         )
-        self._identity_mask = np.fromfunction(
-            init_func, (self._num_frames,), dtype=np.int_
-        )
+        self._identity_mask = np.fromfunction(init_func, (self._num_frames,), dtype=np.int_)
 
     @property
     def identity_to_track(self):
@@ -135,3 +133,14 @@ class PoseEstimationV2(PoseEstimation):
             array of point masks (#frames, 12)
         """
         return self._point_mask
+
+    def get_reduced_point_mask(self):
+        """Returns a boolean array of length 12 indicating which keypoints are valid.
+
+        Determines which keypoints are valid for any identity across all frames.
+
+        Returns:
+            numpy array of shape (12,) with boolean values indicating validity
+            of each keypoint.
+        """
+        return np.any(self._point_mask, axis=0)

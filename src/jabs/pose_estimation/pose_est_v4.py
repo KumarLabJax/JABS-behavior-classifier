@@ -223,6 +223,17 @@ class PoseEstimationV4(PoseEstimation):
         """
         return self._point_mask[identity, :]
 
+    def get_reduced_point_mask(self):
+        """Returns a boolean array of length 12 indicating which keypoints are valid.
+
+        Determines which keypoints are valid for any identity across all frames.
+
+        Returns:
+            numpy array of shape (12,) with boolean values indicating validity
+            of each keypoint.
+        """
+        return np.any(self._point_mask, axis=(0, 1))
+
     def _load_from_cache(self):
         """Load data from a cached pose file.
 

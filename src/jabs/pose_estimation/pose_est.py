@@ -75,7 +75,8 @@ class PoseEstimation(ABC):
         MID_TAIL = 10
         TIP_TAIL = 11
 
-    CONNECTED_SEGMENTS = (
+    # Connected segments to use when full 12 keypoints are available.
+    FULL_CONNECTED_SEGMENTS = (
         (
             KeypointIndex.LEFT_FRONT_PAW,
             KeypointIndex.CENTER_SPINE,
@@ -92,6 +93,21 @@ class PoseEstimation(ABC):
             KeypointIndex.CENTER_SPINE,
             KeypointIndex.BASE_TAIL,
             KeypointIndex.MID_TAIL,
+            KeypointIndex.TIP_TAIL,
+        ),
+    )
+
+    # Pose based on the Envision Hydra model will have fewer keypoints,
+    # so we adjust the connected segments accordingly.
+    NVSN_CONNECTED_SEGMENTS = (
+        (
+            KeypointIndex.LEFT_EAR,
+            KeypointIndex.NOSE,
+            KeypointIndex.RIGHT_EAR,
+        ),
+        (
+            KeypointIndex.NOSE,
+            KeypointIndex.BASE_TAIL,
             KeypointIndex.TIP_TAIL,
         ),
     )
@@ -196,6 +212,27 @@ class PoseEstimation(ABC):
             array of point masks (#frames, 12)
         """
         pass
+
+    @abstractmethod
+    def get_reduced_point_mask(self):
+        """Returns a boolean array of length 12 indicating which keypoints are valid.
+
+        Determines which keypoints are valid for any identity across all frames.
+
+        Returns:
+            numpy array of shape (12,) with boolean values indicating validity
+            of each keypoint.
+        """
+        pass
+
+    def get_connected_segments(self):
+        """Get the segments to use for rendering connections between the keypoints
+
+        Returns:
+            list of tuples, where each tuple contains the indexes of the keypoints
+            that form a connected segment
+        """
+        return PoseEstimation.FULL_CONNECTED_SEGMENTS
 
     @abstractmethod
     def identity_mask(self, identity):

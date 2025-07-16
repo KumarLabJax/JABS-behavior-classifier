@@ -346,7 +346,9 @@ class FrameWidget(QtWidgets.QLabel):
             pen.setWidth(3)
             painter.setPen(pen)
 
-            for seg in gen_line_fragments(np.flatnonzero(mask == 0)):
+            for seg in gen_line_fragments(
+                self._pose.get_connected_segments(), np.flatnonzero(mask == 0)
+            ):
                 segment_points = [self.image_to_widget_coords(p[0], p[1]) for p in points[seg]]
 
                 # draw lines
