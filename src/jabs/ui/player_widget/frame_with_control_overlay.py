@@ -1,232 +1,173 @@
-from PySide6 import QtCore, QtGui, QtWidgets
+from intervaltree import IntervalTree
+from PySide6 import QtCore, QtGui
+from shapely.geometry import Point
 
 from .frame_widget import FrameWidget
+from .overlays.annotation_overlay import AnnotationOverlay
+from .overlays.control_overlay import ControlOverlay
 
 
-class FrameWidgetWithControlOverlay(FrameWidget):
+class FrameWidgetWithInteractiveOverlays(FrameWidget):
     """
-    A `FrameWidget` subclass that adds an interactive overlay for playback controls.
+    A `FrameWidget` subclass that adds an interactive overlays.
 
-    This widget displays a video control overlay on top of the video frame
-    when the mouse is over the image.
-
-    Currently, the overlay has one control: playback speed adjustment.
-    This control consists of a badge that shows the current playback speed
-    and allows the user to change the speed via a popup menu. The overlay
-    and menu are only visible when the mouse is over the displayed pixmap area.
+    This widget displays a number of interactive overlays on top of the video frame, including
+     * a controls overlay, which is displayed when the mouse is over the frame pixmap area.
+     * an overlay for displaying timeline annotations for the current frame.
 
     Signals:
         playback_speed_changed (float): Emitted when the playback speed is changed by the user.
+
+    Implements some additional properties and methods so that overlays can access
+    information from the frame widget.
+
+    Todo:
+        - Merge FrameWidget and FrameWidgetWithInteractiveOverlays into a single class, and
+          implement the identity and pose overlays as Overlay subclasses.
     """
 
     playback_speed_changed = QtCore.Signal(float)
 
-    _BADGE_OFFSET = 10
-    _BADGE_PADDING_HORIZONTAL = 16
-    _BADGE_PADDING_VERTICAL = 8
-    _BADGE_CORNER_RADIUS = 8
-    _BADGE_BACKGROUND_COLOR = QtGui.QColor(220, 220, 220, 230)
-    _BADGE_TEXT_COLOR = QtGui.QColor(0, 0, 0)
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setMouseTracking(True)
-        self._over_pixmap = False
-        self._menu_open = False
-        self._badge_rect = QtCore.QRect()
-        self._playback_speed = 1.0
-        self._speeds = [0.5, 1.0, 2.0, 4.0]
-        self._menu: QtWidgets.QMenu | None = None
-        self._badge_font = QtGui.QFont()
-        self._badge_font.setBold(True)
-        self._badge_font.setPointSize(12)
-        self._badge_font_metrics = QtGui.QFontMetrics(self._badge_font)
+
+        self._annotations: IntervalTree | None = None
+        self._overlay_annotations_enabled = True
+
+        # initialize overlays
+        self._control_overlay = ControlOverlay(self)
+        self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
+        self.overlays = [self._control_overlay, AnnotationOverlay(self)]
+
+    @property
+    def overlay_annotations_enabled(self) -> bool:
+        """Get whether the annotation overlay is enabled."""
+        return self._overlay_annotations_enabled
+
+    @overlay_annotations_enabled.setter
+    def overlay_annotations_enabled(self, enabled: bool) -> None:
+        """Set whether the annotation overlay is enabled."""
+        if self._overlay_annotations_enabled != enabled:
+            self._overlay_annotations_enabled = enabled
+            self.update()
+
+    @property
+    def scaled_pix_x(self):
+        """Get the scaled x-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_x
+
+    @property
+    def scaled_pix_y(self):
+        """Get the scaled y-coordinate of the pixmap in the widget."""
+        return self._scaled_pix_y
+
+    @property
+    def scaled_pix_height(self):
+        """Get the scaled height of the pixmap in the widget."""
+        return self._scaled_pix_height
+
+    @property
+    def scaled_pix_width(self):
+        """Get the scaled width of the pixmap in the widget."""
+        return self._scaled_pix_width
+
+    @property
+    def frame_number(self) -> int:
+        """Get the current frame number."""
+        return self._frame_number
 
     @property
     def playback_speed(self) -> float:
-        """Get the current playback speed."""
-        return self._playback_speed
+        """Returns the current playback speed set by the control overlay."""
+        return self._control_overlay.playback_speed
 
-    def leaveEvent(self, event: QtCore.QEvent) -> None:
-        """Handle leave events to hide the overlay and close the menu if it is open.
+    @property
+    def annotations(self) -> IntervalTree | None:
+        """Returns the interval annotations for the annotation overlay."""
+        return self._annotations
 
-        This method is called when the mouse leaves the widget area.
+    @annotations.setter
+    def annotations(self, value: IntervalTree | None) -> None:
+        """Sets the interval annotations for the annotation overlay."""
+        self._annotations = value
 
-        Note: we can't rely on the mouseMoveEvent alone to hide the overlay if the pixmap is
-        the same size as the widget, because we never get a mouseMoveEvent with coordinates
-        outside the pixmap area.
+    def get_centroid(self, identity: int) -> Point | None:
+        """Get the centroid of the given identity in the current frame.
+
+        Args:
+            identity (int): The identity index to get the centroid for.
+
+        Returns:
+            tuple[float, float]: The (x, y) coordinates of the centroid or
+                None if there is no convex hull for the identity in the current frame.
         """
-        super().leaveEvent(event)
-        self._over_pixmap = False
-        self.update()
+        convex_hull = self._pose.get_identity_convex_hulls(identity)[self._frame_number]
 
-    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
-        """Handle mouse move events to update the overlay state and menu visibility.
+        if convex_hull is None:
+            return None
 
-        Moving the mouse over the pixmap area will show the playback speed badge.
-        Moving the mouse away from the pixmap area will hide the badge and close the menu if it is open.
-
-        Note: we don't rely on the enterEvent and leaveEvent methods to control the overlay visibility
-        because the widget might be larger than the pixmap, and we want to show the overlay only
-        when the mouse is over the actual pixmap area.
-        """
-        super().mouseMoveEvent(event)
-        x, y = event.x(), event.y()
-        self._over_pixmap = (
-            self._scaled_pix_x <= x < self._scaled_pix_x + self._scaled_pix_width
-            and self._scaled_pix_y <= y < self._scaled_pix_y + self._scaled_pix_height
-        )
-        # Hide menu if open and mouse leaves pixmap
-        if self._menu_open and self._menu and not self._over_pixmap:
-            self._menu.close()
-        self.update()
+        return convex_hull.centroid
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
-        """Paint the frame widget with an overlay for playback speed badge."""
-        # draw the FrameWidget
-        super().paintEvent(event)
+        """Handles the paint event for the widget and draws all overlays.
 
-        # now handle the video control overlay
-        pixmap = self.pixmap()
-        if pixmap is not None and not pixmap.isNull() and (self._over_pixmap or self._menu_open):
-            # currently the only overlay is the playback speed badge
-            self._draw_badge()
-
-    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
-        """Handle mouse press events to show the playback speed menu when the badge is clicked.
-
-        If click is outside the badge area, fall back to the default FrameWidget behavior.
+        Args:
+            event (QtGui.QPaintEvent): The paint event containing region to be updated.
         """
-        # Update _over_pixmap based on actual mouse position
-        x, y = event.x(), event.y()
-        self._over_pixmap = (
-            self._scaled_pix_x <= x < self._scaled_pix_x + self._scaled_pix_width
-            and self._scaled_pix_y <= y < self._scaled_pix_y + self._scaled_pix_height
-        )
-        if (
-            self.pixmap() is not None
-            and not self.pixmap().isNull()
-            and (self._badge_rect.contains(event.pos()) or self._menu_open)
-        ):
-            # Always reset _menu_open before trying to open the menu
-            self._menu_open = False
-            self._show_speed_menu()
-        else:
+        super().paintEvent(event)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        for overlay in self.overlays:
+            overlay.paint(painter)
+        painter.end()
+
+    def mouseMoveEvent(self, event) -> None:
+        """Handles mouse move events and delegates them to all overlays.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse move event.
+        """
+        super().mouseMoveEvent(event)
+        for overlay in self.overlays:
+            overlay.handle_mouse_move(event)
+
+    def leaveEvent(self, event) -> None:
+        """Handles leave events and delegates them to all overlays.
+
+        Args:
+            event (QtCore.QEvent): The leave event.
+        """
+        super().leaveEvent(event)
+        for overlay in self.overlays:
+            overlay.handle_leave(event)
+
+    def mousePressEvent(self, event) -> None:
+        """Handles mouse press events and delegates them to all overlays.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse press event.
+        """
+        handled = False
+        for overlay in self.overlays:
+            if overlay.handle_mouse_press(event):
+                handled = True
+                break
+        if not handled:
             super().mousePressEvent(event)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        """Filter events for the menu to handle mouse movements and close it when necessary.
-
-        This is necessary to close the menu when the mouse moves away from the badge area.
+        """Filters events before they reach the target object and delegates to overlays.
 
         Args:
-            obj: The object the event is being sent to.
-            event: The event being processed.
+            obj (QtCore.QObject): The object that is the target of the event.
+            event (QtCore.QEvent): The event to be filtered.
 
         Returns:
-            bool: True if the event was handled, False otherwise.
+            bool: True if the event should be filtered out, False otherwise.
         """
-        if obj is self._menu and event.type() == QtCore.QEvent.Type.MouseMove:
-            global_pos = event.globalPos()
-            local_pos = self.mapFromGlobal(global_pos)
-
-            # are we over the pixmap area? If not, close the menu.
-            over_pixmap = (
-                self._scaled_pix_x <= local_pos.x() < self._scaled_pix_x + self._scaled_pix_width
-                and self._scaled_pix_y
-                <= local_pos.y()
-                < self._scaled_pix_y + self._scaled_pix_height
-            )
-            if not over_pixmap:
-                self._menu.close()
+        for overlay in self.overlays:
+            # allow any overlay to filter out events
+            if hasattr(overlay, "event_filter") and overlay.event_filter(obj, event):
+                return True
         return super().eventFilter(obj, event)
-
-    def _draw_badge(self) -> None:
-        """Draw the playback speed badge."""
-        badge_text = f"{self._playback_speed}x"
-
-        # figure out the size and position of the badge
-        w, h = (
-            self._badge_font_metrics.horizontalAdvance(badge_text)
-            + self._BADGE_PADDING_HORIZONTAL,
-            self._badge_font_metrics.height() + self._BADGE_PADDING_VERTICAL,
-        )
-        x = self._scaled_pix_x + self._BADGE_OFFSET
-        y = self._scaled_pix_y + self._scaled_pix_height - h - self._BADGE_OFFSET
-        self._badge_rect = QtCore.QRect(x, y, w, h)
-
-        # draw playback speed badge
-        painter = QtGui.QPainter(self)
-        painter.setFont(self._badge_font)
-        painter.setBrush(self._BADGE_BACKGROUND_COLOR)
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(
-            self._badge_rect, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
-        )
-        painter.setPen(self._BADGE_TEXT_COLOR)
-        painter.drawText(self._badge_rect, QtCore.Qt.AlignmentFlag.AlignCenter, badge_text)
-        painter.end()
-
-    def _show_speed_menu(self) -> None:
-        """Show the playback speed menu when the playback speed badge is clicked."""
-        # menu is already open, do nothing
-        if self._menu_open:
-            return
-
-        self.update()
-
-        # Create the menu with playback speed options
-        self._menu = QtWidgets.QMenu(self)
-        for speed in self._speeds:
-            action = self._menu.addAction(f"{speed}x")
-            action.setData(speed)
-            action.setCheckable(True)
-            if speed == self._playback_speed:
-                action.setChecked(True)
-            action.triggered.connect(lambda checked, a=action: self._on_menu_triggered(a))
-
-        # Connect the menu actions and event filter
-        self._menu.aboutToHide.connect(self._on_menu_closed)
-        self._menu.installEventFilter(self)
-
-        # Calculate the position to show the menu above the badge
-        badge_top_left = self.mapToGlobal(self._badge_rect.topLeft())
-        menu_size = self._menu.sizeHint()
-        pos = badge_top_left - QtCore.QPoint(0, menu_size.height())
-
-        # show menu
-        self._menu.popup(pos)
-        self._menu_open = True
-
-    def _on_menu_triggered(self, action: QtGui.QAction) -> None:
-        """Handle the menu action triggered event."""
-        new_speed = action.data()
-        if new_speed != self._playback_speed:
-            self._playback_speed = new_speed
-            self.playback_speed_changed.emit(self._playback_speed)
-
-    def _on_menu_closed(self) -> None:
-        """Handle the menu closed event.
-
-        Creates a fake mouseMoveEvent on the widget to keep the overlay visible
-        after the menu closes. This is necessary because the menu takes mouse focus
-        triggering an exitEvent on the widget, which would otherwise hide the overlay.
-        """
-        self._menu_open = False
-        if self._menu:
-            self._menu.aboutToHide.disconnect(self._on_menu_closed)
-            self._menu.removeEventFilter(self)
-            self._menu.deleteLater()
-            self._menu = None
-
-        # Synthesize a mouse move event to update _over_pixmap
-        cursor_pos = self.mapFromGlobal(QtGui.QCursor.pos())
-        mouse_event = QtGui.QMouseEvent(
-            QtCore.QEvent.Type.MouseMove,
-            cursor_pos,
-            QtCore.Qt.MouseButton.NoButton,
-            QtCore.Qt.MouseButton.NoButton,
-            QtCore.Qt.KeyboardModifier.NoModifier,
-        )
-        self.mouseMoveEvent(mouse_event)
-        self.update()

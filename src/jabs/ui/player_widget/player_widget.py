@@ -6,9 +6,10 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
+from jabs.project import VideoLabels
 from jabs.video_reader import VideoReader
 
-from .frame_with_control_overlay import FrameWidgetWithControlOverlay
+from .frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -57,7 +58,7 @@ class PlayerWidget(QtWidgets.QWidget):
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
 
-    PoseOverlayMode = FrameWidgetWithControlOverlay.PoseOverlayMode
+    PoseOverlayMode = FrameWidgetWithInteractiveOverlays.PoseOverlayMode
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -72,10 +73,9 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
 
-        # properties to control video overlays
+        # properties to control video overlays managed by PlayerThread
         self._label_closest = False
         self._show_track = False
-        self._overlay_pose = False
         self._overlay_segmentation = False
         self._overlay_landmarks = False
         self._identities = []
@@ -89,7 +89,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidgetWithControlOverlay()
+        self._frame_widget = FrameWidgetWithInteractiveOverlays()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
 
         #  -- player controls
@@ -192,14 +192,24 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.pose_overlay_mode = mode
 
     @property
-    def overlay_identity(self) -> bool:
+    def overlay_identity_enabled(self) -> bool:
         """return the current overlay identity state from the frame widget"""
-        return self._frame_widget.overlay_identity
+        return self._frame_widget.overlay_identity_enabled
 
-    @overlay_identity.setter
-    def overlay_identity(self, enabled: bool) -> None:
+    @overlay_identity_enabled.setter
+    def overlay_identity_enabled(self, enabled: bool) -> None:
         """set the overlay identity in the frame widget"""
-        self._frame_widget.overlay_identity = enabled
+        self._frame_widget.overlay_identity_enabled = enabled
+
+    @property
+    def overlay_annotations_enabled(self) -> bool:
+        """return the current overlay annotations state from the frame widget"""
+        return self._frame_widget.overlay_annotations_enabled
+
+    @overlay_annotations_enabled.setter
+    def overlay_annotations_enabled(self, enabled: bool) -> None:
+        """set the overlay annotations in the frame widget"""
+        self._frame_widget.overlay_annotations_enabled = enabled
 
     def _cleanup_player_thread(self) -> None:
         """cleanup function to stop the player thread if it is running"""
@@ -232,12 +242,13 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText("")
         self._frame_widget.reset()
 
-    def load_video(self, path: Path, pose_est: PoseEstimation) -> None:
+    def load_video(self, path: Path, pose_est: PoseEstimation, video_labels: VideoLabels) -> None:
         """load a new video source
 
         Args:
             path: path to video file
             pose_est: pose file for this video
+            video_labels: video labels (behavior and interval annotations) for this video
         """
         # cleanup the old player thread if it exists
         self._cleanup_player_thread()
@@ -250,6 +261,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = pose_est
         self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
+        self._frame_widget.annotations = video_labels.interval_annotations
 
         self._player_thread = PlayerThread(
             self._video_stream,
@@ -369,14 +381,6 @@ class PlayerWidget(QtWidgets.QWidget):
         self._set_overlay_attr(
             "_show_track",
             self._player_thread.setShowTrack if self._player_thread else None,
-            enabled,
-        )
-
-    def overlay_pose(self, enabled: bool | None = None) -> None:
-        """Toggle or set the 'overlay pose' overlay state."""
-        self._set_overlay_attr(
-            "_overlay_pose",
-            self._player_thread.setOverlayPose if self._player_thread else None,
             enabled,
         )
 

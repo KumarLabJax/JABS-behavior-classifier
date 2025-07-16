@@ -5,11 +5,16 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.pose_estimation import PoseEstimation
 from jabs.project import TrackLabels
-from jabs.ui.colors import BACKGROUND_COLOR, BEHAVIOR_COLOR, KEYPOINT_COLOR_MAP, NOT_BEHAVIOR_COLOR
+from jabs.ui.colors import (
+    ACTIVE_ID_COLOR,
+    BACKGROUND_COLOR,
+    BEHAVIOR_COLOR,
+    INACTIVE_ID_COLOR,
+    KEYPOINT_COLOR_MAP,
+    NOT_BEHAVIOR_COLOR,
+)
 from jabs.utils.pose_util import gen_line_fragments
 
-_ID_COLOR = QtGui.QColor(0, 222, 215)
-_ACTIVE_COLOR = QtGui.QColor(255, 0, 0)
 _BEHAVIOR_LABEL_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
 _FONT_SIZE = 16  # size of the font used for identity labels
 _BEHAVIOR_LABEL_SIZE = 10  # size of the behavior label square
@@ -51,10 +56,10 @@ class FrameWidget(QtWidgets.QLabel):
         self._scaled_pix_height = 0
         self._frame_number = 0
         self._active_identity = 0
-        self._pose = None
-        self._labels = None
+        self._pose: PoseEstimation | None = None
+        self._labels: list[np.ndarray] | None = None
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
-        self._overlay_identity = True
+        self._overlay_identity_enabled = True
 
         self.setMinimumSize(400, 400)
 
@@ -75,20 +80,34 @@ class FrameWidget(QtWidgets.QLabel):
             self.update()
 
     @property
-    def overlay_identity(self) -> bool:
+    def overlay_identity_enabled(self) -> bool:
         """Get whether the identity overlay is enabled."""
-        return self._overlay_identity
+        return self._overlay_identity_enabled
 
-    @overlay_identity.setter
-    def overlay_identity(self, enabled: bool) -> None:
+    @overlay_identity_enabled.setter
+    def overlay_identity_enabled(self, enabled: bool) -> None:
         """Set whether the identity overlay is enabled.
 
         Args:
             enabled (bool): True to enable identity overlay, False to disable.
         """
-        if self._overlay_identity != enabled:
-            self._overlay_identity = enabled
+        if self._overlay_identity_enabled != enabled:
+            self._overlay_identity_enabled = enabled
             self.update()
+
+    def convert_identity_to_external(self, identity: int) -> int:
+        """Convert an internal identity index to an external identity index.
+
+        This is useful when the pose estimation uses external identities so that we can display
+        the external identity instead of the internal jabs identity index.
+        """
+        if self._pose and self._pose.external_identities:
+            try:
+                return self._pose.external_identities[identity]
+            except IndexError:
+                # If the identity is not found in external identities, fall through to return the original identity
+                pass
+        return identity
 
     def set_pose(self, pose: PoseEstimation) -> None:
         """Set the pose estimation for the frame widget.
@@ -148,7 +167,7 @@ class FrameWidget(QtWidgets.QLabel):
 
         return x, y
 
-    def _image_to_widget_coords(self, pix_x: int, pix_y: int) -> tuple[int, int]:
+    def image_to_widget_coords(self, pix_x: int, pix_y: int) -> tuple[int, int]:
         """Convert true image coordinates to FrameWidget (QLabel) coordinates
 
         Accounts for scaling and centering to fit image in FrameWidget.
@@ -199,6 +218,7 @@ class FrameWidget(QtWidgets.QLabel):
             size = self.size()
 
             painter = QtGui.QPainter(self)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
             point = QtCore.QPoint(0, 0)
 
             # scale the image to the current size of the widget.
@@ -228,7 +248,7 @@ class FrameWidget(QtWidgets.QLabel):
             elif self._pose_overlay_mode == self.PoseOverlayMode.ACTIVE_IDENTITY:
                 self._overlay_pose(painter, all_identities=False)
 
-            if self._overlay_identity:
+            if self._overlay_identity_enabled:
                 self._overlay_identities(painter)
 
         else:
@@ -258,16 +278,13 @@ class FrameWidget(QtWidgets.QLabel):
             if shape is not None:
                 center = shape.centroid
 
-                color = _ACTIVE_COLOR if identity == self._active_identity else _ID_COLOR
-                label = (
-                    str(identity)
-                    if not self._pose.external_identities
-                    else str(self._pose.external_identities[identity])
-                )
+                color = ACTIVE_ID_COLOR if identity == self._active_identity else INACTIVE_ID_COLOR
+                label_text = str(self.convert_identity_to_external(identity))
+
                 # Convert image coordinates to widget coordinates and draw the label
-                widget_x, widget_y = self._image_to_widget_coords(center.x, center.y)
+                widget_x, widget_y = self.image_to_widget_coords(center.x, center.y)
                 painter.setPen(color)
-                painter.drawText(widget_x, widget_y, label)
+                painter.drawText(widget_x, widget_y, label_text)
 
                 # also add an overlay with a behavior label if available
                 # (source of label can be manual label or model prediction)
@@ -332,7 +349,7 @@ class FrameWidget(QtWidgets.QLabel):
             for seg in gen_line_fragments(
                 self._pose.get_connected_segments(), np.flatnonzero(mask == 0)
             ):
-                segment_points = [self._image_to_widget_coords(p[0], p[1]) for p in points[seg]]
+                segment_points = [self.image_to_widget_coords(p[0], p[1]) for p in points[seg]]
 
                 # draw lines
                 if len(segment_points) >= 2:
@@ -349,7 +366,7 @@ class FrameWidget(QtWidgets.QLabel):
             for keypoint in PoseEstimation.KeypointIndex:
                 point_index = keypoint.value
                 if mask[point_index]:
-                    widget_x, widget_y = self._image_to_widget_coords(
+                    widget_x, widget_y = self.image_to_widget_coords(
                         points[point_index][0], points[point_index][1]
                     )
 
