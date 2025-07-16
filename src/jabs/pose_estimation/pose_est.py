@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 import h5py
+import joblib
 import numpy as np
 from shapely.geometry import MultiPoint
 
@@ -255,8 +256,8 @@ class PoseEstimation(ABC):
 
                 try:
                     with path.open("rb") as f:
-                        convex_hulls = pickle.load(f)
-                except OSError:
+                        convex_hulls = joblib.load(f)
+                except (OSError, EOFError, pickle.UnpicklingError):
                     # we weren't able to read in the cached convex hulls,
                     # just ignore the exception and we'll generate them
                     pass
@@ -279,7 +280,7 @@ class PoseEstimation(ABC):
 
                 if path:
                     with path.open("wb") as f:
-                        pickle.dump(convex_hulls, f)
+                        joblib.dump(convex_hulls, f)
 
             self._convex_hull_cache[identity] = convex_hulls
             return convex_hulls
