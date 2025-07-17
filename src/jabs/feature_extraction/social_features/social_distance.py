@@ -148,13 +148,12 @@ class ClosestIdentityInfo:
         Returns:
             dict[str, np.ndarray]: Dictionary mapping keypoint pair names to arrays of distances for each frame.
         """
-        values = np.full(
-            (self._poses.num_frames, len(social_points) ** 2), np.nan, dtype=np.float32
-        )
-
-        # get indexes of the subset of points used for pairwise social
-        # distances
-        social_pt_indexes = [idx.value for idx in social_points]
+        return_dict = {}
+        for p1 in social_points:
+            for p2 in social_points:
+                return_dict[f"social dist. {p1.name}-{p2.name}"] = np.full(
+                    self._poses.num_frames, np.nan, dtype=np.float32
+                )
 
         for frame in range(self._poses.num_frames):
             closest_id = int(closest_identities[frame])
@@ -165,16 +164,11 @@ class ClosestIdentityInfo:
 
             closest_points, _ = self._poses.get_points(frame, closest_id, self._pixel_scale)
 
-            values[frame] = self._compute_social_pairwise_distance(
-                points[social_pt_indexes, ...], closest_points[social_pt_indexes, ...]
-            )
+            for p1 in social_points:
+                for p2 in social_points:
+                    key = f"social dist. {p1.name}-{p2.name}"
+                    return_dict[key][frame] = math.dist(points[p1.value], closest_points[p2.value])
 
-        return_dict = {}
-        # Transform the full matrix into the expected dict of 1D arrays
-        for i in range(len(social_points)):
-            kp1_name = social_points[i // len(social_points)].name
-            kp2_name = social_points[i % len(social_points)].name
-            return_dict[f"social dist. {kp1_name}-{kp2_name}"] = values[:, i]
         return return_dict
 
     @staticmethod
