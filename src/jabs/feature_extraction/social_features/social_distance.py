@@ -170,23 +170,3 @@ class ClosestIdentityInfo:
                     return_dict[key][frame] = math.dist(points[p1.value], closest_points[p2.value])
 
         return return_dict
-
-    @staticmethod
-    def _compute_social_pairwise_distance(points1, points2):
-        """compute distances between all pairs of points
-
-        Args:
-            points1: 1st collection of points
-            points2: 2nd collection of points
-
-        Returns:
-            list of distances between all pairwise combinations of
-            points from points1 and points2
-        """
-        distances = []
-
-        for p1 in points1:
-            for p2 in points2:
-                dist = math.dist(p1, p2)
-                distances.append(dist)
-        return distances
