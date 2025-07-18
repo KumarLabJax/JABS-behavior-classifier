@@ -234,6 +234,7 @@ class MainWindow(QtWidgets.QMainWindow):
         identity_overlay_menu.addAction(self._identity_overlay_floating)
         identity_overlay_menu.addAction(self._identity_overlay_none)
 
+        # set the checked state based on the current identity overlay mode
         match self._central_widget.id_overlay_mode:
             case PlayerWidget.IdentityOverlayMode.CENTROID:
                 self._identity_overlay_centroid.setChecked(True)
@@ -400,6 +401,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.video_list.select_previous_video()
             case Qt.Key.Key_Period:
                 self.video_list.select_next_video()
+            case Qt.Key.Key_I if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                self._toggle_identity_overlay_none()
             case _:
                 # anything else pass on to the super class keyPressEvent
                 super().keyPressEvent(event)
@@ -825,3 +828,30 @@ class MainWindow(QtWidgets.QMainWindow):
                         print(f"Error deleting file {file}: {e}", file=sys.stderr)
             else:
                 self._status_bar.showMessage(f"Moved {file} to recycle bin", 3000)
+
+    def _toggle_identity_overlay_none(self) -> None:
+        checked = self._identity_overlay_none.isChecked()
+
+        if checked:
+            previous_mode = getattr(
+                self, "_previous_identity_overlay_mode", PlayerWidget.IdentityOverlayMode.FLOATING
+            )
+            self._central_widget.id_overlay_mode = previous_mode
+
+            match previous_mode:
+                case PlayerWidget.IdentityOverlayMode.CENTROID:
+                    self._identity_overlay_centroid.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.FLOATING:
+                    self._identity_overlay_floating.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.NONE:
+                    self._identity_overlay_none.setChecked(True)
+                case _:
+                    # default to floating if previous_mode is not recognized
+                    self._central_widget.id_overlay_mode = (
+                        PlayerWidget.IdentityOverlayMode.FLOATING
+                    )
+                    self._identity_overlay_floating.setChecked(True)
+        else:
+            self._previous_identity_overlay_mode = self._central_widget.id_overlay_mode
+            self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.NONE
+            self._identity_overlay_none.setChecked(True)

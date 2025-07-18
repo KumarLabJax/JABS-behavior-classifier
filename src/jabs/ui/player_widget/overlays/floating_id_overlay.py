@@ -33,7 +33,7 @@ class FloatingIdOverlay(Overlay):
     _MARGIN_Y = 10  # Top margin for non-animal id label rectangles (pixels)
     _CORNER_RADIUS = 4  # Corner radius for rounded id label rectangles (pixels)
     _BORDER_COLOR = QtGui.QColor(225, 225, 225, 255)  # Border color for id label rectangles
-    _ACTIVE_IDENTITY_COLOR = QtGui.QColor(70, 130, 180, 255)  # Color for active identity
+    _ACTIVE_IDENTITY_COLOR = QtGui.QColor(255, 0, 0, 255)  # Color for active identity
     _INACTIVE_IDENTITY_COLOR = QtGui.QColor(125, 125, 125, 255)  # Color for inactive identities
     _LABEL_OFFSET_VERTICAL = 20  # Vertical offset from centroid
     _LABEL_OFFSET_HORIZONTAL = 60  # Horizontal offset for identity rectangle
@@ -43,6 +43,7 @@ class FloatingIdOverlay(Overlay):
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
         super().__init__(parent)
 
+        self._priority = self._MAX_PRIORITY - 1  # high priority, only below control overlay
         self._font = QtGui.QFont()
         self._font.setBold(True)
         self._font.setPointSize(12)
@@ -52,7 +53,7 @@ class FloatingIdOverlay(Overlay):
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints floating id labels."""
-        if self.parent.pixmap().isNull():
+        if not self._enabled or self.parent.pixmap().isNull():
             return
 
         # keep track of drawn rectangles and associated data, used for mouse events so we can
@@ -145,6 +146,9 @@ class FloatingIdOverlay(Overlay):
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
         """Handle mouse press events to check if a floating id label was clicked."""
+        if not self._enabled:
+            return False
+
         pos = event.position() if hasattr(event, "position") else event.pos()
         for rect, data in self._rects_with_data:
             if rect.contains(pos):

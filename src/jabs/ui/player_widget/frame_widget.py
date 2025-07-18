@@ -21,6 +21,9 @@ _BEHAVIOR_LABEL_SIZE = 10  # size of the behavior label square
 _GAP = 5  # gap between identity label and behavior label
 _LINE_SEGMENT_COLOR = QtGui.QColor(255, 255, 255, 128)  # color for the pose line segments
 _KEYPOINT_SIZE = 3  # size of the keypoint circles
+_SELECTED_INDICATOR_SIZE = (
+    2  # size of the circle drawn to indicate selected mouse when ID labels are hidden
+)
 
 
 class FrameWidget(QtWidgets.QLabel):
@@ -319,7 +322,9 @@ class FrameWidget(QtWidgets.QLabel):
                     # draw a circle at the centroid of the identity
                     painter.setBrush(color)
                     painter.drawEllipse(
-                        QtCore.QPoint(widget_x, widget_y), _KEYPOINT_SIZE, _KEYPOINT_SIZE
+                        QtCore.QPoint(widget_x, widget_y),
+                        _SELECTED_INDICATOR_SIZE,
+                        _SELECTED_INDICATOR_SIZE,
                     )
                 else:
                     painter.drawText(widget_x, widget_y, label_text)

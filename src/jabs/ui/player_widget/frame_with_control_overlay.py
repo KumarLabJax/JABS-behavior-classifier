@@ -1,5 +1,3 @@
-import contextlib
-
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui
 
@@ -37,62 +35,45 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setMouseTracking(True)
-
         self._annotations: IntervalTree | None = None
-        self._overlay_annotations_enabled = True
-        self._floating_id_overlay_enabled = True
 
         # initialize overlays
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
-        self.overlays: list[Overlay] = [self._control_overlay]
+        self._annotation_overlay = AnnotationOverlay(self)
+        self._annotation_overlay.enabled = True
+        self._floating_id_overlay = FloatingIdOverlay(self)
+        self._floating_id_overlay.enabled = True
+        self._floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
 
-        # add optional overlays
-        if self._overlay_annotations_enabled:
-            self.overlays.append(AnnotationOverlay(self))
-        if self._floating_id_overlay_enabled:
-            floating_overlay = FloatingIdOverlay(self)
-            floating_overlay.id_label_clicked.connect(self.id_label_clicked)
-            self.overlays.append(floating_overlay)
+        self.overlays: list[Overlay] = [
+            self._annotation_overlay,
+            self._floating_id_overlay,
+            self._control_overlay,
+        ]
 
     @property
     def overlay_annotations_enabled(self) -> bool:
         """Get whether the annotation overlay is enabled."""
-        return self._overlay_annotations_enabled
+        return self._annotation_overlay.enabled
 
     @overlay_annotations_enabled.setter
     def overlay_annotations_enabled(self, enabled: bool) -> None:
         """Set whether the annotation overlay is enabled."""
-        if self._overlay_annotations_enabled != enabled:
-            self._overlay_annotations_enabled = enabled
+        if self._annotation_overlay.enabled != enabled:
+            self._annotation_overlay.enabled = enabled
             self.update()
 
     @property
     def floating_id_overlay_enabled(self) -> bool:
         """Get whether the floating ID overlay is enabled."""
-        return self._floating_id_overlay_enabled
+        return self._floating_id_overlay.enabled
 
     @floating_id_overlay_enabled.setter
     def floating_id_overlay_enabled(self, enabled: bool) -> None:
         """Set whether the floating ID overlay is enabled."""
-        if self._floating_id_overlay_enabled != enabled:
-            self._floating_id_overlay_enabled = enabled
-            if enabled:
-                floating_overlay = FloatingIdOverlay(self)
-                floating_overlay.id_label_clicked.connect(self.id_label_clicked)
-                self.overlays.append(floating_overlay)
-            else:
-                for overlay in self.overlays:
-                    if isinstance(overlay, FloatingIdOverlay):
-                        with contextlib.suppress(TypeError, RuntimeError):
-                            # disconnect the signal to avoid dangling connections
-                            QtCore.QCoreApplication.processEvents()
-                            overlay.id_label_clicked.disconnect(self.id_label_clicked)
-                self.overlays = [
-                    overlay
-                    for overlay in self.overlays
-                    if not isinstance(overlay, FloatingIdOverlay)
-                ]
+        if self._floating_id_overlay.enabled != enabled:
+            self._floating_id_overlay.enabled = enabled
             self.update()
 
     @property
@@ -224,3 +205,9 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
             if hasattr(overlay, "event_filter") and overlay.event_filter(obj, event):
                 return True
         return super().eventFilter(obj, event)
+
+    def _add_overlay(self, overlay: Overlay) -> None:
+        """Adds an overlay to the widget and sorts overlays by priority."""
+        if overlay not in self.overlays:
+            self.overlays.append(overlay)
+            self.overlays.sort(key=lambda o: o.priority)

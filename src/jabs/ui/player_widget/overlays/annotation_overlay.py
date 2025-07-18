@@ -33,7 +33,7 @@ class AnnotationOverlay(Overlay):
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints annotation tags for intervals overlapping the current frame."""
-        if not self.parent.overlay_annotations_enabled or self.parent.pixmap().isNull():
+        if not self._enabled or self.parent.pixmap().isNull():
             return
 
         frame_number = self.parent.current_frame
@@ -191,10 +191,15 @@ class AnnotationOverlay(Overlay):
         # restore the original font
         painter.setFont(current_font)
 
-    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> None:
+    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> True:
         """Handle mouse press events to check if an annotation rectangle was clicked."""
+        if not self._enabled:
+            return False
+
         pos = event.position() if hasattr(event, "position") else event.pos()
         for rect, annotation in self._rects_with_data:
             if rect.contains(pos):
                 # TODO: display annotations details in a dialog or tooltip
                 print(f"Clicked on annotation: {annotation['tag']}")
+                return True
+        return False

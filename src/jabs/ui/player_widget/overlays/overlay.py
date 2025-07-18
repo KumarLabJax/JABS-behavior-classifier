@@ -12,15 +12,33 @@ class Overlay(QObject):
     """Base class for interactive overlays in the frame widget."""
 
     _LIGHT_COLOR_THRESHOLD = 160  # Luminance threshold to determine if a color is "light"
+    _MAX_PRIORITY = 1000  # Maximum priority for painting order
 
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
         super().__init__(parent)
         self._parent = parent
+        self._priority = 0  # Default priority for painting order
+        self._enabled = True  # Flag to enable or disable the overlay
 
     @property
     def parent(self) -> "FrameWidgetWithInteractiveOverlays":
         """Returns the parent frame widget."""
         return self._parent
+
+    @property
+    def priority(self) -> int:
+        """Returns the priority of the overlay for painting order."""
+        return self._priority
+
+    @property
+    def enabled(self) -> bool:
+        """Returns whether the overlay is enabled."""
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Sets whether the overlay is enabled."""
+        self._enabled = value
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints the overlay on the parent widget."""
