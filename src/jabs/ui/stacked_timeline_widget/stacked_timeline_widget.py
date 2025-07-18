@@ -9,6 +9,7 @@ from jabs.behavior_search import (
     LabelBehaviorSearchQuery,
     PredictionBehaviorSearchQuery,
     SearchHit,
+    TimelineAnnotationSearchQuery,
 )
 from jabs.project import TrackLabels
 
@@ -400,9 +401,9 @@ class StackedTimelineWidget(QWidget):
         for i, label_overview_widget in enumerate(self._label_overview_widgets):
             curr_search_results: list[SearchHit] = []
             match behavior_search_query:
-                case LabelBehaviorSearchQuery():
+                case LabelBehaviorSearchQuery() | TimelineAnnotationSearchQuery():
                     for hit in search_results:
-                        if hit.identity == str(i):
+                        if hit.identity is None or hit.identity == str(i):
                             curr_search_results.append(hit)
 
             label_overview_widget.set_search_results(curr_search_results)
@@ -410,9 +411,9 @@ class StackedTimelineWidget(QWidget):
         for i, prediction_overview_widget in enumerate(self._prediction_overview_widgets):
             curr_search_results: list[SearchHit] = []
             match behavior_search_query:
-                case PredictionBehaviorSearchQuery():
+                case PredictionBehaviorSearchQuery() | TimelineAnnotationSearchQuery():
                     for hit in search_results:
-                        if hit.identity == str(i):
+                        if hit.identity is None or hit.identity == str(i):
                             curr_search_results.append(hit)
 
             prediction_overview_widget.set_search_results(curr_search_results)

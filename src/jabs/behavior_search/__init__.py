@@ -6,5 +6,6 @@ from .behavior_search_util import (
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
     SearchHit,
+    TimelineAnnotationSearchQuery,
     search_behaviors,
 )

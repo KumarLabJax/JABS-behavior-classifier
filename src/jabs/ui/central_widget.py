@@ -982,22 +982,20 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.seek_to_frame(search_hit.start_frame)
 
             # set the current identity based on the search hit
-            try:
-                selected_id = int(search_hit.identity)
-            except ValueError:
-                selected_id = None
+            selected_id = search_hit.identity
+            if selected_id is not None:
+                try:
+                    selected_id = int(selected_id)
+                except ValueError:
+                    selected_id = None
 
             num_identities = self._pose_est.num_identities
             if selected_id is not None and selected_id < num_identities:
                 self._controls.set_identity_index(selected_id)
-            else:
-                print(f"Invalid identity for search hit: {search_hit.identity}")
 
             # update the behavior in the controls to match the search hit
             if search_hit.behavior is not None:
                 self._controls.set_behavior(search_hit.behavior)
-            else:
-                print("Search hit has no behavior, using current behavior.")
 
             self.search_hit_loaded.emit(search_hit)
 
