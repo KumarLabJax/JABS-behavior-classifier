@@ -54,7 +54,7 @@ class AnnotationOverlay(Overlay):
         animal_annots = defaultdict(list)
         non_animal_annots = []
         for annotation in annotations:
-            identity = annotation.data.get("animal_id", None)
+            identity = annotation.data.get("identity", None)
             if identity is not None:
                 animal_annots[identity].append(annotation)
             else:
@@ -155,7 +155,7 @@ class AnnotationOverlay(Overlay):
         # Draw non-animal annotations stacked in upper left
         non_animal_annots = sorted(non_animal_annots, key=lambda a: a.data["tag"])
         for i, annotation in enumerate(non_animal_annots):
-            identity = annotation.data.get("animal_id")
+            identity = annotation.data.get("identity")
 
             if identity is not None:
                 display_id = self.parent.convert_identity_to_external(identity)
