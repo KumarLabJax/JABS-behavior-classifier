@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtGui
 from PySide6.QtCore import QEvent, QObject
+from shapely import Point
 
 if TYPE_CHECKING:
     from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
@@ -10,9 +11,16 @@ if TYPE_CHECKING:
 class Overlay(QObject):
     """Base class for interactive overlays in the frame widget."""
 
+    _LIGHT_COLOR_THRESHOLD = 160  # Luminance threshold to determine if a color is "light"
+
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
         super().__init__(parent)
-        self.parent = parent
+        self._parent = parent
+
+    @property
+    def parent(self) -> "FrameWidgetWithInteractiveOverlays":
+        """Returns the parent frame widget."""
+        return self._parent
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints the overlay on the parent widget."""
@@ -33,3 +41,28 @@ class Overlay(QObject):
     def handle_leave(self, event: QEvent) -> None:
         """Handles leave events for the overlay."""
         pass
+
+    def get_centroid(self, identity: int) -> Point | None:
+        """Get the centroid of the given identity in the current frame.
+
+        Args:
+            identity (int): The identity index to get the centroid for.
+
+        Returns:
+            tuple[float, float]: The (x, y) coordinates of the centroid or
+                None if there is no convex hull for the identity in the current frame.
+        """
+        convex_hull = self.parent.pose.get_identity_convex_hulls(identity)[
+            self.parent.current_frame
+        ]
+
+        if convex_hull is None:
+            return None
+
+        return convex_hull.centroid
+
+    def _is_color_light(self, color: QtGui.QColor) -> bool:
+        """Determines if a color is considered light based on its luminance."""
+        # Calculate luminance using the ITU-R BT.709 formula
+        luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
+        return luminance > self._LIGHT_COLOR_THRESHOLD

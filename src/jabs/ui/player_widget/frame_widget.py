@@ -39,6 +39,13 @@ class FrameWidget(QtWidgets.QLabel):
         ACTIVE_IDENTITY = 1
         NONE = 2
 
+    class IdentityOverlayMode(enum.IntEnum):
+        """Enum for identity overlay options."""
+
+        NONE = 0
+        CENTROID = 1
+        FLOATING = 2
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -59,6 +66,7 @@ class FrameWidget(QtWidgets.QLabel):
         self._pose: PoseEstimation | None = None
         self._labels: list[np.ndarray] | None = None
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
+        self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
         self._overlay_identity_enabled = True
 
         self.setMinimumSize(400, 400)
@@ -77,6 +85,22 @@ class FrameWidget(QtWidgets.QLabel):
         """
         if self._pose_overlay_mode != mode:
             self._pose_overlay_mode = mode
+            self.update()
+
+    @property
+    def identity_overlay_mode(self) -> IdentityOverlayMode:
+        """Get the current identity overlay mode."""
+        return self._id_overlay_mode
+
+    @identity_overlay_mode.setter
+    def identity_overlay_mode(self, mode: IdentityOverlayMode) -> None:
+        """Set the identity overlay mode for the frame widget.
+
+        Args:
+            mode (IdentityOverlayMode): The mode to set for overlaying identities.
+        """
+        if self._id_overlay_mode != mode:
+            self._id_overlay_mode = mode
             self.update()
 
     @property
@@ -248,8 +272,14 @@ class FrameWidget(QtWidgets.QLabel):
             elif self._pose_overlay_mode == self.PoseOverlayMode.ACTIVE_IDENTITY:
                 self._overlay_pose(painter, all_identities=False)
 
-            if self._overlay_identity_enabled:
+            if self._id_overlay_mode in (
+                self.IdentityOverlayMode.CENTROID,
+                self.IdentityOverlayMode.NONE,
+            ):
                 self._overlay_identities(painter)
+
+            if self._labels:
+                self._overlay_labels(painter)
 
         else:
             # if we don't have a pixmap to display just call the original QLabel
@@ -284,33 +314,58 @@ class FrameWidget(QtWidgets.QLabel):
                 # Convert image coordinates to widget coordinates and draw the label
                 widget_x, widget_y = self.image_to_widget_coords(center.x, center.y)
                 painter.setPen(color)
-                painter.drawText(widget_x, widget_y, label_text)
 
-                # also add an overlay with a behavior label if available
-                # (source of label can be manual label or model prediction)
-                if self._labels:
-                    # draw a square next to the identity label to indicate behavior label
-                    behavior_x = widget_x - _BEHAVIOR_LABEL_SIZE - _GAP
-                    behavior_y = (
-                        widget_y
-                        - self._font_metrics.ascent()
-                        + self._font_metrics.height() // 2
-                        - _BEHAVIOR_LABEL_SIZE // 2
+                if self._id_overlay_mode == self.IdentityOverlayMode.NONE:
+                    # draw a circle at the centroid of the identity
+                    painter.setBrush(color)
+                    painter.drawEllipse(
+                        QtCore.QPoint(widget_x, widget_y), _KEYPOINT_SIZE, _KEYPOINT_SIZE
                     )
+                else:
+                    painter.drawText(widget_x, widget_y, label_text)
 
-                    match self._labels[identity][self._frame_number]:
-                        case TrackLabels.Label.BEHAVIOR:
-                            prediction_color = BEHAVIOR_COLOR
-                        case TrackLabels.Label.NOT_BEHAVIOR:
-                            prediction_color = NOT_BEHAVIOR_COLOR
-                        case _:
-                            prediction_color = BACKGROUND_COLOR
+    def _overlay_labels(self, painter: QtGui.QPainter) -> None:
+        if self._pose is None:
+            return
 
-                    painter.setBrush(prediction_color)
-                    painter.setPen(_BEHAVIOR_LABEL_OUTLINE_COLOR)
-                    painter.drawRect(
-                        behavior_x, behavior_y, _BEHAVIOR_LABEL_SIZE, _BEHAVIOR_LABEL_SIZE
-                    )
+        identities = self._pose.identities
+
+        for identity in identities:
+            shape = self._pose.get_identity_convex_hulls(identity)[self._frame_number]
+            if shape is None:
+                continue
+
+            center = shape.centroid
+            widget_x, widget_y = self.image_to_widget_coords(center.x, center.y)
+
+            # draw a square next to the centroid to indicate behavior label
+            if self._id_overlay_mode == self.IdentityOverlayMode.FLOATING:
+                # if the identity overlay is floating, we draw the behavior label to the right of the identity label
+                # since that usually looks better due to the line connecting the label to the centroid
+                behavior_x = widget_x + _GAP
+            else:
+                # if the identity overlay is not floating, we draw the behavior label to the left of the identity label
+                # that leaves room for the identity label to be drawn
+                behavior_x = widget_x - _BEHAVIOR_LABEL_SIZE - _GAP
+
+            behavior_y = (
+                widget_y
+                - self._font_metrics.ascent()
+                + self._font_metrics.height() // 2
+                - _BEHAVIOR_LABEL_SIZE // 2
+            )
+
+            match self._labels[identity][self._frame_number]:
+                case TrackLabels.Label.BEHAVIOR:
+                    prediction_color = BEHAVIOR_COLOR
+                case TrackLabels.Label.NOT_BEHAVIOR:
+                    prediction_color = NOT_BEHAVIOR_COLOR
+                case _:
+                    prediction_color = BACKGROUND_COLOR
+
+            painter.setBrush(prediction_color)
+            painter.setPen(_BEHAVIOR_LABEL_OUTLINE_COLOR)
+            painter.drawRect(behavior_x, behavior_y, _BEHAVIOR_LABEL_SIZE, _BEHAVIOR_LABEL_SIZE)
 
     def _overlay_pose(self, painter: QtGui.QPainter, all_identities: bool = False) -> None:
         """Overlay pose estimation on the current frame.
