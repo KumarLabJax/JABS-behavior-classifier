@@ -38,16 +38,16 @@ class FrameWidget(QtWidgets.QLabel):
     class PoseOverlayMode(enum.IntEnum):
         """Enum to define the mode for overlaying pose estimation on the frame."""
 
-        ALL = 0
-        ACTIVE_IDENTITY = 1
-        NONE = 2
+        ALL = enum.auto()
+        ACTIVE_IDENTITY = enum.auto()
+        NONE = enum.auto()
 
     class IdentityOverlayMode(enum.IntEnum):
         """Enum for identity overlay options."""
 
-        NONE = 0
-        CENTROID = 1
-        FLOATING = 2
+        MINIMAL = enum.auto()
+        CENTROID = enum.auto()
+        FLOATING = enum.auto()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -277,7 +277,7 @@ class FrameWidget(QtWidgets.QLabel):
 
             if self._id_overlay_mode in (
                 self.IdentityOverlayMode.CENTROID,
-                self.IdentityOverlayMode.NONE,
+                self.IdentityOverlayMode.MINIMAL,
             ):
                 self._overlay_identities(painter)
 
@@ -318,7 +318,7 @@ class FrameWidget(QtWidgets.QLabel):
                 widget_x, widget_y = self.image_to_widget_coords(center.x, center.y)
                 painter.setPen(color)
 
-                if self._id_overlay_mode == self.IdentityOverlayMode.NONE:
+                if self._id_overlay_mode == self.IdentityOverlayMode.MINIMAL:
                     # draw a circle at the centroid of the identity
                     painter.setBrush(color)
                     painter.drawEllipse(

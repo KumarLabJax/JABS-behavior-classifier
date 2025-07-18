@@ -224,15 +224,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._identity_overlay_centroid = QtGui.QAction("Centroid", self, checkable=True)
         self._identity_overlay_floating = QtGui.QAction("Floating", self, checkable=True)
-        self._identity_overlay_none = QtGui.QAction("None", self, checkable=True)
+        self._identity_overlay_minimal = QtGui.QAction("Minimalist", self, checkable=True)
 
         identity_overlay_group.addAction(self._identity_overlay_centroid)
         identity_overlay_group.addAction(self._identity_overlay_floating)
-        identity_overlay_group.addAction(self._identity_overlay_none)
+        identity_overlay_group.addAction(self._identity_overlay_minimal)
 
         identity_overlay_menu.addAction(self._identity_overlay_centroid)
         identity_overlay_menu.addAction(self._identity_overlay_floating)
-        identity_overlay_menu.addAction(self._identity_overlay_none)
+        identity_overlay_menu.addAction(self._identity_overlay_minimal)
 
         # set the checked state based on the current identity overlay mode
         match self._central_widget.id_overlay_mode:
@@ -241,7 +241,7 @@ class MainWindow(QtWidgets.QMainWindow):
             case PlayerWidget.IdentityOverlayMode.FLOATING:
                 self._identity_overlay_floating.setChecked(True)
             case _:
-                self._identity_overlay_none.setChecked(True)
+                self._identity_overlay_minimal.setChecked(True)
 
         self._identity_overlay_centroid.triggered.connect(
             lambda: setattr(
@@ -253,9 +253,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._central_widget, "id_overlay_mode", PlayerWidget.IdentityOverlayMode.FLOATING
             )
         )
-        self._identity_overlay_none.triggered.connect(
+        self._identity_overlay_minimal.triggered.connect(
             lambda: setattr(
-                self._central_widget, "id_overlay_mode", PlayerWidget.IdentityOverlayMode.NONE
+                self._central_widget, "id_overlay_mode", PlayerWidget.IdentityOverlayMode.MINIMAL
             )
         )
 
@@ -402,7 +402,7 @@ class MainWindow(QtWidgets.QMainWindow):
             case Qt.Key.Key_Period:
                 self.video_list.select_next_video()
             case Qt.Key.Key_I if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-                self._toggle_identity_overlay_none()
+                self._toggle_identity_overlay_minimalist()
             case _:
                 # anything else pass on to the super class keyPressEvent
                 super().keyPressEvent(event)
@@ -829,8 +829,8 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self._status_bar.showMessage(f"Moved {file} to recycle bin", 3000)
 
-    def _toggle_identity_overlay_none(self) -> None:
-        checked = self._identity_overlay_none.isChecked()
+    def _toggle_identity_overlay_minimalist(self) -> None:
+        checked = self._identity_overlay_minimal.isChecked()
 
         if checked:
             previous_mode = getattr(
@@ -843,8 +843,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._identity_overlay_centroid.setChecked(True)
                 case PlayerWidget.IdentityOverlayMode.FLOATING:
                     self._identity_overlay_floating.setChecked(True)
-                case PlayerWidget.IdentityOverlayMode.NONE:
-                    self._identity_overlay_none.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.MINIMAL:
+                    self._identity_overlay_minimal.setChecked(True)
                 case _:
                     # default to floating if previous_mode is not recognized
                     self._central_widget.id_overlay_mode = (
@@ -853,5 +853,5 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._identity_overlay_floating.setChecked(True)
         else:
             self._previous_identity_overlay_mode = self._central_widget.id_overlay_mode
-            self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.NONE
-            self._identity_overlay_none.setChecked(True)
+            self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
+            self._identity_overlay_minimal.setChecked(True)
