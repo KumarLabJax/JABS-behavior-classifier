@@ -260,19 +260,17 @@ class VideoLabels:
                     )
                     continue
 
-                description = annotation.get("description", "")
-                identity = annotation.get("identity", None)
-
-                # Create a data dict for the interval
+                # Create a data dict for the interval.
+                # Note: description and identity are optional fields
                 data = {
                     "tag": tag,
                     "color": color,
-                    "description": description,
+                    "description": annotation.get("description"),
+                    "identity": annotation.get("identity"),
                 }
-                if identity is not None:
-                    data["identity"] = identity
 
-                # Create the interval and add it to the IntervalTree
+                # Create the interval and add it to the IntervalTree.
+                # The start and end contained in the JSON file are inclusive, so we add 1 to end.
                 labels._annotations[start : end + 1] = data
 
         return labels
