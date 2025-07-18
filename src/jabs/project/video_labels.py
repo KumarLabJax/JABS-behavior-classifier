@@ -186,13 +186,15 @@ class VideoLabels:
                 label_dict["external_identities"][str(i)] = identity
 
         if self._annotations is not None:
+            if "annotations" not in label_dict:
+                label_dict["annotations"] = []
+
             for annotation in self._annotations:
                 try:
                     annotation_data = {
                         "start": annotation.begin,
                         "end": annotation.end,
                         "tag": annotation.data["tag"],
-                        "description": annotation.data["description"],
                         "color": annotation.data["color"],
                     }
                 except KeyError as e:
@@ -200,11 +202,13 @@ class VideoLabels:
                     continue
 
                 # optional fields
-                if "animal_id" in annotation.data:
-                    annotation_data["animal_id"] = annotation.data["animal_id"]
+                description = annotation.data.get("description")
+                if description is not None:
+                    annotation_data["description"] = description
+                identity = annotation.data.get("identity")
+                if identity is not None:
+                    annotation_data["identity"] = identity
 
-                if "annotations" not in label_dict:
-                    label_dict["annotations"] = []
                 label_dict["annotations"].append(annotation_data)
 
         return label_dict
@@ -257,7 +261,7 @@ class VideoLabels:
                     continue
 
                 description = annotation.get("description", "")
-                animal_id = annotation.get("animal_id", None)
+                identity = annotation.get("identity", None)
 
                 # Create a data dict for the interval
                 data = {
@@ -265,8 +269,8 @@ class VideoLabels:
                     "color": color,
                     "description": description,
                 }
-                if animal_id is not None:
-                    data["animal_id"] = animal_id
+                if identity is not None:
+                    data["identity"] = identity
 
                 # Create the interval and add it to the IntervalTree
                 labels._annotations[start : end + 1] = data
