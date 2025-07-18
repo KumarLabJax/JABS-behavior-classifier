@@ -51,7 +51,7 @@ class ManualLabelWidget(QWidget):
         ],
         dtype=np.uint8,
     )
-    GAP_ALPHA = 96  # semi-transparent for gaps
+    GAP_ALPHA = 128  # semi-transparent for gaps
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

@@ -827,7 +827,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         # update counts for the current video -- we could be more efficient
         # by only updating the current identity in the current video
-        self._counts[self._loaded_video.name] = self._labels.counts(self.behavior)
+        self._counts[self._loaded_video.name] = self._project.read_counts(
+            self._loaded_video.name, self.behavior
+        )
 
         # TODO fix so we're not using the identity index as a string for keys in the label counts
         identity = str(self._controls.current_identity_index)
@@ -843,15 +845,15 @@ class CentralWidget(QtWidgets.QWidget):
 
         for video, video_counts in self._counts.items():
             for identity_counts in video_counts:
-                label_behavior_project += identity_counts[1][0]
-                label_not_behavior_project += identity_counts[1][1]
-                bout_behavior_project += identity_counts[2][0]
-                bout_not_behavior_project += identity_counts[2][1]
+                label_behavior_project += identity_counts[3][0]
+                label_not_behavior_project += identity_counts[3][1]
+                bout_behavior_project += identity_counts[4][0]
+                bout_not_behavior_project += identity_counts[4][1]
                 if video == self._loaded_video.name and identity_counts[0] == identity:
-                    label_behavior_current += identity_counts[1][0]
-                    label_not_behavior_current += identity_counts[1][1]
-                    bout_behavior_current += identity_counts[2][0]
-                    bout_not_behavior_current += identity_counts[2][1]
+                    label_behavior_current += identity_counts[3][0]
+                    label_not_behavior_current += identity_counts[3][1]
+                    bout_behavior_current += identity_counts[4][0]
+                    bout_not_behavior_current += identity_counts[4][1]
 
         self._controls.set_frame_counts(
             label_behavior_current,

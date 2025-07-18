@@ -77,18 +77,6 @@ class TrackLabels:
         return self._labels[frame_index]
 
     @property
-    def label_count(self):
-        """Return a tuple with the count of frames for each label class.
-
-        Returns:
-            tuple: (number of frames labeled as BEHAVIOR, number of frames labeled as NOT_BEHAVIOR)
-        """
-        return (
-            np.count_nonzero(self._labels == self.Label.BEHAVIOR),
-            np.count_nonzero(self._labels == self.Label.NOT_BEHAVIOR),
-        )
-
-    @property
     def bout_count(self):
         """Return a tuple with the number of contiguous bouts for each label class.
 
@@ -106,11 +94,6 @@ class TrackLabels:
             else:
                 bouts_not_behavior += 1
         return bouts_behavior, bouts_not_behavior
-
-    @property
-    def counts(self):
-        """return the label and bout counts"""
-        return self.label_count, self.bout_count
 
     def get_blocks(self, mask: np.ndarray | None = None):
         """get blocks for entire label array
