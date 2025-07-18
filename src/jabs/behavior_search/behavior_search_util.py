@@ -44,6 +44,15 @@ class PredictionBehaviorSearchQuery(BehaviorSearchQuery):
 
 
 @dataclass(frozen=True)
+class TimelineAnnotationSearchQuery(BehaviorSearchQuery):
+    """Query for timeline annotation search."""
+
+    tag: str | None = None
+    min_contiguous_frames: int | None = None
+    max_contiguous_frames: int | None = None
+
+
+@dataclass(frozen=True)
 class SearchHit:
     """Represents a search hit with file, identity, and frame range information."""
 
@@ -58,7 +67,7 @@ def search_behaviors(
     project: Project | None, search_query: BehaviorSearchQuery
 ) -> list[SearchHit]:
     """Perform the search based on the current query and project."""
-    return _sorted_search_results(_search_behaviors_gen(project, search_query))
+    return _sorted_search_results(list(_search_behaviors_gen(project, search_query)))
 
 
 def _search_behaviors_gen(
@@ -159,6 +168,41 @@ def _search_behaviors_gen(
                                 end_frame=end,
                             )
 
+        case TimelineAnnotationSearchQuery() as timeline_query:
+            video_manager = project.video_manager
+            for video in video_manager.videos:
+                anno_dict = video_manager.load_annotations(video)
+                for annotation in anno_dict.get("annotations", []):
+                    if timeline_query.tag is None or annotation.get("tag") == timeline_query.tag:
+                        start = annotation["start"]
+                        end = annotation["end"]
+
+                        # check if the search hit meets the min/max contiguous frames criteria
+                        interval_length = end - start + 1
+                        if (
+                            timeline_query.min_contiguous_frames is not None
+                            and interval_length < timeline_query.min_contiguous_frames
+                        ):
+                            continue
+
+                        if (
+                            timeline_query.max_contiguous_frames is not None
+                            and interval_length > timeline_query.max_contiguous_frames
+                        ):
+                            continue
+
+                        identity = annotation.get("identity")
+                        if identity is not None:
+                            identity = str(identity)
+
+                        yield SearchHit(
+                            file=video,
+                            identity=identity,
+                            behavior=None,
+                            start_frame=start,
+                            end_frame=end,
+                        )
+
         case _:
             raise ValueError("Unknown query type or unsupported search.")
 
@@ -181,11 +225,16 @@ def _sorted_search_results(hits: Iterable[SearchHit]) -> list[SearchHit]:
             hits,
             key=lambda hit: (hit.file, hit.start_frame, int(hit.identity), hit.behavior),
         )
-    except ValueError:
+    except (ValueError, TypeError):
         # there is at least one identity that cannot be converted to an int
         return sorted(
             hits,
-            key=lambda hit: (hit.file, hit.start_frame, hit.identity, hit.behavior),
+            key=lambda hit: (
+                hit.file,
+                hit.start_frame,
+                "" if hit.identity is None else hit.identity,
+                hit.behavior,
+            ),
         )
 
 

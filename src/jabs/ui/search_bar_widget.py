@@ -6,6 +6,7 @@ from jabs.behavior_search import (
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
     SearchHit,
+    TimelineAnnotationSearchQuery,
     search_behaviors,
 )
 from jabs.project import Project
@@ -129,6 +130,7 @@ class SearchBarWidget(QtWidgets.QWidget):
             self.setVisible(True)
             self.text_label.setText(_describe_query(search_query))
             self._search_results = search_behaviors(self._project, search_query)
+            print(f"Search results: {len(self._search_results)} hits found.")
 
         self._update_result_count_label()
         self.search_results_changed.emit(self._search_results)
@@ -335,11 +337,31 @@ def _describe_query(query: BehaviorSearchQuery) -> str:
                         parts.append(f"behavior prob. < {lt}")
 
             if max_frames is not None and min_frames is not None:
-                parts.append(f"with {min_frames} to {max_frames} contiguous frames")
+                parts.append(f"having {min_frames} to {max_frames} contiguous frames")
             elif min_frames is not None and min_frames > 1:
-                parts.append(f"with at least {min_frames} contiguous frames")
+                parts.append(f"having at least {min_frames} contiguous frames")
             elif max_frames is not None and max_frames > 1:
-                parts.append(f"with at most {max_frames} contiguous frames")
+                parts.append(f"having at most {max_frames} contiguous frames")
+
+            return " ".join(parts)
+
+        case TimelineAnnotationSearchQuery(
+            tag=tag,
+            min_contiguous_frames=min_frames,
+            max_contiguous_frames=max_frames,
+        ):
+            parts = []
+            if tag is None:
+                parts.append("All timeline annotations")
+            else:
+                parts.append(f"Timeline annotations with tag '{tag}'")
+
+            if max_frames is not None and min_frames is not None:
+                parts.append(f"having {min_frames} to {max_frames} contiguous frames")
+            elif min_frames is not None and min_frames > 1:
+                parts.append(f"having at least {min_frames} contiguous frames")
+            elif max_frames is not None and max_frames > 1:
+                parts.append(f"having at most {max_frames} contiguous frames")
 
             return " ".join(parts)
         case _:

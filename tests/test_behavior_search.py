@@ -8,6 +8,7 @@ from jabs.behavior_search.behavior_search_util import (
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
     SearchHit,
+    TimelineAnnotationSearchQuery,
     _search_behaviors_gen,
 )
 
@@ -428,3 +429,87 @@ def test_unknown_query_type():
     project = _make_project(videos=["video1"])
     with pytest.raises(ValueError):
         list(_search_behaviors_gen(project, DummyQuery()))
+
+
+# --- TimelineAnnotationSearchQuery tests ---
+
+
+def test_timeline_annotation_search_tag_match():
+    """Test timeline annotation search matches correct tag."""
+    annotations = {
+        "video1": {
+            "annotations": [
+                {"start": 0, "end": 10, "tag": "foo", "identity": "1"},
+                {"start": 11, "end": 20, "tag": "bar", "identity": "2"},
+            ]
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = TimelineAnnotationSearchQuery(tag="foo")
+    hits = list(_search_behaviors_gen(project, query))
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior=None, start_frame=0, end_frame=10)
+    ]
+
+
+def test_timeline_annotation_search_tag_none():
+    """Test timeline annotation search with tag=None matches all annotations."""
+    annotations = {
+        "video1": {
+            "annotations": [
+                {"start": 0, "end": 10, "tag": "foo", "identity": "1"},
+                {"start": 11, "end": 20, "tag": "bar", "identity": "2"},
+            ]
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = TimelineAnnotationSearchQuery(tag=None)
+    hits = list(_search_behaviors_gen(project, query))
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior=None, start_frame=0, end_frame=10),
+        SearchHit(file="video1", identity="2", behavior=None, start_frame=11, end_frame=20),
+    ]
+
+
+def test_timeline_annotation_search_min_max_contiguous_frames():
+    """Test timeline annotation search with min/max contiguous frames filters intervals."""
+    annotations = {
+        "video1": {
+            "annotations": [
+                {"start": 0, "end": 2, "tag": "foo", "identity": "1"},  # length 3
+                {"start": 3, "end": 3, "tag": "foo", "identity": "1"},  # length 1
+                {"start": 4, "end": 7, "tag": "foo", "identity": "1"},  # length 4
+            ]
+        }
+    }
+    project = _make_project(videos=["video1"], annotations=annotations)
+    query = TimelineAnnotationSearchQuery(
+        tag="foo", min_contiguous_frames=2, max_contiguous_frames=3
+    )
+    hits = list(_search_behaviors_gen(project, query))
+    # Only [0,2] (length 3) should be included
+    assert hits == [
+        SearchHit(file="video1", identity="1", behavior=None, start_frame=0, end_frame=2)
+    ]
+
+
+def test_timeline_annotation_search_empty_annotations():
+    """Test timeline annotation search with empty annotations yields nothing."""
+    project = _make_project(videos=["video1"], annotations={"video1": {}})
+    query = TimelineAnnotationSearchQuery(tag="foo")
+    hits = list(_search_behaviors_gen(project, query))
+    assert hits == []
+
+
+def test_timeline_annotation_search_project_none():
+    """Test timeline annotation search with project=None yields nothing."""
+    query = TimelineAnnotationSearchQuery(tag="foo")
+    hits = list(_search_behaviors_gen(None, query))
+    assert hits == []
+
+
+def test_timeline_annotation_search_query_none():
+    """Test timeline annotation search with search_query=None yields nothing."""
+    project = _make_project(videos=["video1"])
+    hits = list(_search_behaviors_gen(project, None))
+    assert hits == []

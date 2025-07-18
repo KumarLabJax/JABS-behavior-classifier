@@ -1,4 +1,7 @@
+from enum import IntEnum, auto
+
 from PySide6 import QtGui, QtWidgets
+from PySide6.QtCore import QObject, QThread, Signal
 
 from jabs.behavior_search import (
     BehaviorSearchQuery,
@@ -6,7 +9,39 @@ from jabs.behavior_search import (
     PredictionBehaviorSearchQuery,
     PredictionSearchKind,
 )
+from jabs.behavior_search.behavior_search_util import TimelineAnnotationSearchQuery
 from jabs.project import Project
+
+
+class _SearchMethod(IntEnum):
+    """Enumeration for different search methods in the behavior search dialog."""
+
+    LABEL = 0
+    PREDICTION = auto()
+    TIMELINE_ANNOTATION = auto()
+
+
+class _GatherTimelineAnnotationTagsWorker(QObject):
+    """Asynchronous worker to gather timeline annotation tags."""
+
+    finished = Signal(list)
+
+    def __init__(self, project: Project):
+        super().__init__()
+        self.project = project
+
+    def run(self):
+        all_tags = set()
+
+        video_manager = self.project.video_manager
+        for video in video_manager.videos:
+            anno_dict = video_manager.load_annotations(video)
+            if "annotations" in anno_dict:
+                for annotation in anno_dict["annotations"]:
+                    if "tag" in annotation:
+                        all_tags.add(annotation["tag"])
+
+        self.finished.emit(sorted(all_tags))
 
 
 class BehaviorSearchDialog(QtWidgets.QDialog):
@@ -33,24 +68,17 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         method_layout = QtWidgets.QHBoxLayout()
         method_label = QtWidgets.QLabel("Search method:")
         self.method_combo = QtWidgets.QComboBox()
-        self.method_combo.addItems(["Label Search", "Prediction Search"])
+        self.method_combo.addItems(
+            [
+                "Label Search",
+                "Prediction Search",
+                "Timeline Annotation Search",
+            ]
+        )
         method_layout.addWidget(method_label)
         method_layout.addWidget(self.method_combo)
         method_layout.addStretch()
         main_layout.addLayout(method_layout)
-
-        # Note: leaving the following commented out for future use
-        #       when we add limited scope to searches.
-
-        # # checkboxes for limiting search scope
-        # self.limit_to_video_checkbox = QtWidgets.QCheckBox(
-        #     "Limit search to selected video"
-        # )
-        # self.limit_to_identity_checkbox = QtWidgets.QCheckBox(
-        #     "Limit search to selected identity"
-        # )
-        # main_layout.addWidget(self.limit_to_video_checkbox)
-        # main_layout.addWidget(self.limit_to_identity_checkbox)
 
         # === GroupBox container with stacked widget ===
         group_box = QtWidgets.QGroupBox()
@@ -106,7 +134,7 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         prediction_behavior_row.addStretch()
         prediction_layout.addLayout(prediction_behavior_row)
 
-        # --- Prediction radio buttons ---
+        # Prediction radio buttons
         self.pred_radio_group = QtWidgets.QButtonGroup(prediction_widget)
         self.radio_pred_positive = QtWidgets.QRadioButton("Positive behavior predictions")
         self.radio_pred_negative = QtWidgets.QRadioButton("Negative behavior predictions")
@@ -151,24 +179,35 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         prediction_layout.addSpacing(10)
 
         # Frame count range
-        prediction_layout.addWidget(QtWidgets.QLabel("Limit results by interval frame count:"))
-        frame_count_range_layout = QtWidgets.QHBoxLayout()
-        self.min_frame_count = QtWidgets.QLineEdit()
-        self.min_frame_count.setValidator(QtGui.QIntValidator(0, 100000))
-        self.min_frame_count.setPlaceholderText("1 (default)")
-        frame_count_range_layout.addWidget(self.min_frame_count)
-
-        frame_count_range_layout.addWidget(QtWidgets.QLabel("≤ frame count ≤"))
-
-        self.max_frame_count = QtWidgets.QLineEdit()
-        self.max_frame_count.setValidator(QtGui.QIntValidator(0, 100000))
-        self.max_frame_count.setPlaceholderText("∞ (default)")
-        frame_count_range_layout.addWidget(self.max_frame_count)
-
-        prediction_layout.addLayout(frame_count_range_layout)
+        self.pred_min_frame_count, self.pred_max_frame_count = self._add_frame_range_ui_to_layout(
+            prediction_layout
+        )
         prediction_layout.addStretch()
 
         self.stacked_widget.addWidget(prediction_widget)
+
+        # --- Timeline Annotation Search Panel ---
+        timeline_anno_widget = QtWidgets.QWidget()
+        timeline_anno_layout = QtWidgets.QVBoxLayout(timeline_anno_widget)
+
+        # timeline annotation tag dropdown. Because computing tags can be relatively
+        # expensive and requires I/O, we will defer adding them here and compute
+        # them asynchronously.
+        timeline_anno_tag_row = QtWidgets.QHBoxLayout()
+        timeline_anno_tag_label = QtWidgets.QLabel("Annotation Tag:")
+        self.timeline_anno_tag_combo = QtWidgets.QComboBox()
+        self.timeline_anno_tag_combo.addItems(["Any Tag"])
+        timeline_anno_tag_row.addWidget(timeline_anno_tag_label)
+        timeline_anno_tag_row.addWidget(self.timeline_anno_tag_combo)
+        timeline_anno_tag_row.addStretch()
+        timeline_anno_layout.addLayout(timeline_anno_tag_row)
+
+        self.timeline_anno_min_frame_count, self.timeline_anno_max_frame_count = (
+            self._add_frame_range_ui_to_layout(timeline_anno_layout)
+        )
+        timeline_anno_layout.addStretch()
+
+        self.stacked_widget.addWidget(timeline_anno_widget)
 
         # Dialog buttons
         button_box = QtWidgets.QDialogButtonBox(
@@ -181,82 +220,153 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         # Update view based on combo box
         self.method_combo.currentIndexChanged.connect(self.stacked_widget.setCurrentIndex)
 
+        # Compute timeline annotation tags asynchronously
+        self._start_gather_timeline_annotation_tags_worker(project)
+
+    def _add_frame_range_ui_to_layout(self, layout: QtWidgets.QVBoxLayout):
+        """Add frame count UI elements to the given layout."""
+        layout.addWidget(QtWidgets.QLabel("Limit results by frame count:"))
+        frame_count_range_layout = QtWidgets.QHBoxLayout()
+        min_frame_count_edit = QtWidgets.QLineEdit()
+        min_frame_count_edit.setValidator(QtGui.QIntValidator(0, 100000))
+        min_frame_count_edit.setPlaceholderText("1 (default)")
+        frame_count_range_layout.addWidget(min_frame_count_edit)
+
+        frame_count_range_layout.addWidget(QtWidgets.QLabel("≤ frame count ≤"))
+
+        max_frame_count_edit = QtWidgets.QLineEdit()
+        max_frame_count_edit.setValidator(QtGui.QIntValidator(0, 100000))
+        max_frame_count_edit.setPlaceholderText("∞ (default)")
+        frame_count_range_layout.addWidget(max_frame_count_edit)
+
+        layout.addLayout(frame_count_range_layout)
+
+        return min_frame_count_edit, max_frame_count_edit
+
+    def _min_max_frames_valid(
+        self,
+        min_frames_edit: QtWidgets.QLineEdit,
+        max_frames_edit: QtWidgets.QLineEdit,
+    ):
+        """Validate the minimum and maximum frame count inputs.
+
+        Args:
+            min_frames_edit (QtWidgets.QLineEdit): The line edit for minimum frames.
+            max_frames_edit (QtWidgets.QLineEdit): The line edit for maximum frames.
+
+        Returns:
+            bool: True if valid, False otherwise.
+        """
+        try:
+            min_frames = self._text_to_maybe_int(min_frames_edit.text())
+            max_frames = self._text_to_maybe_int(max_frames_edit.text())
+
+            min_frames = min_frames if min_frames is not None else 1
+            max_frames = max_frames if max_frames is not None else float("inf")
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Input",
+                "Please enter valid integers for frame count.",
+            )
+            return False
+
+        if min_frames < 1 or max_frames < 1:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Frame Count",
+                "Frame counts must be positive integers.",
+            )
+            return False
+
+        if min_frames > max_frames:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Frame Range",
+                "Minimum frame count cannot be greater than maximum frame count.",
+            )
+            return False
+
+        return True
+
     def validate_and_accept(self):
         """Validate user input and accept the dialog if all checks pass."""
-        # validation for prediction search
-        if self.method_combo.currentIndex() == 1:
-            # if radio_pred_range is selected, check probability values
-            if self.radio_pred_range.isChecked():
-                try:
-                    min_prob = self._text_to_maybe_float(self.prob_greater_value.text())
-                    max_prob = self._text_to_maybe_float(self.prob_less_value.text())
-                    if min_prob is None and max_prob is None:
+        match self.method_combo.currentIndex():
+            case _SearchMethod.PREDICTION:
+                if self.radio_pred_range.isChecked():
+                    # if radio_pred_range is selected, check probability values
+                    try:
+                        min_prob = self._text_to_maybe_float(self.prob_greater_value.text())
+                        max_prob = self._text_to_maybe_float(self.prob_less_value.text())
+                        if min_prob is None and max_prob is None:
+                            QtWidgets.QMessageBox.warning(
+                                self,
+                                "Invalid Input",
+                                "Please enter at least one probability value for the range.",
+                            )
+                            return
+
+                        min_prob = min_prob if min_prob is not None else 0.0
+                        max_prob = max_prob if max_prob is not None else 1.0
+                    except ValueError:
                         QtWidgets.QMessageBox.warning(
                             self,
                             "Invalid Input",
-                            "Please enter at least one probability value for the range.",
+                            "Please enter valid numbers for probability range.",
                         )
                         return
 
-                    min_prob = min_prob if min_prob is not None else 0.0
-                    max_prob = max_prob if max_prob is not None else 1.0
-                except ValueError:
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        "Invalid Input",
-                        "Please enter valid numbers for probability range.",
-                    )
+                    if not (0.0 <= min_prob <= 1.0 and 0.0 <= max_prob <= 1.0):
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            "Out of Range",
+                            "Probability values must be between 0.0 and 1.0.",
+                        )
+                        return
+
+                    if min_prob > max_prob:
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            "Invalid Range",
+                            "Minimum probability cannot be greater than maximum probability.",
+                        )
+                        return
+
+                # check frame range values
+                if not self._min_max_frames_valid(
+                    self.pred_min_frame_count,
+                    self.pred_max_frame_count,
+                ):
                     return
 
-                if not (0.0 <= min_prob <= 1.0 and 0.0 <= max_prob <= 1.0):
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        "Out of Range",
-                        "Probability values must be between 0.0 and 1.0.",
-                    )
+            case _SearchMethod.TIMELINE_ANNOTATION:
+                # check frame range values
+                if not self._min_max_frames_valid(
+                    self.timeline_anno_min_frame_count,
+                    self.timeline_anno_max_frame_count,
+                ):
                     return
-
-                if min_prob > max_prob:
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        "Invalid Range",
-                        "Minimum probability cannot be greater than maximum probability.",
-                    )
-                    return
-
-            # check frame range values
-            try:
-                min_frames = self._text_to_maybe_int(self.min_frame_count.text())
-                max_frames = self._text_to_maybe_int(self.max_frame_count.text())
-
-                min_frames = min_frames if min_frames is not None else 1
-                max_frames = max_frames if max_frames is not None else float("inf")
-            except ValueError:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid Input",
-                    "Please enter valid integers for frame count.",
-                )
-                return
-
-            if min_frames < 1 or max_frames < 1:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid Frame Count",
-                    "Frame counts must be positive integers.",
-                )
-                return
-
-            if min_frames > max_frames:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid Frame Range",
-                    "Minimum frame count cannot be greater than maximum frame count.",
-                )
-                return
 
         # all checks passed
         self.accept()
+
+    def _start_gather_timeline_annotation_tags_worker(self, project: Project):
+        # Create thread and worker instances
+        thread = QThread()
+        worker = _GatherTimelineAnnotationTagsWorker(project)
+        worker.moveToThread(thread)
+
+        def on_finished(tags):
+            self.timeline_anno_tag_combo.addItems(tags)
+            thread.quit()
+            worker.deleteLater()
+            thread.deleteLater()
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(on_finished)
+
+        # Start the thread
+        thread.start()
 
     def _text_to_maybe_float(self, text: str) -> float | None:
         """Convert text to float, returning None if empty.
@@ -291,52 +401,72 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
     @property
     def behavior_search_query(self) -> BehaviorSearchQuery:
         """Return a BehaviorSearchQuery based on the current dialog values."""
-        if self.method_combo.currentIndex() == 0:  # Label Search
-            radio_id = self.label_radio_group.checkedId()
-            behavior_label = (
-                self.behavior_combo.currentText()
-                if self.behavior_combo.currentIndex() != 0
-                else None
-            )
+        match self.method_combo.currentIndex():
+            case _SearchMethod.LABEL:
+                radio_id = self.label_radio_group.checkedId()
+                behavior_label = (
+                    self.behavior_combo.currentText()
+                    if self.behavior_combo.currentIndex() != 0
+                    else None
+                )
 
-            return LabelBehaviorSearchQuery(
-                behavior_label=behavior_label,
-                positive=radio_id in (0, 1),
-                negative=radio_id in (0, 2),
-            )
-
-        else:  # Prediction Search
-            behavior_label = (
-                self.prediction_behavior_combo.currentText()
-                if self.prediction_behavior_combo.currentIndex() != 0
-                else None
-            )
-            min_frames = self._text_to_maybe_int(self.min_frame_count.text())
-            max_frames = self._text_to_maybe_int(self.max_frame_count.text())
-
-            if self.radio_pred_positive.isChecked():
-                return PredictionBehaviorSearchQuery(
-                    search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
+                return LabelBehaviorSearchQuery(
                     behavior_label=behavior_label,
+                    positive=radio_id in (0, 1),
+                    negative=radio_id in (0, 2),
+                )
+
+            case _SearchMethod.PREDICTION:
+                behavior_label = (
+                    self.prediction_behavior_combo.currentText()
+                    if self.prediction_behavior_combo.currentIndex() != 0
+                    else None
+                )
+                min_frames = self._text_to_maybe_int(self.pred_min_frame_count.text())
+                max_frames = self._text_to_maybe_int(self.pred_max_frame_count.text())
+
+                if self.radio_pred_positive.isChecked():
+                    return PredictionBehaviorSearchQuery(
+                        search_kind=PredictionSearchKind.POSITIVE_PREDICTION,
+                        behavior_label=behavior_label,
+                        min_contiguous_frames=min_frames,
+                        max_contiguous_frames=max_frames,
+                    )
+                elif self.radio_pred_negative.isChecked():
+                    return PredictionBehaviorSearchQuery(
+                        search_kind=PredictionSearchKind.NEGATIVE_PREDICTION,
+                        behavior_label=behavior_label,
+                        min_contiguous_frames=min_frames,
+                        max_contiguous_frames=max_frames,
+                    )
+                else:
+                    prob_greater_value = self._text_to_maybe_float(self.prob_greater_value.text())
+                    prob_less_value = self._text_to_maybe_float(self.prob_less_value.text())
+
+                    return PredictionBehaviorSearchQuery(
+                        search_kind=PredictionSearchKind.PROBABILITY_RANGE,
+                        behavior_label=behavior_label,
+                        prob_greater_value=prob_greater_value,
+                        prob_less_value=prob_less_value,
+                        min_contiguous_frames=min_frames,
+                        max_contiguous_frames=max_frames,
+                    )
+
+            case _SearchMethod.TIMELINE_ANNOTATION:
+                tag = (
+                    self.timeline_anno_tag_combo.currentText()
+                    if self.timeline_anno_tag_combo.currentIndex() != 0
+                    else None
+                )
+
+                min_frames = self._text_to_maybe_int(self.timeline_anno_min_frame_count.text())
+                max_frames = self._text_to_maybe_int(self.timeline_anno_max_frame_count.text())
+
+                return TimelineAnnotationSearchQuery(
+                    tag=tag,
                     min_contiguous_frames=min_frames,
                     max_contiguous_frames=max_frames,
                 )
-            elif self.radio_pred_negative.isChecked():
-                return PredictionBehaviorSearchQuery(
-                    search_kind=PredictionSearchKind.NEGATIVE_PREDICTION,
-                    behavior_label=behavior_label,
-                    min_contiguous_frames=min_frames,
-                    max_contiguous_frames=max_frames,
-                )
-            else:
-                prob_greater_value = self._text_to_maybe_float(self.prob_greater_value.text())
-                prob_less_value = self._text_to_maybe_float(self.prob_less_value.text())
 
-                return PredictionBehaviorSearchQuery(
-                    search_kind=PredictionSearchKind.PROBABILITY_RANGE,
-                    behavior_label=behavior_label,
-                    prob_greater_value=prob_greater_value,
-                    prob_less_value=prob_less_value,
-                    min_contiguous_frames=min_frames,
-                    max_contiguous_frames=max_frames,
-                )
+            case _:
+                raise ValueError("Unknown search method selected.")
