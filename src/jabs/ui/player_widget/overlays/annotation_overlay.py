@@ -57,7 +57,7 @@ class AnnotationOverlay(Overlay):
         animal_annots = defaultdict(list)
         non_animal_annots = []
         for annotation in annotations:
-            identity = annotation.data.get("animal_id", None)
+            identity = annotation.data.get("identity", None)
             if identity is not None:
                 animal_annots[identity].append(annotation)
             else:
@@ -160,8 +160,8 @@ class AnnotationOverlay(Overlay):
         for i, annotation in enumerate(non_animal_annots):
             text = (
                 annotation.data["tag"]
-                if annotation.data.get("animal_id") is None
-                else f"{annotation.data['animal_id']}: {annotation.data['tag']}"
+                if annotation.data.get("identity") is None
+                else f"{annotation.data['identity']}: {annotation.data['tag']}"
             )
             color_str = annotation.data["color"]
             text_width = self._font_metrics.horizontalAdvance(text)
