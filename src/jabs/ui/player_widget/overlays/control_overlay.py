@@ -49,11 +49,10 @@ class ControlOverlay(Overlay):
         Args:
             painter (QtGui.QPainter): The painter used to draw the overlay.
         """
-        if (
-            self.parent.pixmap() is not None
-            and not self.parent.pixmap().isNull()
-            and (self._over_pixmap or self._menu_open)
-        ):
+        if not self._enabled or self.parent.pixmap().isNull():
+            return
+
+        if self._over_pixmap or self._menu_open:
             x = self.parent.scaled_pix_x + self._BADGE_OFFSET
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
             self._draw_playback_speed_badge(painter, x, y)

@@ -59,6 +59,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.update_frame_number.connect(self._frame_change)
         self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
+        self._player_widget.id_label_clicked.connect(self._id_label_clicked)
         self._curr_frame_index = 0
 
         self._loaded_video = None
@@ -67,7 +68,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._prediction_list = None
         self._probability_list = None
         self._pose_est = None
-        self._label_overlay_mode = PlayerWidget.LabelOverlay.NONE
+        self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         self._suppress_label_track_update = False
 
         #  classifier
@@ -142,16 +143,6 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.update_search(search_query)
 
     @property
-    def overlay_identity_enabled(self) -> bool:
-        """get the identity overlay enabled status from player widget."""
-        return self._player_widget.overlay_identity_enabled
-
-    @overlay_identity_enabled.setter
-    def overlay_identity_enabled(self, enabled: bool) -> None:
-        """Set the identity overlay enabled status on the player widget."""
-        self._player_widget.overlay_identity_enabled = enabled
-
-    @property
     def overlay_annotations_enabled(self) -> bool:
         """get the annotation overlay enabled status from player widget."""
         return self._player_widget.overlay_annotations_enabled
@@ -219,33 +210,47 @@ class CentralWidget(QtWidgets.QWidget):
             self._stacked_timeline.set_search_results(behavior_search_query, filtered_results)
 
     @property
-    def label_overlay_mode(self) -> PlayerWidget.LabelOverlay:
+    def label_overlay_mode(self) -> PlayerWidget.LabelOverlayMode:
         """return the current label overlay mode of the player widget"""
         return self._label_overlay_mode
 
     @label_overlay_mode.setter
-    def label_overlay_mode(self, mode: PlayerWidget.LabelOverlay) -> None:
+    def label_overlay_mode(self, mode: PlayerWidget.LabelOverlayMode) -> None:
         """set the label overlay mode of the player widget
 
         If the mode is changed, update the player widget labels with
         either the current labels or predictions based on the mode.
 
         Args:
-            mode (PlayerWidget.LabelOverlay): The new label overlay mode to set.
+            mode (PlayerWidget.LabelOverlayMode): The new label overlay mode to set.
         """
         if mode != self._label_overlay_mode:
             self._label_overlay_mode = mode
             # also update self._player_widget labels
-            if mode == PlayerWidget.LabelOverlay.LABEL:
+            if mode == PlayerWidget.LabelOverlayMode.LABEL:
                 self._player_widget.set_labels(
                     [labels.get_labels() for labels in self._get_label_list()]
                 )
-            elif mode == PlayerWidget.LabelOverlay.PREDICTION:
+            elif mode == PlayerWidget.LabelOverlayMode.PREDICTION:
                 # prediction_list, _ = self._get_prediction_list()
                 self._player_widget.set_labels(self._prediction_list)
             else:
                 # if the player is set to show nothing, clear the labels
                 self._player_widget.set_labels(None)
+
+    @property
+    def id_overlay_mode(self) -> PlayerWidget.IdentityOverlayMode:
+        """return the current identity overlay mode of the player widget"""
+        return self._player_widget.id_overlay_mode
+
+    @id_overlay_mode.setter
+    def id_overlay_mode(self, mode: PlayerWidget.IdentityOverlayMode) -> None:
+        """set the identity overlay mode of the player widget
+
+        Args:
+            mode (PlayerWidget.IdentityOverlayMode): The new identity overlay mode to set.
+        """
+        self._player_widget.id_overlay_mode = mode
 
     def set_project(self, project: Project) -> None:
         """set the currently opened project"""
@@ -566,7 +571,7 @@ class CentralWidget(QtWidgets.QWidget):
             ]
             self._stacked_timeline.set_labels(label_list, mask_list)
 
-            if self._label_overlay_mode == PlayerWidget.LabelOverlay.LABEL:
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
                 # if configured to show labels, update the player widget with the new labels
                 self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
@@ -761,7 +766,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
         self._stacked_timeline.set_predictions(self._prediction_list, self._probability_list)
-        if self._label_overlay_mode == PlayerWidget.LabelOverlay.PREDICTION:
+        if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
             # if the player is set to show predictions, update the player widget
             self._player_widget.set_labels(self._prediction_list)
 
@@ -908,6 +913,11 @@ class CentralWidget(QtWidgets.QWidget):
 
         if clicked_identity is not None:
             self._controls.set_identity_index(clicked_identity)
+
+    def _id_label_clicked(self, id_clicked: int) -> None:
+        """handle event where use clicked a floating identity label"""
+        if self._pose_est is not None and id_clicked < self._pose_est.num_identities:
+            self._controls.set_identity_index(id_clicked)
 
     def _window_feature_size_changed(self, new_size: int) -> None:
         """handle window feature size change"""
