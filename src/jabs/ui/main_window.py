@@ -54,6 +54,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.status_message.connect(self.display_status_message)
         self._central_widget.search_hit_loaded.connect(self._search_hit_loaded)
         self.setCentralWidget(self._central_widget)
+        self.setStatusBar(QtWidgets.QStatusBar(self))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setUnifiedTitleAndToolBarOnMac(True)
 
@@ -62,13 +63,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = None
         self._project_loader_thread = None
         self._progress_dialog = None
-
-        self._status_bar = QtWidgets.QStatusBar(self)
-        self.setStatusBar(self._status_bar)
-
         self._user_guide_window = None
-
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
+        self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
 
         size = self._settings.value("main_window_size", None, type=QtCore.QSize)
         if size and isinstance(size, QtCore.QSize):
@@ -481,7 +478,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         if duration < 0:
             raise ValueError("duration must be >= 0")
-        self._status_bar.showMessage(message, duration)
+        self.statusBar().showMessage(message, duration)
 
     def clear_status_bar(self) -> None:
         """clear the status bar message
@@ -489,7 +486,7 @@ class MainWindow(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self._status_bar.clearMessage()
+        self.statusBar().clearMessage()
 
     def _show_project_open_dialog(self) -> None:
         """prompt the user to select a project directory and open it"""
@@ -822,23 +819,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 if delete_on_failure:
                     try:
                         file.unlink(missing_ok=True)
-                        self._status_bar.showMessage(f"{file} permanently deleted", 3000)
+                        self.statusBar().showMessage(f"{file} permanently deleted", 3000)
                     except OSError as e:
-                        self._status_bar.showMessage(f"Unable to delete {file}", 3000)
+                        self.statusBar().showMessage(f"Unable to delete {file}", 3000)
                         print(f"Error deleting file {file}: {e}", file=sys.stderr)
             else:
-                self._status_bar.showMessage(f"Moved {file} to recycle bin", 3000)
+                self.statusBar().showMessage(f"Moved {file} to recycle bin", 3000)
 
     def _toggle_identity_overlay_minimalist(self) -> None:
         checked = self._identity_overlay_minimal.isChecked()
 
         if checked:
-            previous_mode = getattr(
-                self, "_previous_identity_overlay_mode", PlayerWidget.IdentityOverlayMode.FLOATING
-            )
-            self._central_widget.id_overlay_mode = previous_mode
-
-            match previous_mode:
+            self._central_widget.id_overlay_mode = self._previous_identity_overlay_mode
+            match self._previous_identity_overlay_mode:
                 case PlayerWidget.IdentityOverlayMode.CENTROID:
                     self._identity_overlay_centroid.setChecked(True)
                 case PlayerWidget.IdentityOverlayMode.FLOATING:
