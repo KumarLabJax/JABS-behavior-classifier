@@ -18,11 +18,8 @@ class AnnotationOverlay(Overlay):
     _MARGIN_X = 10  # Left margin for non-animal annotation rectangles (pixels)
     _MARGIN_Y = 10  # Top margin for non-animal annotation rectangles (pixels)
     _CORNER_RADIUS = 4  # Corner radius for rounded annotation rectangles (pixels)
-    _LIGHT_COLOR_THRESHOLD = 160  # Luminance threshold to determine if a color is "light"
     _BORDER_COLOR = QtGui.QColor(225, 225, 225, 255)  # Border color for annotation rectangles
-    _ANNOTATION_OFFSET = (
-        40  # Vertical offset from centroid to the first annotation rectangle (pixels)
-    )
+    _ANNOTATION_OFFSET = 40  # Vertical offset from centroid (pixels)
 
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
         super().__init__(parent)
@@ -36,10 +33,10 @@ class AnnotationOverlay(Overlay):
 
     def paint(self, painter: QtGui.QPainter) -> None:
         """Paints annotation tags for intervals overlapping the current frame."""
-        if not self.parent.overlay_annotations_enabled or self.parent.pixmap().isNull():
+        if not self._enabled or self.parent.pixmap().isNull():
             return
 
-        frame_number = self.parent.frame_number
+        frame_number = self.parent.current_frame
         annotations = self.parent.annotations[frame_number] if self.parent.annotations else []
 
         if not annotations:
@@ -77,7 +74,7 @@ class AnnotationOverlay(Overlay):
 
             # if there is a centroid for this identity, draw the annotations connected to the centroid in the video frame
             # otherwise, we will draw them in the upper left corner
-            centroid = self.parent.get_centroid(identity)
+            centroid = self.get_centroid(identity)
             if centroid is not None:
                 widget_x, widget_y = self.parent.image_to_widget_coords(centroid.x, centroid.y)
 
@@ -144,7 +141,7 @@ class AnnotationOverlay(Overlay):
                         fill_color = QtGui.QColor(220, 220, 220)
                     text_color = (
                         QtGui.QColor(0, 0, 0)
-                        if self.__is_color_light(fill_color)
+                        if self._is_color_light(fill_color)
                         else QtGui.QColor(255, 255, 255)
                     )
                     painter.setBrush(fill_color)
@@ -158,11 +155,14 @@ class AnnotationOverlay(Overlay):
         # Draw non-animal annotations stacked in upper left
         non_animal_annots = sorted(non_animal_annots, key=lambda a: a.data["tag"])
         for i, annotation in enumerate(non_animal_annots):
-            text = (
-                annotation.data["tag"]
-                if annotation.data.get("identity") is None
-                else f"{annotation.data['identity']}: {annotation.data['tag']}"
-            )
+            identity = annotation.data.get("identity")
+
+            if identity is not None:
+                display_id = self.parent.convert_identity_to_external(identity)
+                text = f"{display_id}: {annotation.data['tag']}"
+            else:
+                text = annotation.data["tag"]
+
             color_str = annotation.data["color"]
             text_width = self._font_metrics.horizontalAdvance(text)
             text_height = self._font_metrics.height()
@@ -179,7 +179,7 @@ class AnnotationOverlay(Overlay):
             fill_color.setAlpha(220)
             text_color = (
                 QtGui.QColor(0, 0, 0)
-                if self.__is_color_light(fill_color)
+                if self._is_color_light(fill_color)
                 else QtGui.QColor(255, 255, 255)
             )
             painter.setBrush(fill_color)
@@ -191,16 +191,15 @@ class AnnotationOverlay(Overlay):
         # restore the original font
         painter.setFont(current_font)
 
-    def __is_color_light(self, color: QtGui.QColor) -> bool:
-        """Determines if a color is considered light based on its luminance."""
-        # Calculate luminance using the ITU-R BT.709 formula
-        luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
-        return luminance > self._LIGHT_COLOR_THRESHOLD
-
-    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> None:
+    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> True:
         """Handle mouse press events to check if an annotation rectangle was clicked."""
+        if not self._enabled:
+            return False
+
         pos = event.position() if hasattr(event, "position") else event.pos()
         for rect, annotation in self._rects_with_data:
             if rect.contains(pos):
                 # TODO: display annotations details in a dialog or tooltip
                 print(f"Clicked on annotation: {annotation['tag']}")
+                return True
+        return False

@@ -4,7 +4,7 @@ import sys
 from PySide6 import QtWidgets
 from PySide6.QtGui import QIcon
 
-from jabs.constants import APP_NAME, APP_NAME_LONG
+from jabs.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
 from jabs.resources import ICON_PATH
 from jabs.ui import MainWindow
 
@@ -15,6 +15,8 @@ def main():
     takes one optional positional argument: path to project directory
     """
     app = QtWidgets.QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName(ORG_NAME)
     app.setWindowIcon(QIcon(str(ICON_PATH)))
 
     parser = argparse.ArgumentParser()

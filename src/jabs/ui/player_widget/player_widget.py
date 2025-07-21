@@ -46,7 +46,7 @@ class PlayerWidget(QtWidgets.QWidget):
     the playback will resume after the slider is released.
     """
 
-    class LabelOverlay(enum.IntEnum):
+    class LabelOverlayMode(enum.IntEnum):
         """Enum for label overlay options."""
 
         NONE = 0
@@ -57,8 +57,10 @@ class PlayerWidget(QtWidgets.QWidget):
     update_identities = QtCore.Signal(list)
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
+    id_label_clicked = QtCore.Signal(int)
 
     PoseOverlayMode = FrameWidgetWithInteractiveOverlays.PoseOverlayMode
+    IdentityOverlayMode = FrameWidgetWithInteractiveOverlays.IdentityOverlayMode
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -91,6 +93,7 @@ class PlayerWidget(QtWidgets.QWidget):
         # custom widget for displaying a resizable image
         self._frame_widget = FrameWidgetWithInteractiveOverlays()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
+        self._frame_widget.id_label_clicked.connect(self.id_label_clicked)
 
         #  -- player controls
 
@@ -192,14 +195,14 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_widget.pose_overlay_mode = mode
 
     @property
-    def overlay_identity_enabled(self) -> bool:
-        """return the current overlay identity state from the frame widget"""
-        return self._frame_widget.overlay_identity_enabled
+    def id_overlay_mode(self) -> IdentityOverlayMode:
+        """return the current identity overlay mode from the frame widget"""
+        return self._frame_widget.identity_overlay_mode
 
-    @overlay_identity_enabled.setter
-    def overlay_identity_enabled(self, enabled: bool) -> None:
-        """set the overlay identity in the frame widget"""
-        self._frame_widget.overlay_identity_enabled = enabled
+    @id_overlay_mode.setter
+    def id_overlay_mode(self, mode: IdentityOverlayMode) -> None:
+        """set the identity overlay mode in the frame widget"""
+        self._frame_widget.identity_overlay_mode = mode
 
     @property
     def overlay_annotations_enabled(self) -> bool:

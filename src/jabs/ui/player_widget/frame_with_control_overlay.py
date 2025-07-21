@@ -1,10 +1,13 @@
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui
-from shapely.geometry import Point
+
+from jabs.pose_estimation import PoseEstimation
 
 from .frame_widget import FrameWidget
 from .overlays.annotation_overlay import AnnotationOverlay
 from .overlays.control_overlay import ControlOverlay
+from .overlays.floating_id_overlay import FloatingIdOverlay
+from .overlays.overlay import Overlay
 
 
 class FrameWidgetWithInteractiveOverlays(FrameWidget):
@@ -27,29 +30,67 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
     """
 
     playback_speed_changed = QtCore.Signal(float)
+    id_label_clicked = QtCore.Signal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setMouseTracking(True)
-
         self._annotations: IntervalTree | None = None
-        self._overlay_annotations_enabled = True
 
         # initialize overlays
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
-        self.overlays = [self._control_overlay, AnnotationOverlay(self)]
+        self._annotation_overlay = AnnotationOverlay(self)
+        self._annotation_overlay.enabled = True
+        self._floating_id_overlay = FloatingIdOverlay(self)
+        self._floating_id_overlay.enabled = True
+        self._floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
+
+        self.overlays: list[Overlay] = [
+            self._annotation_overlay,
+            self._floating_id_overlay,
+            self._control_overlay,
+        ]
 
     @property
     def overlay_annotations_enabled(self) -> bool:
         """Get whether the annotation overlay is enabled."""
-        return self._overlay_annotations_enabled
+        return self._annotation_overlay.enabled
 
     @overlay_annotations_enabled.setter
     def overlay_annotations_enabled(self, enabled: bool) -> None:
         """Set whether the annotation overlay is enabled."""
-        if self._overlay_annotations_enabled != enabled:
-            self._overlay_annotations_enabled = enabled
+        if self._annotation_overlay.enabled != enabled:
+            self._annotation_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def floating_id_overlay_enabled(self) -> bool:
+        """Get whether the floating ID overlay is enabled."""
+        return self._floating_id_overlay.enabled
+
+    @floating_id_overlay_enabled.setter
+    def floating_id_overlay_enabled(self, enabled: bool) -> None:
+        """Set whether the floating ID overlay is enabled."""
+        if self._floating_id_overlay.enabled != enabled:
+            self._floating_id_overlay.enabled = enabled
+            self.update()
+
+    @property
+    def identity_overlay_mode(self) -> FrameWidget.IdentityOverlayMode:
+        """Get the current identity overlay mode."""
+        return super().identity_overlay_mode
+
+    @identity_overlay_mode.setter
+    def identity_overlay_mode(self, mode: FrameWidget.IdentityOverlayMode) -> None:
+        """Set the identity overlay mode for the frame widget.
+
+        Args:
+            mode (IdentityOverlayMode): The mode to set for overlaying identities.
+        """
+        if self._id_overlay_mode != mode:
+            self.floating_id_overlay_enabled = mode == FrameWidget.IdentityOverlayMode.FLOATING
+            self._id_overlay_mode = mode
             self.update()
 
     @property
@@ -73,7 +114,7 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         return self._scaled_pix_width
 
     @property
-    def frame_number(self) -> int:
+    def current_frame(self) -> int:
         """Get the current frame number."""
         return self._frame_number
 
@@ -92,22 +133,15 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         """Sets the interval annotations for the annotation overlay."""
         self._annotations = value
 
-    def get_centroid(self, identity: int) -> Point | None:
-        """Get the centroid of the given identity in the current frame.
+    @property
+    def pose(self) -> PoseEstimation:
+        """Returns the pose estimation object associated with this widget."""
+        return self._pose
 
-        Args:
-            identity (int): The identity index to get the centroid for.
-
-        Returns:
-            tuple[float, float]: The (x, y) coordinates of the centroid or
-                None if there is no convex hull for the identity in the current frame.
-        """
-        convex_hull = self._pose.get_identity_convex_hulls(identity)[self._frame_number]
-
-        if convex_hull is None:
-            return None
-
-        return convex_hull.centroid
+    @property
+    def active_identity(self) -> int | None:
+        """Returns the currently active identity index, or None if no identity is active."""
+        return self._active_identity
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         """Handles the paint event for the widget and draws all overlays.
@@ -171,3 +205,9 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
             if hasattr(overlay, "event_filter") and overlay.event_filter(obj, event):
                 return True
         return super().eventFilter(obj, event)
+
+    def _add_overlay(self, overlay: Overlay) -> None:
+        """Adds an overlay to the widget and sorts overlays by priority."""
+        if overlay not in self.overlays:
+            self.overlays.append(overlay)
+            self.overlays.sort(key=lambda o: o.priority)
