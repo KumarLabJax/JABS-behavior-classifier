@@ -3,7 +3,7 @@
 ## Shortcuts
 
 - [The JABS Project Directory](#the-jabs-project-directory)
-- [Initializing A JABS Project Directory](#initializing-a-jabs-project-directory)
+  - [Initializing A JABS Project Directory](#initializing-a-jabs-project-directory)
 - [The JABS Main Window](#main-window)
 - [Keyboard Shortcuts](#all-keyboard-shortcuts)
 - [Labeling](#labeling)
