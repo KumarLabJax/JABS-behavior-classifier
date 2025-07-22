@@ -1,5 +1,16 @@
 # JABS User Guide
 
+## Shortcuts
+
+- [The JABS Project Directory](#the-jabs-project-directory)
+  - [Initializing A JABS Project Directory](#initializing-a-jabs-project-directory)
+- [The JABS Main Window](#main-window)
+- [Keyboard Shortcuts](#all-keyboard-shortcuts)
+- [Labeling](#labeling)
+  - [Selecting Frames](#selecting-frames)
+  - [Applying Labels](#applying-labels)
+  - [Labeling Keyboard Shortcuts](#keyboard-shortcuts)
+
 ## The JABS Project Directory
 
 A JABS project is a directory of video files and their corresponding pose
@@ -207,6 +218,7 @@ which set of labels and predictions belong to the subject animal by drawing a co
 them. 
 
 **Timeline Menu**
+
 <img src="imgs/timeline_menu.png" alt="JABS Timeline" alt="Timeline visualization options" />
 
 <br />
@@ -233,6 +245,8 @@ them.
 - **View:** Menu to control various display options.
   - **View→View Playlist:** can be used to hide/show video playlist
   - **View→Timeline:** Menu to control the timeline display. 
+  - **View→Label Overlay:** Control the floating display of manual labels or predicted classes.
+  - **View→Identity Overlay:** Configure the identity overlay mode.
   - **View→Show Track:** show/hide track overlay for the subject. The track
     overlay shows the nose position for the previous 5 frames and the next 10
     frames. The nose position for the next 10 frames is colored red, and the
@@ -258,6 +272,8 @@ them.
   - **Features→Enable Segmentation Features:** toggle using segmentation features
   (v6+ projects)
 
+#### Overlay Examples
+
 **Track Overlay Example:**  
 <img src="imgs/track_overlay.png" alt="Track Overlay" width=400 />
 
@@ -266,6 +282,20 @@ them.
 
 **Pose Overlay Keypoint Legend:**  
 <img src="imgs/keypoint_legend.png" alt="Pose Keypoint Legend" width=300 />
+
+##### Identity Overlay
+
+**Floating:**
+
+<img src="imgs/floating-identity-overlay.png" alt="Floating Identity Overlay" />
+
+**Centroid:**
+
+<img src="imgs/centroid-identity-overlay.png" alt="Centroid Identity Overlay" />
+
+**Minimalist:**
+
+<img src="imgs/minimalist-identity-overlay.png" alt="Minimalist Identity Overlay" />
 
 ## Labeling
 
@@ -392,6 +422,7 @@ Overlays:
 - t: toggle track overlay for subject
 - p: toggle pose overlay for subject
 - l: toggle landmark overlay
+- ctrl+i (windows) / cmd+i (Mac): Toggle Minimalist Identity Labels
 
 Behavior search:
 

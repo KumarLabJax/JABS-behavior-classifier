@@ -2,9 +2,11 @@
 
 ![JABS Screen Shot](img/jabs_screenshot.png)
 
-## ReadTheDocs Tutorial
+## ReadTheDocs Tutorial and User Guide
 
 https://jabs-tutorial.readthedocs.io/en/latest/index.html
+
+[User Guide (Markdown)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/src/jabs/resources/docs/user_guide/user_guide.md)
 
 ## Copyright
 

@@ -64,7 +64,7 @@ class UserGuideDialog(QDialog):
 
         try:
             html = markdown2.markdown_path(
-                str(user_guide_path), extras=["fenced-code-blocks"]
+                str(user_guide_path), extras=["fenced-code-blocks", "header-ids"]
             )
         except OSError as e:
             html = error_html(
@@ -73,8 +73,6 @@ class UserGuideDialog(QDialog):
         except UnicodeDecodeError:
             html = error_html("<h2>Unable to decode file (invalid encoding).</h2>")
         except markdown2.MarkdownError as e:
-            html = error_html(
-                f"<h2>Markdown parsing error.</h2><p><small>{e}</small></p>"
-            )
+            html = error_html(f"<h2>Markdown parsing error.</h2><p><small>{e}</small></p>")
 
         self._web_engine_view.setHtml(html, baseUrl=base_url)
