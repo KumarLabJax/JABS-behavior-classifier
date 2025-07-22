@@ -36,8 +36,8 @@ class _GatherTimelineAnnotationTagsWorker(QObject):
         video_manager = self.project.video_manager
         for video in video_manager.videos:
             anno_dict = video_manager.load_annotations(video)
-            if "annotations" in anno_dict:
-                for annotation in anno_dict["annotations"]:
+            if anno_dict is not None:
+                for annotation in anno_dict.get("annotations", []):
                     if "tag" in annotation:
                         all_tags.add(annotation["tag"])
 
