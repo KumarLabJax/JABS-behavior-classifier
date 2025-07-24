@@ -20,6 +20,7 @@ from .feature_manager import FeatureManager
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
+from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
@@ -52,7 +53,9 @@ class Project:
         project_paths: ProjectPaths instance for this project.
     """
 
-    def __init__(self, project_path, use_cache=True, enable_video_check=True):
+    def __init__(
+        self, project_path, use_cache=True, enable_video_check=True, enable_session_tracker=True
+    ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
         self._total_project_identities = 0
@@ -62,9 +65,15 @@ class Project:
         self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
         self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
         self._prediction_manager = PredictionManager(self)
+        self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
         # write out the defaults to the project file
         self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
+
+        # Start a session tracker for this project.
+        # Since the session has a reference to the Project, the Project should be fully initialized before starting
+        # the session tracker.
+        self._session_tracker.start_session()
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
@@ -142,6 +151,11 @@ class Project:
         For now, this is just the username of the user running JABS.
         """
         return getpass.getuser()
+
+    @property
+    def session_tracker(self) -> SessionTracker | None:
+        """get the session tracker for this project"""
+        return self._session_tracker
 
     def load_pose_est(self, video_path: Path) -> PoseEstimation:
         """return a PoseEstimation object for a given video path
@@ -391,7 +405,7 @@ class Project:
         """
         counts = {}
         for video in self._video_manager.videos:
-            counts[video] = self.read_counts(video, behavior)
+            counts[video] = self.load_counts(video, behavior)
         return counts
 
     def get_labeled_features(
@@ -544,19 +558,32 @@ class Project:
             return False
         return True
 
-    def read_counts(self, video, behavior) -> list[tuple]:
-        """read labeled frame and bout counts from json file
+    def load_counts(self, video, behavior) -> dict[str, tuple[int, int]]:
+        """load labeled frame and bout counts from json file
 
         Returns:
-            list of labeled frame and bout counts for each identity for
-            the specified behavior. Each element in the list is a tuple of the form
-            (
-                identity,
-                (fragmented behavior frame count, fragmented not behavior frame count),
-                (fragmented behavior bout count, fragmented not behavior bout count),
-                (unfragmented behavior frame count, unfragmented not behavior frame count)
-                (unfragmented behavior bout count, unfragmented not behavior bout count)
-            )
+            dict of labeled frame and bout counts for each identity for
+            the specified behavior.
+            {
+                identity: {
+                    "fragmented_frame_counts": (
+                        fragmented behavior frame count,
+                        fragmented not behavior frame count
+                    ),
+                    "fragmented_bout_counts": (
+                        fragmented behavior bout count,
+                        fragmented not behavior bout count
+                    ),
+                    "unfragmented_frame_counts": (
+                        unfragmented behavior frame count,
+                        unfragmented not behavior frame count
+                    )
+                    "unfragmented_bout_counts": (
+                        unfragmented behavior bout count,
+                        unfragmented not behavior bout count
+                    )
+                }
+            }
 
         Note: "unfragmented" counts labels where identity drops out. "fragmented" does not,
             so if an identity drops out during a bout, the bout will be split in the fragmented counts but will
@@ -585,7 +612,7 @@ class Project:
 
         video_filename = Path(video).name
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
-        counts = []
+        counts = {}
 
         if path.exists():
             with path.open() as f:
@@ -605,13 +632,13 @@ class Project:
                         # unless the user creates some new labels over frames without identity
                         unfragmented_counts = fragmented_counts
 
-                    counts.append(
-                        (
-                            identity,
-                            fragmented_counts[0],
-                            fragmented_counts[1],
-                            unfragmented_counts[0],
-                            unfragmented_counts[1],
-                        )
-                    )
+                    # identity is stored as a string in the JSON file because it's used as a key. Turn it back
+                    # into an int as used internally by JABS
+                    counts[int(identity)] = {
+                        "fragmented_frame_counts": fragmented_counts[0],
+                        "fragmented_bout_counts": fragmented_counts[1],
+                        "unfragmented_frame_counts": unfragmented_counts[0],
+                        "unfragmented_bout_counts": unfragmented_counts[1],
+                    }
+
         return counts

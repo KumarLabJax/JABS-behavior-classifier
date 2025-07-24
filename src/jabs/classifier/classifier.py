@@ -620,32 +620,38 @@ class Classifier:
 
             all_counts is a dict with the following form
             {
-                '<video name>': [
-                    (
-                        <identity>,
-                        (behavior frame count  - fragmented, not behavior frame count  - fragmented),
-                        (behavior bout count  - fragmented, not behavior bout count  - fragmented),
-                        (behavior frame count  - unfragmented, not behavior frame count  - unfragmented),
-                        (behavior bout count  - unfragmented, not behavior bout count  - unfragmented),
-                    ),
-                ]
+                '<video name>': {
+                    <identity>: {
+                        "fragmented_frame_counts": (
+                            behavior frame count: fragmented,
+                            not behavior frame count: fragmented),
+                        "fragmented_bout_counts": (
+                            behavior bout count: fragmented,
+                            not behavior bout count: fragmented
+                        ),
+                        "unfragmented_frame_counts": (
+                            behavior frame count: unfragmented,
+                            not behavior frame count: unfragmented
+                        ),
+                        "unfragmented_bout_counts": (
+                            behavior bout count: unfragmented,
+                            not behavior bout count: unfragmented
+                        ),
+                    },
+                }
             }
 
         Returns:
             number of groups that meet label criteria
 
         Note: uses "fragmented" label counts, since these reflect the counts of labels that are usable for training
-        fragmented counts are:
-
-           count[1][0] - behavior frame count
-           count[1][1] - not behavior frame count
         """
         group_count = 0
-        for _, counts in all_counts.items():
-            for count in counts:
+        for video in all_counts:
+            for _, identity_count in all_counts[video].items():
                 if (
-                    count[1][0] >= Classifier.LABEL_THRESHOLD
-                    and count[1][1] >= Classifier.LABEL_THRESHOLD
+                    identity_count["fragmented_frame_counts"][0] >= Classifier.LABEL_THRESHOLD
+                    and identity_count["fragmented_frame_counts"][1] >= Classifier.LABEL_THRESHOLD
                 ):
                     group_count += 1
         return group_count
