@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QAction
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
@@ -439,6 +439,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
         self._project_loader_thread.start()
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Handle change events for the main window.
+
+        If a project is open, minimizing the window will pause the session tracker
+        """
+        if event.type() == QEvent.Type.WindowStateChange and self._project:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                self._project.session_tracker.pause_session()
+            elif event.oldState() & Qt.WindowState.WindowMinimized:
+                self._project.session_tracker.resume_session()
+        super().changeEvent(event)
 
     def behavior_changed_event(self, new_behavior: str) -> None:
         """menu items to change when a new behavior is selected."""

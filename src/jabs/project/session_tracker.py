@@ -19,6 +19,8 @@ class ActivityTypes(enum.IntEnum):
     - VIDEO_OPENED: user opened a video file
     - VIDEO_CLOSED: user closed a video file
     - CLASSIFIER_TRAINED: user trained a classifier
+    - SESSION_PAUSED: labeling session was paused (e.g. user minimized the application)
+    - SESSION_RESUMED: labeling session was resumed
     """
 
     BEHAVIOR_LABEL_CREATED = enum.auto()
@@ -28,6 +30,8 @@ class ActivityTypes(enum.IntEnum):
     VIDEO_OPENED = enum.auto()
     VIDEO_CLOSED = enum.auto()
     CLASSIFIER_TRAINED = enum.auto()
+    SESSION_PAUSED = enum.auto()
+    SESSION_RESUMED = enum.auto()
 
 
 class SessionTracker:
@@ -279,6 +283,30 @@ class SessionTracker:
         if fbeta_notbehavior is not None:
             activity["mean fbeta (not behavior)"] = f"{fbeta_notbehavior:.3}"
 
+        self._session["activity_log"].append(activity)
+        self._flush_session()
+
+    def pause_session(self):
+        """Log the pausing of a labeling session."""
+        if not self._tracking_enabled or not self._session:
+            return
+
+        activity = {
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "activity": ActivityTypes.SESSION_PAUSED.name,
+        }
+        self._session["activity_log"].append(activity)
+        self._flush_session()
+
+    def resume_session(self):
+        """Log the resuming of a labeling session."""
+        if not self._tracking_enabled or not self._session:
+            return
+
+        activity = {
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "activity": ActivityTypes.SESSION_RESUMED.name,
+        }
         self._session["activity_log"].append(activity)
         self._flush_session()
 
