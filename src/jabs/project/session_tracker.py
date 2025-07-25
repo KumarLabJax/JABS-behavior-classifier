@@ -126,8 +126,8 @@ class SessionTracker:
             bouts_behavior = 0
             bouts_not_behavior = 0
 
-            for video in counts:
-                for _, identity_count in counts[video].items():
+            for video_counts in counts.values():
+                for identity_count in video_counts.values():
                     frames_behavior += identity_count["unfragmented_frame_counts"][0]
                     frames_not_behavior += identity_count["unfragmented_frame_counts"][1]
                     bouts_behavior += identity_count["unfragmented_bout_counts"][0]

@@ -648,7 +648,7 @@ class Classifier:
         """
         group_count = 0
         for video in all_counts:
-            for _, identity_count in all_counts[video].items():
+            for identity_count in all_counts[video].values():
                 if (
                     identity_count["fragmented_frame_counts"][0] >= Classifier.LABEL_THRESHOLD
                     and identity_count["fragmented_frame_counts"][1] >= Classifier.LABEL_THRESHOLD
