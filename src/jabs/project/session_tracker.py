@@ -66,6 +66,23 @@ class SessionTracker:
         if self._session_file and self._session:
             self.end_session()
 
+    @property
+    def enabled(self) -> bool:
+        """Returns whether session tracking is enabled."""
+        return self._tracking_enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Sets whether session tracking is enabled."""
+        # If disabling session tracking, end the session if it exists
+        if not value:
+            self.end_session()
+
+        self._tracking_enabled = value
+        if value and self._session is None:
+            # session tracking was just enabled for the first time, initialize the tracking session
+            self.start_session()
+
     def start_session(self) -> None:
         """Starts a new labeling session.
 

@@ -31,6 +31,7 @@ RECENT_PROJECTS_KEY = "recent_projects"
 LICENSE_ACCEPTED_KEY = "license_accepted"
 LICENSE_VERSION_KEY = "license_version"
 WINDOW_SIZE_KEY = "main_window_size"
+SESSION_TRACKING_ENABLED_KEY = "session_tracking_enabled"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -94,6 +95,16 @@ class MainWindow(QtWidgets.QMainWindow):
         user_guide_action.setShortcut(QtGui.QKeySequence("Ctrl+U"))
         user_guide_action.triggered.connect(self._open_user_guide)
         app_menu.addAction(user_guide_action)
+
+        # enable/disable session tracking
+        session_tracking_action = QtGui.QAction("Enable Session Tracking", self)
+        session_tracking_action.setStatusTip("Enable or disable session tracking")
+        session_tracking_action.setCheckable(True)
+        session_tracking_action.triggered.connect(self._on_session_tracking_triggered)
+        session_tracking_action.setChecked(
+            self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
+        )
+        app_menu.addAction(session_tracking_action)
 
         # exit action
         exit_action = QtGui.QAction(f" &Quit {self._app_name}", self)
@@ -435,7 +446,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
         self._progress_dialog.show()
 
-        self._project_loader_thread = ProjectLoaderThread(project_path, parent=self)
+        session_tracking_enabled = bool(
+            self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
+        )
+        self._project_loader_thread = ProjectLoaderThread(
+            project_path, parent=self, session_tracking_enabled=session_tracking_enabled
+        )
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
         self._project_loader_thread.start()
@@ -774,6 +790,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlayMode.LABEL
         elif self._label_overlay_preds.isChecked():
             self._central_widget.label_overlay_mode = PlayerWidget.LabelOverlayMode.PREDICTION
+
+    def _on_session_tracking_triggered(self, checked: bool) -> None:
+        """Handle the session tracking toggle action."""
+        self._settings.setValue(SESSION_TRACKING_ENABLED_KEY, checked)
+        if self._project:
+            if checked:
+                # if a project is already loaded and user is enabling session tracking,
+                # they need to open the project again to enable session tracking.
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Session Tracking Enabled",
+                    "Session Tracking Enabled: Please reopen the project to start tracking.",
+                )
+            else:
+                # if session tracking was just disabled, we stop logging new events
+                self._project.session_tracker.enabled = False
 
     def _handle_select_all(self) -> None:
         """Handle the Select All event"""
