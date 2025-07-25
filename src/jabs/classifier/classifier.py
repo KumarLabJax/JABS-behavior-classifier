@@ -452,7 +452,9 @@ class Classifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                result = self._classifier.predict(self.sort_features_to_classify(features))
+                result = self._classifier.predict(
+                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0))
+                )
             return result
         # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
         return self._classifier.predict(
@@ -570,21 +572,21 @@ class Classifier:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         else:
             classifier = RandomForestClassifier(n_jobs=self._n_jobs)
-        return classifier.fit(features.fillna(0), labels)
+        return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels, random_seed: int | None = None):
         if random_seed is not None:
             classifier = GradientBoostingClassifier(random_state=random_seed)
         else:
             classifier = GradientBoostingClassifier()
-        return classifier.fit(features.fillna(0), labels)
+        return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_xgboost(self, features, labels, random_seed: int | None = None):
         if random_seed is not None:
             classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         else:
             classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
-        classifier.fit(features, labels)
+        classifier.fit(features.replace([np.inf, -np.inf]), labels)
         return classifier
 
     def print_feature_importance(self, feature_list, limit=20):

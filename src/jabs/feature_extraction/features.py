@@ -16,7 +16,7 @@ from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
 from .social_features import SocialFeatureGroup
 
-FEATURE_VERSION = 12
+FEATURE_VERSION = 13
 
 _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
 
@@ -84,16 +84,16 @@ class IdentityFeatures:
 
     def __init__(
         self,
-        source_file,
-        identity,
-        directory,
-        pose_est,
+        source_file: str,
+        identity: int,
+        directory: str | Path | None,
+        pose_est: PoseEstimation,
         force: bool = False,
         fps: int = 30,
         op_settings: dict | None = None,
         cache_window: bool = True,
         compression_opts: int = COMPRESSION_OPTS_DEFAULT,
-    ):
+    ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
         self._fps = fps
@@ -120,12 +120,10 @@ class IdentityFeatures:
 
         self._feature_modules = {}
         for m in _FEATURE_MODULES:
-            # don't include the social features if it is not supported by
-            # the pose file
+            # don't include the social features if it is not supported by the pose file
             if not self._compute_social_features and m is SocialFeatureGroup:
                 continue
-            # don't include segmentation features if it is not supported by
-            # the pose file
+            # don't include segmentation features if it is not supported by the pose file
             if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est, distance_scale)
@@ -134,8 +132,7 @@ class IdentityFeatures:
         for m in _EXTENDED_FEATURE_MODULES:
             self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
-        # will hold an array that indicates if each frame is valid for this
-        # identity or not
+        # will hold an array that indicates if each frame is valid for this identity
         self._frame_valid = None
 
         # per frame features
@@ -152,7 +149,7 @@ class IdentityFeatures:
             self.__initialize_from_pose_estimation(pose_est)
         else:
             try:
-                # try to load from an h5 file if it exists
+                # try to load from a h5 file if it exists
                 self.__load_from_file()
             except (
                 OSError,
@@ -163,7 +160,7 @@ class IdentityFeatures:
                 # otherwise compute the per frame features and save
                 self.__initialize_from_pose_estimation(pose_est)
 
-    def __initialize_from_pose_estimation(self, pose_est):
+    def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
         """Initialize from a PoseEstimation object and save them in an h5 file
 
         Args:
@@ -182,7 +179,7 @@ class IdentityFeatures:
         if self._identity_feature_dir is not None:
             self.__save_per_frame()
 
-    def __load_from_file(self):
+    def __load_from_file(self) -> None:
         """initialize from state previously saved in a h5 file on disk
 
         This method will throw an exception if this object was constructed with a value of None for directory
@@ -247,7 +244,7 @@ class IdentityFeatures:
                 assert len(cur_module[feature_name]) == self._num_frames
                 self._per_frame[module_name] = cur_module
 
-    def __save_per_frame(self):
+    def __save_per_frame(self) -> None:
         """save per frame features to a h5 file
 
         This method will throw an exception if this object was constructed with a value of None for directory
@@ -335,7 +332,7 @@ class IdentityFeatures:
                     compression_opts=self._compression_opts,
                 )
 
-    def __save_window_features(self, features, window_size):
+    def __save_window_features(self, features, window_size: int) -> None:
         """save window features to an h5 file
 
         This method will throw an exception if this object was constructed with a value of None for directory
@@ -369,7 +366,7 @@ class IdentityFeatures:
                     compression_opts=self._compression_opts,
                 )
 
-    def __load_window_features(self, window_size):
+    def __load_window_features(self, window_size: int) -> dict:
         """load window features from an h5 file
 
         Args:
@@ -431,7 +428,9 @@ class IdentityFeatures:
 
         return window_features
 
-    def get_window_features(self, window_size: int, labels=None, force: bool = False):
+    def get_window_features(
+        self, window_size: int, labels: np.ndarray | None = None, force: bool = False
+    ) -> dict:
         """get window features for a given window size, computing if not previously computed and saved as h5 file
 
         Args:
@@ -503,7 +502,7 @@ class IdentityFeatures:
 
         return final_features
 
-    def get_per_frame(self, labels=None):
+    def get_per_frame(self, labels: np.ndarray | None = None) -> dict:
         """get per frame features
 
         Args:
@@ -550,7 +549,7 @@ class IdentityFeatures:
 
         return features
 
-    def get_features(self, window_size: int):
+    def get_features(self, window_size: int) -> dict:
         """get features and corresponding frame indexes for classification
 
         omits frames where the identity is not valid, so 'frame_indexes' array
@@ -580,7 +579,7 @@ class IdentityFeatures:
             "frame_indexes": indexes,
         }
 
-    def _filter_base_features_by_op(self, features):
+    def _filter_base_features_by_op(self, features: dict) -> dict:
         """filter either per_frame or window features by the self._op_settings
 
         Args:
@@ -605,7 +604,7 @@ class IdentityFeatures:
                 names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
         return {k: v for k, v in features.items() if k not in names_to_remove}
 
-    def _filter_window_features_by_op(self, features):
+    def _filter_window_features_by_op(self, features: dict) -> dict:
         """filter window features by the self._op_settings
 
         Args:
@@ -634,7 +633,7 @@ class IdentityFeatures:
 
         return filtered_features
 
-    def __compute_window_features(self, window_size: int):
+    def __compute_window_features(self, window_size: int) -> dict:
         """compute all window features using a given window size
 
         Args:
