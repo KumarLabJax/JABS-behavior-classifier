@@ -108,6 +108,7 @@ class TrainingThread(QThread):
             accuracies = []
             fbeta_behavior = []
             fbeta_notbehavior = []
+            iterations = 0
 
             # Figure out the cross validation count if all were requested
             if self._k == np.inf:
@@ -118,7 +119,7 @@ class TrainingThread(QThread):
             if self._k > 0:
                 for i, data in enumerate(data_generator):
                     check_termination_requested()
-
+                    iterations = i + 1
                     if i + 1 > self._k:
                         break
                     self.current_status.emit(f"cross validation iteration {i + 1} of {self._k}")
@@ -228,6 +229,23 @@ class TrainingThread(QThread):
             self._project.save_classifier(self._classifier, self._behavior)
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
+
+            if self._k > 0:
+                self._project.session_tracker.classifier_trained(
+                    self._behavior,
+                    self._classifier.classifier_name,
+                    iterations,
+                    float(np.mean(accuracies)),
+                    float(np.mean(fbeta_behavior)),
+                    float(np.mean(fbeta_notbehavior)),
+                )
+            else:
+                # user didn't request cross validation, so we just log the training but can't include accuracy or fbeta scores
+                self._project.session_tracker.classifier_trained(
+                    self._behavior,
+                    self._classifier.classifier_name,
+                    iterations,
+                )
 
             self.current_status.emit("Training Complete")
             self.training_complete.emit()

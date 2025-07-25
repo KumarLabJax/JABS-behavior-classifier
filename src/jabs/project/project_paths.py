@@ -16,6 +16,7 @@ class ProjectPaths:
         self._prediction_dir = self._jabs_dir / "predictions"
         self._classifier_dir = self._jabs_dir / "classifiers"
         self._archive_dir = self._jabs_dir / "archive"
+        self._session_dir = self._jabs_dir / "session"
         self._cache_dir = self._jabs_dir / "cache" if use_cache else None
 
         self._project_file = self._jabs_dir / self.__PROJECT_FILE
@@ -65,6 +66,11 @@ class ProjectPaths:
         """Get the path to the cache directory."""
         return self._cache_dir
 
+    @property
+    def session_dir(self) -> Path:
+        """Get the path to the session directory."""
+        return self._session_dir
+
     def create_directories(self):
         """Create all necessary directories for the project."""
         self._annotations_dir.mkdir(parents=True, exist_ok=True)
@@ -72,6 +78,7 @@ class ProjectPaths:
         self._prediction_dir.mkdir(parents=True, exist_ok=True)
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
         self._archive_dir.mkdir(parents=True, exist_ok=True)
+        self._session_dir.mkdir(parents=True, exist_ok=True)
 
         if self._cache_dir:
             self._cache_dir.mkdir(parents=True, exist_ok=True)

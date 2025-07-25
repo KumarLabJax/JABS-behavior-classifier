@@ -276,6 +276,8 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        previous_video = self._loaded_video
+
         self._suppress_label_track_update = True
         self._search_bar_widget.video_frame_position_changed(path.name, 0)
         if self._labels is not None:
@@ -315,6 +317,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_select_button_state()
 
             self._update_timeline_search_results()
+
+            if previous_video is not None:
+                self._project.session_tracker.video_closed(previous_video)
+            self._project.session_tracker.video_opened(path)
 
         except OSError as e:
             # error loading
@@ -440,6 +446,8 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        self._project.session_tracker.behavior_selected(self.behavior)
+
         # load up settings for new behavior
         self._update_controls_from_project_settings()
         self._load_cached_classifier()
@@ -505,19 +513,42 @@ class CentralWidget(QtWidgets.QWidget):
     def _label_behavior(self) -> None:
         """Apply behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._curr_selection_end])
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            self._controls.current_identity_index,
+            self._controls.current_behavior,
+            True,
+            start,
+            end,
+        )
         self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self) -> None:
         """apply _not_ behavior label to currently selected range of frames"""
         start, end = sorted([self._selection_start, self._curr_selection_end])
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            self._controls.current_identity_index,
+            self._controls.current_behavior,
+            False,
+            start,
+            end,
+        )
         self._get_label_track().label_not_behavior(start, end)
         self._label_button_common()
 
     def _clear_behavior_label(self) -> None:
         """clear all behavior/not behavior labels from current selection"""
-        label_range = sorted([self._selection_start, self._curr_selection_end])
-        self._get_label_track().clear_labels(*label_range)
+        start, end = sorted([self._selection_start, self._curr_selection_end])
+        self._project.session_tracker.label_deleted(
+            self._loaded_video,
+            self._controls.current_identity_index,
+            self._controls.current_behavior,
+            start,
+            end,
+        )
+        self._get_label_track().clear_labels(start, end)
         self._label_button_common()
 
     def _label_button_common(self) -> None:
@@ -830,14 +861,12 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
-        # update counts for the current video -- we could be more efficient
-        # by only updating the current identity in the current video
-        self._counts[self._loaded_video.name] = self._project.read_counts(
+        # update counts for the current video
+        self._counts[self._loaded_video.name] = self._project.load_counts(
             self._loaded_video.name, self.behavior
         )
 
-        # TODO fix so we're not using the identity index as a string for keys in the label counts
-        identity = str(self._controls.current_identity_index)
+        current_identity = self._controls.current_identity_index
 
         label_behavior_current = 0
         label_not_behavior_current = 0
@@ -849,16 +878,17 @@ class CentralWidget(QtWidgets.QWidget):
         bout_not_behavior_project = 0
 
         for video, video_counts in self._counts.items():
-            for identity_counts in video_counts:
-                label_behavior_project += identity_counts[3][0]
-                label_not_behavior_project += identity_counts[3][1]
-                bout_behavior_project += identity_counts[4][0]
-                bout_not_behavior_project += identity_counts[4][1]
-                if video == self._loaded_video.name and identity_counts[0] == identity:
-                    label_behavior_current += identity_counts[3][0]
-                    label_not_behavior_current += identity_counts[3][1]
-                    bout_behavior_current += identity_counts[4][0]
-                    bout_not_behavior_current += identity_counts[4][1]
+            for identity, counts in video_counts.items():
+                label_behavior_project += counts["unfragmented_frame_counts"][0]
+                label_not_behavior_project += counts["unfragmented_frame_counts"][1]
+                bout_behavior_project += counts["unfragmented_bout_counts"][0]
+                bout_not_behavior_project += counts["unfragmented_bout_counts"][1]
+
+                if video == self._loaded_video.name and identity == current_identity:
+                    label_behavior_current = counts["unfragmented_frame_counts"][0]
+                    label_not_behavior_current = counts["unfragmented_frame_counts"][1]
+                    bout_behavior_current = counts["unfragmented_bout_counts"][0]
+                    bout_not_behavior_current = counts["unfragmented_bout_counts"][1]
 
         self._controls.set_frame_counts(
             label_behavior_current,

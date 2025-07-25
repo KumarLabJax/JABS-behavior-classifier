@@ -18,7 +18,7 @@ class AnnotationOverlay(Overlay):
     _MARGIN_X = 10  # Left margin for non-animal annotation rectangles (pixels)
     _MARGIN_Y = 10  # Top margin for non-animal annotation rectangles (pixels)
     _CORNER_RADIUS = 4  # Corner radius for rounded annotation rectangles (pixels)
-    _BORDER_COLOR = QtGui.QColor(225, 225, 225, 255)  # Border color for annotation rectangles
+    _BORDER_COLOR = QtGui.QColor(160, 160, 160, 255)  # Border color for annotation rectangles
     _ANNOTATION_OFFSET = 40  # Vertical offset from centroid (pixels)
 
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):

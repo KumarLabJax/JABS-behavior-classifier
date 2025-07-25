@@ -6,6 +6,16 @@ from jabs.project.project_merge import MergeStrategy, merge_projects
 from jabs.project.video_labels import VideoLabels
 
 
+@pytest.fixture(autouse=True, scope="session")
+def patch_session_tracker():
+    """Patch the SessionTracker to avoid side effects during tests."""
+    with (
+        patch("jabs.project.session_tracker.SessionTracker.__init__", return_value=None),
+        patch("jabs.project.session_tracker.SessionTracker.__del__", return_value=None),
+    ):
+        yield
+
+
 class DummyPoseEst:
     """Dummy pose estimator for testing purposes."""
 

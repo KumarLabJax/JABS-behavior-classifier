@@ -212,7 +212,7 @@ def main():
         sys.exit(1)
 
     # generate features -- this might be very slow
-    project = jabs.project.Project(args.project_dir)
+    project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
     total_identities = project.total_project_identities
 
     distance_unit = project.feature_manager.distance_unit
