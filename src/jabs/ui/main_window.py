@@ -462,10 +462,18 @@ class MainWindow(QtWidgets.QMainWindow):
         If a project is open, minimizing the window will pause the session tracker
         """
         if event.type() == QEvent.Type.WindowStateChange and self._project:
-            if self.windowState() & Qt.WindowState.WindowMinimized:
+            old_state = event.oldState()
+            new_state = self.windowState()
+
+            was_minimized = bool(old_state & Qt.WindowState.WindowMinimized)
+            is_minimized = bool(new_state & Qt.WindowState.WindowMinimized)
+
+            if not was_minimized and is_minimized:
+                # just entered minimized state
                 self._project.session_tracker.pause_session()
-            elif event.oldState() & Qt.WindowState.WindowMinimized:
+            elif was_minimized and not is_minimized:
                 self._project.session_tracker.resume_session()
+
         super().changeEvent(event)
 
     def behavior_changed_event(self, new_behavior: str) -> None:
