@@ -141,6 +141,8 @@ class SessionTracker:
             }
 
         self._flush_session()
+        self._session = None
+        self._session_file = None
 
     def behavior_selected(self, behavior_name: str) -> None:
         """Log the selection of a behavior.
