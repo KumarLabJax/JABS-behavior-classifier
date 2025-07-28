@@ -22,9 +22,13 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
         behavior (str | None): The behavior to check for labels. If None, checks all behaviors.
     """
 
-    def check_label_counts(label_counts: list[tuple[str, tuple[int, int]]]) -> bool:
-        """Check if there are any labels for the given counts."""
-        return any(count[1][0] > 0 or count[1][1] > 0 for count in label_counts)
+    def check_label_counts(label_counts: dict[str, dict[str, tuple[int, int]]]) -> bool:
+        """Return True if any count in label_counts is greater than zero."""
+        for identity_counts in label_counts.values():
+            for counts in identity_counts.values():
+                if any(count > 0 for count in counts):
+                    return True
+        return False
 
     videos_to_remove = []
     for video in project.video_manager.videos:
@@ -34,11 +38,11 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
 
         has_labels = False
         if behavior:
-            counts = project.read_counts(video, behavior)
+            counts = project.load_counts(video, behavior)
             has_labels = check_label_counts(counts)
         else:
             for b in project.settings_manager.behavior_names:
-                counts = project.read_counts(video, b)
+                counts = project.load_counts(video, b)
                 has_labels = check_label_counts(counts)
 
                 # found labels for at least one behavior, so we can stop checking
