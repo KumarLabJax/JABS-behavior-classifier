@@ -92,7 +92,7 @@ class SessionTracker:
         if not self._tracking_enabled:
             return
 
-        timestamp = datetime.datetime.now(datetime.UTC)
+        timestamp = datetime.datetime.now(datetime.timezone.utc)
 
         self._session = {
             "session_start": timestamp.isoformat(),
@@ -115,7 +115,7 @@ class SessionTracker:
         if not self._tracking_enabled or not self._session:
             return
 
-        self._session["session_end"] = datetime.datetime.now(datetime.UTC).isoformat()
+        self._session["session_end"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # get the ending counts for each behavior
         for behavior in self._session["starting_label_counts"]:
@@ -154,7 +154,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.BEHAVIOR_SELECTED.name,
             "behavior": behavior_name,
         }
@@ -208,7 +208,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.BEHAVIOR_LABEL_CREATED.name
             if present
             else ActivityTypes.NOT_BEHAVIOR_LABEL_CREATED.name,
@@ -237,7 +237,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.LABEL_DELETED.name,
             "video": video_path.name,
             "identity": identity,
@@ -254,7 +254,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.VIDEO_OPENED.name,
             "video": video_path.name,
         }
@@ -267,7 +267,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.VIDEO_CLOSED.name,
             "video_path": video_path.name,
         }
@@ -288,7 +288,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.CLASSIFIER_TRAINED.name,
             "behavior": behavior_name,
             "classifier_type": classifier_type,
@@ -311,7 +311,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.SESSION_PAUSED.name,
         }
         self._session["activity_log"].append(activity)
@@ -323,7 +323,7 @@ class SessionTracker:
             return
 
         activity = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "activity": ActivityTypes.SESSION_RESUMED.name,
         }
         self._session["activity_log"].append(activity)
