@@ -63,7 +63,7 @@ class SessionTracker:
 
         This will finalize the session log when the user opens a new Project or closes the application.
         """
-        if self._session_file and self._session:
+        if self._tracking_enabled and self._session_file and self._session:
             self.end_session()
 
     @property
