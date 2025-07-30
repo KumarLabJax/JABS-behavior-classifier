@@ -5,12 +5,22 @@ import shutil
 import unittest
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from jabs.project import Project, VideoLabels
 from jabs.utils import hide_stderr
+
+
+@pytest.fixture(autouse=True, scope="session")
+def patch_session_tracker():
+    """Patch the SessionTracker to avoid side effects during tests."""
+    with (
+        patch("jabs.project.session_tracker.SessionTracker.__del__", return_value=None),
+    ):
+        yield
 
 
 class TestProject(unittest.TestCase):
