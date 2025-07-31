@@ -58,10 +58,13 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         pose_overlay = PoseOverlay(self)
         pose_overlay.enabled = True
 
+        # overlays are listed in the order they should be painted
+        # an overlay on top of another overlay will have priority when handling click events
         self.overlays: list[Overlay] = [
             pose_overlay,
             self._annotation_overlay,
             self._floating_id_overlay,
+            # the control overlay is painted last, so it is on top of all other overlays
             self._control_overlay,
         ]
 
