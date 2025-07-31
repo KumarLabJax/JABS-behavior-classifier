@@ -2,7 +2,7 @@
 #   singularity build --fakeroot behavior-classifier.sif behavior-classifier-vm.def
 
 Bootstrap: docker
-From: python:3.10-bookworm
+From: python:3.13-bookworm
 
 %setup
     mkdir -p ${SINGULARITY_ROOTFS}/behavior-classifier
