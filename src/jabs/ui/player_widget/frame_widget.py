@@ -31,13 +31,6 @@ class FrameWidget(QtWidgets.QLabel):
 
     pixmap_clicked = QtCore.Signal(dict)
 
-    class PoseOverlayMode(enum.IntEnum):
-        """Enum to define the mode for overlaying pose estimation on the frame."""
-
-        ALL = enum.auto()
-        ACTIVE_IDENTITY = enum.auto()
-        NONE = enum.auto()
-
     class IdentityOverlayMode(enum.IntEnum):
         """Enum for identity overlay options."""
 
@@ -69,22 +62,6 @@ class FrameWidget(QtWidgets.QLabel):
         self._overlay_identity_enabled = True
 
         self.setMinimumSize(400, 400)
-
-    @property
-    def pose_overlay_mode(self) -> PoseOverlayMode:
-        """Get the current pose overlay mode."""
-        return self._pose_overlay_mode
-
-    @pose_overlay_mode.setter
-    def pose_overlay_mode(self, mode: PoseOverlayMode) -> None:
-        """Set the pose overlay mode for the frame widget.
-
-        Args:
-            mode (PoseOverlayMode): The mode to set for overlaying pose estimation.
-        """
-        if self._pose_overlay_mode != mode:
-            self._pose_overlay_mode = mode
-            self.update()
 
     @property
     def identity_overlay_mode(self) -> IdentityOverlayMode:

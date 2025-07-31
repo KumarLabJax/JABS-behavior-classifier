@@ -1,3 +1,5 @@
+import enum
+
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui
 
@@ -29,6 +31,13 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         - Merge FrameWidget and FrameWidgetWithInteractiveOverlays into a single class, and
           implement the centroid & minimalist identity overlay and label overlay as Overlay subclasses.
     """
+
+    class PoseOverlayMode(enum.IntEnum):
+        """Enum to define the mode for overlaying pose estimation on the frame."""
+
+        ALL = enum.auto()
+        ACTIVE_IDENTITY = enum.auto()
+        NONE = enum.auto()
 
     playback_speed_changed = QtCore.Signal(float)
     id_label_clicked = QtCore.Signal(int)
@@ -95,6 +104,22 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         if self._id_overlay_mode != mode:
             self.floating_id_overlay_enabled = mode == FrameWidget.IdentityOverlayMode.FLOATING
             self._id_overlay_mode = mode
+            self.update()
+
+    @property
+    def pose_overlay_mode(self) -> PoseOverlayMode:
+        """Get the current pose overlay mode."""
+        return self._pose_overlay_mode
+
+    @pose_overlay_mode.setter
+    def pose_overlay_mode(self, mode: PoseOverlayMode) -> None:
+        """Set the pose overlay mode for the frame widget.
+
+        Args:
+            mode (PoseOverlayMode): The mode to set for overlaying pose estimation.
+        """
+        if self._pose_overlay_mode != mode:
+            self._pose_overlay_mode = mode
             self.update()
 
     @property
