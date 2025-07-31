@@ -228,9 +228,14 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
 
         Returns:
             bool: True if the event should be filtered out, False otherwise.
+
+        Note:
+            This method allows overlays to filter out events before they reach the target object.
+            If any overlay returns True for event_filter, the event is considered handled.
+            Overlays are checked in reverse order to allow the "top-most" overlay to have priority.
         """
-        for overlay in self.overlays:
+        for overlay in reversed(self.overlays):
             # allow any overlay to filter out events
-            if hasattr(overlay, "event_filter") and overlay.event_filter(obj, event):
+            if overlay.event_filter(obj, event):
                 return True
         return super().eventFilter(obj, event)

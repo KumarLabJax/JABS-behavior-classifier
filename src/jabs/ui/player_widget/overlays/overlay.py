@@ -54,7 +54,7 @@ class Overlay(QObject):
 
     def event_filter(self, obj: QObject, event: QEvent) -> bool:
         """Filters events for the overlay."""
-        pass
+        return False
 
     def handle_leave(self, event: QEvent) -> None:
         """Handles leave events for the overlay."""
