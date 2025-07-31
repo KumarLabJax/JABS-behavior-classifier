@@ -172,6 +172,12 @@ def _search_behaviors_gen(
             video_manager = project.video_manager
             for video in video_manager.videos:
                 anno_dict = video_manager.load_annotations(video)
+
+                # file does not have a corresponding annotation file, skip it
+                if anno_dict is None:
+                    continue
+
+                # file has jabs/annotations/<video>.json, grab timeline annotations
                 for annotation in anno_dict.get("annotations", []):
                     if timeline_query.tag is None or annotation.get("tag") == timeline_query.tag:
                         start = annotation["start"]
