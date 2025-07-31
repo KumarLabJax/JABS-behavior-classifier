@@ -8,6 +8,7 @@ from .overlays.annotation_overlay import AnnotationOverlay
 from .overlays.control_overlay import ControlOverlay
 from .overlays.floating_id_overlay import FloatingIdOverlay
 from .overlays.overlay import Overlay
+from .overlays.pose_overlay import PoseOverlay
 
 
 class FrameWidgetWithInteractiveOverlays(FrameWidget):
@@ -26,7 +27,7 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
 
     Todo:
         - Merge FrameWidget and FrameWidgetWithInteractiveOverlays into a single class, and
-          implement the identity and pose overlays as Overlay subclasses.
+          implement the centroid & minimalist identity overlay and label overlay as Overlay subclasses.
     """
 
     playback_speed_changed = QtCore.Signal(float)
@@ -45,8 +46,11 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
         self._floating_id_overlay = FloatingIdOverlay(self)
         self._floating_id_overlay.enabled = True
         self._floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
+        pose_overlay = PoseOverlay(self)
+        pose_overlay.enabled = True
 
         self.overlays: list[Overlay] = [
+            pose_overlay,
             self._annotation_overlay,
             self._floating_id_overlay,
             self._control_overlay,

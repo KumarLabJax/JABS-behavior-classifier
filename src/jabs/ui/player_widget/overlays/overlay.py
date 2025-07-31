@@ -16,7 +16,7 @@ class Overlay(QObject):
 
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
         super().__init__(parent)
-        self._parent = parent
+        self._parent = parent  # Reference to the parent frame widget
         self._priority = 0  # Default priority for painting order
         self._enabled = True  # Flag to enable or disable the overlay
 
