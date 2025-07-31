@@ -18,13 +18,13 @@ _KEYPOINT_SIZE = 3  # size of the keypoint circles
 
 
 class PoseOverlay(Overlay):
-    """Overlay for displaying pose keypoints and skeletons on the video frames."""
+    """Overlay for displaying pose keypoints and connecting line segments on the video frame."""
 
     def __init__(self, parent: "FrameWidgetWithInteractiveOverlays") -> None:
         super().__init__(parent)
 
     def paint(self, painter: QtGui.QPainter) -> None:
-        """Paints pose keypoints and skeletons on the current frame."""
+        """Paints pose keypoints and connecting line segments on the current frame."""
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
