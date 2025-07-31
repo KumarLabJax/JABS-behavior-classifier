@@ -234,9 +234,3 @@ class FrameWidgetWithInteractiveOverlays(FrameWidget):
             if hasattr(overlay, "event_filter") and overlay.event_filter(obj, event):
                 return True
         return super().eventFilter(obj, event)
-
-    def _add_overlay(self, overlay: Overlay) -> None:
-        """Adds an overlay to the widget and sorts overlays by priority."""
-        if overlay not in self.overlays:
-            self.overlays.append(overlay)
-            self.overlays.sort(key=lambda o: o.priority)
