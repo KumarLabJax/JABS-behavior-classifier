@@ -198,7 +198,7 @@ class AnnotationOverlay(Overlay):
         # restore the original font
         painter.setFont(current_font)
 
-    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> True:
+    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
         """Handle mouse press events to check if an annotation rectangle was clicked.
 
         Args:
