@@ -21,7 +21,7 @@ from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
 from .project_pruning_dialog import ProjectPruningDialog
 from .stacked_timeline_widget import StackedTimelineWidget
-from .user_guide_viewer_widget import UserGuideDialog
+from .user_guide_dialog import UserGuideDialog
 from .util import send_file_to_recycle_bin
 from .video_list_widget import VideoListDockWidget
 
