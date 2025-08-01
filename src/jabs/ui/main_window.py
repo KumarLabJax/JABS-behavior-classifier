@@ -549,7 +549,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
-                f"{self._app_name_long} ({self._app_name})", self
+                f"{self._app_name_long} ({self._app_name})", parent=None
             )
         self._user_guide_window.show()
 
