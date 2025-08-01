@@ -6,7 +6,7 @@ from PySide6 import QtCore, QtGui
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 class AnnotationOverlay(Overlay):
@@ -21,7 +21,7 @@ class AnnotationOverlay(Overlay):
     _BORDER_COLOR = QtGui.QColor(160, 160, 160, 255)  # Border color for annotation rectangles
     _ANNOTATION_OFFSET = 40  # Vertical offset from centroid (pixels)
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
         self._annotation_font = QtGui.QFont()

@@ -8,7 +8,7 @@ from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 @dataclasses.dataclass(frozen=True)
@@ -47,7 +47,7 @@ class FloatingIdOverlay(Overlay):
 
     id_label_clicked = QtCore.Signal(int)
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
         self._font = QtGui.QFont()

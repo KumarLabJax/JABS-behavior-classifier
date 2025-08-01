@@ -12,7 +12,7 @@ from jabs.ui.colors import (
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 class LabelOverlay(Overlay):
@@ -22,7 +22,7 @@ class LabelOverlay(Overlay):
     _GAP = 5  # gap between identity label and behavior label
     _BEHAVIOR_LABEL_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
     def paint(self, painter: QtGui.QPainter) -> None:

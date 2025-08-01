@@ -14,7 +14,7 @@ from .overlays.overlay import Overlay
 from .overlays.pose_overlay import PoseOverlay
 
 
-class FrameWidgetWithInteractiveOverlays(QtWidgets.QLabel):
+class FrameWithOverlaysWidget(QtWidgets.QLabel):
     """
     A Video Frame with interactive overlays.
 
@@ -341,6 +341,7 @@ class FrameWidgetWithInteractiveOverlays(QtWidgets.QLabel):
             # paint all overlays in the order they were added
             for overlay in self.overlays:
                 overlay.paint(painter)
+
             painter.end()
 
         else:

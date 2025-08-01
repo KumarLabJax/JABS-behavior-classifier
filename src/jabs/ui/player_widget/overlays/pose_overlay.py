@@ -10,7 +10,7 @@ from jabs.utils.pose_util import gen_line_fragments
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from jabs.ui.player_widget.frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from jabs.ui.player_widget.frame_with_overlays import FrameWithOverlaysWidget
 
 
 _LINE_SEGMENT_COLOR = QtGui.QColor(255, 255, 255, 128)  # color for the pose line segments
@@ -20,7 +20,7 @@ _KEYPOINT_SIZE = 3  # size of the keypoint circles
 class PoseOverlay(Overlay):
     """Overlay for displaying pose keypoints and connecting line segments on the video frame."""
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays") -> None:
+    def __init__(self, parent: "FrameWithOverlaysWidget") -> None:
         super().__init__(parent)
 
     def paint(self, painter: QtGui.QPainter) -> None:
