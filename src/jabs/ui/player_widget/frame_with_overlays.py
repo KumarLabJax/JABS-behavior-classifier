@@ -306,50 +306,44 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         Args:
             event (QtGui.QPaintEvent): The paint event containing region to be updated.
         """
-        # only draw if we have an image to show
-        if not self.pixmap().isNull():
-            # current size of the widget
-            size = self.size()
+        if self.pixmap() is None or self.pixmap().isNull():
+            return
 
-            painter = QtGui.QPainter(self)
-            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-            painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
-            point = QtCore.QPoint(0, 0)
+        size = self.size()
 
-            # scale the image to the current size of the widget.
-            pix = self.pixmap().scaled(
-                size,
-                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                QtCore.Qt.TransformationMode.SmoothTransformation,
-            )
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
+        point = QtCore.QPoint(0, 0)
 
-            # because we are maintaining aspect ratio, the scaled frame might
-            # not be the same dimensions as the area we are painting it.
-            # adjust the start point to center the image in the widget
-            point.setX((size.width() - pix.width()) // 2)
-            point.setY((size.height() - pix.height()) // 2)
+        # scale the image to the current size of the widget.
+        pix = self.pixmap().scaled(
+            size,
+            QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+            QtCore.Qt.TransformationMode.SmoothTransformation,
+        )
 
-            # draw the pixmap starting at the new calculated offset
-            painter.drawPixmap(point, pix)
+        # because we are maintaining aspect ratio, the scaled frame might
+        # not be the same dimensions as the area we are painting it.
+        # adjust the start point to center the image in the widget
+        point.setX((size.width() - pix.width()) // 2)
+        point.setY((size.height() - pix.height()) // 2)
 
-            # save the scaled pixmap dimensions for use by the mousePressEvent and _overlay_identities methods
-            self._scaled_pix_x = point.x()
-            self._scaled_pix_y = point.y()
-            self._scaled_pix_width = pix.width()
-            self._scaled_pix_height = pix.height()
+        painter.drawPixmap(point, pix)
 
-            # paint all overlays in the order they were added
-            for overlay in self.overlays:
-                overlay.paint(painter)
+        # save the scaled pixmap dimensions for use by the mousePressEvent and _overlay_identities methods
+        self._scaled_pix_x = point.x()
+        self._scaled_pix_y = point.y()
+        self._scaled_pix_width = pix.width()
+        self._scaled_pix_height = pix.height()
 
-            painter.end()
+        # paint all overlays in the order they were added
+        for overlay in self.overlays:
+            overlay.paint(painter)
 
-        else:
-            # if we don't have a pixmap to display just call the original QLabel
-            # paintEvent
-            super().paintEvent(event)
+        painter.end()
 
-    def mouseMoveEvent(self, event) -> None:
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
         """Handles mouse move events and delegates them to all overlays.
 
         Args:
@@ -359,7 +353,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         for overlay in self.overlays:
             overlay.handle_mouse_move(event)
 
-    def leaveEvent(self, event) -> None:
+    def leaveEvent(self, event: QtCore.QEvent) -> None:
         """Handles leave events and delegates them to all overlays.
 
         Args:
@@ -370,13 +364,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             overlay.handle_leave(event)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
-        """Process mousePressEvent.
+        """Handles mouse press events and delegates them to overlays.
 
-        Let overlays have a chance to handle click first, if none handle the
-        click then emit a signal with the clicked pixel coordinates.
+        Args:
+            event (QtGui.QMouseEvent): The mouse press event.
+
+        Note:
+            Overlays are checked in reverse order (top-most first) to allow overlays drawn on top
+            to have priority in handling the event. If no overlay handles the event, emits the
+            `pixmap_clicked` signal with the image coordinates of the click.
         """
         handled = False
-        for overlay in self.overlays:
+        for overlay in reversed(self.overlays):
             if overlay.handle_mouse_press(event):
                 handled = True
                 break
