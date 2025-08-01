@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
+from .annotation_info_dialog import AnnotationInfoDialog
 from .overlay import Overlay
 
 if TYPE_CHECKING:
@@ -135,7 +136,10 @@ class AnnotationOverlay(Overlay):
                 # Draw all stacked rectangles
                 for x, y, rect_width, rect_height, annotation, text, color_str in rects:
                     rect = QtCore.QRectF(x, y, rect_width, rect_height)
-                    self._rects_with_data.append((rect, annotation.data))
+                    data = annotation.data.copy()
+                    data["start"] = annotation.begin
+                    data["end"] = annotation.end
+                    self._rects_with_data.append((rect, data))
                     fill_color = QtGui.QColor(color_str)
                     if not fill_color.isValid():
                         fill_color = QtGui.QColor(220, 220, 220)
@@ -172,7 +176,10 @@ class AnnotationOverlay(Overlay):
             y = self.parent.scaled_pix_y + self._MARGIN_Y + i * (rect_height + self._SPACING)
 
             rect = QtCore.QRectF(x, y, rect_width, rect_height)
-            self._rects_with_data.append((rect, annotation.data))
+            data = annotation.data.copy()
+            data["start"] = annotation.begin
+            data["end"] = annotation.end
+            self._rects_with_data.append((rect, data))
             fill_color = QtGui.QColor(color_str)
             if not fill_color.isValid():
                 fill_color = QtGui.QColor(220, 220, 220)
@@ -199,7 +206,7 @@ class AnnotationOverlay(Overlay):
         pos = event.position() if hasattr(event, "position") else event.pos()
         for rect, annotation in self._rects_with_data:
             if rect.contains(pos):
-                # TODO: display annotations details in a dialog or tooltip
-                print(f"Clicked on annotation: {annotation['tag']}")
+                dialog = AnnotationInfoDialog(annotation, self.parent)
+                dialog.exec()
                 return True
         return False
