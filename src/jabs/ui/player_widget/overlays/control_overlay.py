@@ -31,7 +31,7 @@ class ControlOverlay(Overlay):
         self._menu_open = False
         self._badge_rect = QtCore.QRect()
         self._playback_speed = 1.0
-        self._speeds = [0.5, 1.0, 1.5, 2.0, 4.0]
+        self._speeds = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
         self._menu = None
         self._badge_font = QtGui.QFont()
         self._badge_font.setBold(True)
