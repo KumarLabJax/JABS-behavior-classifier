@@ -5,7 +5,7 @@ from PySide6.QtCore import QEvent, QObject
 from shapely import Point
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 class Overlay(QObject):
@@ -14,14 +14,14 @@ class Overlay(QObject):
     _LIGHT_COLOR_THRESHOLD = 160  # Luminance threshold to determine if a color is "light"
     _MAX_PRIORITY = 1000  # Maximum priority for painting order
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
-        self._parent = parent
+        self._parent = parent  # Reference to the parent frame widget
         self._priority = 0  # Default priority for painting order
         self._enabled = True  # Flag to enable or disable the overlay
 
     @property
-    def parent(self) -> "FrameWidgetWithInteractiveOverlays":
+    def parent(self) -> "FrameWithOverlaysWidget":
         """Returns the parent frame widget."""
         return self._parent
 
@@ -54,7 +54,7 @@ class Overlay(QObject):
 
     def event_filter(self, obj: QObject, event: QEvent) -> bool:
         """Filters events for the overlay."""
-        pass
+        return False
 
     def handle_leave(self, event: QEvent) -> None:
         """Handles leave events for the overlay."""

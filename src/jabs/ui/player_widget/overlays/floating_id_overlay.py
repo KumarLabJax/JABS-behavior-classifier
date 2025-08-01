@@ -3,10 +3,12 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
+from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR
+
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 @dataclasses.dataclass(frozen=True)
@@ -26,6 +28,8 @@ class LabelOverlayRect:
 class FloatingIdOverlay(Overlay):
     """Overlay for displaying interval-based annotations as tags in rounded rectangles."""
 
+    _FONT_SIZE = 12  # size of the font used for floating identity labels
+    _CENTROID_FONT_SIZE = 14  # size of the font used for centroid identity labels
     _HORIZONTAL_PADDING = 6  # Horizontal padding inside id label rectangles (pixels)
     _VERTICAL_PADDING = 2  # Vertical padding inside id label rectangles (pixels)
     _SPACING = 4  # Vertical space between stacked id label rectangles (pixels)
@@ -37,16 +41,18 @@ class FloatingIdOverlay(Overlay):
     _INACTIVE_IDENTITY_COLOR = QtGui.QColor(125, 125, 125, 255)  # Color for inactive identities
     _LABEL_OFFSET_VERTICAL = 20  # Vertical offset from centroid
     _LABEL_OFFSET_HORIZONTAL = 60  # Horizontal offset for identity rectangle
+    _SELECTED_INDICATOR_SIZE = (
+        2  # size of the circle drawn to indicate selected mouse when ID labels are hidden
+    )
 
     id_label_clicked = QtCore.Signal(int)
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
-        self._priority = self._MAX_PRIORITY - 1  # high priority, only below control overlay
         self._font = QtGui.QFont()
         self._font.setBold(True)
-        self._font.setPointSize(12)
+        self._font.setPointSize(self._FONT_SIZE)
         self._font_metrics = QtGui.QFontMetrics(self._font)
 
         self._rects_with_data = []
@@ -56,13 +62,51 @@ class FloatingIdOverlay(Overlay):
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
+        # get the current painter font so we can restore it later
+        current_font = painter.font()
+        painter.setFont(self._font)
+
         # keep track of drawn rectangles and associated data, used for mouse events so we can
         # determine which id was clicked
         self._rects_with_data.clear()
 
-        # get the current painter font so we can restore it later
-        current_font = painter.font()
-        painter.setFont(self._font)
+        if self.parent.identity_overlay_mode == self.parent.IdentityOverlayMode.FLOATING:
+            self._font.setPointSize(self._FONT_SIZE)
+            self._overlay_identities_floating(painter)
+        else:
+            self._font.setPointSize(self._CENTROID_FONT_SIZE)
+            self._overlay_identities(painter)
+
+        # restore the original font
+        painter.setFont(current_font)
+
+    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
+        """Handle mouse press events to check if a floating id label was clicked.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse event containing the position of the click.
+
+        Returns:
+            bool: True if an id label was clicked, False otherwise.
+        """
+        if not self._enabled:
+            return False
+
+        pos = event.position()
+        for rect, data in self._rects_with_data:
+            if rect.contains(pos):
+                self.id_label_clicked.emit(data.animal_id)
+                return True
+        return False
+
+    def _overlay_identities_floating(self, painter: QtGui.QPainter) -> None:
+        """Overlay identities on the current frame using the floating style.
+
+        This method draws the identity labels on the frame if pose estimation is available. The active identity
+        label will be red, while other identities are drawn in a different color.
+        """
+        if self.parent.pose is None:
+            return
 
         identities = self.parent.pose.identities
 
@@ -141,17 +185,41 @@ class FloatingIdOverlay(Overlay):
             painter.setPen(text_color)
             painter.drawText(q_rect, QtCore.Qt.AlignmentFlag.AlignCenter, identity_rect.tag)
 
-        # restore the original font
-        painter.setFont(current_font)
+    def _overlay_identities(self, painter: QtGui.QPainter) -> None:
+        """Overlay identities on the current frame.
 
-    def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
-        """Handle mouse press events to check if a floating id label was clicked."""
-        if not self._enabled:
-            return False
+        This method draws the identity labels on the frame if pose estimation is available. The active identity
+        label will be red, while other identities are drawn in a different color.
+        """
+        if self.parent.pose is None:
+            return
 
-        pos = event.position() if hasattr(event, "position") else event.pos()
-        for rect, data in self._rects_with_data:
-            if rect.contains(pos):
-                self.id_label_clicked.emit(data.animal_id)
-                return True
-        return False
+        identities = self.parent.pose.identities
+        painter.setFont(self._font)
+
+        for identity in identities:
+            shape = self.parent.pose.get_identity_convex_hulls(identity)[self.parent.current_frame]
+            if shape is not None:
+                center = shape.centroid
+
+                color = (
+                    ACTIVE_ID_COLOR
+                    if identity == self.parent.active_identity
+                    else INACTIVE_ID_COLOR
+                )
+                label_text = str(self.parent.convert_identity_to_external(identity))
+
+                # Convert image coordinates to widget coordinates and draw the label
+                widget_x, widget_y = self.parent.image_to_widget_coords(center.x, center.y)
+                painter.setPen(color)
+
+                if self.parent.identity_overlay_mode == self.parent.IdentityOverlayMode.MINIMAL:
+                    # draw a circle at the centroid of the identity
+                    painter.setBrush(color)
+                    painter.drawEllipse(
+                        QtCore.QPoint(widget_x, widget_y),
+                        self._SELECTED_INDICATOR_SIZE,
+                        self._SELECTED_INDICATOR_SIZE,
+                    )
+                else:
+                    painter.drawText(widget_x, widget_y, label_text)

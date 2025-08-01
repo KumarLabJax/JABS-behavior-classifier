@@ -21,7 +21,7 @@ from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
 from .project_pruning_dialog import ProjectPruningDialog
 from .stacked_timeline_widget import StackedTimelineWidget
-from .user_guide_viewer_widget import UserGuideDialog
+from .user_guide_dialog import UserGuideDialog
 from .util import send_file_to_recycle_bin
 from .video_list_widget import VideoListDockWidget
 
@@ -549,7 +549,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
             self._user_guide_window = UserGuideDialog(
-                f"{self._app_name_long} ({self._app_name})", self
+                f"{self._app_name_long} ({self._app_name})", parent=None
             )
         self._user_guide_window.show()
 

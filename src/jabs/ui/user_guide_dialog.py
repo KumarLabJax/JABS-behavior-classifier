@@ -1,4 +1,5 @@
 import markdown2
+from PySide6 import QtCore
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QDialog, QPushButton, QVBoxLayout
@@ -12,6 +13,8 @@ class UserGuideDialog(QDialog):
     def __init__(self, app_name: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setWindowTitle(f"{app_name} User Guide")
+        self.setWindowModality(QtCore.Qt.WindowModality.NonModal)
+        self.setWindowFlag(QtCore.Qt.WindowType.Tool)
         self.resize(1000, 600)
         self._web_engine_view = QWebEngineView()
         self._load_content()

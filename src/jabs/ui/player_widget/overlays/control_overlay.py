@@ -5,7 +5,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 class ControlOverlay(Overlay):
@@ -25,7 +25,7 @@ class ControlOverlay(Overlay):
     _BADGE_TEXT_COLOR = QtGui.QColor(0, 0, 0)
     _BADGE_FONT_SIZE = 12
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
         self._over_pixmap = False
         self._menu_open = False
@@ -105,7 +105,7 @@ class ControlOverlay(Overlay):
         if (
             self.parent.pixmap() is not None
             and not self.parent.pixmap().isNull()
-            and (self._badge_rect.contains(event.pos()) or self._menu_open)
+            and (self._badge_rect.contains(event.position().toPoint()) or self._menu_open)
         ):
             self._menu_open = False
             self._show_speed_menu()
@@ -238,7 +238,7 @@ class ControlOverlay(Overlay):
         get hidden until the mouse moves away from the pixmap area.
 
         Args:
-            parent (FrameWidgetWithInteractiveOverlays): The parent widget containing the overlay.
+            parent (FrameWithOverlaysWidget): The parent widget containing the overlay.
         """
         self._menu_open = False
         if self._menu:

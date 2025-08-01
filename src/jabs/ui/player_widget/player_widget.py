@@ -9,7 +9,7 @@ from jabs.pose_estimation import PoseEstimation
 from jabs.project import VideoLabels
 from jabs.video_reader import VideoReader
 
-from .frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+from .frame_with_overlays import FrameWithOverlaysWidget
 from .player_thread import PlayerThread
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
@@ -59,8 +59,8 @@ class PlayerWidget(QtWidgets.QWidget):
     eof_reached = QtCore.Signal()
     id_label_clicked = QtCore.Signal(int)
 
-    PoseOverlayMode = FrameWidgetWithInteractiveOverlays.PoseOverlayMode
-    IdentityOverlayMode = FrameWidgetWithInteractiveOverlays.IdentityOverlayMode
+    PoseOverlayMode = FrameWithOverlaysWidget.PoseOverlayMode
+    IdentityOverlayMode = FrameWithOverlaysWidget.IdentityOverlayMode
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -91,7 +91,7 @@ class PlayerWidget(QtWidgets.QWidget):
         #  - setup Widget UI components
 
         # custom widget for displaying a resizable image
-        self._frame_widget = FrameWidgetWithInteractiveOverlays()
+        self._frame_widget = FrameWithOverlaysWidget()
         self._frame_widget.playback_speed_changed.connect(self._on_playback_speed_changed)
         self._frame_widget.id_label_clicked.connect(self.id_label_clicked)
 

@@ -7,7 +7,7 @@ from .annotation_info_dialog import AnnotationInfoDialog
 from .overlay import Overlay
 
 if TYPE_CHECKING:
-    from ..frame_with_control_overlay import FrameWidgetWithInteractiveOverlays
+    from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
 class AnnotationOverlay(Overlay):
@@ -22,7 +22,7 @@ class AnnotationOverlay(Overlay):
     _BORDER_COLOR = QtGui.QColor(160, 160, 160, 255)  # Border color for annotation rectangles
     _ANNOTATION_OFFSET = 40  # Vertical offset from centroid (pixels)
 
-    def __init__(self, parent: "FrameWidgetWithInteractiveOverlays"):
+    def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
         self._annotation_font = QtGui.QFont()
@@ -199,11 +199,18 @@ class AnnotationOverlay(Overlay):
         painter.setFont(current_font)
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> True:
-        """Handle mouse press events to check if an annotation rectangle was clicked."""
+        """Handle mouse press events to check if an annotation rectangle was clicked.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse event containing the click position.
+
+        Returns:
+            bool: True if an annotation was clicked, False otherwise.
+        """
         if not self._enabled:
             return False
 
-        pos = event.position() if hasattr(event, "position") else event.pos()
+        pos = event.position()
         for rect, annotation in self._rects_with_data:
             if rect.contains(pos):
                 dialog = AnnotationInfoDialog(annotation, self.parent)
