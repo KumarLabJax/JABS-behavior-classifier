@@ -105,7 +105,7 @@ class ControlOverlay(Overlay):
         if (
             self.parent.pixmap() is not None
             and not self.parent.pixmap().isNull()
-            and (self._badge_rect.contains(event.pos()) or self._menu_open)
+            and (self._badge_rect.contains(event.position().toPoint()) or self._menu_open)
         ):
             self._menu_open = False
             self._show_speed_menu()

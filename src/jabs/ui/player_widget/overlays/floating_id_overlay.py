@@ -81,11 +81,18 @@ class FloatingIdOverlay(Overlay):
         painter.setFont(current_font)
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
-        """Handle mouse press events to check if a floating id label was clicked."""
+        """Handle mouse press events to check if a floating id label was clicked.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse event containing the position of the click.
+
+        Returns:
+            bool: True if an id label was clicked, False otherwise.
+        """
         if not self._enabled:
             return False
 
-        pos = event.position() if hasattr(event, "position") else event.pos()
+        pos = event.position()
         for rect, data in self._rects_with_data:
             if rect.contains(pos):
                 self.id_label_clicked.emit(data.animal_id)

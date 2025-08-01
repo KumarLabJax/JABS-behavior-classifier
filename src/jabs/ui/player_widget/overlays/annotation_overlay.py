@@ -192,11 +192,18 @@ class AnnotationOverlay(Overlay):
         painter.setFont(current_font)
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> True:
-        """Handle mouse press events to check if an annotation rectangle was clicked."""
+        """Handle mouse press events to check if an annotation rectangle was clicked.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse event containing the click position.
+
+        Returns:
+            bool: True if an annotation was clicked, False otherwise.
+        """
         if not self._enabled:
             return False
 
-        pos = event.position() if hasattr(event, "position") else event.pos()
+        pos = event.position()
         for rect, annotation in self._rects_with_data:
             if rect.contains(pos):
                 # TODO: display annotations details in a dialog or tooltip
