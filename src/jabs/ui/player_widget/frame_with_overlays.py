@@ -74,7 +74,6 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
 
-        # initialize overlays
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self._annotation_overlay = AnnotationOverlay(self)
@@ -88,7 +87,6 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             LabelOverlay(self),
             self._annotation_overlay,
             floating_id_overlay,
-            # the control overlay is painted last, so it is on top of all other overlays
             self._control_overlay,
         ]
 
@@ -329,13 +327,12 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         point.setX((size.width() - pix.width()) // 2)
         point.setY((size.height() - pix.height()) // 2)
 
-        painter.drawPixmap(point, pix)
-
-        # save the scaled pixmap dimensions for use by the mousePressEvent and _overlay_identities methods
         self._scaled_pix_x = point.x()
         self._scaled_pix_y = point.y()
         self._scaled_pix_width = pix.width()
         self._scaled_pix_height = pix.height()
+
+        painter.drawPixmap(point, pix)
 
         # paint all overlays in the order they were added
         for overlay in self.overlays:
