@@ -1137,6 +1137,21 @@ files = [
 ]
 
 [[package]]
+name = "qt-material-icons"
+version = "0.2.0"
+description = "Material Symbols by Google for Qt using PySide"
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "qt_material_icons-0.2.0-py3-none-any.whl", hash = "sha256:bdc14af68e7576b1b0847eb37b53fd68962cab9e2469c8a22a06a860b8deb604"},
+    {file = "qt_material_icons-0.2.0.tar.gz", hash = "sha256:4711082ceb3a91743df00a0f366df3c94adbd149bdfa73973e6a8dd0ac5c8603"},
+]
+
+[package.extras]
+dev = ["PySide6", "black", "python-semantic-release"]
+
+[[package]]
 name = "rich"
 version = "14.0.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
@@ -1573,4 +1588,4 @@ scikit-learn = ["scikit-learn"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "058509731a062f65d24e58565503a771b3ef690270c8a07283228d7b4d0b1878"
+content-hash = "420ecc71834be4f6de458e2e8cd8a4aaf527f2b5adfa48ab5f362f343a6cd637"

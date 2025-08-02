@@ -52,6 +52,10 @@ class Overlay(QObject):
         """Handles mouse move events on the overlay."""
         pass
 
+    def handle_mouse_release(self, event: QtGui.QMouseEvent) -> None:
+        """Handles mouse release events on the overlay."""
+        pass
+
     def event_filter(self, obj: QObject, event: QEvent) -> bool:
         """Filters events for the overlay."""
         return False

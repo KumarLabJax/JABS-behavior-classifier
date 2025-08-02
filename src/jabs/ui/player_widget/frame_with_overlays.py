@@ -380,6 +380,16 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             pix_x, pix_y = self._widget_to_image_coords(event.x(), event.y())
             self.pixmap_clicked.emit({"x": pix_x, "y": pix_y})
 
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        """Handles mouse release events and delegates them to overlays.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse release event.
+        """
+        super().mouseReleaseEvent(event)
+        for overlay in reversed(self.overlays):
+            overlay.handle_mouse_release(event)
+
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """Filters events before they reach the target object and delegates to overlays.
 
