@@ -1,7 +1,6 @@
 import typing
 
 import numpy as np
-import scipy.stats
 
 from jabs.feature_extraction.feature_base_class import Feature
 
@@ -28,16 +27,6 @@ class ClosestFovAngles(Feature):
     _name = "closest_fov_angles"
     _min_pose = 3
 
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-        "std_dev": lambda x: scipy.stats.circstd(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-    }
-
     def __init__(
         self,
         poses: "PoseEstimation",
@@ -58,12 +47,33 @@ class ClosestFovAngles(Feature):
         """
         # this is already computed
         return {
-            "angle of closest social distance in FoV": self._social_distance_info.closest_fov_angles
+            "angle of closest social distance in FoV": self._social_distance_info.closest_fov_angles,
+            "angle cosine of closest social distance in FoV": np.cos(
+                np.deg2rad(self._social_distance_info.closest_fov_angles)
+            ),
+            "angle sine of closest social distance in FoV": np.sin(
+                np.deg2rad(self._social_distance_info.closest_fov_angles)
+            ),
         }
 
     def window(
         self, identity: int, window_size: int, per_frame_values: dict[str, np.ndarray]
     ) -> dict:
-        """compute window feature values for a given identities per frame values"""
-        # need to override to use special method for computing window features with circular values
-        return self._window_circular(identity, window_size, per_frame_values)
+        """compute window feature values.
+
+        Args:
+            identity (int): subject identity
+            window_size (int): window size NOTE: (actual window size is 2 *
+                window_size + 1)
+            per_frame_values (dict[str, np.ndarray]): dictionary of per frame values for this identity
+
+        need to override to use special method for computing window features with circular values
+        """
+        # separate circular and non-circular values
+        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
+        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
+
+        circular_features = self._window_circular(identity, window_size, circular)
+        non_circular_features = super().window(identity, window_size, non_circular)
+
+        return circular_features | non_circular_features

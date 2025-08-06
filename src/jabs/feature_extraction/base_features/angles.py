@@ -1,7 +1,7 @@
 import typing
 
 import numpy as np
-import scipy.stats
+from scipy import stats
 
 from jabs.feature_extraction.angle_index import AngleIndex
 from jabs.feature_extraction.feature_base_class import Feature
@@ -13,10 +13,9 @@ class Angles(Feature):
 
     _name = "angles"
 
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(x, high=360, nan_policy="omit"),
-        "std_dev": lambda x: scipy.stats.circstd(x, high=360, nan_policy="omit"),
+    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
+        "mean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -31,13 +30,18 @@ class Angles(Feature):
 
         for named_angle in AngleIndex:
             angle_keypoints = AngleIndex.get_angle_indices(named_angle)
-            values[f"angle {AngleIndex.get_angle_name(named_angle)}"] = (
-                self._compute_angles(
-                    poses[:, angle_keypoints[0]],
-                    poses[:, angle_keypoints[1]],
-                    poses[:, angle_keypoints[2]],
-                )
+            values[f"angle {AngleIndex.get_angle_name(named_angle)}"] = self._compute_angles(
+                poses[:, angle_keypoints[0]],
+                poses[:, angle_keypoints[1]],
+                poses[:, angle_keypoints[2]],
             )
+            values[f"angle {AngleIndex.get_angle_name(named_angle)} sine"] = np.sin(
+                np.deg2rad(values[f"angle {AngleIndex.get_angle_name(named_angle)}"])
+            )
+            values[f"angle {AngleIndex.get_angle_name(named_angle)} cosine"] = np.cos(
+                np.deg2rad(values[f"angle {AngleIndex.get_angle_name(named_angle)}"])
+            )
+
         return values
 
     def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
@@ -50,7 +54,14 @@ class Angles(Feature):
             window_size (int): window size NOTE: (actual window size is 2 * window_size + 1)
             per_frame_values (dict): per frame values for this identity
         """
-        return self._window_circular(identity, window_size, per_frame_values)
+        # separate circular and non-circular values
+        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
+        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
+
+        circular_features = self._window_circular(identity, window_size, circular)
+        non_circular_features = super().window(identity, window_size, non_circular)
+
+        return circular_features | non_circular_features
 
     @staticmethod
     def _compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:

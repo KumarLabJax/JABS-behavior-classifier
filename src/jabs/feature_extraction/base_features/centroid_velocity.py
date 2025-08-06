@@ -1,32 +1,18 @@
-import typing
-
 import numpy as np
-import scipy.stats
 
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
-# TODO: merge CentroidVelocityMag and CentroidVelocityDir into a single feature
-#  with a 2D numpy array of values
-# these are currently separate features in the features file, so we keep them
-# separate here for ease of implementation, but this results in duplicated
-# work computing each feature. Fix at next update to feature h5 file format.
+# TODO: consider merging CentroidVelocityMag and CentroidVelocityDir into a single feature
+#   these are currently separate features in the features file, so we keep them
+#   separate here for ease of implementation, but this results in duplicated
+#   work computing each feature.
 
 
 class CentroidVelocityDir(Feature):
     """feature for the direction of the center of mass velocity"""
 
     _name = "centroid_velocity_dir"
-
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-        "std_dev": lambda x: scipy.stats.circstd(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-    }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -44,9 +30,7 @@ class CentroidVelocityDir(Feature):
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
 
         # get centroids for all frames where this identity is present
-        centroid_centers = np.full(
-            [self._poses.num_frames, 2], np.nan, dtype=np.float32
-        )
+        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
         for i in indexes:
             centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 
@@ -59,7 +43,11 @@ class CentroidVelocityDir(Feature):
         # convert angle to range -180 to 180
         values = (((d - bearings) + 180) % 360) - 180
 
-        return {"centroid_velocity_dir": values}
+        return {
+            "centroid_velocity_dir": values,
+            "centroid_velocity_dir sine": np.sin(np.radians(values)),
+            "centroid_velocity_dir cosine": np.cos(np.radians(values)),
+        }
 
     def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """compute window feature values for the centroid velocity direction
@@ -77,7 +65,14 @@ class CentroidVelocityDir(Feature):
                 frame for the given identity
 
         """
-        return self._window_circular(identity, window_size, per_frame_values)
+        # separate circular and non-circular values
+        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
+        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
+
+        circular_features = self._window_circular(identity, window_size, circular)
+        non_circular_features = super().window(identity, window_size, non_circular)
+
+        return circular_features | non_circular_features
 
 
 class CentroidVelocityMag(Feature):
@@ -109,9 +104,7 @@ class CentroidVelocityMag(Feature):
         indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
 
         # get centroids for all frames where this identity is present
-        centroid_centers = np.full(
-            [self._poses.num_frames, 2], np.nan, dtype=np.float32
-        )
+        centroid_centers = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
         for i in indexes:
             centroid_centers[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
 

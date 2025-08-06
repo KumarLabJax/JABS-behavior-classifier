@@ -3,7 +3,7 @@ import typing
 import warnings
 
 import numpy as np
-from scipy import signal
+from scipy import signal, stats
 
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
@@ -47,6 +47,11 @@ class Feature(abc.ABC):
         "psd_top_freq": signal_stats.psd_peak_freq,
     }
 
+    _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
+        "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
+    }
+
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__()
         self._poses = poses
@@ -79,9 +84,7 @@ class Feature(abc.ABC):
         return cls._feature_names
 
     @classmethod
-    def is_supported(
-        cls, pose_version: int, static_objects: set[str], **kwargs
-    ) -> bool:
+    def is_supported(cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
         """check that a feature is supported by a pose file
 
         Args:
@@ -135,9 +138,7 @@ class Feature(abc.ABC):
         values.update(signal_features)
         return values
 
-    def window_signal(
-        self, identity: int, window_size: int, per_frame_values: dict
-    ) -> dict:
+    def window_signal(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
 
         Args:
@@ -192,9 +193,7 @@ class Feature(abc.ABC):
 
         return values
 
-    def _window_circular(
-        self, identity: int, window_size: int, per_frame_values: dict
-    ) -> dict:
+    def _window_circular(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """helper function for overriding window features to be circular
 
         Args:
@@ -206,7 +205,7 @@ class Feature(abc.ABC):
             a dictionary of the circular window features.
         """
         values = {}
-        for op_name, op in self._window_operations.items():
+        for op_name, op in self._circular_window_operations.items():
             values[op_name] = self._compute_window_features_circular(
                 per_frame_values, self._poses.identity_mask(identity), window_size, op
             )
