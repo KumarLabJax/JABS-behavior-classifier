@@ -205,6 +205,7 @@ class BearingToLixit(Feature):
     _name = "lixit_bearings"
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
+    _use_circular = True
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
@@ -225,22 +226,6 @@ class BearingToLixit(Feature):
         features["bearing to lixit cosine"] = np.cos(np.deg2rad(features["bearing to lixit"]))
 
         return features
-
-    def window(
-        self, identity: int, window_size: int, per_frame_values: dict
-    ) -> dict[str, dict[str, np.ndarray]]:
-        """get the windowed values for the bearing to lixit feature
-
-        need to override for base class to properly handle circular values
-        """
-        # separate circular and non-circular values
-        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
-        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
-
-        circular_features = self._window_circular(identity, window_size, circular)
-        non_circular_features = super().window(identity, window_size, non_circular)
-
-        return circular_features | non_circular_features
 
 
 class MouseLixitAngle(Feature):

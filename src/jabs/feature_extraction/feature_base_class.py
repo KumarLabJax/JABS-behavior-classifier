@@ -21,7 +21,9 @@ class Feature(abc.ABC):
     _min_pose = 2
     _static_objects: typing.ClassVar[list[str]] = []
 
-    # NOTE: Circular values need to override this as well as the window()
+    _use_circular = False
+
+    # standard window operations
     _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": window_stats.window_mean,
         "median": window_stats.window_median,
@@ -50,8 +52,8 @@ class Feature(abc.ABC):
     # most angles are bearings in the range [-180, 180)
     # if an angle feature is in a different range, the subclass needs to override this
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "circmean": lambda x: stats.circmean(x, low=-180, high=179, nan_policy="omit"),
-        "circstd": lambda x: stats.circstd(x, low=-180, high=179, nan_policy="omit"),
+        "circmean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
+        "circstd": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -121,8 +123,38 @@ class Feature(abc.ABC):
         """
         pass
 
-    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        """standard method for computing window feature values
+    def window(self, identity: int, window_size: int, per_frame_features: dict) -> dict:
+        """compute window feature values.
+
+        Args:
+            identity (int): subject identity
+            window_size (int): window size NOTE: (actual window size is 2 * window_size + 1)
+            per_frame_features (dict): dictionary of per frame values for this identity
+
+        Returns:
+            dict with feature values
+        """
+        circular_features = {}
+        if self._use_circular:
+            # feature uses circular window operations. Some might also include non-circular values,
+            # so we need to separate them out and compute them separately
+            non_circular = {
+                k: v for k, v in per_frame_features.items() if "sine" in k or "cosine" in k
+            }
+            circular = {k: v for k, v in per_frame_features.items() if k not in non_circular}
+
+            circular_features = self._window_circular(identity, window_size, circular)
+        else:
+            # feature does not use circular window operations, so we can compute standard window features on all values
+            non_circular = per_frame_features
+
+        # standard method for computing window features on non-circular values
+        non_circular_features = self._window_standard(identity, window_size, non_circular)
+
+        return circular_features | non_circular_features
+
+    def _window_standard(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+        """standard method for computing standard window feature values
 
         NOTE: some features may need to override this (for example, those with
         circular values such as angles)
@@ -136,11 +168,11 @@ class Feature(abc.ABC):
                 self._window_operations[op],
             )
         # Also include signal features
-        signal_features = self.window_signal(identity, window_size, per_frame_values)
+        signal_features = self._window_signal(identity, window_size, per_frame_values)
         values.update(signal_features)
         return values
 
-    def window_signal(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+    def _window_signal(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
 
         Args:

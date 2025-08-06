@@ -290,6 +290,7 @@ class BearingToCorner(Feature):
     _name = "corner_bearings"
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
+    _use_circular = True
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
@@ -311,23 +312,3 @@ class BearingToCorner(Feature):
         features["bearing to center cosine"] = np.cos(np.deg2rad(features["bearing to center"]))
         features["bearing to center sine"] = np.sin(np.deg2rad(features["bearing to center"]))
         return features
-
-    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        """compute window feature values.
-
-        Args:
-            identity (int): subject identity
-            window_size (int): window size NOTE: (actual window size is 2 *
-                window_size + 1)
-            per_frame_values (dict[str, np.ndarray]): dictionary of per frame values for this identity
-
-        need to override to use special method for computing window features with circular values
-        """
-        # separate circular and non-circular values
-        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
-        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
-
-        circular_features = self._window_circular(identity, window_size, circular)
-        non_circular_features = super().window(identity, window_size, non_circular)
-
-        return circular_features | non_circular_features

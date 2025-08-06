@@ -12,10 +12,12 @@ class Angles(Feature):
     """this module computes joint angles the result is a dict of features of length #frames rows"""
 
     _name = "angles"
+    _use_circular = True
 
+    # need to override to set the correct range for circular operations
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "circmean": lambda x: stats.circmean(x, low=0, high=359, nan_policy="omit"),
-        "circstd": lambda x: stats.circstd(x, low=0, high=359, nan_policy="omit"),
+        "circmean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
+        "circstd": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -43,25 +45,6 @@ class Angles(Feature):
             )
 
         return values
-
-    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        """compute window feature values.
-
-        overrides the base class method to handle circular values.
-
-        Args:
-            identity (int): subject identity
-            window_size (int): window size NOTE: (actual window size is 2 * window_size + 1)
-            per_frame_values (dict): per frame values for this identity
-        """
-        # separate circular and non-circular values
-        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
-        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
-
-        circular_features = self._window_circular(identity, window_size, circular)
-        non_circular_features = super().window(identity, window_size, non_circular)
-
-        return circular_features | non_circular_features
 
     @staticmethod
     def _compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:

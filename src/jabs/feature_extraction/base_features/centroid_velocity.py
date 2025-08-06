@@ -13,6 +13,7 @@ class CentroidVelocityDir(Feature):
     """feature for the direction of the center of mass velocity"""
 
     _name = "centroid_velocity_dir"
+    _use_circular = True
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
         super().__init__(poses, pixel_scale)
@@ -48,31 +49,6 @@ class CentroidVelocityDir(Feature):
             "centroid_velocity_dir sine": np.sin(np.radians(values)),
             "centroid_velocity_dir cosine": np.cos(np.radians(values)),
         }
-
-    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        """compute window feature values for the centroid velocity direction
-
-        Overrides base class to use special method for computing window features with circular values
-
-        Args:
-            identity (int): subject identity
-            window_size (int): window size NOTE: (actual window size is 2 *
-                window_size + 1)
-            per_frame_values (dict[str, np.ndarray]): dictionary of per frame values for this identity
-
-        Returns:
-            dict: dictionary where keys are window feature names and values are the computed window features at each
-                frame for the given identity
-
-        """
-        # separate circular and non-circular values
-        non_circular = {k: v for k, v in per_frame_values.items() if "sine" in k or "cosine" in k}
-        circular = {k: v for k, v in per_frame_values.items() if k not in non_circular}
-
-        circular_features = self._window_circular(identity, window_size, circular)
-        non_circular_features = super().window(identity, window_size, non_circular)
-
-        return circular_features | non_circular_features
 
 
 class CentroidVelocityMag(Feature):
