@@ -606,10 +606,10 @@ class Classifier:
         # Sort the feature importance by most important first
         feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
         # Print out the feature and importance
-        print(f"{'Feature Name':55} Importance")
-        print("-" * 70)
+        print(f"{'Feature Name':100} Importance")
+        print("-" * 120)
         for feature, importance in feature_importance[:limit]:
-            print(f"{feature:55} {importance:0.2f}")
+            print(f"{feature:100} {importance:0.2f}")
 
     @staticmethod
     def count_label_threshold(all_counts: dict):

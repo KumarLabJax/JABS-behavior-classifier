@@ -176,7 +176,7 @@ class TrainingThread(QThread):
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)
 
-                print("\n" + "=" * 70)
+                print("\n" + "=" * 120)
                 print("SUMMARY\n")
                 print(
                     tabulate(
