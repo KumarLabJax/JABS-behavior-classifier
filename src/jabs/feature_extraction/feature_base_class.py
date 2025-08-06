@@ -47,9 +47,11 @@ class Feature(abc.ABC):
         "psd_top_freq": signal_stats.psd_peak_freq,
     }
 
+    # most angles are bearings in the range [-180, 180)
+    # if an angle feature is in a different range, the subclass needs to override this
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
+        "mean": lambda x: stats.circmean(x, low=-180, high=179, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=-180, high=179, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

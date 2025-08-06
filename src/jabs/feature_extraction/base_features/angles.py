@@ -14,8 +14,8 @@ class Angles(Feature):
     _name = "angles"
 
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
-        "std_dev": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
+        "mean": lambda x: stats.circmean(x, low=0, high=359, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=0, high=359, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
