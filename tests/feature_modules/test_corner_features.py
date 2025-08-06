@@ -5,15 +5,14 @@ from tests.feature_modules.base import TestFeatureBase
 
 
 class TestCornerFeatures(TestFeatureBase):
+    """Test suite for corner distance and bearing features."""
+
     def test_compute_corner_distances(self):
+        """Test the computation of corner distances and bearings."""
         pixel_scale = self._pose_est_v5.cm_per_pixel
         dist = corner_module.CornerDistanceInfo(self._pose_est_v5, pixel_scale)
-        dist_to_corner = corner_module.DistanceToCorner(
-            self._pose_est_v5, pixel_scale, dist
-        )
-        bearing_to_corner = corner_module.BearingToCorner(
-            self._pose_est_v5, pixel_scale, dist
-        )
+        dist_to_corner = corner_module.DistanceToCorner(self._pose_est_v5, pixel_scale, dist)
+        bearing_to_corner = corner_module.BearingToCorner(self._pose_est_v5, pixel_scale, dist)
 
         # check dimensions of per frame feature values
         for i in range(self._pose_est_v5.num_identities):
@@ -40,19 +39,32 @@ class TestCornerFeatures(TestFeatureBase):
 
             bearing_window_values = bearing_to_corner.window(i, 5, bearing_per_frame)
             for op in bearing_window_values:
-                self.assertEqual(
-                    bearing_window_values[op]["bearing to corner"].shape,
-                    (self._pose_est_v5.num_frames,),
-                )
+                if op.startswith("circ"):
+                    # circular operations
+                    self.assertEqual(
+                        bearing_window_values[op]["bearing to corner"].shape,
+                        (self._pose_est_v5.num_frames,),
+                    )
+                    self.assertEqual(
+                        bearing_window_values[op]["bearing to center"].shape,
+                        (self._pose_est_v5.num_frames,),
+                    )
+                else:
+                    self.assertEqual(
+                        bearing_window_values[op]["bearing to corner sine"].shape,
+                        (self._pose_est_v5.num_frames,),
+                    )
+                    self.assertEqual(
+                        bearing_window_values[op]["bearing to center cosine"].shape,
+                        (self._pose_est_v5.num_frames,),
+                    )
 
         # check range of bearings, should be in the range [180, -180)
         for i in range(self._pose_est_v5.num_identities):
             values = bearing_to_corner.per_frame(i)["bearing to corner"]
             non_nan_indices = ~np.isnan(values)
             self.assertTrue(
-                (
-                    (values[non_nan_indices] <= 180) & (values[non_nan_indices] > -180)
-                ).all()
+                ((values[non_nan_indices] <= 180) & (values[non_nan_indices] > -180)).all()
             )
 
         # check distances are >= 0
