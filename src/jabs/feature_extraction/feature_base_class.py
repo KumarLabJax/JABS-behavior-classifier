@@ -21,6 +21,8 @@ class Feature(abc.ABC):
     _min_pose = 2
     _static_objects: typing.ClassVar[list[str]] = []
 
+    # does this feature use circular window operations
+    # Typically this is set to true for features that are angles
     _use_circular = False
 
     # standard window operations
@@ -136,10 +138,16 @@ class Feature(abc.ABC):
         """
         circular_features = {}
         if self._use_circular:
-            # feature uses circular window operations. Some might also include non-circular values,
-            # so we need to separate them out and compute them separately
+            # This feature uses circular window operations. Some features that use the circular window operations
+            # also include non-circular values, so we need to separate them out and compute them separately using
+            # the standard window operations.
+            # right now we assume that any feature that ends with " sine" or " cosine" is not circular.
+            # (our angle features include sine and cosine values for each angle, and we want to compute standard
+            # window features on those)
             non_circular = {
-                k: v for k, v in per_frame_features.items() if "sine" in k or "cosine" in k
+                k: v
+                for k, v in per_frame_features.items()
+                if k.endswith(" sine") or k.endswith(" cosine")
             }
             circular = {k: v for k, v in per_frame_features.items() if k not in non_circular}
 
