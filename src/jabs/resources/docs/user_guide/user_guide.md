@@ -225,6 +225,19 @@ them.
 **Example Timeline with "Labels & Predictions" and "All Animals" selected**
 <img src="imgs/stacked_timeline.png" alt="Timeline with all animals" width=900 />
 
+### Video Control Overlay
+
+<img src="imgs/video-control-overlay.png" alt="Video Control Overlay" width=900 />
+
+Mousing over the video player will display a control overlay with the following controls:
+
+- **Video Playback Speed Controls:** Controls the speed of video playback. Clicking this control 
+  will open a menu with options for playback speed. The default speed is 1x.
+- **Video Cropping:** Allows the user to crop the video to a specific region of interest. After 
+  clicking the cropping control, the user can click and drag a rectangular selecting tool to select
+  the region of interest. The video will be cropped to the selection, and scaled to fill the available 
+  player area. If the video is currently cropped, the cropping control will be replaced with a
+  "Reset Cropping" control, which will reset the cropping to the original video size.
 
 ### Menu
 
