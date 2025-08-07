@@ -1,7 +1,6 @@
 import typing
 
 import numpy as np
-import scipy.stats
 
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
@@ -48,9 +47,7 @@ class LixitDistanceInfo:
             for keypoint in self._keypoint_indices
         }
         self._cached_bearings[identity] = {
-            "bearing to lixit": np.full(
-                self._poses.num_frames, np.nan, dtype=np.float32
-            )
+            "bearing to lixit": np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         }
 
         if "lixit" in self._poses.static_objects:
@@ -92,9 +89,9 @@ class LixitDistanceInfo:
                 pts = points[:, keypoint, :]
                 dists = pts - closest_lixit_vec
                 kpt_dist_vector = np.hypot(dists[:, 0], dists[:, 1])
-                self._cached_distances[identity][
-                    f"distance to lixit {keypoint.name}"
-                ] = kpt_dist_vector
+                self._cached_distances[identity][f"distance to lixit {keypoint.name}"] = (
+                    kpt_dist_vector
+                )
 
             nose_points = points[:, PoseEstimation.KeypointIndex.NOSE, :]
             base_neck_points = points[:, PoseEstimation.KeypointIndex.BASE_NECK, :]
@@ -178,9 +175,7 @@ class DistanceToLixit(Feature):
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -210,20 +205,9 @@ class BearingToLixit(Feature):
     _name = "lixit_bearings"
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
+    _use_circular = True
 
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-        "std_dev": lambda x: scipy.stats.circstd(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-    }
-
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -237,18 +221,11 @@ class BearingToLixit(Feature):
         Returns:
             dict of numpy ndarray values with shape (nframes,)
         """
-        bearings = self._cached_distances.get_bearings(identity)
+        features = self._cached_distances.get_bearings(identity)
+        features["bearing to lixit sine"] = np.sin(np.deg2rad(features["bearing to lixit"]))
+        features["bearing to lixit cosine"] = np.cos(np.deg2rad(features["bearing to lixit"]))
 
-        return bearings
-
-    def window(
-        self, identity: int, window_size: int, per_frame_values: dict
-    ) -> dict[str, dict[str, np.ndarray]]:
-        """get the windowed values for the bearing to lixit feature
-
-        need to override for base class to properly handle circular values
-        """
-        return self._window_circular(identity, window_size, per_frame_values)
+        return features
 
 
 class MouseLixitAngle(Feature):
@@ -264,23 +241,21 @@ class MouseLixitAngle(Feature):
     the lixit. Unlike the "bearing to lixit", which is a measure of the angle between the direction the mouse
     is facing and the lixit, this feature will allow the classifier to learn when the mouse is approaching the lixit
     from the front.
+
+    Note: feature is actually computed as the cosine of the angle, which is more useful for classification
     """
 
     _name = "mouse_lixit_angle"
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["lixit"]
 
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: LixitDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
 
     @classmethod
-    def is_supported(
-        cls, pose_version: int, static_objects: set[str], **kwargs
-    ) -> bool:
+    def is_supported(cls, pose_version: int, static_objects: set[str], **kwargs) -> bool:
         """Check if the feature is supported based on the pose version and static objects."""
         return bool(
             super().is_supported(pose_version, static_objects, **kwargs)
@@ -314,9 +289,7 @@ class MouseLixitAngle(Feature):
         # Compute the vector from the nose to the center of the spine for the mouse
         mouse_vectors = points[:, PoseEstimation.KeypointIndex.NOSE, :] - centroids
 
-        mouse_back_vectors = (
-            centroids - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
-        )
+        mouse_back_vectors = centroids - points[:, PoseEstimation.KeypointIndex.BASE_TAIL, :]
 
         # Get the lixit points for the closest lixit to the given identity
         lixit_points = self._poses.static_objects["lixit"][
@@ -324,9 +297,7 @@ class MouseLixitAngle(Feature):
         ]
 
         # Compute the vector from the tip of the lixit to the midpoint of its left and right sides
-        lixit_vectors = (
-            lixit_points[:, 0, :] - (lixit_points[:, 1, :] + lixit_points[:, 2, :]) / 2
-        )
+        lixit_vectors = lixit_points[:, 0, :] - (lixit_points[:, 1, :] + lixit_points[:, 2, :]) / 2
 
         # Compute the dot product of the mouse vectors and the lixit vectors
         dot_product = np.einsum("ij,ij->i", mouse_vectors, lixit_vectors)

@@ -2,7 +2,6 @@ import typing
 
 import cv2
 import numpy as np
-import scipy.stats
 from shapely.geometry import Point
 
 from jabs.feature_extraction.feature_base_class import Feature
@@ -41,9 +40,7 @@ class CornerDistanceInfo:
         corner_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         center_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         wall_distances = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
-        all_wall_distances = np.full(
-            [self._poses.num_frames, 4], np.nan, dtype=np.float32
-        )
+        all_wall_distances = np.full([self._poses.num_frames, 4], np.nan, dtype=np.float32)
         center_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         corner_bearings = np.full(self._poses.num_frames, np.nan, dtype=np.float32)
         closest_corners = None
@@ -58,8 +55,7 @@ class CornerDistanceInfo:
                 corners.astype(np.float32), 1, axis=0
             )
             avg_wall_length = (
-                np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1]))
-                * self._pixel_scale
+                np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
             )
 
             arena_center_np = np.mean(corners, axis=0)
@@ -144,8 +140,7 @@ class CornerDistanceInfo:
 
         self._closest_corner_idx[identity] = closest_corners
         self._all_wall_distances[identity] = {
-            f"wall_{i}": all_wall_distances[:, i]
-            for i in np.arange(all_wall_distances.shape[1])
+            f"wall_{i}": all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])
         }
         self._avg_wall_length = avg_wall_length
 
@@ -201,7 +196,7 @@ class CornerDistanceInfo:
             self.cache_features(identity)
         return self._all_wall_distances[identity]
 
-    def get_avg_wall_length(self, identity: int = 0) -> np.ndarray:
+    def get_avg_wall_length(self, identity: int = 0) -> float:
         """gets the average wall length
 
         Args:
@@ -265,9 +260,7 @@ class DistanceToCorner(Feature):
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
 
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -297,20 +290,9 @@ class BearingToCorner(Feature):
     _name = "corner_bearings"
     _min_pose = 5
     _static_objects: typing.ClassVar[list[str]] = ["corners"]
+    _use_circular = True
 
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-        "std_dev": lambda x: scipy.stats.circstd(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-    }
-
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
@@ -324,11 +306,9 @@ class BearingToCorner(Feature):
         Returns:
             dict of numpy ndarray values with shape (nframes,)
         """
-        bearings = self._cached_distances.get_bearings(identity)
-        return bearings
-
-    def window(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
-        """compute the windowed features for the bearing to corner feature"""
-        # need to override to use special method for computing window features
-        # with circular values
-        return self._window_circular(identity, window_size, per_frame_values)
+        features = self._cached_distances.get_bearings(identity)
+        features["bearing to corner cosine"] = np.cos(np.deg2rad(features["bearing to corner"]))
+        features["bearing to corner sine"] = np.sin(np.deg2rad(features["bearing to corner"]))
+        features["bearing to center cosine"] = np.cos(np.deg2rad(features["bearing to center"]))
+        features["bearing to center sine"] = np.sin(np.deg2rad(features["bearing to center"]))
+        return features

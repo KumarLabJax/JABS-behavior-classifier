@@ -2,7 +2,7 @@
 
 ## Egocentric Animal Features
 
-116 features from 12 animal keypoints
+142 features from 12 animal keypoints
 
 * point mask (boolean, 12 values)
 * pairwise distances between all points (66 values)
@@ -19,17 +19,19 @@
     * center spine, base tail, mid tail
     * base tail, mid tail, tip tail
 * angular velocity (using base tail → base neck bearing)
-* velocities (each velocity listed below consists of two features – the direction and magnitude components)
+* velocities (each velocity listed below consists of four features – the direction and magnitude components as well as the sine and cosine of the direction component)
     * centroid
     * 12 keypoints
 
 ## Social features (v3 pose files)
 
-21 features from social context
+23 features from social context
 
 * distance to closest mouse
 * distance to closest in field of view (fov)
 * fov angle
+* fov angle sine
+* fov angle cosine
 * pairwise distances (9 values)
     * pairwise distances between (nose, base neck, tail) points of subject and closest mouse
 * pairwise distances fov (9 values)
@@ -39,19 +41,37 @@
 
 ### Arena Corners
 
-5 features from arena corners
+9 features from arena corners
 
 * distance to corner using the convex hull center
 * distance to nearest wall using the convex hull center
 * distance to arena center using the convex hull center
 * bearing to corner using angle of the base neck - nose vector
+  * bearing to corner sine
+  * bearing to corner cosine
 * bearing to arena center using angle of the base neck - nose vector
+  * bearing to arena center sine
+  * bearing to arena center cosine
 
 ### Water Spout (Lixit)
 
-12 feature from lixit
+15 feature from lixit
 
-* distance from each keypoint to nearest lixit
+* distance from each keypoint to nearest lixit (12 values)
+* bearing to lixit
+* bearing to lixit sine
+* bearing to lixit cosine
+
+### Water Spout (Lixit) extended (experimental)
+
+Optionally supports extended set of lixit features if the lixit is labeled with three keypoints (tip, left side, right side).
+
+2 additional extended features: 
+
+* cosine of angle between the vector going from the tip of the lixit to the middle of the two sides
+    and the vector going from the mouse's centroid to the nose
+* cosine of angle between the vector going from the tip of the lixit to the middle of the two sides
+    and the vector going from the mouse's base tail to the centroid
 
 ### Food Hopper
 

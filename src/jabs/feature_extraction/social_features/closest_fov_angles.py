@@ -1,7 +1,6 @@
 import typing
 
 import numpy as np
-import scipy.stats
 
 from jabs.feature_extraction.feature_base_class import Feature
 
@@ -27,16 +26,7 @@ class ClosestFovAngles(Feature):
 
     _name = "closest_fov_angles"
     _min_pose = 3
-
-    # override for circular values
-    _window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "mean": lambda x: scipy.stats.circmean(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-        "std_dev": lambda x: scipy.stats.circstd(
-            x, low=-180, high=180, nan_policy="omit"
-        ),
-    }
+    _use_circular = True
 
     def __init__(
         self,
@@ -56,14 +46,12 @@ class ClosestFovAngles(Feature):
         Returns:
             dict with feature values
         """
-        # this is already computed
         return {
-            "angle of closest social distance in FoV": self._social_distance_info.closest_fov_angles
+            "angle of closest social distance in FoV": self._social_distance_info.closest_fov_angles,
+            "angle of closest social distance in FoV cosine": np.cos(
+                np.deg2rad(self._social_distance_info.closest_fov_angles)
+            ),
+            "angle of closest social distance in FoV sine": np.sin(
+                np.deg2rad(self._social_distance_info.closest_fov_angles)
+            ),
         }
-
-    def window(
-        self, identity: int, window_size: int, per_frame_values: dict[str, np.ndarray]
-    ) -> dict:
-        """compute window feature values for a given identities per frame values"""
-        # need to override to use special method for computing window features with circular values
-        return self._window_circular(identity, window_size, per_frame_values)
