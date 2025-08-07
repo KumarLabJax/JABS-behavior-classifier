@@ -74,6 +74,7 @@ class ControlOverlay(Overlay):
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
             self._draw_cropping_badge(painter, x, y)
 
+        # if user is actively selecting a crop area, draw the selection rectangle
         if self._select_start is not None and self._select_end is not None:
             x1, y1 = self._select_start
             x2, y2 = self._select_end
