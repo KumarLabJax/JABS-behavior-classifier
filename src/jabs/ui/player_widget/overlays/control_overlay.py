@@ -78,7 +78,7 @@ class ControlOverlay(Overlay):
             x1, y1 = self._select_start
             x2, y2 = self._select_end
             rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-            accent_color = self.parent.palette().color(QtGui.QPalette.ColorRole.Highlight)
+            accent_color = self.parent.palette().color(QtGui.QPalette.ColorRole.Accent)
             painter.setPen(QtGui.QPen(accent_color, 2, QtCore.Qt.PenStyle.DashLine))
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
