@@ -17,7 +17,7 @@ class ControlOverlay(Overlay):
     """
 
     playback_speed_changed = QtCore.Signal(float)
-    cropping_changed = QtCore.Signal(QtCore.QPoint, QtCore.QPoint)
+    cropping_changed = QtCore.Signal(object, object)
 
     _BADGE_OFFSET = 10
     _BADGE_PADDING_HORIZONTAL = 16
@@ -47,18 +47,20 @@ class ControlOverlay(Overlay):
         self._select_end = None
         self._crop_p1 = None
         self._crop_p2 = None
-        self._crop_icon = MaterialIcon("crop").pixmap(16, 16, color=QtGui.QColor(0, 0, 0))
+        self._crop_icon = MaterialIcon("crop").pixmap(16, color=QtGui.QColor(0, 0, 0))
+        self._restore_icon = MaterialIcon("zoom_out_map").pixmap(16, color=QtGui.QColor(0, 0, 0))
 
     @property
     def playback_speed(self) -> float:
         """Returns the current playback speed."""
         return self._playback_speed
 
-    def paint(self, painter: QtGui.QPainter) -> None:
+    def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Paints the control overlay on the parent widget.
 
         Args:
             painter (QtGui.QPainter): The painter used to draw the overlay.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
         """
         if not self._enabled or self.parent.pixmap().isNull():
             return
@@ -76,7 +78,8 @@ class ControlOverlay(Overlay):
             x1, y1 = self._select_start
             x2, y2 = self._select_end
             rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-            painter.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.red, 2))
+            accent_color = self.parent.palette().color(QtGui.QPalette.ColorRole.Highlight)
+            painter.setPen(QtGui.QPen(accent_color, 2, QtCore.Qt.PenStyle.DashLine))
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
 
@@ -95,14 +98,16 @@ class ControlOverlay(Overlay):
             < self.parent.scaled_pix_y + self.parent.scaled_pix_height
         )
 
+        if self._over_pixmap and self._select_mode:
+            self.parent.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+        else:
+            self.parent.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+
         if self._over_pixmap and self._select_mode and self._select_start:
             self._select_end = (x, y)
 
         if self._menu_open and self._menu and not self._over_pixmap:
             self._menu.close()
-
-        if not self._over_pixmap and self._select_mode and not self._select_start:
-            self._select_mode = False
 
         self.parent.update()
 
@@ -113,8 +118,7 @@ class ControlOverlay(Overlay):
             event (QtCore.QEvent): The leave event.
         """
         self._over_pixmap = False
-        if self._select_mode and not self._select_start:
-            self._select_mode = False
+
         self.parent.update()
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
@@ -142,9 +146,12 @@ class ControlOverlay(Overlay):
         )
 
         if self._cropping_badge.contains(point):
-            self._select_mode = not self._select_mode
-            self._select_start = None
-            self._select_end = None
+            if self.parent.is_cropped:
+                self.cropping_changed.emit(None, None)
+            else:
+                self._select_mode = not self._select_mode
+                self._select_start = None
+                self._select_end = None
             self.parent.update()
             return True
 
@@ -166,13 +173,16 @@ class ControlOverlay(Overlay):
         if self._select_mode and self._select_start:
             x1, y1 = self._select_start
             x2, y2 = self._select_end
-            crop_p1 = (min(x1, x2), min(y1, y2))  # upper left
-            crop_p2 = (max(x1, x2), max(y1, y2))  # lower right
+            # Convert widget coordinates to image coordinates
+            img_p1 = self.parent.widget_to_image_coords(min(x1, x2), min(y1, y2))
+            img_p2 = self.parent.widget_to_image_coords(max(x1, x2), max(y1, y2))
+            if img_p1 and img_p2:
+                crop_p1 = QtCore.QPoint(img_p1[0], img_p1[1])
+                crop_p2 = QtCore.QPoint(img_p2[0], img_p2[1])
+                self.cropping_changed.emit(crop_p1, crop_p2)
             self._select_mode = False
             self._select_start = None
             self._select_end = None
-            print("selected area:", crop_p1, crop_p2)
-            self.cropping_changed.emit(crop_p1, crop_p2)
             self.parent.update()
 
     def event_filter(
@@ -262,11 +272,11 @@ class ControlOverlay(Overlay):
             self._cropping_badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
         )
 
-        # Draw the crop icon centered in the badge
-        icon_size = min(w, h) - 8  # 8px padding
+        icon = self._restore_icon if self.parent.is_cropped else self._crop_icon
+        icon_size = min(w, h) - 8
         icon_x = self._cropping_badge.left() + (w - icon_size) // 2
         icon_y = self._cropping_badge.top() + (h - icon_size) // 2
-        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._crop_icon)
+        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, icon)
 
     def _show_speed_menu(self) -> None:
         """Displays the playback speed selection menu anchored to the playback speed badge.

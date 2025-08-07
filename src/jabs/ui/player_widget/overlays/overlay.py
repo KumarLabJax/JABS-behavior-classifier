@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from PySide6 import QtGui
+from PySide6 import QtCore, QtGui
 from PySide6.QtCore import QEvent, QObject
 from shapely import Point
 
@@ -40,7 +40,7 @@ class Overlay(QObject):
         """Sets whether the overlay is enabled."""
         self._enabled = value
 
-    def paint(self, painter: QtGui.QPainter) -> None:
+    def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Paints the overlay on the parent widget."""
         pass
 

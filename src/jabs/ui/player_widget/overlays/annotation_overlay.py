@@ -32,7 +32,7 @@ class AnnotationOverlay(Overlay):
 
         self._rects_with_data = []
 
-    def paint(self, painter: QtGui.QPainter) -> None:
+    def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Paints annotation tags for intervals overlapping the current frame."""
         if not self._enabled or self.parent.pixmap().isNull():
             return
@@ -77,7 +77,12 @@ class AnnotationOverlay(Overlay):
             # otherwise, we will draw them in the upper left corner
             centroid = self.get_centroid(identity)
             if centroid is not None:
-                widget_x, widget_y = self.parent.image_to_widget_coords(centroid.x, centroid.y)
+                coords = self.parent.image_to_widget_coords_cropped(
+                    centroid.x, centroid.y, crop_rect
+                )
+                if coords is None:
+                    continue  # Skip this annotation if mapping failed
+                widget_x, widget_y = coords
 
                 # generate the rectangles for each annotation
                 rects = []
