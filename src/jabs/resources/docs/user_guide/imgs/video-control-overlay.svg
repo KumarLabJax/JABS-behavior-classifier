@@ -4,9 +4,9 @@
 <svg
    version="1.1"
    id="svg1"
-   width="623"
-   height="120"
-   viewBox="0 0 623 120"
+   width="770.71088"
+   height="215.77408"
+   viewBox="0 0 770.71088 215.77408"
    sodipodi:docname="video-control-overlay.svg"
    inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
    inkscape:export-filename="video-control-overlay.png"
@@ -65,15 +65,15 @@
      borderopacity="0.25"
      inkscape:showpageshadow="2"
      inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
+     inkscape:pagecheckerboard="false"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="1.3354735"
-     inkscape:cx="283.04568"
+     inkscape:cx="430.5589"
      inkscape:cy="194.6875"
      inkscape:window-width="2624"
      inkscape:window-height="1051"
      inkscape:window-x="2127"
-     inkscape:window-y="36"
+     inkscape:window-y="25"
      inkscape:window-maximized="0"
      inkscape:current-layer="g1" />
   <g
@@ -82,7 +82,8 @@
      id="g1"
      inkscape:export-filename="video-control-overlay.png"
      inkscape:export-xdpi="96"
-     inkscape:export-ydpi="96">
+     inkscape:export-ydpi="96"
+     transform="translate(147.71087)">
     <image
        width="623"
        height="120"
