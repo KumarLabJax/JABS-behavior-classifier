@@ -36,17 +36,15 @@ class ControlOverlay(Overlay):
         self._cropping_badge = QtCore.QRect()
         self._playback_speed = 1.0
         self._speeds = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
-        self._menu = None
+        self._menu: QtWidgets.QMenu | None = None
         self._badge_font = QtGui.QFont()
         self._badge_font.setBold(True)
         self._badge_font.setPointSize(self._BADGE_FONT_SIZE)
         self._badge_font_metrics = QtGui.QFontMetrics(self._badge_font)
 
         self._select_mode = False
-        self._select_start = None
-        self._select_end = None
-        self._crop_p1 = None
-        self._crop_p2 = None
+        self._select_start: QtCore.QPoint | None = None
+        self._select_end: QtCore.QPoint | None = None
         self._crop_icon = MaterialIcon("crop").pixmap(16, color=QtGui.QColor(0, 0, 0))
         self._restore_icon = MaterialIcon("zoom_out_map").pixmap(16, color=QtGui.QColor(0, 0, 0))
 
@@ -65,6 +63,7 @@ class ControlOverlay(Overlay):
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
+        # draw the control overlay.
         if self._over_pixmap or self._menu_open:
             x = self.parent.scaled_pix_x + self._BADGE_OFFSET
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
@@ -76,8 +75,8 @@ class ControlOverlay(Overlay):
 
         # if user is actively selecting a crop area, draw the selection rectangle
         if self._select_start is not None and self._select_end is not None:
-            x1, y1 = self._select_start
-            x2, y2 = self._select_end
+            x1, y1 = self._select_start.x(), self._select_start.y()
+            x2, y2 = self._select_end.x(), self._select_end.y()
             rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
             accent_color = self.parent.palette().color(QtGui.QPalette.ColorRole.Accent)
             painter.setPen(QtGui.QPen(accent_color, 2, QtCore.Qt.PenStyle.DashLine))
@@ -105,7 +104,7 @@ class ControlOverlay(Overlay):
             self.parent.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
 
         if self._over_pixmap and self._select_mode and self._select_start:
-            self._select_end = (x, y)
+            self._select_end = QtCore.QPoint(x, y)
 
         if self._menu_open and self._menu and not self._over_pixmap:
             self._menu.close()
@@ -119,7 +118,6 @@ class ControlOverlay(Overlay):
             event (QtCore.QEvent): The leave event.
         """
         self._over_pixmap = False
-
         self.parent.update()
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
@@ -157,8 +155,8 @@ class ControlOverlay(Overlay):
             return True
 
         if self._select_mode and self._over_pixmap:
-            self._select_start = (x, y)
-            self._select_end = (x, y)
+            self._select_start = point
+            self._select_end = point
             self.parent.update()
             return True
 
@@ -172,15 +170,17 @@ class ControlOverlay(Overlay):
     def handle_mouse_release(self, event: QtGui.QMouseEvent) -> None:
         """Handles mouse release events on parent widget for this overlay."""
         if self._select_mode and self._select_start:
-            x1, y1 = self._select_start
-            x2, y2 = self._select_end
-            # Convert widget coordinates to image coordinates
+            x1, y1 = self._select_start.x(), self._select_start.y()
+            x2, y2 = self._select_end.x(), self._select_end.y()
+
+            # Convert widget coordinates to image coordinates.
+            # also sort the poins so img_p1 is always top-left and img_p2 is always bottom-right
             img_p1 = self.parent.widget_to_image_coords(min(x1, x2), min(y1, y2))
             img_p2 = self.parent.widget_to_image_coords(max(x1, x2), max(y1, y2))
             if img_p1 and img_p2:
-                crop_p1 = QtCore.QPoint(img_p1[0], img_p1[1])
-                crop_p2 = QtCore.QPoint(img_p2[0], img_p2[1])
-                self.cropping_changed.emit(crop_p1, crop_p2)
+                self.cropping_changed.emit(
+                    QtCore.QPoint(img_p1[0], img_p1[1]), QtCore.QPoint(img_p2[0], img_p2[1])
+                )
             self._select_mode = False
             self._select_start = None
             self._select_end = None
@@ -285,7 +285,6 @@ class ControlOverlay(Overlay):
         Creates and shows a popup menu with available playback speeds. The menu is positioned
         above the badge and highlights the current speed. Handles menu actions and cleanup
         when the menu is closed.
-
         """
         if self._menu_open:
             # If the menu is already open, do nothing
@@ -336,8 +335,6 @@ class ControlOverlay(Overlay):
         triggering an exitEvent on the widget, which would otherwise hide the overlay. The badge shouldn't
         get hidden until the mouse moves away from the pixmap area.
 
-        Args:
-            parent (FrameWithOverlaysWidget): The parent widget containing the overlay.
         """
         self._menu_open = False
         if self._menu:
