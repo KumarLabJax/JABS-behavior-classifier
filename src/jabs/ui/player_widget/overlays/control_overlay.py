@@ -12,8 +12,19 @@ if TYPE_CHECKING:
 class ControlOverlay(Overlay):
     """Interactive overlay for controlling video playback.
 
-    Supports playback speed adjustment via a badge displaying current playback speed
-    that is drawn when the mouse is over the video frame, with popup menu that is opened when the badge is clicked.
+    This adds interactive controls to the video frame when the mouse is over
+    the pixmap area. The controls include:
+
+    * playback speed adjustment:
+        This badge shows the current playback speed. When cliked, it opens a menu
+        that lets the user select a new playback speed from a predefined list.
+
+    * video cropping:
+        This badge allows the user to select a cropping area on the video frame.
+        When clicked, it toggles the cropping mode. In cropping mode, the user can
+        click and drag to select a rectangular area on the video frame. When the
+        user releases the mouse button, the selected area is emitted as a signal
+        to the parent widget, which can then apply the cropping to the video frame.
     """
 
     playback_speed_changed = QtCore.Signal(float)
