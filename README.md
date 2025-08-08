@@ -31,7 +31,7 @@ are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-m
 JABS was initially developed and tested on Python 3.10. See the `pyproject.toml` for a list of required Python 
 packages. These packages are available from the Python Package Index (PyPI).
 
-Currently, JABS supports Python 3.10, 3.11, 3.12, and 3.13.
+Currently, JABS supports Python 3.10 through 3.13.
 
 ## Python Env Setup
 
@@ -76,11 +76,6 @@ If you've cloned the JABS repository, you can install by running the following c
 
 `pip install .`
 
-If you want to install the package in "editable" mode, use the `-e` flag. This links to the python files instead of 
-copying them during installation so that they can be edited.
-
-`pip install -e .`
-
 #### Windows .bat scripts
 
 There are two scripts that Windows users can use to simplify installing and running JABS. These can be executed by 
@@ -100,7 +95,7 @@ After installing JABS, five commands will be added to the bin directory of your 
 * jabs-stats: print accuracy statistics for the given classifier
 * jabs-convert-parquet: convert parquet pose file to JABS pose file format
 
-You can run the <command> --help to get usage information for each of the commands.
+You can run the `<jabs command> --help` to get usage information for each of the commands.
 
 **NOTE: On some platforms, the first time you run the JABS GUI it might take several minutes to launch. Subsequent 
 startup times should be significantly reduced.**
@@ -168,6 +163,6 @@ the scope of this Readme.
 ### Singularity/Linux
 
 We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
-compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable 
+compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
 environment. Please inspect the definition files for related linux packages to run the software.
 
