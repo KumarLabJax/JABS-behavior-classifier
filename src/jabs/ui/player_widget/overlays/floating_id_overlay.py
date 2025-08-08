@@ -26,7 +26,11 @@ class LabelOverlayRect:
 
 
 class FloatingIdOverlay(Overlay):
-    """Overlay for displaying interval-based annotations as tags in rounded rectangles."""
+    """Overlay for displaying interval-based annotations as tags in rounded rectangles.
+
+    Args:
+        parent (FrameWithOverlaysWidget): The parent widget that contains the frame and overlays.
+    """
 
     _FONT_SIZE = 12  # size of the font used for floating identity labels
     _CENTROID_FONT_SIZE = 14  # size of the font used for centroid identity labels
@@ -58,7 +62,16 @@ class FloatingIdOverlay(Overlay):
         self._rects_with_data = []
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        """Paints floating id labels."""
+        """Paints floating id labels.
+
+        Args:
+            painter (QtGui.QPainter): The painter to draw on the frame.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
+        Image coordinates will be translated into widget ooordinates, taking into acount that
+        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        then the overlay will not be drawn.
+        """
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
@@ -104,8 +117,16 @@ class FloatingIdOverlay(Overlay):
     ) -> None:
         """Overlay identities on the current frame using the floating style.
 
+        Args:
+            painter (QtGui.QPainter): The painter to draw on the frame.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
         This method draws the identity labels on the frame if pose estimation is available. The active identity
         label will be red, while other identities are drawn in a different color.
+
+        Image coordinates will be translated into widget ooordinates, taking into acount that
+        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        then the overlay will not be drawn.
         """
         if self.parent.pose is None:
             return
@@ -197,8 +218,16 @@ class FloatingIdOverlay(Overlay):
     def _overlay_identities(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Overlay identities on the current frame.
 
+        Args:
+            painter (QtGui.QPainter): The painter to draw on the frame.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
         This method draws the identity labels on the frame if pose estimation is available. The active identity
         label will be red, while other identities are drawn in a different color.
+
+        Image coordinates will be translated into widget ooordinates, taking into acount that
+        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        then the overlay will not be drawn.
         """
         if self.parent.pose is None:
             return

@@ -24,7 +24,16 @@ class PoseOverlay(Overlay):
         super().__init__(parent)
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        """Paints pose keypoints and connecting line segments on the current frame."""
+        """Paints pose keypoints and connecting line segments on the current frame.
+
+        Args:
+            painter (QtGui.QPainter): The painter used to draw on the widget.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
+        Image coordinates will be translated into widget ooordinates, taking into acount that
+        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        then the overlay will not be drawn.
+        """
         if not self._enabled or self.parent.pixmap().isNull():
             return
 

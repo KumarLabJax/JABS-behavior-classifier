@@ -33,7 +33,16 @@ class AnnotationOverlay(Overlay):
         self._rects_with_data = []
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        """Paints annotation tags for intervals overlapping the current frame."""
+        """Paints annotation tags for intervals overlapping the current frame.
+
+        Args:
+            painter (QtGui.QPainter): The painter used for drawing.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the video frame.
+
+        Image coordinates will be translated into widget ooordinates, taking into acount that
+        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        then the overlay will not be drawn.
+        """
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
