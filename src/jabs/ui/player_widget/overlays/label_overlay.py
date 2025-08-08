@@ -32,8 +32,8 @@ class LabelOverlay(Overlay):
             painter (QtGui.QPainter): The painter used to draw on the widget.
             crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
 
-        Image coordinates will be translated into widget ooordinates, taking into acount that
-        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        Image coordinates will be translated into widget coordinates, taking into account that
+        the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
         then the overlay will not be drawn.
         """
         if not self._enabled or self.parent.pixmap().isNull():

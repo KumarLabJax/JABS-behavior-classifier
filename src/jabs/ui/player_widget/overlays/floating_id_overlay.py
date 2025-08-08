@@ -68,8 +68,8 @@ class FloatingIdOverlay(Overlay):
             painter (QtGui.QPainter): The painter to draw on the frame.
             crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
 
-        Image coordinates will be translated into widget ooordinates, taking into acount that
-        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
+        Image coordinates will be translated into widget coordinates, taking into account that
+        the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
         then the overlay will not be drawn.
         """
         if not self._enabled or self.parent.pixmap().isNull():
@@ -123,10 +123,6 @@ class FloatingIdOverlay(Overlay):
 
         This method draws the identity labels on the frame if pose estimation is available. The active identity
         label will be red, while other identities are drawn in a different color.
-
-        Image coordinates will be translated into widget ooordinates, taking into acount that
-        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
-        then the overlay will not be drawn.
         """
         if self.parent.pose is None:
             return
@@ -224,10 +220,6 @@ class FloatingIdOverlay(Overlay):
 
         This method draws the identity labels on the frame if pose estimation is available. The active identity
         label will be red, while other identities are drawn in a different color.
-
-        Image coordinates will be translated into widget ooordinates, taking into acount that
-        the image might be scaled and cropped. If the image ooordiates are outside the crop_rect,
-        then the overlay will not be drawn.
         """
         if self.parent.pose is None:
             return
