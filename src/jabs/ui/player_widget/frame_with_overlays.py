@@ -70,12 +70,16 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._pose: PoseEstimation | None = None
         self._annotations: IntervalTree | None = None
         self._labels: list[np.ndarray] | None = None
+        self._crop_p1: QtCore.QPoint | None = None
+        self._crop_p2: QtCore.QPoint | None = None
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
+        self._control_overlay.cropping_changed.connect(self._on_cropping_changed)
+
         self._annotation_overlay = AnnotationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
@@ -189,6 +193,11 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         """Returns the label values for overlaying on the frame."""
         return self._labels
 
+    @property
+    def is_cropped(self) -> bool:
+        """Check if the frame is currently cropped."""
+        return self._crop_p1 is not None and self._crop_p2 is not None
+
     def reset(self) -> None:
         """reset state of frame widget"""
         self._scaled_pix_x = 0
@@ -245,7 +254,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._frame_number = frame_number
         self.setPixmap(QtGui.QPixmap.fromImage(frame))
 
-    def _widget_to_image_coords(self, x: int, y: int) -> tuple[int, int]:
+    def widget_to_image_coords(self, x: int, y: int) -> tuple[int, int]:
         """Convert the given x, y coordinates from FrameWidget coordinates to correct image coordinates.
 
         Ie which pixel did the user click on? We account for image scaling and translation
@@ -294,12 +303,47 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             return int(x), int(y)
         return pix_x, pix_y
 
+    def image_to_widget_coords_cropped(
+        self, img_x: int, img_y: int, crop_rect: QtCore.QRect
+    ) -> tuple[int, int] | None:
+        """
+        Convert image coordinates to widget coordinates within a cropped region.
+
+        Args:
+            img_x (int): X coordinate in image space.
+            img_y (int): Y coordinate in image space.
+            crop_rect (QtCore.QRect): Cropped rectangle region in image coordinates.
+
+        Returns:
+            tuple[int, int] | None: Widget coordinates if inside crop_rect, otherwise None.
+        """
+        # Only draw overlays if inside crop_rect
+        if not crop_rect.contains(img_x, img_y):
+            return None
+
+        # Translate image coordinates to cropped region
+        x = img_x - crop_rect.left()
+        y = img_y - crop_rect.top()
+
+        # Scale to widget coordinates
+        pixmap_width = crop_rect.width()
+        pixmap_height = crop_rect.height()
+        if self._scaled_pix_width >= 1 and self._scaled_pix_height >= 1:
+            x = x * self._scaled_pix_width / pixmap_width
+            y = y * self._scaled_pix_height / pixmap_height
+            x += self._scaled_pix_x
+            y += self._scaled_pix_y
+            return int(x), int(y)
+        return None
+
     def sizeHint(self) -> QtCore.QSize:
         """Override QLabel.sizeHint to give an initial starting size."""
         return QtCore.QSize(1024, 1024)
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         """Handles the paint event for the widget and draws all overlays.
+
+        Will handle cropping and scaling of the pixmap before drawing it.
 
         Args:
             event (QtGui.QPaintEvent): The paint event containing region to be updated.
@@ -308,35 +352,43 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             return
 
         size = self.size()
+        orig_pixmap = self.pixmap()
 
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
-        point = QtCore.QPoint(0, 0)
+        # Step 1: Crop if crop points are set
+        pix = orig_pixmap
+        if self._crop_p1 and self._crop_p2:
+            x1, y1 = self._crop_p1.x(), self._crop_p1.y()
+            x2, y2 = self._crop_p2.x(), self._crop_p2.y()
+            crop_rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            pix = pix.copy(crop_rect)
+        else:
+            crop_rect = QtCore.QRect(0, 0, orig_pixmap.width(), orig_pixmap.height())
 
-        # scale the image to the current size of the widget.
-        pix = self.pixmap().scaled(
+        # Step 2: Scale cropped pixmap to widget size
+        scaled_pix = pix.scaled(
             size,
             QtCore.Qt.AspectRatioMode.KeepAspectRatio,
             QtCore.Qt.TransformationMode.SmoothTransformation,
         )
-
-        # because we are maintaining aspect ratio, the scaled frame might
-        # not be the same dimensions as the area we are painting it.
-        # adjust the start point to center the image in the widget
-        point.setX((size.width() - pix.width()) // 2)
-        point.setY((size.height() - pix.height()) // 2)
+        point = QtCore.QPoint(
+            (size.width() - scaled_pix.width()) // 2,
+            (size.height() - scaled_pix.height()) // 2,
+        )
 
         self._scaled_pix_x = point.x()
         self._scaled_pix_y = point.y()
-        self._scaled_pix_width = pix.width()
-        self._scaled_pix_height = pix.height()
+        self._scaled_pix_width = scaled_pix.width()
+        self._scaled_pix_height = scaled_pix.height()
 
-        painter.drawPixmap(point, pix)
+        # Step 3: Draw the scaled pixmap in the center of the widget
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
+        painter.drawPixmap(point, scaled_pix)
 
-        # paint all overlays in the order they were added
+        # Step 4: Draw overlays in widget coordinates, but only if inside crop_rect
         for overlay in self.overlays:
-            overlay.paint(painter)
+            overlay.paint(painter, crop_rect)
 
         painter.end()
 
@@ -377,8 +429,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
                 handled = True
                 break
         if not handled:
-            pix_x, pix_y = self._widget_to_image_coords(event.x(), event.y())
+            pix_x, pix_y = self.widget_to_image_coords(event.x(), event.y())
             self.pixmap_clicked.emit({"x": pix_x, "y": pix_y})
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        """Handles mouse release events and delegates them to overlays.
+
+        Args:
+            event (QtGui.QMouseEvent): The mouse release event.
+        """
+        super().mouseReleaseEvent(event)
+        for overlay in reversed(self.overlays):
+            overlay.handle_mouse_release(event)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """Filters events before they reach the target object and delegates to overlays.
@@ -400,3 +462,13 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             if overlay.event_filter(obj, event):
                 return True
         return super().eventFilter(obj, event)
+
+    def _on_cropping_changed(self, p1: QtCore.QPoint, p2: QtCore.QPoint) -> None:
+        """Handles cropping changes from the control overlay."""
+        if p1 == p2 or p1 is None or p2 is None:
+            self._crop_p1 = None
+            self._crop_p2 = None
+        else:
+            self._crop_p1 = p1
+            self._crop_p2 = p2
+        self.update()

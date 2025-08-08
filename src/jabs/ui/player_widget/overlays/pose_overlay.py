@@ -23,17 +23,28 @@ class PoseOverlay(Overlay):
     def __init__(self, parent: "FrameWithOverlaysWidget") -> None:
         super().__init__(parent)
 
-    def paint(self, painter: QtGui.QPainter) -> None:
-        """Paints pose keypoints and connecting line segments on the current frame."""
+    def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
+        """Paints pose keypoints and connecting line segments on the current frame.
+
+        Args:
+            painter (QtGui.QPainter): The painter used to draw on the widget.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
+        Image coordinates will be translated into widget coordinates, taking into account that
+        the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
+        then the overlay will not be drawn.
+        """
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
         if self.parent.pose_overlay_mode == self.parent.PoseOverlayMode.ALL:
-            self._overlay_pose(painter, all_identities=True)
+            self._overlay_pose(painter, crop_rect, all_identities=True)
         elif self.parent.pose_overlay_mode == self.parent.PoseOverlayMode.ACTIVE_IDENTITY:
-            self._overlay_pose(painter, all_identities=False)
+            self._overlay_pose(painter, crop_rect, all_identities=False)
 
-    def _overlay_pose(self, painter: QtGui.QPainter, all_identities: bool = False) -> None:
+    def _overlay_pose(
+        self, painter: QtGui.QPainter, crop_rect: QtCore.QRect, all_identities: bool = False
+    ) -> None:
         """Overlay pose estimation on the current frame.
 
         This method draws the pose estimation skeletons on the frame. If `all_identities` is True,
@@ -41,6 +52,7 @@ class PoseOverlay(Overlay):
 
         Args:
             painter (QtGui.QPainter): The painter used to draw on the frame.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
             all_identities (bool): If True, draw all identities; if False, only draw the active identity.
         """
         if self.parent.pose is None:
@@ -71,8 +83,11 @@ class PoseOverlay(Overlay):
                 self.parent.pose.get_connected_segments(), np.flatnonzero(mask == 0)
             ):
                 segment_points = [
-                    self.parent.image_to_widget_coords(p[0], p[1]) for p in points[seg]
+                    self.parent.image_to_widget_coords_cropped(p[0], p[1], crop_rect)
+                    for p in points[seg]
                 ]
+                # Filter out points outside the crop
+                segment_points = [pt for pt in segment_points if pt is not None]
 
                 # draw lines
                 if len(segment_points) >= 2:
@@ -89,12 +104,13 @@ class PoseOverlay(Overlay):
             for keypoint in PoseEstimation.KeypointIndex:
                 point_index = keypoint.value
                 if mask[point_index]:
-                    widget_x, widget_y = self.parent.image_to_widget_coords(
-                        points[point_index][0], points[point_index][1]
+                    widget_coords = self.parent.image_to_widget_coords_cropped(
+                        points[point_index][0], points[point_index][1], crop_rect
                     )
+                    if widget_coords is None:
+                        continue
 
-                    # Use the color map to get the color for the keypoint
-                    # and make it translucent if it's not the active identity
+                    widget_x, widget_y = widget_coords
                     color = KEYPOINT_COLOR_MAP[keypoint]
                     if identity != self.parent.active_identity:
                         # Make keypoints translucent for non-active identities

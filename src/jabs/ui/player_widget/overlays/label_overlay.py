@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from PySide6 import QtGui
+from PySide6 import QtCore, QtGui
 
 from jabs.project import TrackLabels
 from jabs.ui.colors import (
@@ -25,8 +25,17 @@ class LabelOverlay(Overlay):
     def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
 
-    def paint(self, painter: QtGui.QPainter) -> None:
-        """Paints the label overlay on the current frame."""
+    def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
+        """Paints the label overlay on the current frame.
+
+        Args:
+            painter (QtGui.QPainter): The painter used to draw on the widget.
+            crop_rect (QtCore.QRect): The rectangle defining the cropped area of the frame.
+
+        Image coordinates will be translated into widget coordinates, taking into account that
+        the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
+        then the overlay will not be drawn.
+        """
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
@@ -34,12 +43,12 @@ class LabelOverlay(Overlay):
         old_antialiasing = painter.testRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
 
-        self._overlay_labels(painter)
+        self._overlay_labels(painter, crop_rect)
 
         # Restore the previous antialiasing setting
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, old_antialiasing)
 
-    def _overlay_labels(self, painter: QtGui.QPainter) -> None:
+    def _overlay_labels(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         if self.parent.pose is None or self.parent.labels is None:
             return
 
@@ -51,7 +60,13 @@ class LabelOverlay(Overlay):
                 continue
 
             center = shape.centroid
-            widget_x, widget_y = self.parent.image_to_widget_coords(center.x, center.y)
+            widget_coords = self.parent.image_to_widget_coords_cropped(
+                center.x, center.y, crop_rect
+            )
+            if widget_coords is None:
+                continue  # skip if outside cropped region
+
+            widget_x, widget_y = widget_coords
 
             # draw a square next to the centroid to indicate behavior label
             if self.parent.identity_overlay_mode == self.parent.IdentityOverlayMode.FLOATING:
