@@ -621,33 +621,43 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_use_cm_units(self, checked: bool) -> None:
         """toggle project to use pixel units."""
         # TODO: Warn the user that features may need to be re-calculated
-        self._project.save_behavior(self._central_widget.behavior, {"cm_units": checked})
+        self._project.settings_manager.save_behavior(
+            self._central_widget.behavior, {"cm_units": checked}
+        )
 
     def _set_social_features_enabled(self, checked: bool) -> None:
         """toggle project to use social features."""
-        self._project.save_behavior(self._central_widget.behavior, {"social": checked})
+        self._project.settings_manager.save_behavior(
+            self._central_widget.behavior, {"social": checked}
+        )
 
     def _set_window_features_enabled(self, checked: bool) -> None:
         """toggle project to use window features."""
-        self._project.save_behavior(self._central_widget.behavior, {"window": checked})
+        self._project.settings_manager.save_behavior(
+            self._central_widget.behavior, {"window": checked}
+        )
 
     def _set_fft_features_enabled(self, checked: bool) -> None:
         """toggle project to use fft features."""
-        self._project.save_behavior(self._central_widget.behavior, {"fft": checked})
+        self._project.settings_manager.save_behavior(
+            self._central_widget.behavior, {"fft": checked}
+        )
 
     def _set_segmentation_features_enabled(self, checked: bool) -> None:
         """toggle project to use segmentation features."""
-        self._project.save_behavior(self._central_widget.behavior, {"segmentation": checked})
+        self._project.settings_manager.save_behavior(
+            self._central_widget.behavior, {"segmentation": checked}
+        )
 
     def _set_static_object_features_enabled(self, checked: bool) -> None:
         """toggle project to use a specific static object feature set."""
         # get the key from the caller
         key = self.sender().text().split(" ")[1].lower()
-        all_object_settings = self._project.get_behavior(self._central_widget.behavior).get(
-            "static_objects", {}
-        )
+        all_object_settings = self._project.settings_manager.get_behavior(
+            self._central_widget.behavior
+        ).get("static_objects", {})
         all_object_settings[key] = checked
-        self._project.save_behavior(
+        self._project.settings_manager.save_behavior(
             self._central_widget.behavior, {"static_objects": all_object_settings}
         )
 
