@@ -16,8 +16,8 @@ class Angles(Feature):
 
     # need to override to set the correct range for circular operations
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "circmean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
-        "circstd": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
+        "mean": lambda x: stats.circmean(x, low=0, high=360, nan_policy="omit"),
+        "std": lambda x: stats.circstd(x, low=0, high=360, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

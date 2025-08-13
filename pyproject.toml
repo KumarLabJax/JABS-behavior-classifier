@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jabs-behavior-classifier"
-version = "0.34.0"
+version = "0.34.1"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
