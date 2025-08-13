@@ -29,6 +29,10 @@ def main():
         sys.exit(1)
 
     if args.project_dir is not None:
+        # this forces the GUI to process events before opening the project
+        # this is necessary to avoid a race condition where the main window
+        # is not fully initialized before trying to open the project
+        QtWidgets.QApplication.processEvents()
         try:
             main_window.open_project(args.project_dir)
         except Exception as e:
