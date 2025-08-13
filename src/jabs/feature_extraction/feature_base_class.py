@@ -55,7 +55,7 @@ class Feature(abc.ABC):
     # if an angle feature is in a different range, the subclass needs to override this
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
         "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
-        "std": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
