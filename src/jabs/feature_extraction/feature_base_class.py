@@ -158,8 +158,8 @@ class Feature(abc.ABC):
         # standard method for computing window features on non-circular values
         non_circular_features = self._window_standard(identity, window_size, non_circular)
 
+        # non_circular_features and circular_features are both dicts of dicts, but they may have overlapping *top level* keys.
         merged = dict(non_circular_features)  # start with dict1's keys/values
-
         for k, v in circular_features.items():
             if k in merged:
                 merged[k] = {**merged[k], **v}  # merge the inner dicts
