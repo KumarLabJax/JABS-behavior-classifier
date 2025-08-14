@@ -290,8 +290,7 @@ class CentralWidget(QtWidgets.QWidget):
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path)
-            self._stacked_timeline.num_identities = self._pose_est.num_identities
-            self._stacked_timeline.num_frames = self._pose_est.num_frames
+            self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:

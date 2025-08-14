@@ -2,7 +2,7 @@ from enum import IntEnum
 
 import numpy as np
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QApplication, QFrame, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from jabs.behavior_search import (
     BehaviorSearchQuery,
@@ -11,6 +11,7 @@ from jabs.behavior_search import (
     SearchHit,
     TimelineAnnotationSearchQuery,
 )
+from jabs.pose_estimation import PoseEstimation
 from jabs.project import TrackLabels
 
 from .frame_labels_widget import FrameLabelsWidget
@@ -63,6 +64,7 @@ class StackedTimelineWidget(QWidget):
         self._prediction_overview_widgets = []
         self._identity_frames = []
         self._frame_labels = FrameLabelsWidget(self)
+        self._pose: PoseEstimation | None = None
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -88,18 +90,6 @@ class StackedTimelineWidget(QWidget):
         return widget
 
     @property
-    def num_identities(self) -> int:
-        """Get the number of identities."""
-        return self._num_identities
-
-    @num_identities.setter
-    def num_identities(self, value: int) -> None:
-        """Set the number of identities and reset the layout."""
-        if value != self._num_identities:
-            self._num_identities = value
-            self._reset_layout()
-
-    @property
     def view_mode(self) -> ViewMode:
         """Get the current view mode."""
         return self._view_mode
@@ -123,6 +113,23 @@ class StackedTimelineWidget(QWidget):
             self._identity_mode = value
             self._update_widget_visibility()
 
+    @property
+    def pose(self) -> PoseEstimation | None:
+        """Get the PoseEstimation object used by the label overview widgets."""
+        return self._pose
+
+    @pose.setter
+    def pose(self, pose_est: PoseEstimation) -> None:
+        """Set the PoseEstimation object used by the label overview widgets.
+
+        Args:
+            pose_est: PoseEstimation object to set.
+        """
+        self._pose = pose_est
+        self._num_identities = pose_est.num_identities
+        self._num_frames = pose_est.num_frames
+        self._reset_layout()
+
     def _reset_layout(self) -> None:
         """Recreate the layout and child widgets for all identities.
 
@@ -143,7 +150,12 @@ class StackedTimelineWidget(QWidget):
         self._identity_frames = []
 
         # Create new frames and widgets
-        for _ in range(self._num_identities):
+        for identity_index in range(self._num_identities):
+            if self._pose and self._pose.external_identities is not None:
+                identity_display_name = self._pose.external_identities[identity_index]
+            else:
+                identity_display_name = identity_index
+
             frame = QFrame(self)
             frame.setFrameShape(QFrame.Shape.NoFrame)
             frame.setStyleSheet("QFrame {border: none; padding: 2px;}")
@@ -156,6 +168,7 @@ class StackedTimelineWidget(QWidget):
             label_widget.setVisible(False)
             prediction_widget.setVisible(False)
 
+            vbox.addWidget(QLabel(f"{identity_display_name}:"))
             vbox.addWidget(label_widget)
             vbox.addWidget(prediction_widget)
 
@@ -189,10 +202,12 @@ class StackedTimelineWidget(QWidget):
         for i, frame in enumerate(self._identity_frames):
             if i == active_index:
                 frame.setStyleSheet(
-                    f"QFrame {{border: 2px solid {accent_color}; border-radius: 8px;}}"
+                    f"QFrame > QWidget {{border: none;}} QFrame {{border: 2px solid {accent_color}; border-radius: 8px; padding: 2px;}}"
                 )
             else:
-                frame.setStyleSheet("QFrame {border: none; padding: 2px;}")
+                frame.setStyleSheet(
+                    "QFrame > QWidget {border: none;} QFrame {border: 2px solid transparent; border-radius: 8px; padding: 2px;}"
+                )
 
     @staticmethod
     def _get_accent_color() -> str:
@@ -204,12 +219,6 @@ class StackedTimelineWidget(QWidget):
     def num_frames(self) -> int:
         """Get the number of frames."""
         return self._num_frames
-
-    @num_frames.setter
-    def num_frames(self, value: int) -> None:
-        """Set the number of frames."""
-        self._num_frames = value
-        self._frame_labels.set_num_frames(value)
 
     @property
     def framerate(self) -> int:
