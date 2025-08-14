@@ -332,5 +332,9 @@ class SessionTracker:
     def _flush_session(self):
         """Flush the current session data to the session file."""
         if self._session_file and self._session:
-            with open(self._session_file, "w") as f:
-                json.dump(self._session, f, indent=4)
+            try:
+                with open(self._session_file, "w") as f:
+                    json.dump(self._session, f, indent=4)
+            except NameError:
+                # Python is shutting down, and open is no longer available
+                pass
