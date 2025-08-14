@@ -39,23 +39,9 @@ class TestCornerFeatures(TestFeatureBase):
 
             bearing_window_values = bearing_to_corner.window(i, 5, bearing_per_frame)
             for op in bearing_window_values:
-                if op.startswith("circ"):
-                    # circular operations
+                for feature in bearing_window_values[op]:
                     self.assertEqual(
-                        bearing_window_values[op]["bearing to corner"].shape,
-                        (self._pose_est_v5.num_frames,),
-                    )
-                    self.assertEqual(
-                        bearing_window_values[op]["bearing to center"].shape,
-                        (self._pose_est_v5.num_frames,),
-                    )
-                else:
-                    self.assertEqual(
-                        bearing_window_values[op]["bearing to corner sine"].shape,
-                        (self._pose_est_v5.num_frames,),
-                    )
-                    self.assertEqual(
-                        bearing_window_values[op]["bearing to center cosine"].shape,
+                        bearing_window_values[op][feature].shape,
                         (self._pose_est_v5.num_frames,),
                     )
 

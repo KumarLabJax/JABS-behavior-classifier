@@ -54,8 +54,8 @@ class Feature(abc.ABC):
     # most angles are bearings in the range [-180, 180)
     # if an angle feature is in a different range, the subclass needs to override this
     _circular_window_operations: typing.ClassVar[dict[str, typing.Callable]] = {
-        "circmean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
-        "circstd": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
+        "mean": lambda x: stats.circmean(x, low=-180, high=180, nan_policy="omit"),
+        "std_dev": lambda x: stats.circstd(x, low=-180, high=180, nan_policy="omit"),
     }
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
@@ -150,7 +150,6 @@ class Feature(abc.ABC):
                 if k.endswith(" sine") or k.endswith(" cosine")
             }
             circular = {k: v for k, v in per_frame_features.items() if k not in non_circular}
-
             circular_features = self._window_circular(identity, window_size, circular)
         else:
             # feature does not use circular window operations, so we can compute standard window features on all values
@@ -159,7 +158,15 @@ class Feature(abc.ABC):
         # standard method for computing window features on non-circular values
         non_circular_features = self._window_standard(identity, window_size, non_circular)
 
-        return circular_features | non_circular_features
+        # non_circular_features and circular_features are both dicts of dicts, but they may have overlapping *top level* keys.
+        merged = dict(non_circular_features)  # start with dict1's keys/values
+        for k, v in circular_features.items():
+            if k in merged:
+                merged[k] = {**merged[k], **v}  # merge the inner dicts
+            else:
+                merged[k] = v
+
+        return merged
 
     def _window_standard(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
         """standard method for computing standard window feature values

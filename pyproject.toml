@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jabs-behavior-classifier"
-version = "0.34.0"
+version = "0.34.3"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
@@ -11,7 +11,7 @@ packages = [
 ]
 
 [tool.poetry.scripts]
-jabs = "jabs.scripts:main"
+jabs = "jabs.scripts.gui_entrypoint:main"
 jabs-classify = "jabs.scripts.classify:main"
 jabs-init = "jabs.scripts.initialize_project:main"
 jabs-features = "jabs.scripts.generate_features:main"
