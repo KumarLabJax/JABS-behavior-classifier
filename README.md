@@ -166,3 +166,37 @@ We supply a tested pair of singularity definition files. The [first vm](vm/behav
 compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
 environment. Please inspect the definition files for related linux packages to run the software.
 
+# JABS Project Portability
+
+We have 4 version numbers in our software:
+
+* JABS Python package version. This gets bumped every release.
+* Feature version. This gets bumped every time we change feature values or the format used to store 
+calculated features.
+* Classifier version. This gets bumped every time we change characteristics of classifiers.
+* Prediction version. This gets bumped every time we change how predictions are stored.
+
+## Long Term Support of JABS-based Classifiers
+
+There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
+
+* Project folders. These are the most compatible for upgrades. The vast majority of our upgrades to JABS will allow
+transparent upgrades (e.g. re-generation of features) within the project folder without user interaction. We will
+provide instructions for changes that are not.
+* Exported training data. These are compatible across computers, but should generally not be considered compatible
+across JABS package versions. Once we add the appropriate version checks, the error message should be a bit more
+clear when and why these aren't compatible across versions.
+* Classifier pickle files. These are only compatible within a specific install of the package (e.g. mac will not
+be compatible with windows). These are the serialized trained classifiers, so load really fast, but should not be 
+considered portable beyond the computer and specific JABS install that created them.
+
+Project folders are big, but are almost always compatible across JABS versions.
+
+Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These 
+are good for sharing or archiving specific versions (e.g. a version we use in a paper). A comon use case is to export
+training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the 
+`jabs-classify` command from same version of JABS that was used to export the training file.
+
+Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
+predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
+which can then be used to classify many videos as part of a pipeline).
