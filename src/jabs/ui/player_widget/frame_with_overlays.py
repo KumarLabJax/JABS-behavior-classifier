@@ -72,6 +72,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._labels: list[np.ndarray] | None = None
         self._crop_p1: QtCore.QPoint | None = None
         self._crop_p2: QtCore.QPoint | None = None
+        self._brightness = 1.0
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
@@ -79,6 +80,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self._control_overlay.cropping_changed.connect(self._on_cropping_changed)
+        self._control_overlay.brightness_changed.connect(self._on_brightness_changed)
 
         self._annotation_overlay = AnnotationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
@@ -352,17 +354,18 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             return
 
         size = self.size()
-        orig_pixmap = self.pixmap()
+        pix = self.pixmap()
+
+        pix = self._adjust_brightness(pix)
 
         # Step 1: Crop if crop points are set
-        pix = orig_pixmap
         if self._crop_p1 and self._crop_p2:
             x1, y1 = self._crop_p1.x(), self._crop_p1.y()
             x2, y2 = self._crop_p2.x(), self._crop_p2.y()
             crop_rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
             pix = pix.copy(crop_rect)
         else:
-            crop_rect = QtCore.QRect(0, 0, orig_pixmap.width(), orig_pixmap.height())
+            crop_rect = QtCore.QRect(0, 0, pix.width(), pix.height())
 
         # Step 2: Scale cropped pixmap to widget size
         scaled_pix = pix.scaled(
@@ -472,3 +475,24 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self._crop_p1 = p1
             self._crop_p2 = p2
         self.update()
+
+    def _on_brightness_changed(self, brightness: float) -> None:
+        """Handles brightness changes from the control overlay."""
+        if self._brightness != brightness:
+            self._brightness = brightness
+            self.update()
+
+    def _adjust_brightness(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+        """Adjust the brightness of the given pixmap based on the current brightness setting."""
+        if abs(self._brightness - 1.0) < 0.01:
+            return pixmap
+
+        img = pixmap.toImage()
+        width, height = img.width(), img.height()
+        bytes_per_pixel = img.depth() // 8
+        arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
+        arr = arr.reshape((height, width, bytes_per_pixel))
+        arr[..., :3] = np.clip(arr[..., :3] * self._brightness, 0, 255)
+        return QtGui.QPixmap.fromImage(
+            QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
+        )
