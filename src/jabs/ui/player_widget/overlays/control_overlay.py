@@ -16,7 +16,7 @@ class ControlOverlay(Overlay):
     the pixmap area. The controls include:
 
     * playback speed adjustment:
-        This badge shows the current playback speed. When cliked, it opens a menu
+        This badge shows the current playback speed. When clicked, it opens a menu
         that lets the user select a new playback speed from a predefined list.
 
     * video cropping:
@@ -37,7 +37,7 @@ class ControlOverlay(Overlay):
     cropping_changed = QtCore.Signal(object, object)
     brightness_changed = QtCore.Signal(float)
 
-    _BADGE_OFFSET = 10
+    _PLAYBACK_SPEED_BADGE_OFFSET = 10
     _BADGE_PADDING_HORIZONTAL = 16
     _BADGE_PADDING_VERTICAL = 8
     _BADGE_CORNER_RADIUS = 8
@@ -45,6 +45,11 @@ class ControlOverlay(Overlay):
     _BADGE_BACKGROUND_COLOR_SELECTED = QtGui.QColor(120, 120, 120, 230)
     _BADGE_TEXT_COLOR = QtGui.QColor(0, 0, 0)
     _BADGE_FONT_SIZE = 12
+    _CROPPING_PEN_WIDTH = 2
+    _ICON_BADGE_WIDTH = 25
+    _CROPPING_BADGE_X_OFFSET = 40
+    _BRIGHTNESS_BADGE_X_OFFSET = 70
+    _BADGE_Y_OFFSET = 10
 
     def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
@@ -96,16 +101,24 @@ class ControlOverlay(Overlay):
 
         # draw the control overlay.
         if self._over_pixmap or self._playback_speed_menu_open:
-            x = self.parent.scaled_pix_x + self._BADGE_OFFSET
-            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
+            x = self.parent.scaled_pix_x + self._PLAYBACK_SPEED_BADGE_OFFSET
+            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
             self._draw_playback_speed_badge(painter, x, y)
 
-            x = self.parent.scaled_pix_x + self.parent.scaled_pix_width - 30 - self._BADGE_OFFSET
-            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
+            x = (
+                self.parent.scaled_pix_x
+                + self.parent.scaled_pix_width
+                - self._CROPPING_BADGE_X_OFFSET
+            )
+            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
             self._draw_cropping_badge(painter, x, y)
 
-            x = self.parent.scaled_pix_x + self.parent.scaled_pix_width - 60 - self._BADGE_OFFSET
-            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_OFFSET
+            x = (
+                self.parent.scaled_pix_x
+                + self.parent.scaled_pix_width
+                - self._BRIGHTNESS_BADGE_X_OFFSET
+            )
+            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
             self._draw_brightness_badge(painter, x, y)
 
         # if user is actively selecting a crop area, draw the selection rectangle
@@ -114,7 +127,9 @@ class ControlOverlay(Overlay):
             x2, y2 = self._select_end.x(), self._select_end.y()
             rect = QtCore.QRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
             accent_color = self.parent.palette().color(QtGui.QPalette.ColorRole.Accent)
-            painter.setPen(QtGui.QPen(accent_color, 2, QtCore.Qt.PenStyle.DashLine))
+            painter.setPen(
+                QtGui.QPen(accent_color, self._CROPPING_PEN_WIDTH, QtCore.Qt.PenStyle.DashLine)
+            )
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
 
@@ -245,8 +260,7 @@ class ControlOverlay(Overlay):
         obj: QtCore.QObject,
         event: QtCore.QEvent,
     ) -> bool:
-        """
-        Implements overlay-specific event filtering logic for parent widget.
+        """Implements overlay-specific event filtering logic for parent widget.
 
         Currently, it filters mouse move events and closes the menu if the mouse moves outside the pixmap area.
 
@@ -313,7 +327,7 @@ class ControlOverlay(Overlay):
     def _draw_cropping_badge(self, painter: QtGui.QPainter, x: int, y: int) -> None:
         """Draw a cropping badge as part of the control overlay."""
         # make the badge the same height as the playback speed badge, which will already have been created.
-        w = 25
+        w = self._ICON_BADGE_WIDTH
         h = self._playback_speed_badge.height()
         self._cropping_badge = QtCore.QRect(x, y - h, w, h)
 
@@ -328,7 +342,7 @@ class ControlOverlay(Overlay):
         )
 
         icon = self._restore_icon if self.parent.is_cropped else self._crop_icon
-        icon_size = min(w, h) - 8
+        icon_size = min(w, h) - self._BADGE_PADDING_VERTICAL
         icon_x = self._cropping_badge.left() + (w - icon_size) // 2
         icon_y = self._cropping_badge.top() + (h - icon_size) // 2
         painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, icon)
@@ -336,7 +350,7 @@ class ControlOverlay(Overlay):
     def _draw_brightness_badge(self, painter: QtGui.QPainter, x: int, y: int) -> None:
         """Draw a brightness badge as part of the control overlay."""
         # make the badge the same height as the playback speed badge, which will already have been created.
-        w = 25
+        w = self._ICON_BADGE_WIDTH
         h = self._playback_speed_badge.height()
         self._brightness_badge = QtCore.QRect(x, y - h, w, h)
 
@@ -346,7 +360,7 @@ class ControlOverlay(Overlay):
             self._brightness_badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
         )
 
-        icon_size = min(w, h) - 8
+        icon_size = min(w, h) - self._BADGE_PADDING_VERTICAL
         icon_x = self._brightness_badge.left() + (w - icon_size) // 2
         icon_y = self._brightness_badge.top() + (h - icon_size) // 2
         painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._brightness_icon)
@@ -437,7 +451,12 @@ class ControlOverlay(Overlay):
         This method creates a slider widget and positions it above the brightness badge.
         The slider allows the user to adjust the brightness of the video frame.
         """
-        # Create a translucent background widget
+        if self._brightness_slider and self._brightness_slider.isVisible():
+            return
+
+        # Create a translucent gray widget as the background for the slider
+        # this helps the slider stand out against the video
+        # it will not be clickabl
         self._brightness_slider_bg = QtWidgets.QWidget(self.parent)
         self._brightness_slider_bg.setAttribute(
             QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
@@ -487,6 +506,5 @@ class ControlOverlay(Overlay):
         Args:
             value (int): The new brightness value from the slider.
         """
-        self._brightness = value / 100.0
-        self.brightness_changed.emit(self._brightness)
+        self.brightness_changed.emit(value / 100.0)
         self.parent.update()
