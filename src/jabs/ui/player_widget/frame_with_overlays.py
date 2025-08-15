@@ -73,6 +73,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._crop_p1: QtCore.QPoint | None = None
         self._crop_p2: QtCore.QPoint | None = None
         self._brightness = 1.0
+        self._contrast = 1.0
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
@@ -81,6 +82,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self._control_overlay.cropping_changed.connect(self._on_cropping_changed)
         self._control_overlay.brightness_changed.connect(self._on_brightness_changed)
+        self._control_overlay.contrast_changed.connect(self._on_contrast_changed)
 
         self._annotation_overlay = AnnotationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
@@ -356,7 +358,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         size = self.size()
         pix = self.pixmap()
 
-        pix = self._adjust_brightness(pix)
+        pix = self._adjust_brightness_contrast(pix)
 
         # Step 1: Crop if crop points are set
         if self._crop_p1 and self._crop_p2:
@@ -482,9 +484,15 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self._brightness = brightness
             self.update()
 
-    def _adjust_brightness(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+    def _on_contrast_changed(self, contrast: float) -> None:
+        """Handles contrast changes from the control overlay."""
+        if self._contrast != contrast:
+            self._contrast = contrast
+            self.update()
+
+    def _adjust_brightness_contrast(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
         """Adjust the brightness of the given pixmap based on the current brightness setting."""
-        if abs(self._brightness - 1.0) < 0.01:
+        if abs(self._brightness - 1.0) < 0.01 and abs(self._contrast - 1.0) < 0.01:
             return pixmap
 
         img = pixmap.toImage()
@@ -492,7 +500,11 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         bytes_per_pixel = img.depth() // 8
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
         arr = arr.reshape((height, width, bytes_per_pixel))
-        arr[..., :3] = np.clip(arr[..., :3] * self._brightness, 0, 255)
+        # Adjust brightness
+        arr[..., :3] = arr[..., :3] * self._brightness
+        # Adjust contrast
+        arr[..., :3] = (arr[..., :3] - 128) * self._contrast + 128
+        arr[..., :3] = np.clip(arr[..., :3], 0, 255)
         return QtGui.QPixmap.fromImage(
             QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
         )
