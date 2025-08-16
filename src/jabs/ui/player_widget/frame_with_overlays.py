@@ -502,12 +502,9 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
         arr = arr.reshape((height, width, bytes_per_pixel))
 
-        if abs(self._contrast - 1.0) <= 0.01:
-            arr[..., :3] = np.clip(arr[..., :3] * self._brightness, 0, 255)
-        else:
-            arr[..., :3] = np.clip(
-                (arr[..., :3] * self._brightness - 128) * self._contrast + 128, 0, 255
-            )
+        arr[..., :3] = np.clip(
+            (arr[..., :3] * self._brightness - 128) * self._contrast + 128, 0, 255
+        )
 
         return QtGui.QPixmap.fromImage(
             QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
