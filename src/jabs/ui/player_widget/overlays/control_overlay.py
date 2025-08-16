@@ -583,9 +583,10 @@ class ControlOverlay(Overlay):
 
         # Create a slider widget
         self._contrast_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, self.parent)
-        self._contrast_slider.setRange(0, 200)
+        self._contrast_slider.setRange(100, 200)
         self._contrast_slider.valueChanged.connect(self._on_contrast_slider_value_changed)
         self._contrast_slider.setValue(100)
+        self.contrast_changed.emit(1.0)
 
         # Position both widgets above the brightness badge
         badge_top_left = self.parent.mapToGlobal(self._contrast_badge.topLeft())

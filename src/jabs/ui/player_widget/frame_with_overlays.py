@@ -492,6 +492,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
 
     def _adjust_brightness_contrast(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
         """Adjust the brightness of the given pixmap based on the current brightness setting."""
+        # use a threshold to avoid unnecessary processing if brightness and contrast are very close to default
         if abs(self._brightness - 1.0) < 0.01 and abs(self._contrast - 1.0) < 0.01:
             return pixmap
 
@@ -500,11 +501,14 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         bytes_per_pixel = img.depth() // 8
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
         arr = arr.reshape((height, width, bytes_per_pixel))
-        # Adjust brightness
-        arr[..., :3] = arr[..., :3] * self._brightness
-        # Adjust contrast
-        arr[..., :3] = (arr[..., :3] - 128) * self._contrast + 128
-        arr[..., :3] = np.clip(arr[..., :3], 0, 255)
+
+        if abs(self._contrast - 1.0) <= 0.01:
+            arr[..., :3] = np.clip(arr[..., :3] * self._brightness, 0, 255)
+        else:
+            arr[..., :3] = np.clip(
+                (arr[..., :3] * self._brightness - 128) * self._contrast + 128, 0, 255
+            )
+
         return QtGui.QPixmap.fromImage(
             QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
         )
