@@ -238,6 +238,14 @@ Mousing over the video player will display a control overlay with the following 
   the region of interest. The video will be cropped to the selection, and scaled to fill the available 
   player area. If the video is currently cropped, the cropping control will be replaced with a
   "Reset Cropping" control, which will reset the cropping to the original video size.
+- **Brightness Adjustment:** Allows the user to adjust the brightness of the video. Clicking this
+  control will open a slider that can be used to adjust the brightness.
+- **Contrast Adjustment:** Allows the user to adjust the contrast of the video. Clicking this
+  control will open a slider that can be used to adjust the contrast.
+
+Clicking the Brightness or Contrast controls will reset the brightness or contrast to the default value
+before displaying the slider control. Clicking the video or moving the mouse off the video frame
+will dismiss the slider control.  
 
 ### Menu
 

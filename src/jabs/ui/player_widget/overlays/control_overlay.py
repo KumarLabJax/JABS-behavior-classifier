@@ -36,6 +36,7 @@ class ControlOverlay(Overlay):
     playback_speed_changed = QtCore.Signal(float)
     cropping_changed = QtCore.Signal(object, object)
     brightness_changed = QtCore.Signal(float)
+    contrast_changed = QtCore.Signal(float)
 
     _PLAYBACK_SPEED_BADGE_OFFSET = 10
     _BADGE_PADDING_HORIZONTAL = 16
@@ -48,7 +49,8 @@ class ControlOverlay(Overlay):
     _CROPPING_PEN_WIDTH = 2
     _ICON_BADGE_WIDTH = 25
     _CROPPING_BADGE_X_OFFSET = 40
-    _BRIGHTNESS_BADGE_X_OFFSET = 70
+    _BRIGHTNESS_BADGE_X_OFFSET = _CROPPING_BADGE_X_OFFSET + _ICON_BADGE_WIDTH + 5
+    _CONTRAST_BADGE_X_OFFSET = _BRIGHTNESS_BADGE_X_OFFSET + _ICON_BADGE_WIDTH + 5
     _BADGE_Y_OFFSET = 10
 
     def __init__(self, parent: "FrameWithOverlaysWidget"):
@@ -70,6 +72,14 @@ class ControlOverlay(Overlay):
         self._brightness_slider = None
         self._brightness_slider_bg = None
         self._brightness_icon = MaterialIcon("brightness_6").pixmap(
+            16, color=QtGui.QColor(0, 0, 0)
+        )
+
+        self._contrast_badge = QtCore.QRect()
+        self._contrast_slider_open = False
+        self._contrast_slider = None
+        self._contrast_slider_bg = None
+        self._contrast_icon = MaterialIcon("contrast_circle").pixmap(
             16, color=QtGui.QColor(0, 0, 0)
         )
 
@@ -121,6 +131,14 @@ class ControlOverlay(Overlay):
             y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
             self._draw_brightness_badge(painter, x, y)
 
+            x = (
+                self.parent.scaled_pix_x
+                + self.parent.scaled_pix_width
+                - self._CONTRAST_BADGE_X_OFFSET
+            )
+            y = self.parent.scaled_pix_y + self.parent.scaled_pix_height - self._BADGE_Y_OFFSET
+            self._draw_contrast_badge(painter, x, y)
+
         # if user is actively selecting a crop area, draw the selection rectangle
         if self._select_start is not None and self._select_end is not None:
             x1, y1 = self._select_start.x(), self._select_start.y()
@@ -162,6 +180,9 @@ class ControlOverlay(Overlay):
         if self._brightness_slider_open and self._brightness_slider and not self._over_pixmap:
             self._hide_brightness_slider()
 
+        if self._contrast_slider_open and self._contrast_slider and not self._over_pixmap:
+            self._hide_contrast_slider()
+
         self.parent.update()
 
     def handle_leave(self, event: QtCore.QEvent) -> None:
@@ -172,6 +193,7 @@ class ControlOverlay(Overlay):
         """
         self._over_pixmap = False
         self._hide_brightness_slider()
+        self._hide_contrast_slider()
         self.parent.update()
 
     def handle_mouse_press(self, event: QtGui.QMouseEvent) -> bool:
@@ -204,6 +226,11 @@ class ControlOverlay(Overlay):
             # don't return True, so that the parent widget can handle the event if needed
             self._hide_brightness_slider()
 
+        if self._contrast_slider_open and not self._contrast_badge.contains(point):
+            # if the user clicks outside the contrast badge while the slider is open, close the slider
+            # don't return True, so that the parent widget can handle the event if needed
+            self._hide_contrast_slider()
+
         if self._cropping_badge.contains(point):
             if self.parent.is_cropped:
                 self.cropping_changed.emit(None, None)
@@ -232,6 +259,14 @@ class ControlOverlay(Overlay):
                 self._show_brightness_slider()
             else:
                 self._hide_brightness_slider()
+            return True
+
+        if self._contrast_badge.contains(point):
+            self._contrast_slider_open = not self._contrast_slider_open
+            if self._contrast_slider_open:
+                self._show_contrast_slider()
+            else:
+                self._hide_contrast_slider()
             return True
 
         return False
@@ -365,6 +400,24 @@ class ControlOverlay(Overlay):
         icon_y = self._brightness_badge.top() + (h - icon_size) // 2
         painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._brightness_icon)
 
+    def _draw_contrast_badge(self, painter: QtGui.QPainter, x: int, y: int) -> None:
+        """Draw a contrast badge as part of the control overlay."""
+        # make the badge the same height as the playback speed badge, which will already have been created.
+        w = self._ICON_BADGE_WIDTH
+        h = self._playback_speed_badge.height()
+        self._contrast_badge = QtCore.QRect(x, y - h, w, h)
+
+        painter.setBrush(self._BADGE_BACKGROUND_COLOR)
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(
+            self._contrast_badge, self._BADGE_CORNER_RADIUS, self._BADGE_CORNER_RADIUS
+        )
+
+        icon_size = min(w, h) - self._BADGE_PADDING_VERTICAL
+        icon_x = self._contrast_badge.left() + (w - icon_size) // 2
+        icon_y = self._contrast_badge.top() + (h - icon_size) // 2
+        painter.drawPixmap(icon_x, icon_y, icon_size, icon_size, self._contrast_icon)
+
     def _show_speed_menu(self) -> None:
         """Displays the playback speed selection menu anchored to the playback speed badge.
 
@@ -456,7 +509,7 @@ class ControlOverlay(Overlay):
 
         # Create a translucent gray widget as the background for the slider
         # this helps the slider stand out against the video
-        # it will not be clickabl
+        # it will not be clickable
         self._brightness_slider_bg = QtWidgets.QWidget(self.parent)
         self._brightness_slider_bg.setAttribute(
             QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
@@ -507,4 +560,67 @@ class ControlOverlay(Overlay):
             value (int): The new brightness value from the slider.
         """
         self.brightness_changed.emit(value / 100.0)
-        self.parent.update()
+
+    def _show_contrast_slider(self) -> None:
+        """Displays a contrast slider for adjusting the video contrast.
+
+        This method creates a slider widget and positions it above the contrast badge.
+        The slider allows the user to adjust the contrast of the video frame.
+        """
+        if self._contrast_slider and self._contrast_slider.isVisible():
+            return
+
+        # Create a translucent gray widget as the background for the slider
+        # this helps the slider stand out against the video
+        # it will not be clickable
+        self._contrast_slider_bg = QtWidgets.QWidget(self.parent)
+        self._contrast_slider_bg.setAttribute(
+            QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
+        self._contrast_slider_bg.setStyleSheet(
+            "background-color: rgba(60, 60, 60, 180); border-radius: 8px;"
+        )
+
+        # Create a slider widget
+        self._contrast_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, self.parent)
+        self._contrast_slider.setRange(100, 200)
+        self._contrast_slider.valueChanged.connect(self._on_contrast_slider_value_changed)
+        self._contrast_slider.setValue(100)
+        self.contrast_changed.emit(1.0)
+
+        # Position both widgets above the brightness badge
+        badge_top_left = self.parent.mapToGlobal(self._contrast_badge.topLeft())
+        slider_size = self._contrast_slider.sizeHint()
+        pos = badge_top_left - QtCore.QPoint(0, slider_size.height())
+
+        # Set geometry for background and slider
+        self._contrast_slider_bg.setGeometry(
+            self.parent.mapFromGlobal(pos).x(),
+            self.parent.mapFromGlobal(pos).y(),
+            slider_size.width(),
+            slider_size.height(),
+        )
+        self._contrast_slider.move(self.parent.mapFromGlobal(pos))
+
+        self._contrast_slider_bg.show()
+        self._contrast_slider.show()
+
+    def _hide_contrast_slider(self) -> None:
+        """Hides the contrast slider and its background widget."""
+        if self._contrast_slider:
+            self._contrast_slider.deleteLater()
+            self._contrast_slider = None
+        if self._contrast_slider_bg:
+            self._contrast_slider_bg.deleteLater()
+            self._contrast_slider_bg = None
+        self._contrast_slider_open = False
+
+    def _on_contrast_slider_value_changed(self, value: int) -> None:
+        """Handles the contrast slider value change event.
+
+        Emits the contrast_changed signal with the new contrast value.
+
+        Args:
+            value (int): The new contrast value from the slider.
+        """
+        self.contrast_changed.emit(value / 100.0)
