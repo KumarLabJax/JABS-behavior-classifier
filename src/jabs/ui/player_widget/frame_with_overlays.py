@@ -496,6 +496,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         if abs(self._brightness - 1.0) < 0.01 and abs(self._contrast - 1.0) < 0.01:
             return pixmap
 
+        # convert Qt pixmap to numpy array for brightness and contrast manipulation
         img = pixmap.toImage()
         width, height = img.width(), img.height()
         bytes_per_pixel = img.depth() // 8
