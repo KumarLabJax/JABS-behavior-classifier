@@ -704,12 +704,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_segmentation_features.setEnabled(
             self._project.feature_manager.can_use_segmentation_features
         )
-        available_objects = self._project.feature_manager.static_objects
         self._clear_cache.setEnabled(True)
-        self.enable_cm_units.setEnabled(self._project.is_cm_unit)
-        self.enable_social_features.setEnabled(self._project.can_use_social_features)
-        self.enable_segmentation_features.setEnabled(self._project.can_use_segmentation)
-        available_objects = self._project.static_objects
+        available_objects = self._project.feature_manager.static_objects
         for static_object, menu_item in self.enable_landmark_features.items():
             if static_object in available_objects:
                 menu_item.setEnabled(True)
