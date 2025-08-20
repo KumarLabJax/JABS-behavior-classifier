@@ -774,9 +774,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if result == QtWidgets.QMessageBox.Yes:
             self._project.clear_cache()
             # need to reload the current video to force the pose file to reload
-            self._central_widget.load_video(
-                self._project.video_path(self.video_list.selected_video)
-            )
+            self._central_widget.load_video(self._central_widget.loaded_video)
             self.display_status_message("Cache cleared", 3000)
 
     def _update_recent_projects(self) -> None:
