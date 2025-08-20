@@ -757,21 +757,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # if app is currently set to use native dialogs, we will temporarily set it to use Qt dialogs
         # the native style, at least on macOS, is not ideal so we'll force the Qt dialog instead
-        if dont_use_native_dialogs is False:
+        if not dont_use_native_dialogs:
             app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
 
         result = QtWidgets.QMessageBox.warning(
             self,
             "Clear Cache",
             "Are you sure you want to clear the project cache?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
         )
 
         # restore the original setting
         app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, dont_use_native_dialogs)
 
-        if result == QtWidgets.QMessageBox.Yes:
+        if result == QtWidgets.QMessageBox.StandardButton.Yes:
             self._project.clear_cache()
             # need to reload the current video to force the pose file to reload
             self._central_widget.load_video(self._central_widget.loaded_video)
