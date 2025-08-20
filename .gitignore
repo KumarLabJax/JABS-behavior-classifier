@@ -3,12 +3,12 @@
 dist
 
 .idea
+.vscode
 
 .coverage
 test-reports
 
 jabs.venv
-rotta.venv
 venv
 .venv
 

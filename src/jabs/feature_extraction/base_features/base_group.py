@@ -1,18 +1,24 @@
+import typing
+
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 
-from . import Angles, PairwisePointDistances, \
-    PointSpeeds, PointVelocityDirs, \
-    CentroidVelocityMag, CentroidVelocityDir, \
-    AngularVelocity
+from ..feature_base_class import Feature
+from .angles import Angles
+from .angular_velocity import AngularVelocity
+from .centroid_velocity import CentroidVelocityDir, CentroidVelocityMag
+from .pairwise_distances import PairwisePointDistances
+from .point_speeds import PointSpeeds
+from .point_velocities import PointVelocityDirs
 
 
 class BaseFeatureGroup(FeatureGroup):
+    """Base class for feature extraction groups."""
 
-    _name = 'base'
+    _name = "base"
 
     # build a dictionary that maps a feature name to the class that
     # implements it
-    _features = {
+    _features: typing.ClassVar[dict[str, Feature]] = {
         PairwisePointDistances.name(): PairwisePointDistances,
         Angles.name(): Angles,
         AngularVelocity.name(): AngularVelocity,
@@ -23,10 +29,13 @@ class BaseFeatureGroup(FeatureGroup):
     }
 
     def _init_feature_mods(self, identity: int):
-        """
-        initialize all of the feature modules specified in the current config
-        :param identity: unused, specified by abstract base class
-        :return: dictionary of initialized feature modules for this group
+        """initialize all the feature modules specified in the current config
+
+        Args:
+            identity: unused, specified by abstract base class
+
+        Returns:
+            dictionary of initialized feature modules for this group
         """
         return {
             feature: self._features[feature](self._poses, self._pixel_scale)

@@ -1,8 +1,12 @@
 # JAX Animal Behavior System (JABS)
 
-## ReadTheDocs Tutorial
+![JABS Screen Shot](img/jabs_screenshot.png)
+
+## ReadTheDocs Tutorial and User Guide
 
 https://jabs-tutorial.readthedocs.io/en/latest/index.html
+
+[User Guide (Markdown)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/src/jabs/resources/docs/user_guide/user_guide.md)
 
 ## Copyright
 
@@ -14,29 +18,20 @@ email us at jabs@jax.org
 
 ## License
 
-JABS is licensed under a non-commercial use license, see LICENSE for more 
-information. Contact us for information about licensing for commercial use.
-
-## Notice
-
-This is beta software. Changes, including incompatible changes to exported
-training data and prediction output, are forthcoming.
+JABS is licensed under a non-commercial use license, see LICENSE for more information. Contact us for information about
+licensing for commercial use.
 
 ## Pose Files
 
-JABS requires pose files generated from the Kumar Lab's mouse pose 
-estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). 
-Multi-mouse is still under development. Contact us for more information.
+JABS requires pose files generated from the Kumar Lab's mouse pose estimation neural networks. Single mouse pose files 
+are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
 
 ## Requirements
-Developed and tested on Python 3.10. See the `pyproject.toml` 
-for a list of required Python packages. These packages are available from the 
-Python Package Index (PyPI).
 
-Currently, the `pyproject.toml` file requires Python 3.10.X, but we hope to validate 
-for Python 3.12 and possibly 3.13 soon.
+JABS was initially developed and tested on Python 3.10. See the `pyproject.toml` for a list of required Python 
+packages. These packages are available from the Python Package Index (PyPI).
 
-See below for conda installation instructions.
+Currently, JABS supports Python 3.10 through 3.13.
 
 ## Python Env Setup
 
@@ -54,20 +49,20 @@ jabs.venv\Scripts\activate.bat
 
 ### JABS Installation
 
-Developers should follow the Developer Setup section below. This section describes how 
-to install JABS into a Python environment for a non-developer user.
+Developers should follow the Developer Setup section below. This section describes how to install JABS into a Python 
+environment for a non-developer user.
 
 #### PyPI
 
-JABS is not available on PyPI at this time, but we hope to begin publishing it there soon. 
+JABS is not available on PyPI at this time, but we hope to begin publishing it there soon.
 
 #### Pip install from Github
 
-With the jabs.venv virtualenv activated, run the following command to install JABS from our
-git repository. This will install the latest commit from the main branch:
+With the jabs.venv virtualenv activated, run the following command to install JABS from our git repository. This will 
+install the latest commit from the main branch: 
 `pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git`
 
-you can also specify a branch:
+you can also specify a branch or tag:
 
 `pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name`
 
@@ -77,119 +72,131 @@ or a specific commit:
 
 #### Pip install from local source
 
-If you've cloned the JABS repository, you can install by running the following command in 
-the project root directory:
+If you've cloned the JABS repository, you can install by running the following command in the project root directory:
 
 `pip install .`
 
-If you want to install the package in "editable" mode, use the `-e` flag. This links to
-the python files instead of copying them during installation so that they can be edited. 
-
-`pip install -e .`
-
-
 #### Windows .bat scripts
 
-There are two scripts that Windows users can use to simplify installing and running JABS. These 
-can be executed by double-clicking on them in Windows Explorer. 
+There are two scripts that Windows users can use to simplify installing and running JABS. These can be executed by 
+double-clicking on them in Windows Explorer.
 
-* setup_windows.bat: this will create a Python virtualenv called jabs.venv in the project root and 
-then install JABS as a Python package. 
-* launch_jabs.bat: this script will activate the jabs.venv environment and then launch the JABS GUI. 
-
+* setup_windows.bat: this will create a Python virtualenv called jabs.venv in the project root and then install JABS as 
+a Python package.
+* launch_jabs.bat: this script will activate the jabs.venv environment and then launch the JABS GUI.
 
 ### Running JABS
 
-After installing JABS, four commands will be added to the bin directory of your 
-Python virtualenv:
+After installing JABS, five commands will be added to the bin directory of your Python virtualenv:
 
 * jabs: launch the JABS GUI
 * jabs-init: initialize a new JABS project directory from the command line
 * jabs-classify: run a trained classifier from the command line
-* jabs-stats: 
+* jabs-stats: print accuracy statistics for the given classifier
+* jabs-convert-parquet: convert parquet pose file to JABS pose file format
 
-You can run the <command> --help to get usage information for the commands.
+You can run the `<jabs command> --help` to get usage information for each of the commands.
 
-**NOTE: The first time you run the JABS GUI it might take several minutes to launch.
-Subsequent startup times should be significantly reduced.**
+**NOTE: On some platforms, the first time you run the JABS GUI it might take several minutes to launch. Subsequent 
+startup times should be significantly reduced.**
 
 ### Developer Setup
 
-The following instructions are for Linux or MacOS Developers. Commands for JABS 
-developers using Windows might be slightly different.
+The following instructions are for Linux or macOS Developers. Commands for JABS developers using Windows might be 
+slightly different.
 
-This project uses Poetry for packaging and dependency management. JABS developers 
-will need to install Poetry by following the instructions on 
-[Poetry's official website](https://python-poetry.org/docs/#installation).
+This project uses Poetry for packaging and dependency management. JABS developers will need to install Poetry by 
+following the instructions on [Poetry's official website](https://python-poetry.org/docs/#installation).
 
-You can use Poetry to manage your virtualenv, or manage your virtualenv externally
-to Poetry and use Poetry only for installing dependencies. The following 
-instructions assume that you've already created and activated a Python environment 
-for JABS using whichever method you prefer.
+You can use Poetry to manage your virtualenv, or manage your virtualenv externally to Poetry and use Poetry only for 
+installing dependencies. The following instructions assume that you've already created and activated a Python 
+environment for JABS using whichever method you prefer.
 
-Clone the JABS git repository, and with your JABS virtualenv activated, run the
-following command in the project root:
+Clone the JABS git repository, and with your JABS virtualenv activated, run the following command in the project root:
 
 ```commandline
 poetry install
 ```
 
-This will install all dependencies and JABS will be installed in "editable" mode, 
-meaning that the JABS Python modules installed in the virtualenv will be links 
-to the files in the cloned git repository. JABS code changes will be reflected 
-immediately in the Python environment.
+This will install all dependencies and JABS will be installed in "editable" mode, meaning that the JABS Python modules 
+installed in the virtualenv will be links to the files in the cloned git repository. JABS code changes will be 
+reflected immediately in the Python environment.
+
+Note to Developers: JABS uses package metadata to determine the version number. If you change the version number in the 
+pyproject.toml file, you will need to run `poetry install` to update the version number in the installed package so 
+that the GUI will display the correct version.
+
+#### Code Style
+
+JABS uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Developers should run `ruff check` and `ruff format` before 
+committing code. A pre-commit hook is provided to run these commands automatically.
+
+To install pre-commit hooks for linting and formatting run:
+
+```commandline
+pre-commit install
+```
+
+You can also run [ruff](https://docs.astral.sh/ruff/) directly from command line:
+
+```commandline
+ruff check src/packagepath/modulename.py
+ruff format src/packagepath/modulename.py
+```
+
+#### Building Python Packages
+
+Developers can build a Python package using the `poetry build` command. This will produce both a .tar.gz and a Python 
+Wheel file (.whl) in the dist directory. The wheel file can be installed with pip:
+
+```pip install jabs_behavior_classifier-<version>-py3-none-any.whl```
+
+Since the Wheel does not contain any compiled code it is platform independent.
 
 ### Enabling XGBoost Classifier
 
-The XGBoost Classifier has a dependency on the OpenMP library. This does
-not ship with MacOS. XGBoost should work "out of the box" on other platforms. 
-On MacOS, you can install libomp with Homebrew (preferred) with the following 
-command `brew install libomp`. You can also install libomp from source if you 
-can't use Homebrew, but this is beyond the scope of this Readme.
-
+The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out 
+of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following 
+command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond 
+the scope of this Readme.
 
 ### Singularity/Linux
 
-We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is 
-indended for command-line use on compute clusters when scaling inferences. 
-The [second vm](vm/behavior-classifier-gui-vm.def) is designed for interacting with the GUI in a portable 
-environment. Please inspect the definition files for related linux packages 
-to run the software.
+We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
+compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
+environment. Please inspect the definition files for related linux packages to run the software.
 
-### Conda
+# JABS Project Portability
 
-To install via `conda`, first clone the repository and then run:
+We have 4 version numbers in our software:
 
-```bash
-conda env create -f environment.yml
-```
+* JABS Python package version. This gets bumped every release.
+* Feature version. This gets bumped every time we change feature values or the format used to store 
+calculated features.
+* Classifier version. This gets bumped every time we change characteristics of classifiers.
+* Prediction version. This gets bumped every time we change how predictions are stored.
 
-See [`environment.yml`](environment.yml) for information on the installed environment.
+## Long Term Support of JABS-based Classifiers
 
-After installation, you can activate the environment with:
+There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
 
-```bash
-conda activate jabs
-```
+* Project folders. These are the most compatible for upgrades. The vast majority of our upgrades to JABS will allow
+transparent upgrades (e.g. re-generation of features) within the project folder without user interaction. We will
+provide instructions for changes that are not.
+* Exported training data. These are compatible across computers, but should generally not be considered compatible
+across JABS package versions. Once we add the appropriate version checks, the error message should be a bit more
+clear when and why these aren't compatible across versions.
+* Classifier pickle files. These are only compatible within a specific install of the package (e.g. mac will not
+be compatible with windows). These are the serialized trained classifiers, so load really fast, but should not be 
+considered portable beyond the computer and specific JABS install that created them.
 
-Then run the GUI with:
+Project folders are big, but are almost always compatible across JABS versions.
 
-```bash
-jabs
-```
+Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These 
+are good for sharing or archiving specific versions (e.g. a version we use in a paper). A comon use case is to export
+training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the 
+`jabs-classify` command from same version of JABS that was used to export the training file.
 
-To uninstall, simply delete the environment:
-
-```bash
-conda env remove -n jabs
-```
-
-## Building Python Packages
-
-Developers can build a Python package using the `poetry build` command. This 
-will produce both a .tar.gz and a Python Wheel file (.whl) in the dist 
-directory. The wheel file can be installed with pip: 
-
-```pip install jabs_behavior_classifier-<version>-py3-none-any.whl``` 
-
-Since the Wheel does not contain any compiled code it is platform independent. 
+Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
+predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
+which can then be used to classify many videos as part of a pipeline).

@@ -1,40 +1,48 @@
 [tool.poetry]
 name = "jabs-behavior-classifier"
-version = "0.18.1"
+version = "0.34.3"
 license = "Proprietary"
 repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 description = ""
-authors = ["Glen Beane", "Brian Geuther"]
+authors = ["Glen Beane", "Brian Geuther", "Keith Sheppard"]
 readme = "README.md"
 packages = [
     { include = "jabs", from = "src" },
 ]
 
 [tool.poetry.scripts]
-jabs = "jabs.scripts:main"
+jabs = "jabs.scripts.gui_entrypoint:main"
 jabs-classify = "jabs.scripts.classify:main"
 jabs-init = "jabs.scripts.initialize_project:main"
 jabs-features = "jabs.scripts.generate_features:main"
 jabs-stats = "jabs.scripts.stats:main"
+jabs-convert-parquet = "jabs.scripts.convert_parquet:main"
+jabs-project-merge = "jabs.scripts.merge_projects:main"
 
 [tool.poetry.dependencies]
-python = "~3.10"
-h5py = "3.9.0"
+python = ">=3.10,<3.14"
+h5py = "^3.10.0"
 markdown2 = "^2.5.1"
-numpy = "1.25"
+numpy = "^2.0.0"
 opencv-python-headless = "^4.8.1.78"
-pandas = "2.1.1"
-pyside6 = "6.2.4"
-scikit-learn = "1.3.0"
+pandas = "^2.2.2"
+pyside6 = "^6.8.0,!=6.9.0"
+scikit-learn = "^1.5.0"
 shapely = "^2.0.1"
 tabulate = "^0.9.0"
 toml = "^0.10.2"
 xgboost = "1.7.6"
-
+pyarrow = "^20.0.0"
+rich = "^14.0.0"
+rich-argparse = "^1.7.1"
+intervaltree = "^3.1.0"
+qt-material-icons = "^0.2.0"
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.9.3"
 pytest = "^8.3.4"
+ruff = "^0.11.5"
+pre-commit = "^4.2.0"
 
 [build-system]
 requires = ["poetry-core"]

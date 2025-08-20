@@ -1,5 +1,3 @@
-from .main_entrypoint import main
+"""jabs scripts module"""
 
-__all__ = [
-    "main",
-]
+__all__ = []

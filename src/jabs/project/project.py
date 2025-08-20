@@ -1,730 +1,460 @@
+import contextlib
+import getpass
 import gzip
 import json
-import re
 import shutil
 import sys
-import typing
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.pose_estimation import get_pose_path, open_pose_file, \
-    get_frames_from_file, get_pose_file_major_version, \
-    get_static_objects_in_file, PoseEstimation
-from jabs.project import TrackLabels
+from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.types import ProjectDistanceUnit
-from jabs.version import version_str
-from jabs.video_stream import VideoStream
-from jabs.video_stream.utilities import get_frame_count, get_fps
-from .video_labels import VideoLabels
+from jabs.video_reader.utilities import get_fps
 
-_PREDICTION_FILE_VERSION = 2
+from .feature_manager import FeatureManager
+from .prediction_manager import PredictionManager
+from .project_paths import ProjectPaths
+from .project_utils import to_safe_name
+from .session_tracker import SessionTracker
+from .settings_manager import SettingsManager
+from .track_labels import TrackLabels
+from .video_labels import VideoLabels
+from .video_manager import VideoManager
 
 
 class Project:
-    """ represents a labeling project """
+    """Represents a JABS project, managing all data, settings, and operations for a project directory.
 
-    # subdirectory app creates inside project directory to store app-specific
-    # project data
-    _PROJ_DIR = 'jabs'
-    __PROJECT_SETTING_FILE = 'project_settings.json'
-    __PROJECT_FILE = 'project.json'
-    __DEFAULT_UMASK = 0o775
+    A project consists of video files, pose files, metadata, annotations, classifier data, and possibly predictions.
+    This class provides methods to access and manage project resources, including loading and saving annotations,
+    managing features and predictions, archiving behaviors, and retrieving project settings.
 
-    PREDICTION_FILE_VERSION = _PREDICTION_FILE_VERSION
+    Args:
+        project_path: Path to the project directory.
+        use_cache (bool, optional): Whether to use cached data. Defaults to True.
+        enable_video_check (bool, optional): Whether to check for video file validity. Defaults to True.
 
-    def __init__(self, project_path, use_cache=True, enable_video_check=True):
-        """
-        Open a project at a given path. A project is a directory that contains
-        avi files and their corresponding pose_est_v3.h5 files as well as json
-        files containing project metadata and annotations.
-        :param project_path: path to project directory
+    Properties:
+        dir: Project directory path.
+        feature_dir: Directory for feature files.
+        annotation_dir: Directory for annotation files.
+        classifier_dir: Directory for classifier files.
+        settings: Project metadata and preferences.
+        settings_manager: SettingsManager instance for this project.
+        total_project_identities: Total number of identities across all videos.
+        prediction_manager: PredictionManager instance for this project.
+        feature_manager: FeatureManager instance for this project.
+        video_manager: VideoManager instance for this project.
+        project_paths: ProjectPaths instance for this project.
+    """
 
-        TODO: catch ValueError that this might raise when opening a project
-        """
-
-        # make sure this is a pathlib.Path and not a string
-        self._project_dir_path = Path(project_path)
-        self._annotations_dir = (self._project_dir_path / self._PROJ_DIR /
-                                 "annotations")
-        self._feature_dir = (self._project_dir_path / self._PROJ_DIR /
-                             "features")
-        self._prediction_dir = (self._project_dir_path / self._PROJ_DIR /
-                                "predictions")
-        self._project_file = (self._project_dir_path / self._PROJ_DIR /
-                              self.__PROJECT_FILE)
-        self._classifier_dir = (self._project_dir_path / self._PROJ_DIR /
-                                'classifiers')
-        self._archive_dir = (self._project_dir_path / self._PROJ_DIR /
-                             'archive')
-
-        self._supported_static_objects = set()
+    def __init__(
+        self, project_path, use_cache=True, enable_video_check=True, enable_session_tracker=True
+    ):
+        self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
+        self._paths.create_directories()
+        self._total_project_identities = 0
         self._enabled_extended_features = {}
 
-        if use_cache:
-            self._cache_dir = (self._project_dir_path / self._PROJ_DIR /
-                               'cache')
-        else:
-            self._cache_dir = None
+        self._settings_manager = SettingsManager(self._paths)
+        self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
+        self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
+        self._prediction_manager = PredictionManager(self)
+        self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
-        # if project directory doesn't exist, create it (empty project)
-        # parent directory must exist.
-        Path(project_path).mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
+        # write out the defaults to the project file
+        self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
-        # make sure the app subdirectory directory exists to store project
-        # metadata and annotations
-        Path(project_path, self._PROJ_DIR).mkdir(mode=self.__DEFAULT_UMASK,
-                                                 exist_ok=True)
+        # Start a session tracker for this project.
+        # Since the session has a reference to the Project, the Project should be fully initialized before starting
+        # the session tracker.
+        self._session_tracker.start_session()
 
-        # make sure other app directories exist
-        self._annotations_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-        self._feature_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-        self._prediction_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-        self._archive_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        if use_cache:
-            self._cache_dir.mkdir(mode=self.__DEFAULT_UMASK, exist_ok=True)
-
-        # load any saved project metadata
-        self._metadata = self.load_metadata()
-
-        self._total_project_identities = 0
-
-        # get list of video files in the project directory
-        self._videos = self.get_videos(self._project_dir_path)
-        self._videos.sort()
-
+    def _validate_pose_files(self):
+        """Ensure all videos have corresponding pose files."""
         err = False
-        for v in self.videos:
-            if self.__has_pose(v) is False:
+        for v in self._video_manager.videos:
+            if not self.__has_pose(v):
                 print(f"{v} missing pose file", file=sys.stderr)
                 err = True
         if err:
-            raise ValueError("Project missing pose file for one or more video")
-
-        if enable_video_check:
-            err = False
-            for v in self.videos:
-                path = get_pose_path(self.video_path(v))
-                pose_frames = get_frames_from_file(path)
-                vid_frames = VideoStream.get_nframes_from_file(self.video_path(v))
-                if pose_frames != vid_frames:
-                    print(f"{v}: video and pose file have different number of frames",
-                          file=sys.stderr)
-                    err = True
-            if err:
-                raise ValueError("Video and Pose File frame counts differ")
-
-        video_metadata = self._metadata.get('video_files', {})
-        for video in self._videos:
-            vinfo = {}
-            if video in video_metadata:
-                nidentities = video_metadata[video].get('identities')
-                vinfo = video_metadata[video]
-            else:
-                nidentities = None
-
-            # if the number of identities is not cached in the project metadata,
-            # open the pose file to get it
-            if nidentities is None:
-                # this will raise a ValueError if the video does not have a
-                # corresponding pose file.
-                pose_file = open_pose_file(
-                    get_pose_path(self.video_path(video)), self._cache_dir)
-                nidentities = pose_file.num_identities
-                vinfo['identities'] = nidentities
-
-            self._total_project_identities += nidentities
-            video_metadata[video] = vinfo
-        self.save_metadata({'video_files': video_metadata})
-
-        # get minimum pose version in the project. This sets a baseline
-        # for the features to be enabled in the project
-        # also build a set of static objects common to all pose files in the
-        # project
-        pose_versions = []
-        static_object_sets = []
-        for vid in self._videos:
-            vid_path = self.video_path(vid)
-            pose_path = get_pose_path(vid_path)
-            pose_versions.append(get_pose_file_major_version(pose_path))
-            static_object_sets.append(set(get_static_objects_in_file(pose_path)))
-        self._min_pose_version = min(pose_versions) if len(pose_versions) else 0
-        self._supported_static_objects = set.intersection(*static_object_sets) if len(static_object_sets) else []
-
-        # determine if this project can use social features or not
-        # social data is available for V3+
-        self._can_use_social = True if self._min_pose_version >= 3 else False
-        # segmentation data is available for V6+
-        self._can_use_segmentation = True if self._min_pose_version >= 6 else False
-
-        # determine which static objects are available
-        self._enabled_extended_features.update(
-            fe.IdentityFeatures.get_available_extended_features(
-                self._min_pose_version, self.static_objects)
-        )
-
-        # determine if project should use cm or pixels as units for
-        # distance-based features
-        self._distance_unit = ProjectDistanceUnit.CM
-        for vid in self._videos:
-            attrs = PoseEstimation.get_pose_file_attributes(
-                get_pose_path(self.video_path(vid)))
-            cm_per_pixel = attrs['poseest'].get('cm_per_pixel', None)
-
-            # this pose file does not have cm_per_pixel attribute,
-            # force the entire project to use pixel distances
-            if cm_per_pixel is None:
-                self._distance_unit = ProjectDistanceUnit.PIXEL
-                break
-
-        # write out the defaults to the project file
-        # this is currently not used, but useful for anyone that revisits a project
-        self.save_metadata({'defaults': self.get_project_defaults()})
-
-        # saved metadata has changed, reload it
-        self._metadata = self.load_metadata()
-
-    @property
-    def videos(self):
-        """
-        get list of video files that are in this project directory
-        :return: list of file names (file names only, without path)
-        """
-        return self._videos
+            raise ValueError("Project missing pose file for one or more videos")
 
     @property
     def dir(self) -> Path:
-        return self._project_dir_path
+        """get the project directory"""
+        return self._paths.project_dir
 
     @property
     def feature_dir(self) -> Path:
-        return self._feature_dir
+        """get the feature directory"""
+        return self._paths.feature_dir
 
     @property
     def annotation_dir(self) -> Path:
-        return self._annotations_dir
-
-    @property
-    def distance_unit(self) -> ProjectDistanceUnit:
-        return self._distance_unit
-
-    @property
-    def is_cm_unit(self) -> bool:
-        return self._distance_unit == ProjectDistanceUnit.CM
-
-    @property
-    def can_use_social_features(self) -> bool:
-        return self._can_use_social
-
-    @property
-    def can_use_segmentation(self) -> bool:
-        return self._can_use_segmentation
-
-    @property
-    def static_objects(self) -> typing.List[str]:
-        """
-        return a list of the static objects that are common for all of the
-        pose files in the project
-        """
-        return list(self._supported_static_objects)
-
-    @property
-    def extended_features(self) -> typing.Dict[str, typing.List[str]]:
-        """
-        get the enabled extended features for this project
-        :return: dictionary describing enabled extended features
-
-        format is dictionary with feature group names as keys, and list of
-        feature names in that group that are enabled
-        {
-          'feature_group_name': [str]
-        }
-        """
-        return self._enabled_extended_features
-
-    @property
-    def metadata(self):
-        """
-        get the project metadata and preferences.
-
-        Returns a copy of the metadata dict, so that self._metadata can't be
-        modified by the caller
-        """
-        return dict(self._metadata)
+        """get the annotation directory"""
+        return self._paths.annotations_dir
 
     @property
     def classifier_dir(self):
-        return self._classifier_dir
+        """get the classifier directory"""
+        return self._paths.classifier_dir
+
+    @property
+    def settings(self):
+        """get the project metadata and preferences."""
+        return self._settings_manager.project_settings
+
+    @property
+    def settings_manager(self) -> SettingsManager:
+        """get the project settings manager"""
+        return self._settings_manager
 
     @property
     def total_project_identities(self):
-        """
-        sum the number of instances across all videos in the project
-        :return: integer sum
-        """
-        return self._total_project_identities
+        """sum the number of instances across all videos in the project
 
-    def load_video_labels(self, video_name):
+        Returns:
+            integer sum
         """
-        load labels for a video from the project directory or from a cached of
-        annotations that have previously been opened and not yet saved
-        :param video_name: filename of the video: string or pathlib.Path
-        :return: initialized VideoLabels object
+        return self._video_manager.total_project_identities
+
+    @property
+    def prediction_manager(self) -> PredictionManager:
+        """get the prediction manager for this project"""
+        return self._prediction_manager
+
+    @property
+    def feature_manager(self) -> FeatureManager:
+        """get the feature manager for this project"""
+        return self._feature_manager
+
+    @property
+    def video_manager(self) -> VideoManager:
+        """get the video manager for this project"""
+        return self._video_manager
+
+    @property
+    def project_paths(self) -> ProjectPaths:
+        """get the project paths object for this project"""
+        return self._paths
+
+    @property
+    def labeler(self) -> str:
+        """return name of labeler
+
+        For now, this is just the username of the user running JABS.
         """
+        return getpass.getuser()
 
-        video_filename = Path(video_name).name
-        self.check_video_name(video_filename)
+    @property
+    def session_tracker(self) -> SessionTracker | None:
+        """get the session tracker for this project"""
+        return self._session_tracker
 
-        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
+    def load_pose_est(self, video_path: Path) -> PoseEstimation:
+        """return a PoseEstimation object for a given video path
 
-        # if annotations already exist for this video file in the project open
-        # it, otherwise create a new empty VideoLabels
-        if path.exists():
-            with path.open() as f:
-                return VideoLabels.load(json.load(f))
-        else:
-            video_path = self._project_dir_path / video_filename
-            nframes = get_frame_count(str(video_path))
-            return VideoLabels(video_filename, nframes)
+        Args:
+            video_path: pathlib.Path containing location of video file
 
-    @staticmethod
-    def to_safe_name(behavior: str) -> str:
-        """
-        Create a version of the given behavior name that
-        should be safe to use in filenames.
-        :param behavior: string behavior name
-        """
-        safe_behavior = re.sub('[^0-9a-zA-Z]+', '_', behavior).rstrip('_')
-        # get rid of consecutive underscores
-        safe_behavior = re.sub('_{2,}', '_', safe_behavior)
-        return safe_behavior
+        Returns:
+            PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
 
-    def load_pose_est(self, video_path: Path):
-        """
-        return a PoseEstimation object for a given video path
-        :param video_path: pathlib.Path containing location of video file
-        :return: PoseEstimation object (PoseEstimationV2 or PoseEstimationV3)
-        :raises ValueError: if video no in project or it does not have post file
+        Raises:
+            ValueError: if video no in project or it does not have post
+                file
         """
         # ensure this video path is for a valid project video
         video_filename = Path(video_path).name
-        self.check_video_name(video_filename)
+        self._video_manager.check_video_name(video_filename)
 
-        return open_pose_file(get_pose_path(video_path), self._cache_dir)
+        return open_pose_file(get_pose_path(video_path), self._paths.cache_dir)
 
-    def check_video_name(self, video_filename):
-        """
-        make sure the video name actually matches one in the project, this
-        function will raise a ValueError if the video name is not valid,
-        otherwise the function has no effect
-        :param video_filename:
-        :return: None
-        :raises: ValueError if the filename is not a valid video in this project
-        """
-        if video_filename not in self._videos:
-            raise ValueError(f"{video_filename} not in project")
+    def save_annotations(self, annotations: VideoLabels, pose: PoseEstimation):
+        """save state of a VideoLabels object to the project directory
 
-    def save_annotations(self, annotations: VideoLabels):
-        """
-        save state of a VideoLabels object to the project directory
-        :param annotations: VideoLabels object
-        :return: None
-        """
-        path = self._annotations_dir / Path(
-            annotations.filename).with_suffix('.json')
+        Args:
+            annotations: VideoLabels object
+            pose: PoseEstimation, identity mask is used to account for dropped identity when generating intervals
 
-        with path.open(mode='w', newline='\n') as f:
-            json.dump(annotations.as_dict(), f, indent=2)
+        Returns:
+            None
+        """
+        path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(".json")
+
+        annotations = annotations.as_dict(pose)
+        annotations["labeler"] = self.labeler
+
+        with path.open(mode="w", newline="\n") as f:
+            json.dump(annotations, f, indent=2)
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
-
-    def save_metadata(self, data: dict):
-        """
-        save project settings and metadata into the project directory. This may
-        include things like custom behavior labels added by the user as well
-        as the most recently selected behavior label
-
-        any keys in the project metadata dict not included in the data, will
-        not be modified
-        :param data: dictionary with state information to save
-        :return: None
-        """
-
-        # merge data with current metadata
-        self._metadata.update(data)
-        self._metadata['version'] = version_str()
-
-        # save combined info to file
-        with self._project_file.open(mode='w', newline='\n') as f:
-            json.dump(self._metadata, f, indent=2, sort_keys=True)
-
-    def load_metadata(self):
-        """
-        load project metadata
-        :return: dictionary of project metadata, empty dict if unable to open
-        file (such as when the project is first created and the file does not
-        exist)
-        """
-        try:
-            with self._project_file.open(mode='r', newline='\n') as f:
-                settings = json.load(f)
-        except:
-            settings = {}
-
-        if 'behavior' not in settings:
-            settings['behavior'] = {}
-        if 'window_sizes' not in settings:
-            settings['window_sizes'] = [fe.DEFAULT_WINDOW_SIZE]
-
-        return settings
-
-    def save_behavior_metadata(self, behavior: str, data: dict):
-        """
-        save metadata specific to a behavior
-        :behavior: behavior key to write metadata to
-        :data: dictionary of metadata to update
-        """
-        all_behavior_data = self._metadata.get('behavior', {})
-        merged_data = all_behavior_data.get(behavior, self.get_project_defaults())
-        merged_data.update(data)
-        all_behavior_data.update({behavior: merged_data})
-        self.save_metadata({'behavior': all_behavior_data})
-
-    def get_behavior_metadata(self, behavior: str):
-        """
-        get metadata specific to a requested behavior
-        :behavior: string of the behavior key to read
-        :return: dictionary of behavior metadata in the project. 
-        get_project_defaults if behavior not present
-        """
-        # If settings are never changed, this is an empty dict.
-        current_meta = dict(self._metadata['behavior'].get(behavior, {}))
-        if current_meta:
-            return current_meta
-        return self.get_project_defaults()
+        self._settings_manager.update_version()
 
     def get_project_defaults(self):
+        """obtain the default per-behavior settings
+
+        Returns:
+            dictionary of project settings
         """
-        obtain the default per-behavior settings
-        :return: dictionary of project settings
-        """
-        return self.settings_by_pose_version(self._min_pose_version, self.distance_unit, self.static_objects)
+        return self.settings_by_pose_version(
+            self._feature_manager.min_pose_version,
+            self._feature_manager.distance_unit,
+            self._feature_manager.static_objects,
+        )
 
     @staticmethod
-    def settings_by_pose_version(pose_version: int = 2, distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL, static_objects: typing.List = []):
+    def settings_by_pose_version(
+        pose_version: int = 2,
+        distance_unit: ProjectDistanceUnit = ProjectDistanceUnit.PIXEL,
+        static_objects: set[str] | None = None,
+    ):
+        """obtain project settings for a specified pose version
+
+        Args:
+            pose_version: pose version to indicate settings
+            distance_unit: distance unit for settings
+            static_objects: keys of static objects to include
         """
-        obtain project settings for a specified pose version
-        :param pose_version: pose version to indicate settings
-        :param distance_unit: distance unit for settings
-        :param static_objects: keys of static objects to include
-        """
+        if static_objects is None:
+            static_objects = set()
+
         return {
-            'cm_units': distance_unit,
-            'window_size': fe.DEFAULT_WINDOW_SIZE,
-            'social': pose_version >= 3,
-            'static_objects': {obj: True if pose_version >= 5 and obj in static_objects else False for obj in fe.landmark_features.landmark_group.LandmarkFeatureGroup._feature_map.keys()},
-            'segmentation': pose_version >= 6,
-            'window': True,
-            'fft': True,
-            'balance_labels': False,
-            'symmetric_behavior': False,
+            "cm_units": distance_unit,
+            "window_size": fe.DEFAULT_WINDOW_SIZE,
+            "social": pose_version >= 3,
+            "static_objects": {
+                obj: bool(pose_version >= 5 and obj in static_objects)
+                for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map
+            },
+            "segmentation": pose_version >= 6,
+            "window": True,
+            "fft": True,
+            "balance_labels": False,
+            "symmetric_behavior": False,
         }
 
     def save_classifier(self, classifier, behavior: str):
+        """Save the classifier for the given behavior
+
+        Args:
+            classifier: the classifier to save
+            behavior: string behavior name. This affects the path we save to
         """
-        Save the classifier for the given behavior
-        :param classifier: the classifier to save
-        :param behavior: string behavior name. This affects the path we save to
-        """
-        self._classifier_dir.mkdir(parents=True, exist_ok=True)
-        classifier.save(
-            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
-        )
+        classifier.save(self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle"))
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
+        self._settings_manager.update_version()
 
     def load_classifier(self, classifier, behavior: str):
+        """Load cached classifier for the given behavior
+
+        Args:
+            classifier: the classifier to load
+            behavior: string behavior name.
+
+        Returns:
+            True if load is successful and False if the file doesn't
+            exist
         """
-        Load cached classifier for the given behavior
-        :param classifier: the classifier to load
-        :param behavior: string behavior name.
-        :return: True if load is successful and False if the file doesn't exist
-        """
-        classifier_path = (
-            self._classifier_dir / (self.to_safe_name(behavior) + '.pickle')
-        )
+        classifier_path = self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
         try:
             classifier.load(classifier_path)
             return True
         except OSError:
             return False
 
-    def save_predictions(self, predictions, probabilities,
-                         frame_indexes, behavior: str, classifier):
-        """
-        save predictions for the current project
-        :param predictions: predictions for all videos in project (dictionary
-        with each video name as a key and a numpy array (#identities, #frames))
-        :param probabilities: corresponding prediction probabilities, similar
-        structure to predictions parameter but with floating point values
-        :param frame_indexes: mapping of the predictions to video frames
-        :param behavior: string behavior name
-        :param classifier: Classifier object used to generate the predictions
+    def save_predictions(
+        self, predictions, probabilities, frame_indexes, behavior: str, classifier
+    ):
+        """save predictions for the current project
 
-        Because the classifier does not run on every frame for every identity
-        (since an identity may not exist for every frame), we extract just
-        the features for the frames we need to classify. Now we want to map
-        these back to the corresponding frame.
-        predictions[video_name][identity, index] and
-        probabilities[video_name][identity, index] correspond to the frame
-        specified by frame_indexes[video][identity, index]
-        """
+        Args:
+            predictions: predictions for all videos in project
+                (dictionary with each video name as a key and a numpy array (#identities, #frames))
+            probabilities: corresponding prediction probabilities,
+                similar structure to predictions parameter but with floating point values
+            frame_indexes: mapping of the predictions to video frames
+            behavior: string behavior name
+            classifier: Classifier object used to generate the
+                predictions
 
-        for video in self._videos:
-            # setup an ouptut filename based on the behavior and video names
-            file_base = Path(video).with_suffix('').name + ".h5"
-            output_path = self._prediction_dir / file_base
+        Note:
+            Because the classifier does not run on every frame for every identity
+            (since an identity may not exist for every frame), we extract just
+            the features for the frames we need to classify. Now we want to map
+            these back to the corresponding frame.
+            predictions[video_name][identity, index] and
+            probabilities[video_name][identity, index] correspond to the frame
+            specified by frame_indexes[video][identity, index]
+        """
+        for video in self._video_manager.videos:
+            # setup an output filename based on the behavior and video names
+            file_base = Path(video).with_suffix("").name + ".h5"
+            output_path = self._paths.prediction_dir / file_base
 
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
 
             # we need some info from the PoseEstimation and VideoLabels objects
             # associated with this video
-            video_tracks = self.load_video_labels(video)
-            poses = open_pose_file(get_pose_path(self.video_path(video)),
-                                   self._cache_dir)
+            poses = open_pose_file(
+                get_pose_path(self._video_manager.video_path(video)),
+                self._paths.cache_dir,
+            )
 
             # allocate numpy arrays to write to h5 file
             prediction_labels = np.full(
-                (poses.num_identities, video_tracks.num_frames), -1,
-                dtype=np.int8)
+                (poses.num_identities, poses.num_frames), -1, dtype=np.int8
+            )
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
             # populate numpy arrays
             for identity in predictions[video]:
-                identity_index = int(identity)
-
                 inferred_indexes = frame_indexes[video][identity]
-                track = video_tracks.get_track_labels(identity, behavior)
 
-                prediction_labels[identity_index, inferred_indexes] = predictions[video][identity][inferred_indexes]
-                prediction_prob[identity_index, inferred_indexes] = probabilities[video][identity][inferred_indexes]
+                prediction_labels[identity, inferred_indexes] = predictions[video][identity][
+                    inferred_indexes
+                ]
+                prediction_prob[identity, inferred_indexes] = probabilities[video][identity][
+                    inferred_indexes
+                ]
 
             # write to h5 file
-            self.write_predictions(behavior, output_path, prediction_labels,
-                                   prediction_prob, poses, classifier)
+            self._prediction_manager.write_predictions(
+                behavior,
+                output_path,
+                prediction_labels,
+                prediction_prob,
+                poses,
+                classifier,
+            )
 
         # update app version saved in project metadata if necessary
-        self.__update_version()
-
-    @staticmethod
-    def write_predictions(behavior: str, output_path: Path, predictions, probabilities, poses, classifier):
-        """
-        write predictions out to a file
-        :param behavior: string describing the behavior
-        :param output_path: name of file to write predictions to
-        :param predictions: matrix of prediction class data of shape [n_animals, n_frames]
-        :param probabilities: matrix of probability for the predicted class of shape [n_animals, n_frames]
-        :param poses: PoseEstimation object for which predictions were made
-        :param classifier: Classifier object for which was used to make predictions
-        """
-        # TODO catch exceptions
-        with h5py.File(output_path, 'a') as h5:
-            h5.attrs['pose_file'] = Path(poses.pose_file).name
-            h5.attrs['pose_hash'] = poses.hash
-            h5.attrs['version'] = _PREDICTION_FILE_VERSION
-            prediction_group = h5.require_group('predictions')
-            behavior_group = prediction_group.require_group(Project.to_safe_name(behavior))
-            behavior_group.attrs['classifier_file'] = classifier.classifier_file
-            behavior_group.attrs['classifier_hash'] = classifier.classifier_hash
-            behavior_group.attrs['app_version'] = version_str()
-            behavior_group.attrs['prediction_date'] = str(datetime.now())
-            h5_predictions = behavior_group.require_dataset('predicted_class', shape=predictions.shape, dtype=predictions.dtype)
-            h5_predictions[...] = predictions
-            h5_probabilities = behavior_group.require_dataset('probabilities', shape=probabilities.shape, dtype=probabilities.dtype)
-            h5_probabilities[...] = probabilities
-            if poses.identity_to_track is not None:
-                h5_ids = behavior_group.require_dataset('identity_to_track', shape=poses.identity_to_track.shape, dtype=poses.identity_to_track.dtype)
-                h5_ids[...] = poses.identity_to_track
-            elif 'identity_to_track' in behavior_group:
-                del behavior_group['identity_to_track']
-
-    def load_predictions(self, video: str, behavior: str):
-        """
-        load predictions for a given video and behavior
-        :param video: name of video to load predictions for
-        :param behavior: behavior to load predictions for
-        :return: tuple of three dicts: (predictions, probabilities, frame_indexes)
-        each dict has identities present in the video for keys
-        """
-
-        predictions = {}
-        probabilities = {}
-        frame_indexes = {}
-
-        file_base = Path(video).with_suffix('').name + ".h5"
-        path = self._prediction_dir / file_base
-
-        nident = self._metadata['video_files'][video]['identities']
-
-        try:
-            with h5py.File(path, 'r') as h5:
-                assert h5.attrs['version'] == self.PREDICTION_FILE_VERSION
-                prediction_group = h5['predictions']
-                if self.to_safe_name(behavior) not in prediction_group:
-                    # TODO: this isn't an IOError, it's a KeyError, but KeyError can be thrown from other stuff and is handled differently.
-                    # This needs to appear as if no saved predictions exist for this video.
-                    raise IOError(f'Behavior {self.to_safe_name(behavior)} not in prediction file.')
-                behavior_group = prediction_group[self.to_safe_name(behavior)]
-                assert behavior_group['predicted_class'].shape[0] == nident
-                assert behavior_group['probabilities'].shape[0] == nident
-
-                _probabilities = behavior_group['probabilities'][:]
-                _classes = behavior_group['predicted_class'][:]
-
-                for i in range(nident):
-                    identity = str(i)
-                    indexes = np.asarray(range(behavior_group['predicted_class'].shape[1]))
-
-                    # first, exclude any probability of -1 as that indicates
-                    # a user label, not a inferred class
-                    indexes = indexes[_probabilities[i] != -1]
-
-                    # now excludes a class of -1 as that indicates the
-                    # identity isn't present
-                    indexes = indexes[_classes[i, indexes] != -1]
-
-                    # we're left with classes/probabilities for frames that
-                    # were inferred and their frame indexes
-                    predictions[identity] = _classes[i]
-                    probabilities[identity] = _probabilities[i]
-                    frame_indexes[identity] = indexes
-
-        except IOError:
-            # no saved predictions for this video
-            pass
-        except (AssertionError, KeyError) as e:
-            print(f"unable to open saved inferences for {video}", file=sys.stderr)
-
-        return predictions, probabilities, frame_indexes
+        self._settings_manager.update_version()
 
     def archive_behavior(self, behavior: str):
-        """
-        Archive a behavior.
-        Archives any labels for this behavior. Deletes any other files
-        associated with this behavior.
-        :param behavior: string behavior name
-        :return: None
-        """
+        """Archive a behavior.
 
-        safe_behavior = self.to_safe_name(behavior)
+        Archives any labels for this behavior. Deletes any other files associated with this behavior.
+
+        Args:
+            behavior (str): behavior name
+
+        Returns:
+            None
+        """
+        safe_behavior = to_safe_name(behavior)
 
         # remove predictions
-        path = self._prediction_dir / safe_behavior
+        path = self._paths.prediction_dir / safe_behavior
         shutil.rmtree(path, ignore_errors=True)
 
         # remove classifier
-        path = self._classifier_dir / f"{safe_behavior}.pickle"
-        try:
+        path = self._paths.classifier_dir / f"{safe_behavior}.pickle"
+        with contextlib.suppress(FileNotFoundError):
             path.unlink()
-        except FileNotFoundError:
-            pass
 
         # archive labels
         archived_labels = {}
-        for video in self._videos:
-            annotations = self.load_video_labels(video).as_dict()
-            for ident in annotations['labels']:
-                if behavior in annotations['labels'][ident]:
+        for video in self._video_manager.videos:
+            labels = self._video_manager.load_video_labels(video)
+
+            # if no labels for video skip it
+            if labels is None:
+                continue
+
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            annotations = labels.as_dict(pose)
+            for ident in annotations["labels"]:
+                if behavior in annotations["labels"][ident]:
                     if video not in archived_labels:
-                        archived_labels[video] = {
-                            'num_frames': annotations['num_frames']
-                        }
+                        archived_labels[video] = {"num_frames": annotations["num_frames"]}
                         archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations['labels'][ident].pop(behavior)
-            self.save_annotations(VideoLabels.load(annotations))
+                    archived_labels[video][behavior][ident] = annotations["labels"][ident].pop(
+                        behavior
+                    )
+            self.save_annotations(VideoLabels.load(annotations), pose)
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        with gzip.open(self._archive_dir / f"{safe_behavior}_{ts}.json.gz", 'wt') as f:
+        with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
             json.dump(archived_labels, f, indent=True)
 
-        # remove from project settings
-        try:
-            del self._metadata["behavior"][behavior]
-        except KeyError:
-            pass
-        self.save_metadata({})
-
-    def video_path(self, video_file):
-        """ take a video file name and generate the path used to open it """
-        return Path(self._project_dir_path, video_file)
+        # save project file
+        self._settings_manager.remove_behavior(behavior)
 
     def counts(self, behavior):
-        """
-        get the labeled frame counts and bout counts for each video in the
-        project
-        :return: dict where keys are video names and values are lists of
-        (
-            identity,
-            (behavior frame count, not behavior frame count),
-            (behavior bout count, not behavior bout count)
-        )
+        """get the labeled frame counts and bout counts for each video in the project
+
+        Returns:
+            dict where keys are video names and values are lists of
+                (
+                    identity,
+                    (behavior frame count - fragmented, not behavior frame count - fragmented),
+                    (behavior bout count - fragmented, not behavior bout count - fragmented),
+                    (behavior frame count - unfragmented, not behavior frame count - unfragmented),
+                    (behavior bout count - unfragmented, not behavior bout count - unfragmented)
+                )
         """
         counts = {}
-        for video in self._videos:
-            counts[video] = self.__read_counts(video, behavior)
+        for video in self._video_manager.videos:
+            counts[video] = self.load_counts(video, behavior)
         return counts
 
-    @staticmethod
-    def get_videos(dir_path: Path):
-        """ Get list of video filenames (without path) in a directory """
-        return [f.name for f in dir_path.glob("*") if f.suffix in ['.avi', '.mp4']]
+    def get_labeled_features(
+        self,
+        behavior: str | None = None,
+        progress_callable: Callable[[], None] | None = None,
+        should_terminate_callable: Callable[[], None] | None = None,
+    ) -> tuple[dict, dict]:
+        """the features for all labeled frames
 
-    def get_labeled_features(self, behavior=None, progress_callable=None):
-        """
-        the features for all labeled frames
         NOTE: this will currently take a very long time to run if the features
         have not already been computed
 
-        :param behavior: the behavior settings to get labeled features for
-        if None, will use project defaults (all available features)
-        :param progress_callable: if provided this will be called
-        with no args every time an identity is processed to facilitate
-        progress tracking
+        Args:
+            behavior: the behavior settings to get labeled features for
+                if None, will use project defaults (all available features)
+            progress_callable: if provided this will be called
+                with no args every time an identity is processed to facilitate
+                progress tracking
+            should_terminate_callable: if provided this will be called to check if
+                the user has requested to terminate the operation. This callable
+                should raise a ThreadTerminatedError if the user has requested
+                early termination.
 
-        :return: two dicts: features, group_mappings
+        Returns:
+            two dicts: features, group_mappings
 
-        The first dict contains features for all labeled frames and has the
-        following keys:
+            The first dict contains features for all labeled frames and has the
+            following keys:
 
-        {
-            'window': ,
-            'per_frame': ,
-            'labels': ,
-            'groups': ,
-        }
+            {
+                'window': ,
+                'per_frame': ,
+                'labels': ,
+                'groups': ,
+            }
 
-        The values contained in the first dict are suitable to pass as
-        arguments to the Classifier.leave_one_group_out() method.
+            The values contained in the first dict are suitable to pass as
+            arguments to the Classifier.leave_one_group_out() method.
 
-        The second dict in the tuple has group ids as the keys, and the
-        values are a dict containing the video and identity that corresponds to
-        that group id:
+            The second dict in the tuple has group ids as the keys, and the
+            values are a dict containing the video and identity that corresponds to
+            that group id:
 
-        {
-          <group id>: {'video': <video filename>, 'identity': <identity},
-          ...
-        }
+            {
+              <group id>: {'video': <video filename>, 'identity': <identity},
+              ...
+            }
         """
-
         all_per_frame = []
         all_window = []
         all_labels = []
@@ -732,54 +462,96 @@ class Project:
         group_mapping = {}
 
         group_id = 0
-        for video in self.videos:
-            video_path = self.video_path(video)
+        for video in self._video_manager.videos:
+            # check if early termination is requested
+            if should_terminate_callable:
+                should_terminate_callable()
+
+            video_labels = self._video_manager.load_video_labels(video)
+
+            # if there are no labels for this video, skip it
+            if video_labels is None:
+                if progress_callable is not None:
+                    # increment progress bar for each skipped identity in the video
+                    for _ in range(self._video_manager.get_video_identity_count(video)):
+                        progress_callable()
+                continue
+
+            video_path = self._video_manager.video_path(video)
             pose_est = self.load_pose_est(video_path)
             # fps used to scale some features from per pixel time unit to
             # per second
             fps = get_fps(str(video_path))
 
             for identity in pose_est.identities:
-                group_mapping[group_id] = {'video': video, 'identity': identity}
+                # check if early termination is requested
+                if should_terminate_callable:
+                    should_terminate_callable()
+
+                group_mapping[group_id] = {"video": video, "identity": identity}
+
+                labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
+
+                # because we're allowing the user to label frames where the identity drops out,
+                # we need to exclude labels where the identity does not exist
+                # copy labels array to avoid side effect
+                labels = labels.copy()
+                labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
+
+                # if there are no labels for this identity, skip it
+                if (
+                    np.count_nonzero(
+                        (labels == TrackLabels.Label.BEHAVIOR)
+                        | (labels == TrackLabels.Label.NOT_BEHAVIOR)
+                    )
+                    == 0
+                ):
+                    if progress_callable is not None:
+                        progress_callable()
+                    continue
 
                 features = fe.IdentityFeatures(
-                    video, identity, self.feature_dir, pose_est, fps=fps, op_settings=self.get_behavior_metadata(behavior)
+                    video,
+                    identity,
+                    self.feature_dir,
+                    pose_est,
+                    fps=fps,
+                    op_settings=self._settings_manager.get_behavior(behavior),
                 )
 
-                labels = self.load_video_labels(video).get_track_labels(
-                    str(identity), behavior).get_labels()
-
                 per_frame_features = features.get_per_frame(labels)
-                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(per_frame_features)
+                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
+                    per_frame_features
+                )
                 per_frame_features = pd.DataFrame(per_frame_features)
                 all_per_frame.append(per_frame_features)
 
                 window_features = features.get_window_features(
-                    self.get_behavior_metadata(behavior)['window_size'], labels)
+                    self._settings_manager.get_behavior(behavior)["window_size"], labels
+                )
                 window_features = fe.IdentityFeatures.merge_window_features(window_features)
                 window_features = pd.DataFrame(window_features)
                 all_window.append(window_features)
 
                 all_labels.append(labels[labels != TrackLabels.Label.NONE])
 
-                all_groups.append(
-                    np.full(per_frame_features.shape[0],
-                            group_id))
+                all_groups.append(np.full(per_frame_features.shape[0], group_id))
                 group_id += 1
 
                 if progress_callable is not None:
                     progress_callable()
 
         return {
-            'window': pd.concat(all_window, join='inner'),
-            'per_frame': pd.concat(all_per_frame, join='inner'),
-            'labels': np.concatenate(all_labels),
-            'groups': np.concatenate(all_groups),
+            "window": pd.concat(all_window, join="inner"),
+            "per_frame": pd.concat(all_per_frame, join="inner"),
+            "labels": np.concatenate(all_labels),
+            "groups": np.concatenate(all_groups),
         }, group_mapping
 
     def clear_cache(self):
-        if self._cache_dir is not None:
-            for f in self._cache_dir.glob('*'):
+        """clear the cache directory for this project"""
+        if self._paths.cache_dir is not None:
+            for f in self._paths.cache_dir.glob("*"):
                 try:
                     if f.is_dir():
                         shutil.rmtree(f)
@@ -788,16 +560,9 @@ class Project:
                 except OSError:
                     pass
 
-    def __update_version(self):
-        """ update the version number saved in project metadata """
-        # only update if the version in the metadata is different from current
-        version = self._metadata.get('version')
-        if version != version_str():
-            self.save_metadata({'version': version_str()})
-
     def __has_pose(self, vid: str):
-        """ check to see if a video has a corresponding pose file """
-        path = self._project_dir_path / vid
+        """check to see if a video has a corresponding pose file"""
+        path = self._paths.project_dir / vid
 
         try:
             get_pose_path(path)
@@ -805,40 +570,87 @@ class Project:
             return False
         return True
 
-    def __read_counts(self, video, behavior):
-        """
-        read labeled frame and bout counts from json file
-        :return: list of labeled frame and bout counts for each identity for the
-        specified behavior. Each element in the list is a tuple of the form
-        (
-            identity,
-            (behavior frame count, not behavior frame count)
-            (behavior bout count, not behavior bout count)
-        )
-        """
-        video_filename = Path(video).name
-        path = self._annotations_dir / Path(video_filename).with_suffix('.json')
+    def load_counts(self, video, behavior) -> dict[str, tuple[int, int]]:
+        """load labeled frame and bout counts from json file
 
-        counts = []
+        Returns:
+            dict of labeled frame and bout counts for each identity for
+            the specified behavior.
+            {
+                identity: {
+                    "fragmented_frame_counts": (
+                        fragmented behavior frame count,
+                        fragmented not behavior frame count
+                    ),
+                    "fragmented_bout_counts": (
+                        fragmented behavior bout count,
+                        fragmented not behavior bout count
+                    ),
+                    "unfragmented_frame_counts": (
+                        unfragmented behavior frame count,
+                        unfragmented not behavior frame count
+                    )
+                    "unfragmented_bout_counts": (
+                        unfragmented behavior bout count,
+                        unfragmented not behavior bout count
+                    )
+                }
+            }
+
+        Note: "unfragmented" counts labels where identity drops out. "fragmented" does not,
+            so if an identity drops out during a bout, the bout will be split in the fragmented counts but will
+            be counted as a single bout in the unfragmented counts.
+
+        Todo:
+            - with the addition of unfragmented counts, we should switch to a dict with descriptive key names instead of a tuple
+        """
+
+        def count_labels(
+            behavior_labels: dict[str, list[dict]],
+        ) -> tuple[tuple[int, int], tuple[int, int]]:
+            blocks = behavior_labels.get(behavior, [])
+            frames_behavior = 0
+            frames_not_behavior = 0
+            bouts_behavior = 0
+            bouts_not_behavior = 0
+            for b in blocks:
+                if b["present"]:
+                    bouts_behavior += 1
+                    frames_behavior += b["end"] - b["start"] + 1
+                else:
+                    bouts_not_behavior += 1
+                    frames_not_behavior += b["end"] - b["start"] + 1
+            return (frames_behavior, frames_not_behavior), (bouts_behavior, bouts_not_behavior)
+
+        video_filename = Path(video).name
+        path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
+        counts = {}
 
         if path.exists():
             with path.open() as f:
-                labels = json.load(f).get('labels')
-                for identity in labels:
-                    blocks = labels[identity].get(behavior, [])
-                    frames_behavior = 0
-                    frames_not_behavior = 0
-                    bouts_behavior = 0
-                    bouts_not_behavior = 0
-                    for b in blocks:
-                        if b['present']:
-                            bouts_behavior += 1
-                            frames_behavior += b['end'] - b['start'] + 1
-                        else:
-                            bouts_not_behavior += 1
-                            frames_not_behavior += b['end'] - b['start'] + 1
+                data = json.load(f)
+                unfragmented_labels = data.get("unfragmented_labels", {})
+                labels = data.get("labels", {})
 
-                    counts.append((identity,
-                                   (frames_behavior, frames_not_behavior),
-                                   (bouts_behavior, bouts_not_behavior)))
+                for identity in set(unfragmented_labels.keys()).union(labels.keys()):
+                    fragmented_counts = (
+                        count_labels(labels.get(identity, [])) if labels else ((0, 0), (0, 0))
+                    )
+
+                    if "unfragmented_labels" in data:
+                        unfragmented_counts = count_labels(unfragmented_labels.get(identity, []))
+                    else:
+                        # if the file doesn't have unfragmented labels, use the fragmented counts -- they're the same
+                        # unless the user creates some new labels over frames without identity
+                        unfragmented_counts = fragmented_counts
+
+                    # identity is stored as a string in the JSON file because it's used as a key. Turn it back
+                    # into an int as used internally by JABS
+                    counts[int(identity)] = {
+                        "fragmented_frame_counts": fragmented_counts[0],
+                        "fragmented_bout_counts": fragmented_counts[1],
+                        "unfragmented_frame_counts": unfragmented_counts[0],
+                        "unfragmented_bout_counts": unfragmented_counts[1],
+                    }
+
         return counts

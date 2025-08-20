@@ -1,27 +1,26 @@
 import typing
 
-import numpy as np
-import scipy.stats
 import cv2
+import numpy as np
 from shapely.geometry import Point
 
-
-from jabs.pose_estimation import PoseEstimation
 from jabs.feature_extraction.feature_base_class import Feature
+from jabs.pose_estimation import PoseEstimation
 
 
 class CornerDistanceInfo:
-    """
+    """cached distance to corner
+
     because we have two features that both need to know which corner is the
     closest, we compute that information once in this helper class and then
-    pass it to both of the features
-    The features are not merged into a single feature because one (bearing to
+    pass it to both of the classes that implement the features.
+    The features are not merged into a single feature class because one (bearing to
     corner) needs to use the circular window feature methods, and the other
     does not, so it can't easily be implemented as one multi-column Feature
-    class
+    class.
     """
-    def __init__(self, poses: PoseEstimation, pixel_scale: float):
 
+    def __init__(self, poses: PoseEstimation, pixel_scale: float):
         self._poses = poses
         self._pixel_scale = pixel_scale
         self._closest_corner_idx = {}
@@ -30,11 +29,11 @@ class CornerDistanceInfo:
         self._all_wall_distances = {}
 
     def cache_features(self, identity: int):
-        """
-        cache corner distances and bearings for a given identity
-        :param identity: integer identity to get distances for
-        """
+        """cache corner distances and bearings for a given identity
 
+        Args:
+            identity: integer identity to get distances for
+        """
         if identity in self._cached_distances and identity in self._cached_bearings:
             return
 
@@ -49,17 +48,20 @@ class CornerDistanceInfo:
         idx = PoseEstimation.KeypointIndex
         avg_wall_length = np.nan
 
-        if 'corners' in self._poses.static_objects:
+        if "corners" in self._poses.static_objects:
             closest_corners = np.full(self._poses.num_frames, -1, dtype=np.int8)
-            corners = self.sort_points_clockwise(self._poses.static_objects['corners'])
-            wall_vectors = corners.astype(np.float32) - np.roll(corners.astype(np.float32), 1, axis=0)
-            avg_wall_length = np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
+            corners = self.sort_points_clockwise(self._poses.static_objects["corners"])
+            wall_vectors = corners.astype(np.float32) - np.roll(
+                corners.astype(np.float32), 1, axis=0
+            )
+            avg_wall_length = (
+                np.mean(np.hypot(wall_vectors[:, 0], wall_vectors[:, 1])) * self._pixel_scale
+            )
 
             arena_center_np = np.mean(corners, axis=0)
             arena_center = Point(arena_center_np[0], arena_center_np[1])
 
             for frame in range(self._poses.num_frames):
-
                 # don't scale the point coordinates by the pixel_scale value,
                 # since the corners are in pixel space. we'll adjust the
                 # distance units later
@@ -70,7 +72,7 @@ class CornerDistanceInfo:
 
                 # find distance to closest corner
                 self_shape = self_convex_hulls[frame]
-                distance = float('inf')
+                distance = float("inf")
                 corner_coordinates = (0, 0)
                 closest_idx = -1
                 for i in range(4):
@@ -83,19 +85,36 @@ class CornerDistanceInfo:
                 self_base_neck_point = points[idx.BASE_NECK, :]
                 self_nose_point = points[idx.NOSE, :]
 
-                corner_bearing = self.compute_angle(self_nose_point, self_base_neck_point, corner_coordinates)
+                corner_bearing = self.compute_angle(
+                    self_nose_point, self_base_neck_point, corner_coordinates
+                )
 
-                center_bearing = self.compute_angle(self_nose_point, self_base_neck_point, arena_center_np)
+                center_bearing = self.compute_angle(
+                    self_nose_point, self_base_neck_point, arena_center_np
+                )
 
                 center_dist = self_shape.distance(arena_center)
+
                 # Calculate distance to all walls using cross product
                 p1 = corners.astype(np.float32)
                 p2 = np.roll(p1, 1, axis=0)
                 centroid_point = np.asarray(self_shape.centroid.xy).squeeze()
+
+                # Ensure 3D vectors for np.cross to avoid deprecation warning
+                centroid_point_3d = np.hstack([centroid_point, 0])
+                p1_3d = np.hstack([p1, np.zeros((p1.shape[0], 1), dtype=np.float32)])
+                p2_3d = np.hstack([p2, np.zeros((p2.shape[0], 1), dtype=np.float32)])
+
                 # Note that we can skip dividing by the norm of p2-p1 because we re-scale it anyway
-                wall_dist = np.abs(np.cross(centroid_point - p1, p2 - p1))  # / np.linalg.norm(p2 - p1)
+                wall_dist = np.abs(
+                    np.cross(centroid_point_3d - p1_3d, p2_3d - p1_3d)
+                )  # shape (N, 3)
+                wall_dist = wall_dist[:, 2]  # Take the z-component
+
                 shortest_wall_dist = np.min(wall_dist)
-                wall_dist_cv2 = cv2.pointPolygonTest(corners.astype(np.float32), centroid_point, True)
+                wall_dist_cv2 = cv2.pointPolygonTest(
+                    corners.astype(np.float32), centroid_point, True
+                )
                 correction_scale = wall_dist_cv2 / shortest_wall_dist
                 wall_dist *= correction_scale
                 wall_dist = np.abs(wall_dist)
@@ -109,65 +128,82 @@ class CornerDistanceInfo:
                 closest_corners[frame] = closest_idx
 
         self._cached_distances[identity] = {
-            'distance to corner': corner_distances,
-            'distance to center': center_distances,
-            'distance to wall': wall_distances,
+            "distance to corner": corner_distances,
+            "distance to center": center_distances,
+            "distance to wall": wall_distances,
         }
-        
+
         self._cached_bearings[identity] = {
-            'bearing to corner': corner_bearings,
-            'bearing to center': center_bearings,
+            "bearing to corner": corner_bearings,
+            "bearing to center": center_bearings,
         }
 
         self._closest_corner_idx[identity] = closest_corners
-        self._all_wall_distances[identity] = {f'wall_{i}': all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])}
+        self._all_wall_distances[identity] = {
+            f"wall_{i}": all_wall_distances[:, i] for i in np.arange(all_wall_distances.shape[1])
+        }
         self._avg_wall_length = avg_wall_length
 
-    def get_distances(self, identity: int) -> typing.Dict:
-        """
-        get corner distance features for a given identity
-        :param identity: integer identity to get distances for
-        :return: dict containing keyed distances
+    def get_distances(self, identity: int) -> dict:
+        """get corner distance features for a given identity
+
+        Args:
+            identity: integer identity to get distances for
+
+        Returns:
+            dict containing keyed distances
         """
         if identity not in self._cached_distances:
             self.cache_features(identity)
         return self._cached_distances[identity]
 
-    def get_bearings(self, identity: int) -> typing.Dict:
-        """
-        get corner bearing features for a given identity
-        :param identity: integer identity to get bearings for
-        :return: dict containing keyed bearings
+    def get_bearings(self, identity: int) -> dict:
+        """get corner bearing features for a given identity
+
+        Args:
+            identity: integer identity to get bearings for
+
+        Returns:
+            dict containing keyed bearings
         """
         if identity not in self._cached_bearings:
             self.cache_features(identity)
         return self._cached_bearings[identity]
 
     def get_closest_corner(self, identity: int) -> np.ndarray:
-        """
-        get the closest corner index
-        :param identity: integer identity to get the closest corner
-        :return: np.ndarray of the corner index
+        """get the closest corner index
+
+        Args:
+            identity: integer identity to get the closest corner
+
+        Returns:
+            np.ndarray of the corner index
         """
         if identity not in self._closest_corner_idx:
             self.cache_features(identity)
         return self._closest_corner_idx[identity]
 
     def get_wall_distances(self, identity: int) -> np.ndarray:
-        """
-        get the wall distances
-        :param identity: integer identity to get the wall distances
-        :return: np.ndarray of all wall distances
+        """get the wall distances
+
+        Args:
+            identity: integer identity to get the wall distances
+
+        Returns:
+            np.ndarray of all wall distances
         """
         if identity not in self._all_wall_distances:
             self.cache_features(identity)
         return self._all_wall_distances[identity]
 
-    def get_avg_wall_length(self, identity: int = 0) -> np.ndarray:
-        """
-        gets the average wall length
-        :param identity: identity to cache if not yet calculated
-        :returns: average wall length
+    def get_avg_wall_length(self, identity: int = 0) -> float:
+        """gets the average wall length
+
+        Args:
+            identity: identity to cache if not yet calculated
+
+        Returns:
+            average wall length
         """
         if self._avg_wall_length is None:
             self.cache_features(identity)
@@ -175,10 +211,13 @@ class CornerDistanceInfo:
 
     @staticmethod
     def sort_points_clockwise(points):
-        """
-        sorts a list of points to be clockwise relative to the first point
-        :param points: points to sort of shape [n_points, 2]
-        :return: points sorted clockwise
+        """sorts a list of points to be clockwise relative to the first point
+
+        Args:
+            points: points to sort of shape [n_points, 2]
+
+        Returns:
+            points sorted clockwise
         """
         origin_point = np.mean(points, axis=0)
         vectors = points - origin_point
@@ -190,74 +229,86 @@ class CornerDistanceInfo:
 
     @staticmethod
     def compute_angle(a, b, c):
-        """
-        compute angle created by three connected points
-        :param a: point
-        :param b: vertex point
-        :param c: point
-        :return: angle between AB and BC with range [-180, 180)
-        """
+        """compute angle created by three connected points
 
+        Args:
+            a: point
+            b: vertex point
+            c: point
+
+        Returns:
+            angle between AB and BC with range [-180, 180)
+        """
         # most of the point types are unsigned short integers
         # cast to signed types to avoid underflow issues during subtraction
         angle = np.degrees(
-            np.arctan2(c[1] - b[1], c[0] - b[0]) -
-            np.arctan2(a[1] - b[1], a[0] - b[0])
+            np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
         )
         return ((angle + 180) % 360) - 180
 
 
 class DistanceToCorner(Feature):
-    _name = 'corner_distances'
-    _min_pose = 5
-    _static_objects = ['corners']
+    """Feature extraction class for computing the distance to the nearest corner.
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float,
-                 distances: CornerDistanceInfo):
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        distances (CornerDistanceInfo): Object providing corner distance information.
+    """
+
+    _name = "corner_distances"
+    _min_pose = 5
+    _static_objects: typing.ClassVar[list[str]] = ["corners"]
+
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> typing.Dict:
-        """
-        get the per frame distance to the nearest corner values
-        :param identity: identity to get feature values for
-        :return: dict of numpy ndarray of values with shape (nframes,)
-        """
+    def per_frame(self, identity: int) -> dict:
+        """get the per frame distance to the nearest corner values
 
+        Args:
+            identity: identity to get feature values for
+
+        Returns:
+            dict of numpy ndarray of values with shape (nframes,)
+        """
         distances = self._cached_distances.get_distances(identity)
         return distances
 
 
 class BearingToCorner(Feature):
-    _name = 'corner_bearings'
+    """Feature extraction class for computing the bearing to the nearest corner.
+
+    Args:
+        poses (PoseEstimation): Pose estimation data for a video.
+        pixel_scale (float): Scale factor to convert pixel distances to cm.
+        distances (CornerDistanceInfo): Object providing corner distance and bearing information.
+    """
+
+    _name = "corner_bearings"
     _min_pose = 5
-    _static_objects = ['corners']
+    _static_objects: typing.ClassVar[list[str]] = ["corners"]
+    _use_circular = True
 
-    # override for circular values
-    _window_operations = {
-        "mean": lambda x: scipy.stats.circmean(x, low=-180, high=180, nan_policy='omit'),
-        "std_dev": lambda x: scipy.stats.circstd(x, low=-180, high=180, nan_policy='omit'),
-    }
-
-    def __init__(self, poses: PoseEstimation, pixel_scale: float,
-                 distances: CornerDistanceInfo):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, distances: CornerDistanceInfo):
         super().__init__(poses, pixel_scale)
 
         self._cached_distances = distances
 
-    def per_frame(self, identity: int) -> typing.Dict:
-        """
-        get the per frame bearing to the nearest corner values
-        :param identity: identity to get feature values for
-        :return: dict of numpy ndarray values with shape (nframes,)
-        """
+    def per_frame(self, identity: int) -> dict:
+        """get the per frame bearing to the nearest corner values
 
-        bearings = self._cached_distances.get_bearings(identity)
-        return bearings
+        Args:
+            identity: identity to get feature values for
 
-    def window(self, identity: int, window_size: int,
-               per_frame_values: dict) -> typing.Dict:
-        # need to override to use special method for computing window features
-        # with circular values
-        return self._window_circular(identity, window_size, per_frame_values)
+        Returns:
+            dict of numpy ndarray values with shape (nframes,)
+        """
+        features = self._cached_distances.get_bearings(identity)
+        features["bearing to corner cosine"] = np.cos(np.deg2rad(features["bearing to corner"]))
+        features["bearing to corner sine"] = np.sin(np.deg2rad(features["bearing to corner"]))
+        features["bearing to center cosine"] = np.cos(np.deg2rad(features["bearing to center"]))
+        features["bearing to center sine"] = np.sin(np.deg2rad(features["bearing to center"]))
+        return features

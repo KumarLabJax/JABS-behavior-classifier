@@ -2,13 +2,12 @@
 #   singularity build --fakeroot JABS-GUI.sif behavior-classifier-vm-gui.def
 
 Bootstrap: docker
-From: python:3.10-bookworm
+From: python:3.13-bookworm
 
 %setup
     mkdir -p ${SINGULARITY_ROOTFS}/behavior-classifier
 
 %files
-    ../docs /behavior-classifier/docs
     ../src /behavior-classifier/src
     ../tests /behavior-classifier/tests
     ../vm /behavior-classifier/vm
@@ -19,17 +18,19 @@ From: python:3.10-bookworm
 
 %post
     pip install poetry
+    pip install pytest
     poetry --directory=/behavior-classifier/ install
     poetry --directory=/behavior-classifier/ build
     pip install /behavior-classifier/dist/jabs_behavior_classifier-*-py3-none-any.whl
 
-    # Run unittests to ensure build environment should work as intended
-    cd /behavior-classifier/
-    python3 -m unittest discover -s /behavior-classifier/tests/
-
-    # Cleanup
-    rm -R /behavior-classifier
-    
     # GUI libraries
     apt-get update && apt-get install -y qt6-base-dev libglu1-mesa-dev libgl1-mesa-glx alsa-utils libnss3 libxkbfile1 'libxcb*'
     # Note that libxcb is wildcarded because it wasn't very clear which xcb library was missing, so we can just grab them all
+
+    # Run unittests to ensure build environment should work as intended
+    cd /behavior-classifier/
+    pytest tests
+
+    # Cleanup
+    rm -R /behavior-classifier
+
