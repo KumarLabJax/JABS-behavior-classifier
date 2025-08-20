@@ -149,6 +149,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(self._prune_action)
 
         # Setup View Menu
+        # clear cache action
+        self._clear_cache = QtGui.QAction("Clear Project Cache", self)
+        self._clear_cache.setStatusTip("Clear Project Cache")
+        self._clear_cache.setEnabled(False)
+        self._clear_cache.triggered.connect(self._clear_cache_action)
+        file_menu.addAction(self._clear_cache)
+
         # video playlist menu item
         self.view_playlist = QtGui.QAction("View Playlist", self)
         self.view_playlist.setCheckable(True)
@@ -697,6 +704,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_segmentation_features.setEnabled(
             self._project.feature_manager.can_use_segmentation_features
         )
+        self._clear_cache.setEnabled(True)
         available_objects = self._project.feature_manager.static_objects
         for static_object, menu_item in self.enable_landmark_features.items():
             if static_object in available_objects:
@@ -737,6 +745,37 @@ class MainWindow(QtWidgets.QMainWindow):
             self._settings.sync()
 
         return QtWidgets.QDialog.DialogCode(result)
+
+        # show dialog
+
+    def _clear_cache_action(self):
+        """Clear the cache for the current project. Opens a dialog to get user confirmation first."""
+        app = QtWidgets.QApplication.instance()
+        dont_use_native_dialogs = QtWidgets.QApplication.instance().testAttribute(
+            Qt.ApplicationAttribute.AA_DontUseNativeDialogs
+        )
+
+        # if app is currently set to use native dialogs, we will temporarily set it to use Qt dialogs
+        # the native style, at least on macOS, is not ideal so we'll force the Qt dialog instead
+        if dont_use_native_dialogs is False:
+            app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
+
+        result = QtWidgets.QMessageBox.warning(
+            self,
+            "Clear Cache",
+            "Are you sure you want to clear the project cache?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+
+        # restore the original setting
+        app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, dont_use_native_dialogs)
+
+        if result == QtWidgets.QMessageBox.Yes:
+            self._project.clear_cache()
+            # need to reload the current video to force the pose file to reload
+            self._central_widget.load_video(self._central_widget.loaded_video)
+            self.display_status_message("Cache cleared", 3000)
 
     def _update_recent_projects(self) -> None:
         """update the contents of the Recent Projects menu"""
