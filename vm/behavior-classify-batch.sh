@@ -152,7 +152,7 @@ else
 
     echo "BEGIN PROCESSING: ${POSE_FILE} for ${BATCH_LINE} (${POSE_FILE}"
     module load singularity
-    singularity run "${CLASSIFICATION_IMG}" classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}/features/" --skip-window-cache
+    singularity run "${CLASSIFICATION_IMG}" jabs-classify --training "${CLASSIFIER_FILE}" --input-pose "${POSE_FILE}" --out-dir "${OUT_DIR}" --feature-dir "${OUT_DIR}/features/" --skip-window-cache
 
     echo "FINISHED PROCESSING: ${POSE_FILE}"
 fi
