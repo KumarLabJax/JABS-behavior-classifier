@@ -7,16 +7,19 @@ optional regenerate and overwrite existing feature h5 files
 """
 
 import argparse
+import json
 import sys
 from multiprocessing import Pool
 from pathlib import Path
 
+from jsonschema.exceptions import ValidationError
 from rich.progress import Progress
 
 import jabs.feature_extraction
 import jabs.pose_estimation
 import jabs.project
 from jabs.project.video_manager import VideoManager
+from jabs.schema.metadata import validate_metadata
 from jabs.types import ProjectDistanceUnit
 from jabs.video_reader import VideoReader
 
@@ -149,6 +152,11 @@ def main():
         action="store_true",
         help="use pixel distances when computing features even if project supports cm",
     )
+    parser.add_argument(
+        "--metadata-file",
+        type=Path,
+        help="path to a JSON file containing project metadata to be validated and injected into the project",
+    )
     parser.add_argument("project_dir", type=Path)
     args = parser.parse_args()
 
@@ -167,7 +175,27 @@ def main():
     # first to a quick check to make sure the h5 files exist for each video
     videos = VideoManager.get_videos(args.project_dir)
 
-    # print the initial progress bar with 0% complete
+    metadata = None
+    if args.metadata_file:
+        try:
+            metadata = json.loads(args.metadata_file.read_text())
+            validate_metadata(metadata)
+        except json.JSONDecodeError as e:
+            print(f"Error reading metadata file {args.metadata_file}: {e}")
+            sys.exit(1)
+        except OSError as e:
+            print(f"Error opening metadata file {args.metadata_file}: {e}")
+            sys.exit(1)
+        except ValidationError as e:
+            print(f"Metadata file {args.metadata_file} is not valid: {e.message}")
+            sys.exit(1)
+
+    project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
+    total_identities = project.total_project_identities
+    distance_unit = project.feature_manager.distance_unit
+    if metadata:
+        # TODO: check if project already has metadata, if so, warn user (unless --force was specified)
+        project.settings_manager.set_project_metadata(metadata)
 
     # iterate over each video and try to pair it with an h5 file
     # this test is quick, don't bother to parallelize
@@ -211,12 +239,6 @@ def main():
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
 
-    # generate features -- this might be very slow
-    project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
-    total_identities = project.total_project_identities
-
-    distance_unit = project.feature_manager.distance_unit
-
     def feature_job_producer():
         """producer for Pool.imap_unordered"""
         for video in project.video_manager.videos:
@@ -233,7 +255,7 @@ def main():
                     }
                 )
 
-    # compute features in parallel
+    # compute features in parallel, this might take a while
     with Progress() as progress:
         task = progress.add_task(" Computing Features", total=total_identities)
         for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):

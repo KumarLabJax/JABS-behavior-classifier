@@ -188,7 +188,11 @@ class Project:
         """
         path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(".json")
 
-        annotations = annotations.as_dict(pose)
+        annotations = annotations.as_dict(
+            pose,
+            project_metadata=self.settings_manager.project_metadata,
+            video_metadata=self.settings_manager.video_metadata(annotations.filename),
+        )
         annotations["labeler"] = self.labeler
 
         with path.open(mode="w", newline="\n") as f:

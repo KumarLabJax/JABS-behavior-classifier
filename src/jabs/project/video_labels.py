@@ -105,7 +105,12 @@ class VideoLabels:
                 counts.append((identity, c[0], c[1]))
         return counts
 
-    def as_dict(self, pose: PoseEstimation) -> dict:
+    def as_dict(
+        self,
+        pose: PoseEstimation,
+        project_metadata: dict | None = None,
+        video_metadata: dict | None = None,
+    ) -> dict:
         """return dict representation of video labels
 
         useful for JSON serialization and saving to disk
@@ -117,6 +122,10 @@ class VideoLabels:
             "external_identities: {
                 "jabs identity", 1234,
             },
+            "metadata": {
+                "project": {},
+                "video": {},
+            }
             "labels": {
                 "jabs identity": {
                     "behavior": [
@@ -164,6 +173,10 @@ class VideoLabels:
             "num_frames": self._num_frames,
             "labels": {},
             "unfragmented_labels": {},
+            "metadata": {
+                "project": project_metadata if project_metadata is not None else {},
+                "video": video_metadata if video_metadata is not None else {},
+            },
         }
 
         for identity in self._identity_labels:

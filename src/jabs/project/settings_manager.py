@@ -72,6 +72,73 @@ class SettingsManager:
         """
         return list(self._project_info.get("behavior", {}).keys())
 
+    @property
+    def project_metadata(self) -> dict:
+        """Get project-level metadata.
+
+        Returns:
+            Dictionary of project-level metadata, or empty dict if none exists.
+        """
+        return self._project_info.get("metadata", {})
+
+    def video_metadata(self, video: str) -> dict:
+        """Get metadata for a specific video.
+
+        Args:
+            video: Name of the video file.
+
+        Returns:
+            Dictionary of metadata for the specified video, or empty dict if none exists.
+
+        Raises:
+            KeyError: If the specified video is not found in the project.
+        """
+        return self._project_info["video_files"][video].get("metadata", {})
+
+    def set_project_metadata(self, metadata: dict) -> None:
+        """Set or replace project and per-video metadata.
+
+        Removes any existing project-level and per-video metadata, then sets new metadata as provided.
+        Only the "metadata" field is updated for each video; other fields are preserved.
+
+        Args:
+            metadata (dict): Dictionary containing new project-level metadata under the "metadata" key,
+                and per-video metadata under the "videos" key. Example:
+                {
+                    "metadata": {...},
+                    "videos": {
+                        "video1": {"metadata": {...}},
+                        ...
+                    }
+                }
+
+        Raises:
+            KeyError: If metadata for a video is provided for a video not present in the project.
+        """
+        # Remove existing project-level metadata
+        self._project_info.pop("metadata", None)
+
+        # Remove existing metadata from each video
+        video_files = self._project_info.get("video_files", {})
+        for video_entry in video_files.values():
+            video_entry.pop("metadata", None)
+
+        # Set new project-level metadata if provided
+        if "metadata" in metadata:
+            self._project_info["metadata"] = metadata["metadata"]
+
+        # Update per-video metadata
+        for video_name, video_data in metadata.get("videos", {}).items():
+            # get the existing video entry, raise KeyError if not found
+            video_entry = video_files[video_name]
+            video_metadata = video_data.get("metadata")
+            if video_metadata:
+                video_entry["metadata"] = video_metadata
+            video_files[video_name] = video_entry
+
+        # Save changes
+        self.save_project_file()
+
     def save_behavior(self, behavior: str, data: dict):
         """Save a behavior to project file.
 
