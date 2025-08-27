@@ -102,15 +102,17 @@ class SettingsManager:
         Only the "metadata" field is updated for each video; other fields are preserved.
 
         Args:
-            metadata (dict): Dictionary containing new project-level metadata under the "metadata" key,
+            metadata (dict): Dictionary containing new project-level metadata under the "project" key,
                 and per-video metadata under the "videos" key. Example:
                 {
-                    "metadata": {...},
+                    "project": {...},
                     "videos": {
-                        "video1": {"metadata": {...}},
+                        "video1": {...},
                         ...
                     }
                 }
+
+                See src/jabs/schema/metadata.py for the expected structure of the metadata.
 
         Raises:
             KeyError: If metadata for a video is provided for a video not present in the project.
@@ -124,14 +126,13 @@ class SettingsManager:
             video_entry.pop("metadata", None)
 
         # Set new project-level metadata if provided
-        if "metadata" in metadata:
-            self._project_info["metadata"] = metadata["metadata"]
+        if "project" in metadata:
+            self._project_info["metadata"] = metadata["project"]
 
         # Update per-video metadata
-        for video_name, video_data in metadata.get("videos", {}).items():
+        for video_name, video_metadata in metadata.get("videos", {}).items():
             # get the existing video entry, raise KeyError if not found
             video_entry = video_files[video_name]
-            video_metadata = video_data.get("metadata")
             if video_metadata:
                 video_entry["metadata"] = video_metadata
             video_files[video_name] = video_entry

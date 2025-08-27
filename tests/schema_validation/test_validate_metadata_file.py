@@ -13,19 +13,17 @@ from jabs.schema.metadata import validate_metadata
 def test_validate_metadata_valid():
     """Test that a valid metadata dictionary passes validation."""
     valid_metadata = {
-        "metadata": {
+        "project": {
             "description": "Example project",
-            "type": "ground truth",
+            "ground_truth": True,
             "created_by": "someone",
         },
         "videos": {
             "video1.mp4": {
-                "metadata": {
-                    "org_id": 123,
-                    "cage_id": 1234,
-                    "timestamp": "2023-01-01T12:00:00Z",
-                    "duration": 600,
-                }
+                "org_id": 123,
+                "cage_id": 1234,
+                "timestamp": "2023-01-01T12:00:00Z",
+                "duration": 600,
             }
         },
     }
@@ -40,8 +38,62 @@ def test_validate_metadata_invalid():
         validate_metadata(invalid_metadata)
 
 
-def test_reserved_key():
-    """Test that using a reserved key raises a ValidationError."""
-    invalid_metadata = {"metadata": {"nwb": "should not be used"}}
+def test_invalid_nwb_key():
+    """Test that NWB with an invalid key raises a ValidationError."""
+    invalid_metadata = {"project": {"nwb": {"invalid_key": "value"}}}
     with pytest.raises(ValidationError):
         validate_metadata(invalid_metadata)
+
+
+def test_nwb_general_invalid_type():
+    """Test that invalid general field type raises a ValidationError."""
+    invalid_metadata = {
+        "project": {
+            "nwb": {
+                "session_description": "A session",
+                "identifier": "ID123",
+                "session_start_time": "2023-01-01T12:00:00Z",
+                "general": {
+                    "institution": 123,  # Should be a string
+                },
+            }
+        }
+    }
+    with pytest.raises(ValidationError):
+        validate_metadata(invalid_metadata)
+
+
+def test_nwb_general_valid():
+    """Test that a valid NWB general field passes validation."""
+    valid_metadata = {
+        "project": {
+            "nwb": {
+                "session_description": "A session",
+                "identifier": "ID123",
+                "session_start_time": "2023-01-01T12:00:00Z",
+                "general": {
+                    "institution": "My Institution",
+                    "lab": "My Lab",
+                    "experimenter": ["Dr. A", "Dr. B"],
+                    "keywords": ["test", "nwb"],
+                    "experiment_description": "Testing NWB metadata",
+                },
+            }
+        },
+        "videos": {
+            "video1.mp4": {
+                "org_id": 123,
+                "cage_id": 1234,
+                "nwb": {
+                    "session_description": "Video session",
+                    "identifier": "VID123",
+                    "session_start_time": "2023-01-01T12:00:00Z",
+                    "general": {
+                        "institution": "My Institution",
+                    },
+                },
+            },
+        },
+    }
+    # Should not raise
+    validate_metadata(valid_metadata)

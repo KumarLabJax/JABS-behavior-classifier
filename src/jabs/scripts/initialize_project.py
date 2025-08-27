@@ -153,7 +153,7 @@ def main():
         help="use pixel distances when computing features even if project supports cm",
     )
     parser.add_argument(
-        "--metadata-file",
+        "--metadata",
         type=Path,
         help="path to a JSON file containing project metadata to be validated and injected into the project",
     )
@@ -176,9 +176,9 @@ def main():
     videos = VideoManager.get_videos(args.project_dir)
 
     metadata = None
-    if args.metadata_file:
+    if args.metadata:
         try:
-            metadata = json.loads(args.metadata_file.read_text())
+            metadata = json.loads(args.metadata.read_text())
             validate_metadata(metadata)
         except json.JSONDecodeError as e:
             print(f"Error reading metadata file {args.metadata_file}: {e}")
@@ -187,7 +187,7 @@ def main():
             print(f"Error opening metadata file {args.metadata_file}: {e}")
             sys.exit(1)
         except ValidationError as e:
-            print(f"Metadata file {args.metadata_file} is not valid: {e.message}")
+            print(f"Metadata file {args.metadata} is not valid: {e.message}")
             sys.exit(1)
 
     project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
