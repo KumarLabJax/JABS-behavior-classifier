@@ -114,6 +114,34 @@ def window_size_type(x):
     return x
 
 
+def compute_project_features(
+    project: jabs.project.Project,
+    window_sizes: list[int],
+    force: bool,
+    pool: Pool,
+) -> None:
+    """Compute features for all identities in the project."""
+
+    def feature_job_producer():
+        for video in project.video_manager.videos:
+            for identity in project.load_pose_est(
+                project.video_manager.video_path(video)
+            ).identities:
+                yield {
+                    "video": video,
+                    "identity": identity,
+                    "project": project,
+                    "force": force,
+                    "window_sizes": window_sizes,
+                }
+
+    total_identities = project.total_project_identities
+    with Progress() as progress:
+        task = progress.add_task(" Computing Features", total=total_identities)
+        for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
+            progress.update(task, advance=1)
+
+
 def main():
     """jabs-init"""
     parser = argparse.ArgumentParser()
@@ -157,6 +185,11 @@ def main():
         type=Path,
         help="path to a JSON file containing project metadata to be validated and injected into the project",
     )
+    parser.add_argument(
+        "--skip-feature-generation",
+        action="store_true",
+        help="Skip feature calculation and only initialize/validate the project",
+    )
     parser.add_argument("project_dir", type=Path)
     args = parser.parse_args()
 
@@ -191,7 +224,6 @@ def main():
             sys.exit(1)
 
     project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
-    total_identities = project.total_project_identities
     distance_unit = project.feature_manager.distance_unit
     if metadata:
         # TODO: check if project already has metadata, if so, warn user (unless --force was specified)
@@ -239,28 +271,9 @@ def main():
             print(f"  {f['video']}: {f['message']}")
         sys.exit(1)
 
-    def feature_job_producer():
-        """producer for Pool.imap_unordered"""
-        for video in project.video_manager.videos:
-            for identity in project.load_pose_est(
-                project.video_manager.video_path(video)
-            ).identities:
-                yield (
-                    {
-                        "video": video,
-                        "identity": identity,
-                        "project": project,
-                        "force": args.force,
-                        "window_sizes": window_sizes,
-                    }
-                )
-
     # compute features in parallel, this might take a while
-    with Progress() as progress:
-        task = progress.add_task(" Computing Features", total=total_identities)
-        for _ in pool.imap_unordered(generate_files_worker, feature_job_producer()):
-            # update progress bar
-            progress.update(task, advance=1)
+    if not args.skip_feature_generation:
+        compute_project_features(project, window_sizes, args.force, pool)
 
     pool.close()
 
