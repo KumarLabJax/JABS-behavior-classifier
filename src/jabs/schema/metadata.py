@@ -5,7 +5,7 @@ schema = {
     "$id": "urn:jax.org:schemas:jabs:project-metadata:v1",
     "type": "object",
     "properties": {
-        "metadata": {
+        "project": {
             "type": "object",
             # reserve "nwb" for future use
             "propertyNames": {"not": {"const": "nwb"}},
