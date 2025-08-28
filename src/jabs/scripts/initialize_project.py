@@ -302,12 +302,12 @@ def main():
     if not args.skip_feature_generation:
         print("\n" + "-" * 70)
         if args.force_pixel_distances:
-            print("Features using pixel distances.")
+            print("Features computed using pixel distances.")
         elif distance_unit == ProjectDistanceUnit.PIXEL:
             print("One or more pose files did not have the cm_per_pixel attribute")
             print(" Falling back to using pixel distances")
         else:
-            print("Features using CM distances")
+            print("Features computed using CM distances")
         print("-" * 70)
 
 
