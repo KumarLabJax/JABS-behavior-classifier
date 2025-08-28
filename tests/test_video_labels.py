@@ -42,6 +42,10 @@ class TestVideoLabels(unittest.TestCase):
             "unfragmented_labels": {
                 "0": {"behavior name": [{"start": 25, "end": 50, "present": True}]}
             },
+            "metadata": {
+                "project": {},
+                "video": {},
+            },
         }
 
         # create a VideoLabels object from a dict representation

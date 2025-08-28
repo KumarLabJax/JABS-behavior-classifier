@@ -99,7 +99,7 @@ class TestProject(unittest.TestCase):
     def test_create(self):
         """test creating a new empty Project"""
         project_dir = Path("test_project_dir")
-        project = Project(project_dir)
+        project = Project(project_dir, enable_session_tracker=False)
 
         # make sure that the empty project directory was created
         self.assertTrue(project_dir.exists())

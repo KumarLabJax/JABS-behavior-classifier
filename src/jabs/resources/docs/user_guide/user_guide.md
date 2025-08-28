@@ -40,8 +40,8 @@ jabs/
 
 ## Initializing A JABS Project Directory
 
-The first time you open a project directory in with JABS it will create the "
-jabs" subdirectory. Features will be computed the first time the "Train" button
+The first time you open a project directory in with JABS it will create the 
+"jabs" subdirectory. Features will be computed the first time the "Train" button
 is clicked. This can be very time-consuming depending on the number and length
 of videos in the project directory.
 
@@ -57,26 +57,28 @@ process.
 ### jabs-init usage:
 
 ```text
-usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE]
-                             [--force-pixel-distances]
-                             project_dir
+usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE] [--force-pixel-distances] [--metadata METADATA]
+                 [--skip-feature-generation]
+                 project_dir
 
 positional arguments:
   project_dir
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
-  -f, --force           recompute features even if file already exists
+  -f, --force           recompute features even if file already exists, replace existing project metadata
   -p PROCESSES, --processes PROCESSES
                         number of multiprocessing workers
-  -w WINDOW_SIZE        Specify window sizes to use for computing window features. Argument can
-                        be repeated to specify multiple sizes (e.g. -w 2 -w 5). Size is number
-                        of frames before and after the current frame to include in the window.
-                        For example, '-w 2' results in a window size of 5 (2 frames before, 2
-                        frames after, plus the current frame). If no window size is specified,
-                        a default of 5 will be used.
+  -w WINDOW_SIZE        Specify window sizes to use for computing window features. Argument can be repeated to specify
+                        multiple sizes (e.g. -w 2 -w 5). Size is number of frames before and after the current frame to
+                        include in the window. For example, '-w 2' results in a window size of 5 (2 frames before, 2
+                        frames after, plus the current frame). If no window size is specified, a default of 5 will be
+                        used.
   --force-pixel-distances
                         use pixel distances when computing features even if project supports cm
+  --metadata METADATA   path to a JSON file containing project metadata to be validated and injected into the project
+  --skip-feature-generation
+                        Skip feature calculation and only initialize/validate the project
 ```
 
 ### example jabs-init command
@@ -87,6 +89,117 @@ computing features (-p8). If no -p argument is passed, `jabs-init`
 will use up to 4 processes.
 
 `jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>`
+
+### Project Metadata
+
+The --metadata argument can be used to pass a JSON file containing project metadata. This file has the 
+following schema:
+
+```json
+
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:jax.org:schemas:jabs:project-metadata:v1",
+    "title": "JABS Project Metadata Schema",
+    "type": "object",
+    "properties": {
+        "project": {"$ref": "#/$defs/project"},
+        "videos": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/video"},
+            "propertyNames": {"pattern": "^[^/]{1,251}\\.(avi|mp4)$"}
+        }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "$defs": {
+        "primitive": {"anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]},
+        "project": {
+            "type": "object",
+            "properties": {"nwb": {"$ref": "#/$defs/nwb"}},
+            "additionalProperties": {"$ref": "#/$defs/primitive"}
+        },
+        "video": {
+            "type": "object",
+            "properties": {"nwb": {"$ref": "#/$defs/nwb"}},
+            "required": [],
+            "additionalProperties": {"$ref": "#/$defs/primitive"}
+        },
+        "nwb": {
+            "type": "object",
+            "properties": {
+                "nwb_version": {"type": "string"},
+                "session_description": {"type": "string", "minLength": 1},
+                "identifier": {"type": "string", "minLength": 1},
+                "session_start_time": {"type": "string", "format": "date-time"},
+                "file_create_date": {
+                    "type": "array",
+                    "items": {"type": "string", "format": "date-time"},
+                    "minItems": 1
+                },
+                "general": {"$ref": "#/$defs/general"},
+                "analysis": {
+                    "description": "Lab-specific and custom analysis results. Free-form by design.",
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "required": [],
+            "additionalProperties": true
+        },
+        "general": {
+            "type": "object",
+            "properties": {
+                "institution": {"type": "string"},
+                "lab": {"type": "string"},
+                "experimenter": {"type": "array", "items": {"type": "string"}},
+                "keywords": {"type": "array", "items": {"type": "string"}},
+                "experiment_description": {"type": "string"},
+                "data_collection": {"type": "string"},
+                "notes": {"type": "string"},
+                "pharmacology": {"type": "string"},
+                "protocol": {"type": "string"},
+                "slices": {"type": "string"},
+                "related_publications": {"type": "array", "items": {"type": "string"}},
+                "session_id": {"type": "string"},
+                "subject": {"$ref": "#/$defs/Subject"},
+                "devices": {"type": "array", "items": {"$ref": "#/$defs/Device"}}
+            },
+            "additionalProperties": false
+        },
+        "Subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "subject_id": {"type": "string"},
+                "description": {"type": "string"},
+                "species": {"type": "string"},
+                "strain": {"type": "string"},
+                "genotype": {"type": "string"},
+                "sex": {"type": "string"},
+                "age": {"type": "string"},
+                "age_reference": {"type": "string", "enum": ["birth", "gestational"]},
+                "date_of_birth": {"type": "string", "format": "date-time"},
+                "weight": {"type": "string"}
+            }
+        },
+        "Device": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "manufacturer": {"type": "string"},
+                "model_number": {"type": "string"},
+                "model_name": {"type": "string"},
+                "serial_number": {"type": "string"}
+            },
+            "required": ["name"]
+        }
+    }
+}
+
+```
 
 ## The JABS Directory
 
@@ -635,12 +748,12 @@ Similarly, feature files generated by `jabs-classify` or `jabs-features` are sav
 #### Contents
 
 The H5 file contains feature data described in the [feature documentation](../features/features.md).
-Features used in JABS classifiers are located within the `features` group, futher separated by `per_frame` and `window_features_<window_size>` groups.
+Features used in JABS classifiers are located within the `features` group, further separated by `per_frame` and `window_features_<window_size>` groups.
 Features not used in JABS classifiers are located outside the `features` group.
 
 All features are a vector of data containing the feature value for each frame in the video.
 
-The root file contains the following attribues:
+The root file contains the following attributes:
 
 - distance_scale_factor: scale factor used when converting from pixel space to cm space
 - identity: identity value from the original pose value
