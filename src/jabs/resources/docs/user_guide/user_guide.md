@@ -57,7 +57,7 @@ process.
 ### jabs-init usage:
 
 ```text
-uusage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE] [--force-pixel-distances] [--metadata METADATA]
+usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE] [--force-pixel-distances] [--metadata METADATA]
                  [--skip-feature-generation]
                  project_dir
 
