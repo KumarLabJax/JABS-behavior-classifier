@@ -214,10 +214,10 @@ def main():
             metadata = json.loads(args.metadata.read_text())
             validate_metadata(metadata)
         except json.JSONDecodeError as e:
-            print(f"Error reading metadata file {args.metadata_file}: {e}")
+            print(f"Error reading metadata file {args.metadata}: {e}")
             sys.exit(1)
         except OSError as e:
-            print(f"Error opening metadata file {args.metadata_file}: {e}")
+            print(f"Error opening metadata file {args.metadata}: {e}")
             sys.exit(1)
         except ValidationError as e:
             print(f"Metadata file {args.metadata} is not valid: {e.message}")
@@ -226,7 +226,23 @@ def main():
     project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
     distance_unit = project.feature_manager.distance_unit
     if metadata:
-        # TODO: check if project already has metadata, if so, warn user (unless --force was specified)
+        has_metadata = False
+
+        if project.settings_manager.project_metadata != {}:
+            has_metadata = True
+
+        for video in project.video_manager.videos:
+            if project.settings_manager.video_metadata(video) != {}:
+                has_metadata = True
+                break
+
+        if has_metadata and not args.force:
+            response = (
+                input("Warning: Project already has metadata. Overwrite? [y/N]: ").strip().lower()
+            )
+            if response != "y":
+                print("Aborting. Use --force to overwrite without prompt.")
+                sys.exit(1)
         project.settings_manager.set_project_metadata(metadata)
 
     # iterate over each video and try to pair it with an h5 file
@@ -285,12 +301,12 @@ def main():
 
     print("\n" + "-" * 70)
     if args.force_pixel_distances:
-        print("computed features using pixel distances")
+        print("Project features using pixel distances.")
     elif distance_unit == ProjectDistanceUnit.PIXEL:
         print("One or more pose files did not have the cm_per_pixel attribute")
         print(" Falling back to using pixel distances")
     else:
-        print("computed features using CM distances")
+        print("Project features using CM distances")
     print("-" * 70)
 
 
