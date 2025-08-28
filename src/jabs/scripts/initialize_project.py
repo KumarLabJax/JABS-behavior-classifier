@@ -299,15 +299,16 @@ def main():
     )
     project.settings_manager.save_project_file({"window_sizes": list(deduped_window_sizes)})
 
-    print("\n" + "-" * 70)
-    if args.force_pixel_distances:
-        print("Project features using pixel distances.")
-    elif distance_unit == ProjectDistanceUnit.PIXEL:
-        print("One or more pose files did not have the cm_per_pixel attribute")
-        print(" Falling back to using pixel distances")
-    else:
-        print("Project features using CM distances")
-    print("-" * 70)
+    if not args.skip_feature_generation:
+        print("\n" + "-" * 70)
+        if args.force_pixel_distances:
+            print("Features using pixel distances.")
+        elif distance_unit == ProjectDistanceUnit.PIXEL:
+            print("One or more pose files did not have the cm_per_pixel attribute")
+            print(" Falling back to using pixel distances")
+        else:
+            print("Features using CM distances")
+        print("-" * 70)
 
 
 if __name__ == "__main__":
