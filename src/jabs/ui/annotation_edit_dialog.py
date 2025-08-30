@@ -341,7 +341,7 @@ class AnnotationEditDialog(QDialog):
 
     @staticmethod
     def _is_tag_valid(tag: str) -> bool:
-        """Check if a tag is valid according to the rules
+        """Check if a tag is valid
 
         Args:
             tag: the tag string to validate
