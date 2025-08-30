@@ -80,7 +80,6 @@ class VideoManager:
 
         Args:
             video_name: filename of the video: string or pathlib.Path
-            pose_est: PoseEstimation object used to initialize the VideoLabels
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None
@@ -92,8 +91,11 @@ class VideoManager:
 
         # if annotations already exist for this video file in the project open
         if path.exists():
+            pose = open_pose_file(
+                get_pose_path(self.video_path(video_filename)), self._paths.cache_dir
+            )
             with path.open() as f:
-                return VideoLabels.load(json.load(f))
+                return VideoLabels.load(json.load(f), pose)
         else:
             return None
 

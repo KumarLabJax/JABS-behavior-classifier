@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from intervaltree import IntervalTree
@@ -30,11 +31,23 @@ class VideoLabels:
         in several places, identities are currently handled as strings for serialization compatibility.
     """
 
-    def __init__(self, filename, num_frames):
+    @dataclass
+    class Annotation:
+        """Non-behavior annotation for a video."""
+
+        start: int
+        end: int
+        tag: str
+        color: str
+        description: str | None = None
+        identity_index: int | None = None
+        display_identity: str | None = None
+
+    def __init__(self, filename: str, num_frames: int):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
-        self._annotations: IntervalTree | None = None
+        self._annotations: IntervalTree = IntervalTree()
 
     @property
     def filename(self):
@@ -50,6 +63,16 @@ class VideoLabels:
     def interval_annotations(self) -> IntervalTree | None:
         """return interval annotations for this video, if any"""
         return self._annotations
+
+    def add_annotation(self, annotation: Annotation) -> None:
+        """Add a non-behavior annotation to this video"""
+        self._annotations[annotation.start : annotation.end + 1] = {
+            "tag": annotation.tag,
+            "color": annotation.color,
+            "description": annotation.description,
+            "identity": annotation.identity_index,
+            "display_identity": annotation.display_identity,
+        }
 
     def get_track_labels(self, identity, behavior):
         """return a TrackLabels for an identity & behavior
@@ -198,7 +221,7 @@ class VideoLabels:
             for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
 
-        if self._annotations is not None:
+        if len(self._annotations) > 0:
             if "annotations" not in label_dict:
                 label_dict["annotations"] = []
 
@@ -206,7 +229,7 @@ class VideoLabels:
                 try:
                     annotation_data = {
                         "start": annotation.begin,
-                        "end": annotation.end,
+                        "end": annotation.end - 1,  # convert to inclusive
                         "tag": annotation.data["tag"],
                         "color": annotation.data["color"],
                     }
@@ -227,7 +250,7 @@ class VideoLabels:
         return label_dict
 
     @classmethod
-    def load(cls, video_label_dict: dict):
+    def load(cls, video_label_dict: dict, pose: PoseEstimation | None = None) -> "VideoLabels":
         """return a VideoLabels object initialized with data from a dict previously exported using the export method"""
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
 
@@ -243,7 +266,6 @@ class VideoLabels:
 
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
-            labels._annotations = IntervalTree()
             for annotation in video_label_dict["annotations"]:
                 try:
                     start = annotation["start"]
@@ -275,11 +297,17 @@ class VideoLabels:
 
                 # Create a data dict for the interval.
                 # Note: description and identity are optional fields
+                identity_index = annotation.get("identity")
+                if pose and identity_index is not None:
+                    display_identity = pose.identity_index_to_display(identity_index)
+                else:
+                    display_identity = None
                 data = {
                     "tag": tag,
                     "color": color,
                     "description": annotation.get("description"),
-                    "identity": annotation.get("identity"),
+                    "identity": identity_index,
+                    "display_identity": display_identity,
                 }
 
                 # Create the interval and add it to the IntervalTree.

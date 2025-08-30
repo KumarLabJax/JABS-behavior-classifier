@@ -3,18 +3,22 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from intervaltree import Interval
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog
 from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
+from jabs.pose_estimation import PoseEstimation
 from jabs.project import Project, VideoLabels
 from jabs.project.track_labels import TrackLabels
 from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
 
+from .annotation_edit_dialog import AnnotationEditDialog
 from .classification_thread import ClassifyThread
 from .exceptions import ThreadTerminatedError
 from .main_control_widget import MainControlWidget
@@ -63,18 +67,18 @@ class CentralWidget(QtWidgets.QWidget):
         self._curr_frame_index = 0
 
         self._loaded_video = None
-        self._project = None
-        self._labels = None
+        self._project: Project | None = None
+        self._labels: VideoLabels | None = None
         self._prediction_list = None
         self._probability_list = None
-        self._pose_est = None
+        self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         self._suppress_label_track_update = False
 
         #  classifier
         self._classifier = Classifier(n_jobs=-1)
-        self._training_thread = None
-        self._classify_thread = None
+        self._training_thread: TrainingThread | None = None
+        self._classify_thread: ClassifyThread | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -104,6 +108,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.new_window_sizes.connect(self._save_window_sizes)
         self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
         self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
+        self._controls.timeline_annotation_button_clicked.connect(
+            self._on_timeline_annotation_button_clicked
+        )
 
         # main grid layout
         layout = QtWidgets.QGridLayout()
@@ -1144,3 +1151,225 @@ class CentralWidget(QtWidgets.QWidget):
         end -= 1
 
         self._player_widget.play_range(start, end)
+
+    def _on_timeline_annotation_button_clicked(self) -> None:
+        """Handle the event when the button to create a new timeline annotation is clicked.
+
+        Note: start, end, tag value, and identity uniquely identify an annotation. If one already exists
+        with the same values, do not create a duplicate and show a warning message instead.
+        """
+        identity_index = self._controls.current_identity_index
+        display_identity = self._pose_est.identity_index_to_display(identity_index)
+        start = min(self._selection_start, self._curr_frame_index)
+        end = max(self._selection_start, self._curr_frame_index)
+
+        dialog = AnnotationEditDialog(
+            start,
+            end,
+            identity_index=identity_index,
+            display_identity=display_identity,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_annotation()
+            # result keys: tag, color, description, applies_to_identity
+            tag = result["tag"]
+            identity_index = (
+                self._controls.current_identity_index if result["applies_to_identity"] else None
+            )
+            display_identity = (
+                self._pose_est.identity_index_to_display(self._controls.current_identity_index)
+                if identity_index is not None
+                else None
+            )
+
+            # Duplicate check: look for an interval with the same (start, end, tag, identity_index)
+            if self._annotation_exists(
+                start=start, end=end, tag=tag, identity_index=identity_index
+            ):
+                if identity_index is None:
+                    message = f"A video-level annotation with tag '{tag}' already exists at frames {start}-{end}."
+                else:
+                    message = f"An annotation with tag '{tag}' for this identity already exists at frames {start}-{end}."
+                QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
+                return
+
+            # No duplicate found; create and insert the annotation
+            annotation = VideoLabels.Annotation(
+                tag=tag,
+                color=result["color"],
+                description=result["description"],
+                identity_index=identity_index,
+                display_identity=display_identity,
+                start=start,
+                end=end,
+            )
+            self._labels.add_annotation(annotation)
+            self._project.save_annotations(self._labels, self._pose_est)
+            self._label_button_common()
+            self._player_widget.update()
+
+    def on_annotation_edited(self, key: dict, updated: dict) -> None:
+        """Handle the event when an existing annotation is edited.
+
+        Args:
+            key (dict): Original annotation key with start, end, tag, identity (uniquely identifies annotation).
+            updated (dict): Updated annotation details from the dialog.
+
+        This is an external API called by the AnnotationEditDialog when an annotation is edited and not a signal
+        handler only used internally in CentralWidget.
+        """
+        # remove the old annotation using key
+        start = key["start"]
+        end = key["end"]
+        tag = key["tag"]
+        identity = key["identity"]
+
+        self._remove_annotation_by_key(start=start, end=end, tag=tag, identity_index=identity)
+
+        # insert the updated annotation back
+        new_tag = updated["tag"]
+        identity = identity if updated["applies_to_identity"] else None
+        display_identity = (
+            self._pose_est.identity_index_to_display(identity) if identity is not None else None
+        )
+        new_data = {
+            "tag": new_tag,
+            "color": updated["color"],
+            "description": updated["description"],
+            "identity": identity,
+            "display_identity": display_identity,
+        }
+        self._labels.interval_annotations[start:end] = new_data
+
+        # make sure the changes are saved
+        self._project.save_annotations(self._labels, self._pose_est)
+
+        # refresh video player to show updated annotation
+        self._player_widget.update()
+
+    def on_annotation_deleted(self, payload: dict) -> None:
+        """Handle the event when an existing annotation is deleted.
+
+        Args:
+            payload (dict): Payload from the deleted annotation.
+
+        This is an external API called by the AnnotationEditDialog when an annotation is deleted and not a signal
+        handler only used internally in CentralWidget.
+        """
+        start = payload.get("start")
+        end = payload.get("end")
+        tag = payload.get("tag")
+        identity = payload.get("identity_index")
+
+        if None in (start, end, tag):
+            raise RuntimeWarning("Invalid annotation delete payload")
+
+        self._remove_annotation_by_key(start=start, end=end, tag=tag, identity_index=identity)
+
+        # make sure the changes are saved
+        self._project.save_annotations(self._labels, self._pose_est)
+
+        # refresh video player to show updated annotation
+        self._player_widget.update()
+
+    def _intervaltree_candidates(self, start: int, end: int) -> list[Interval]:
+        """Return candidate intervals overlapping [start, end] (inclusive).
+
+        The `intervaltree` API uses a half-open range [begin, end). Our UI
+        selection is inclusive, so we query [start, end+1) and compare with
+        `interval.end - 1` when we need inclusive semantics.
+
+        Args:
+            start (int): Start frame of the annotation (inclusive).
+            end (int): End frame of the annotation (inclusive).
+
+        Returns:
+            list[Interval]: List of candidate intervals overlapping [start, end].
+        """
+        return list(self._labels.interval_annotations[start : end + 1])
+
+    @staticmethod
+    def _interval_matches(
+        interval: Interval, *, start: int, end: int, tag: str, identity_index: int | None
+    ) -> bool:
+        """Check exact key match for an annotation interval.
+
+        Uniqueness key: (start, end, tag, identity_index)
+        where `end` in our UI is inclusive, but `interval.end` is exclusive.
+
+        Args:
+            interval (Interval): The interval to check.
+            start (int): Start frame of the annotation (inclusive).
+            end (int): End frame of the annotation (inclusive).
+            tag (str): Tag of the annotation.
+            identity_index (int | None): Identity index the annotation applies to, or None for video-level.
+
+        Returns:
+            bool: True if the interval matches the key exactly, False otherwise.
+        """
+        if interval.begin != start or (interval.end - 1) != end:
+            return False
+        data = interval.data or {}
+        return data.get("tag") == tag and data.get("identity") == identity_index
+
+    def _find_matching_intervals(
+        self, *, start: int, end: int, tag: str, identity_index: int | None
+    ) -> list[Interval]:
+        """Find all intervals in the tree that match the annotation key exactly.
+
+        The key is defined by (start, end, tag, identity_index).
+
+        Args:
+            start (int): Start frame of the annotation (inclusive).
+            end (int): End frame of the annotation (inclusive).
+            tag (str): Tag of the annotation.
+            identity_index (int | None): Identity index the annotation applies to, or None for video-level.
+
+        Returns:
+            list[Interval]: List of matching intervals.
+        """
+        candidates = self._intervaltree_candidates(start, end)
+        return [
+            interval
+            for interval in candidates
+            if self._interval_matches(
+                interval, start=start, end=end, tag=tag, identity_index=identity_index
+            )
+        ]
+
+    def _annotation_exists(
+        self, *, start: int, end: int, tag: str, identity_index: int | None
+    ) -> bool:
+        """Return True if an exact-match annotation already exists."""
+        return bool(
+            self._find_matching_intervals(
+                start=start, end=end, tag=tag, identity_index=identity_index
+            )
+        )
+
+    def _remove_annotation_by_key(
+        self, *, start: int, end: int, tag: str, identity_index: int | None
+    ) -> int:
+        """Remove all annotations that match the exact key. Returns the count removed.
+
+        Args:
+            start (int): Start frame of the annotation (inclusive).
+            end (int): End frame of the annotation (inclusive).
+            tag (str): Tag of the annotation.
+            identity_index (int | None): Identity index the annotation applies to, or None for video-level.
+
+        Returns:
+            int: The number of annotations removed.
+        """
+        intervals = self._find_matching_intervals(
+            start=start, end=end, tag=tag, identity_index=identity_index
+        )
+        for interval in intervals:
+            self._labels.interval_annotations.remove(interval)
+        return len(intervals)
+
+    def _save_and_refresh_annotations(self) -> None:
+        """Persist annotation changes and update UI widgets."""
+        self._project.save_annotations(self._labels, self._pose_est)
+        self._player_widget.update()
