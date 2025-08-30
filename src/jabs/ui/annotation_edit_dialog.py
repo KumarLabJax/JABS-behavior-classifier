@@ -161,7 +161,7 @@ class AnnotationEditDialog(QDialog):
         self._update_color_display()
         form.addRow("Color:", color_row)
 
-        # Description (wider)
+        # Description
         self._description_edit = QLineEdit()
         self._description_edit.setPlaceholderText("Optional description…")
         self._description_edit.setSizePolicy(
@@ -173,7 +173,7 @@ class AnnotationEditDialog(QDialog):
             self._description_edit.setText(description)
         form.addRow("Description:", self._description_edit)
 
-        # Applies-to (stacked vertically in a single form row)
+        # annotation scope (identity vs entire video)
         self._identity_radio = QRadioButton("Selected identity")
         self._video_radio = QRadioButton("Entire video")
         # Default selection is identity, but allow override via parameter
