@@ -89,8 +89,9 @@ class VideoManager:
 
         path = self._paths.annotations_dir / Path(video_filename).with_suffix(".json")
 
-        # if annotations already exist for this video file in the project open
+        # if annotations already exist for this video file in the project open them
         if path.exists():
+            # VideoLabels.load can use pose to convert identity index to the display identity
             pose = open_pose_file(
                 get_pose_path(self.video_path(video_filename)), self._paths.cache_dir
             )
