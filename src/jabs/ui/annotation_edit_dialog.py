@@ -198,12 +198,9 @@ class AnnotationEditDialog(QDialog):
         if edit_mode:
             self._identity_radio.setEnabled(False)
             self._video_radio.setEnabled(False)
-            self._identity_radio.setToolTip(
-                "Scope cannot be changed when editing an existing annotation."
-            )
-            self._video_radio.setToolTip(
-                "Scope cannot be changed when editing an existing annotation."
-            )
+            tooltip = "Scope cannot be changed when editing an existing annotation."
+            self._identity_radio.setToolTip(tooltip)
+            self._video_radio.setToolTip(tooltip)
 
         # Collapsible Help panel (hidden by default)
         toggle_button = QToolButton()
