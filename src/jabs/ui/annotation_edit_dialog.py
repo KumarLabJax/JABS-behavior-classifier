@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -58,6 +58,7 @@ class AnnotationEditDialog(QDialog):
         identity_index: Index of the identity this annotation applies to (if any).
         display_identity: Display name of the identity (if any).
         edit_mode: If True, the dialog is in edit mode (editing existing annotation).
+
     Emits:
         annotation_deleted: Emitted when an annotation is deleted, with payload containing
             start, end, tag, and identity_index.
@@ -65,6 +66,8 @@ class AnnotationEditDialog(QDialog):
     In edit_mode, you can change tag/color/description or delete. Interval and scope are currently locked
     to the initial values.
     Uniqueness key elsewhere is (start, end, tag, identity_index).
+
+    Note: start/end are UI-inclusive; IntervalTree operations elsewhere account for end+1 (exclusive).
     """
 
     annotation_deleted = Signal(object)
@@ -88,7 +91,7 @@ class AnnotationEditDialog(QDialog):
         self._start = start
         self._end = end
         self._identity_index = identity_index
-        self._initial_tag = tag
+        self._initial_tag_value = tag
 
         if edit_mode and None in (tag, color, applies_to_identity):
             raise ValueError("In edit mode, tag, color, and applies_to_identity must be provided.")
@@ -130,11 +133,11 @@ class AnnotationEditDialog(QDialog):
         self._tag_edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._tag_edit.textChanged.connect(self._update_tag_label_style)
         form.addRow("Tag:", self._tag_edit)
-        if tag is not None:
+        if tag:
             self._tag_edit.setText(tag)
 
         # Color (clickable swatch + hex label)
-        self._color = QColor(color) if color is not None else QColor(DEFAULT_ANNOTATION_COLOR)
+        self._color = QColor(color) if color else QColor(DEFAULT_ANNOTATION_COLOR)
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
         color_layout.setContentsMargins(0, 0, 0, 0)
@@ -254,11 +257,22 @@ class AnnotationEditDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
-        if edit_mode or any(v is not None for v in (tag, color, description, applies_to_identity)):
+        if edit_mode:
             delete_button = QToolButton()
             delete_button.setToolTip("Delete this annotation")
             delete_button.setIcon(MaterialIcon("delete"))
+            delete_button.setIconSize(delete_button.iconSize() or QSize(18, 18))
             delete_button.clicked.connect(self._confirm_delete)
+            delete_button.setStyleSheet("""
+                QToolButton {
+                    border-radius: 6px;
+                    background-color: transparent;
+                    padding: 4px;
+                }
+                QToolButton:hover {
+                    background-color: rgba(0,0,0,0.1);
+                }
+            """)
             button_row.addWidget(delete_button)
 
         button_row.addStretch(1)
@@ -321,7 +335,7 @@ class AnnotationEditDialog(QDialog):
             payload = {
                 "start": self._start,
                 "end": self._end,
-                "tag": self._initial_tag,
+                "tag": self._initial_tag_value,
                 "identity_index": self._identity_index,
             }
             self.annotation_deleted.emit(payload)
@@ -349,6 +363,9 @@ class AnnotationEditDialog(QDialog):
         """
         invalid = not self._is_tag_valid(tag)
         self._tag_edit.setStyleSheet("" if not invalid else "color: red;")
+        self._tag_edit.setToolTip(
+            "" if not invalid else f"Alphanumeric, -, _ only; length ≤ {video_labels.MAX_TAG_LEN}"
+        )
 
     def _update_ok_button_state(self) -> None:
         """Enable or disable the OK button based on form validity."""

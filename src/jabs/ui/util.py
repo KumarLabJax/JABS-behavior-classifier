@@ -22,7 +22,14 @@ def send_file_to_recycle_bin(file_path: Path) -> bool:
 
 
 def find_central_widget(widget: QWidget) -> QWidget | None:
-    """Traverse up the parent hierarchy to find the central widget of the main window."""
+    """Traverse up the parent hierarchy to find the central widget of the main window.
+
+    Args:
+        widget (QWidget): The starting widget to begin the search from.
+
+    Returns:
+        QWidget | None: The central widget if found, otherwise None.
+    """
     w = widget
     while w is not None:
         if isinstance(w, QMainWindow):
