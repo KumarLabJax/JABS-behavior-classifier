@@ -1172,10 +1172,10 @@ class CentralWidget(QtWidgets.QWidget):
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             result = dialog.get_annotation()
-            # result keys: tag, color, description, applies_to_identity
+            # result keys: tag, color, description, identity_scoped
             tag = result["tag"]
             identity_index = (
-                self._controls.current_identity_index if result["applies_to_identity"] else None
+                self._controls.current_identity_index if result["identity_scoped"] else None
             )
             display_identity = (
                 self._pose_est.identity_index_to_display(self._controls.current_identity_index)
@@ -1229,7 +1229,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # insert the updated annotation back
         new_tag = updated["tag"]
-        identity = identity if updated["applies_to_identity"] else None
+        identity = identity if updated["identity_scoped"] else None
         display_identity = (
             self._pose_est.identity_index_to_display(identity) if identity is not None else None
         )

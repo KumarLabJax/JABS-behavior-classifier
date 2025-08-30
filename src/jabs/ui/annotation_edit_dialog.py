@@ -54,7 +54,7 @@ class AnnotationEditDialog(QDialog):
         tag: Initial tag value (for editing existing annotation).
         color: Initial color value (for editing existing annotation).
         description: Initial description value (for editing existing annotation).
-        applies_to_identity: Scope value (for editing existing annotation).
+        identity_scoped: Scope value (for editing existing annotation).
         identity_index: Index of the identity this annotation applies to (if any).
         display_identity: Display name of the identity (if any).
         edit_mode: If True, the dialog is in edit mode (editing existing annotation).
@@ -81,7 +81,7 @@ class AnnotationEditDialog(QDialog):
         tag: str | None = None,
         color: str | QColor | None = None,
         description: str | None = None,
-        applies_to_identity: bool | None = None,
+        identity_scoped: bool | None = None,
         identity_index: int | None = None,
         display_identity: str | None = None,
         edit_mode: bool = False,
@@ -93,8 +93,8 @@ class AnnotationEditDialog(QDialog):
         self._identity_index = identity_index
         self._initial_tag_value = tag
 
-        if edit_mode and None in (tag, color, applies_to_identity):
-            raise ValueError("In edit mode, tag, color, and applies_to_identity must be provided.")
+        if edit_mode and None in (tag, color, identity_scoped):
+            raise ValueError("In edit mode, tag, color, and identity_scoped must be provided.")
 
         # root layout
         layout = QVBoxLayout(self)
@@ -177,11 +177,11 @@ class AnnotationEditDialog(QDialog):
         self._identity_radio = QRadioButton("Selected identity")
         self._video_radio = QRadioButton("Entire video")
         # Default selection is identity, but allow override via parameter
-        if applies_to_identity is None:
+        if identity_scoped is None:
             self._identity_radio.setChecked(True)
         else:
-            self._identity_radio.setChecked(bool(applies_to_identity))
-            self._video_radio.setChecked(not bool(applies_to_identity))
+            self._identity_radio.setChecked(bool(identity_scoped))
+            self._video_radio.setChecked(not bool(identity_scoped))
         radio_group = QButtonGroup(self)
         radio_group.addButton(self._identity_radio)
         radio_group.addButton(self._video_radio)
@@ -287,7 +287,7 @@ class AnnotationEditDialog(QDialog):
             "tag": self._tag_edit.text(),
             "color": self._color.name(QColor.NameFormat.HexRgb),
             "description": self._description_edit.text() or None,
-            "applies_to_identity": self._identity_radio.isChecked(),
+            "identity_scoped": self._identity_radio.isChecked(),
         }
 
     def _update_color_display(self) -> None:

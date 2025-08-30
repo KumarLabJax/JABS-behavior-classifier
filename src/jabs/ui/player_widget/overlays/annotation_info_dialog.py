@@ -126,7 +126,7 @@ class AnnotationInfoDialog(QDialog):
                 tag=original_key["tag"],
                 color=data.get("color"),
                 description=data.get("description"),
-                applies_to_identity=bool(data.get("applies_to_identity", True)),
+                identity_scoped=bool(data.get("identity_scoped", True)),
                 identity_index=data.get("identity"),  # your existing param
                 display_identity=data.get("display_identity"),
                 edit_mode=True,
