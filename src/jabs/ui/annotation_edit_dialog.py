@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
     QRadioButton,
     QSizePolicy,
     QToolButton,
@@ -134,7 +133,7 @@ class AnnotationEditDialog(QDialog):
         if tag is not None:
             self._tag_edit.setText(tag)
 
-        # Color (swatch + hex label + pick button)
+        # Color (clickable swatch + hex label)
         self._color = QColor(color) if color is not None else QColor(DEFAULT_ANNOTATION_COLOR)
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
@@ -145,17 +144,15 @@ class AnnotationEditDialog(QDialog):
         self._color_swatch.setFixedSize(20, 20)
         self._color_swatch.setFrameShape(QFrame.Shape.Box)
         self._color_swatch.setLineWidth(1)
+        self._color_swatch.setToolTip("Click to choose a color")
+        self._color_swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._color_swatch.installEventFilter(self)
 
         self._color_label = QLabel()
         self._color_label.setMinimumWidth(80)
 
-        self._pick_color_btn = QPushButton("Pick…")
-        self._pick_color_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._pick_color_btn.clicked.connect(self._pick_color)
-
         color_layout.addWidget(self._color_swatch)
         color_layout.addWidget(self._color_label)
-        color_layout.addWidget(self._pick_color_btn)
         color_layout.addStretch(1)
 
         self._update_color_display()
@@ -296,6 +293,17 @@ class AnnotationEditDialog(QDialog):
             self._update_color_display()
             self._update_ok_button_state()
 
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # type: ignore[override]
+        """Handle clicks on the color swatch to open the color picker."""
+        if (
+            obj is self._color_swatch
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._pick_color()
+            return True
+        return super().eventFilter(obj, event)
+
     def _confirm_delete(self) -> None:
         """Confirm deletion; on Yes, emit signal and close dialog.
 
@@ -334,22 +342,16 @@ class AnnotationEditDialog(QDialog):
         )
 
     def _update_tag_label_style(self, tag: str) -> None:
-        """Update the tag label style based on validity.
+        """Update the tag field style based on validity.
 
         Args:
             tag: the current tag text
         """
         invalid = not self._is_tag_valid(tag)
         self._tag_edit.setStyleSheet("" if not invalid else "color: red;")
-        self._update_ok_button_state()
 
     def _update_ok_button_state(self) -> None:
         """Enable or disable the OK button based on form validity."""
-        if not hasattr(self, "_ok_button"):
-            return  # may be called before button is set up
-
         tag_valid = self._is_tag_valid(self._tag_edit.text())
-        color_valid = (
-            self._color.isValid() if hasattr(self, "_color") else False
-        )  # color may not be set yet
+        color_valid = self._color.isValid()
         self._ok_button.setEnabled(tag_valid and color_valid)
