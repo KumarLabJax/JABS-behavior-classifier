@@ -455,10 +455,12 @@ unselect the frames and leave select mode without making a change to the labels.
 
 ### Applying Labels
 
-The "Label Behavior Button" will mark all of the frames in the current selection
-as showing the behavior. The "Label Not Behavior" button will mark all of the
-frames in the current selection as not showing the behavior. Finally, the "Clear
-Labels" button will remove all labels from the currently selected frames.
+The label **Behavior** button will mark the selected interval of frames as showing
+the current behavior. The label **Not Behavior** button will mark all the
+frames in selected interval as not showing the behavior. The **New Timeline Annotation**
+button will open the Timeline Annotation Editor dialog to create a new timeline 
+annotation for the selected interval. Finally, the "Clear Labels" button will remove
+all labels from the currently selected frames.
 
 ### Keyboard Shortcuts
 
