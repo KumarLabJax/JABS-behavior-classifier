@@ -227,8 +227,7 @@ class MainControlWidget(QtWidgets.QWidget):
                     }}
                 """)
 
-        self._timeline_annotation_button = QtWidgets.QPushButton("Timeline Annotation")
-        self._timeline_annotation_button.setToolTip("[a]")
+        self._timeline_annotation_button = QtWidgets.QPushButton("New Timeline Annotation")
         self._timeline_annotation_button.clicked.connect(self.timeline_annotation_button_clicked)
 
         self._clear_label_button = QtWidgets.QPushButton("Clear Label")
