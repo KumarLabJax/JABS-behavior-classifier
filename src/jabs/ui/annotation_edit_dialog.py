@@ -135,7 +135,7 @@ class AnnotationEditDialog(QDialog):
         self._tag_edit = QLineEdit()
         self._tag_edit.setMaxLength(video_labels.MAX_TAG_LEN)
         char_width = self._tag_edit.fontMetrics().averageCharWidth()
-        self._tag_edit.setMinimumWidth(char_width * 35)
+        self._tag_edit.setMinimumWidth(char_width * (video_labels.MAX_TAG_LEN + 2))
         self._tag_edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._tag_edit.textChanged.connect(self._update_tag_label_style)
         form.addRow("Tag:", self._tag_edit)
