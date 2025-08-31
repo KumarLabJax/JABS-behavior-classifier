@@ -235,7 +235,7 @@ class AnnotationEditDialog(QDialog):
         details_panel.setVisible(False)
         layout.addWidget(details_panel)
 
-        def _toggle_details(checked: bool) -> None:
+        def _toggle_help(checked: bool) -> None:
             """Show or hide the details panel and update button text/arrow."""
             details_panel.setVisible(checked)
             toggle_button.setText("Hide help" if checked else "Show help")
@@ -247,7 +247,7 @@ class AnnotationEditDialog(QDialog):
             self.layout().activate()
             self.adjustSize()
 
-        toggle_button.toggled.connect(_toggle_details)
+        toggle_button.toggled.connect(_toggle_help)
 
         #  Dialog buttons
         button_row = QHBoxLayout()

@@ -46,24 +46,26 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit_later)
+        self._search_bar_widget.current_search_hit_changed.connect(
+            self._on_search_hit_changed_later
+        )
         self._search_bar_widget.search_results_changed.connect(
             lambda _: self._update_timeline_search_results()
         )
         self._debounce_search_hit_timer = QtCore.QTimer(self)
         self._debounce_search_hit_timer.setSingleShot(True)
         self._debounce_search_hit_timer.setInterval(_DEBOUNCE_SEARCH_DELAY_MS)
-        self._debounce_search_hit_timer.timeout.connect(self._update_search_hit)
+        self._debounce_search_hit_timer.timeout.connect(self._on_search_hit_changed)
 
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
-        self._player_widget.update_frame_number.connect(self._frame_change)
+        self._player_widget.update_frame_number.connect(self._on_frame_changed)
         self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
-        self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
-        self._player_widget.id_label_clicked.connect(self._id_label_clicked)
+        self._player_widget.pixmap_clicked.connect(self._on_pixmap_clicked)
+        self._player_widget.id_label_clicked.connect(self._on_id_label_clicked)
         self._curr_frame_index = 0
 
         self._loaded_video = None
@@ -94,7 +96,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # main controls
         self._controls = MainControlWidget()
-        self._controls.identity_changed.connect(self._change_identity)
+        self._controls.identity_changed.connect(self._on_identity_changed)
         self._controls.label_behavior_clicked.connect(self._label_behavior)
         self._controls.label_not_behavior_clicked.connect(self._label_not_behavior)
         self._controls.clear_label_clicked.connect(self._clear_behavior_label)
@@ -102,12 +104,12 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.train_clicked.connect(self._train_button_clicked)
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
-        self._controls.behavior_changed.connect(self._change_behavior)
+        self._controls.behavior_changed.connect(self._on_behavior_changed)
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
-        self._controls.window_size_changed.connect(self._window_feature_size_changed)
+        self._controls.window_size_changed.connect(self._on_window_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
-        self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
+        self._controls.use_balance_labels_changed.connect(self._on_use_balance_labels_changed)
+        self._controls.use_symmetric_changed.connect(self._on_use_symmetric_changed)
         self._controls.timeline_annotation_button_clicked.connect(
             self._on_timeline_annotation_button_clicked
         )
@@ -447,7 +449,7 @@ class CentralWidget(QtWidgets.QWidget):
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 
-    def _change_behavior(self) -> None:
+    def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
         if self._project is None:
             return
@@ -575,13 +577,13 @@ class CentralWidget(QtWidgets.QWidget):
         """populate the identity_selection combobox"""
         self._controls.set_identities(identities)
 
-    def _change_identity(self) -> None:
+    def _on_identity_changed(self) -> None:
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
         self._stacked_timeline.active_identity_index = self._controls.current_identity_index
 
-    def _frame_change(self, new_frame: int) -> None:
+    def _on_frame_changed(self, new_frame: int) -> None:
         """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
 
@@ -914,7 +916,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.classify_button_enabled = False
             self._classifier.set_classifier(self._controls.classifier_type)
 
-    def _pixmap_clicked(self, event: dict[str, int]) -> None:
+    def _on_pixmap_clicked(self, event: dict[str, int]) -> None:
         """handle event where user clicked on the video
 
         if user clicks on one of the mice, make that one active
@@ -950,12 +952,12 @@ class CentralWidget(QtWidgets.QWidget):
         if clicked_identity is not None:
             self._controls.set_identity_index(clicked_identity)
 
-    def _id_label_clicked(self, id_clicked: int) -> None:
+    def _on_id_label_clicked(self, id_clicked: int) -> None:
         """handle event where use clicked a floating identity label"""
         if self._pose_est is not None and id_clicked < self._pose_est.num_identities:
             self._controls.set_identity_index(id_clicked)
 
-    def _window_feature_size_changed(self, new_size: int) -> None:
+    def _on_window_size_changed(self, new_size: int) -> None:
         """handle window feature size change"""
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
@@ -974,7 +976,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._project.settings_manager.save_behavior(self.behavior, {key: val})
 
-    def _use_balance_labels_changed(self) -> None:
+    def _on_use_balance_labels_changed(self) -> None:
         if self.behavior == "":
             # don't do anything if behavior is not set, this means we're
             # the project isn't fully loaded and we just reset the
@@ -984,7 +986,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.update_behavior_settings("balance_labels", self._controls.use_balance_labels)
         self._update_classifier_controls()
 
-    def _use_symmetric_changed(self) -> None:
+    def _on_use_symmetric_changed(self) -> None:
         if self.behavior == "":
             # Copy behavior of use_balance_labels_changed
             return
@@ -1015,11 +1017,11 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._controls.classify_button_enabled = False
 
-    def _update_search_hit_later(self, _: SearchHit | None) -> None:
+    def _on_search_hit_changed_later(self, _: SearchHit | None) -> None:
         """Update the search hit after a short delay to allow UI updates to complete."""
         self._debounce_search_hit_timer.start()
 
-    def _update_search_hit(self) -> None:
+    def _on_search_hit_changed(self) -> None:
         """Handle updates when the current search hit changes."""
         search_hit = self._search_bar_widget.current_search_hit
         if search_hit is not None and self._project is not None:
