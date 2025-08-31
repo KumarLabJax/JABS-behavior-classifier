@@ -49,6 +49,9 @@ class AnnotationInfoDialog(QDialog):
         form.addRow("Start Frame:", QLabel(str(annotation_data.get("start", ""))))
         form.addRow("End Frame:", QLabel(str(annotation_data.get("end", ""))))
 
+        if annotation_data.get("display_identity") is not None:
+            form.addRow("Identity:", QLabel(str(annotation_data["display_identity"])))
+
         # color: show swatch with the annotation color
         color = annotation_data["color"]
         color_row_widget = QWidget()
@@ -116,6 +119,8 @@ class AnnotationInfoDialog(QDialog):
             "identity": data.get("identity"),  # None means applies to whole video
         }
 
+        identity_scoped = bool(data.get("identity_scoped"))
+
         def _on_deleted(payload: dict) -> None:
             central_widget.on_annotation_deleted(payload)
 
@@ -126,7 +131,7 @@ class AnnotationInfoDialog(QDialog):
                 tag=original_key["tag"],
                 color=data.get("color"),
                 description=data.get("description"),
-                identity_scoped=bool(data.get("identity_scoped", True)),
+                identity_scoped=identity_scoped,
                 identity_index=data.get("identity"),  # your existing param
                 display_identity=data.get("display_identity"),
                 edit_mode=True,
