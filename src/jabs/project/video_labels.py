@@ -301,7 +301,7 @@ class VideoLabels:
                 if pose and identity_index is not None:
                     display_identity = pose.identity_index_to_display(identity_index)
                 else:
-                    display_identity = None
+                    display_identity = str(identity_index)
                 data = {
                     "tag": tag,
                     "color": color,

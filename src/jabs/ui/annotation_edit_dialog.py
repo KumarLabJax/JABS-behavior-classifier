@@ -38,7 +38,7 @@ end frame, a short tag, an optional animal identity, a display color, and an opt
   • Use the picker to choose a color. This color is used for the annotation overlay in the video player.<br><br>
 <b>Annotation scope</b><br>
   • <i>Selected identity</i>: Annotation applies to the currently selected identity in the main window.<br>
-  • <i>Entire video</i>: Annotation applies to the video and not a specific animal identity.
+  • <i>Video</i>: Annotation applies to the video and not a specific animal identity.
 """
 
 EDIT_HELP_TEXT = """
@@ -181,7 +181,7 @@ class AnnotationEditDialog(QDialog):
 
         # annotation scope (identity vs entire video)
         self._identity_radio = QRadioButton("Selected identity")
-        self._video_radio = QRadioButton("Entire video")
+        self._video_radio = QRadioButton("Video")
         # Default selection is identity, but allow override via parameter
         if identity_scoped is None:
             self._identity_radio.setChecked(True)
