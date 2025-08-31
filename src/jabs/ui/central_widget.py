@@ -1297,6 +1297,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         Uniqueness key: (start, end, tag, identity_index)
         where `end` in our UI is inclusive, but `interval.end` is exclusive.
+        Tag matching is case-insensitive.
 
         Args:
             interval (Interval): The interval to check.
@@ -1311,7 +1312,7 @@ class CentralWidget(QtWidgets.QWidget):
         if interval.begin != start or (interval.end - 1) != end:
             return False
         data = interval.data or {}
-        return data.get("tag") == tag and data.get("identity") == identity_index
+        return data["tag"].lower() == tag.lower() and data.get("identity") == identity_index
 
     def _find_matching_intervals(
         self, *, start: int, end: int, tag: str, identity_index: int | None

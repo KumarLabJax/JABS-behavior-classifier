@@ -24,24 +24,30 @@ from jabs.project import video_labels
 DEFAULT_ANNOTATION_COLOR = "#6495ED"  # cornflower blue
 
 HELP_TEXT = f"""
-        <b>Tag requirements</b><br>
-        • Alphanumeric only, may include <code>-</code> and <code>_</code>.<br>
-        • Length ≤ {video_labels.MAX_TAG_LEN} characters.<br>
-        • No whitespace or special characters allowed.<br><br>
-        <b>Color</b><br>
-        • Use the picker to choose a color. This color is used for the annotation overlay in the video player.<br><br>
-        <b>Annotation scope</b><br>
-        • <i>Selected identity</i>: Annotation applies to the currently selected identity in the main window.<br>
-        • <i>Entire video</i>: Annotation applies to the video and not a specific animal identity.
-    """
+<b>What are Timeline Annotations?</b><br>
+Timeline Annotations are user-defined labels for specific frame intervals in a video. They are not used for model
+training; they help flag edge cases, disagreements, or notes for review. Each annotation includes a start and
+end frame, a short tag, an optional animal identity, a display color, and an optional free-text description.
+<br><br>
+<b>Tag requirements</b><br>
+  • Alphanumeric only, may include <code>-</code> and <code>_</code>.<br>
+  • Length ≤ {video_labels.MAX_TAG_LEN} characters.<br>
+  • No whitespace or special characters allowed.<br>
+  • Tags are case-preserving for display but are case insensitive for matching and search.<br><br> 
+<b>Color</b><br>
+  • Use the picker to choose a color. This color is used for the annotation overlay in the video player.<br><br>
+<b>Annotation scope</b><br>
+  • <i>Selected identity</i>: Annotation applies to the currently selected identity in the main window.<br>
+  • <i>Entire video</i>: Annotation applies to the video and not a specific animal identity.
+"""
 
 EDIT_HELP_TEXT = """
-        <b>Editing an existing annotation</b><br>
-        • You may update the <i>tag</i>, <i>color</i>, and <i>description</i> fields.<br>
-        • The start and end frames of the interval cannot be modified.<br>
-        • The scope (selected identity vs entire video) cannot be modified.<br>
-        • To change the interval or scope, please delete this annotation and create a new one.<br><br>
-    """
+<b>Editing an existing annotation</b><br>
+  • You may update the <i>tag</i>, <i>color</i>, and <i>description</i> fields.<br>
+  • The start and end frames of the interval cannot be modified.<br>
+  • The scope (selected identity vs entire video) cannot be modified.<br>
+  • To change the interval or scope, please delete this annotation and create a new one.<br><br>
+"""
 
 
 class AnnotationEditDialog(QDialog):
@@ -219,12 +225,10 @@ class AnnotationEditDialog(QDialog):
         details_label.setTextFormat(Qt.TextFormat.RichText)
         details_label.setWordWrap(True)
         details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        details_label.setText(
-            f"""
-                {HELP_TEXT}
-                {"<br><br>" + EDIT_HELP_TEXT if edit_mode else ""}
-            """
-        )
+        details_label.setText(f"""
+            {HELP_TEXT}
+            {"<br><br>" + EDIT_HELP_TEXT if edit_mode else ""}
+        """)
         details_label.setOpenExternalLinks(True)
         details_layout.addWidget(details_label)
 
