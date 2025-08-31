@@ -179,7 +179,7 @@ class AnnotationEditDialog(QDialog):
             self._description_edit.setText(description)
         form.addRow("Description:", self._description_edit)
 
-        # annotation scope (identity vs entire video)
+        # annotation scope (identity vs video)
         self._identity_radio = QRadioButton("Selected identity")
         self._video_radio = QRadioButton("Video")
         # Default selection is identity, but allow override via parameter
@@ -200,7 +200,7 @@ class AnnotationEditDialog(QDialog):
         applies_vlayout.addWidget(self._video_radio)
         form.addRow("Annotation scope:", applies_widget)
 
-        # In edit mode, the scope (identity vs entire video) cannot be changed
+        # In edit mode, the scope (identity vs video) cannot be changed
         if edit_mode:
             self._identity_radio.setEnabled(False)
             self._video_radio.setEnabled(False)
