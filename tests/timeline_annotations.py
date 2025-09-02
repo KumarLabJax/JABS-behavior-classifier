@@ -32,7 +32,9 @@ def test_add_and_len_and_getitem():
     assert len(ta) == 2
 
     # getitem pass-through should return set of Interval
-    result = ta[10:21]  # inclusive input, tree stores [begin, end)
+    result = ta[
+        10:21
+    ]  # Annotation class is inclusive of end, but IntervalTree is exclusive so add 1
     assert isinstance(result, set)
     assert any(isinstance(iv, Interval) and iv.begin == 10 and iv.end == 21 for iv in result)
 
