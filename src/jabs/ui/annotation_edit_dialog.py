@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 from qt_material_icons import MaterialIcon
 
-from jabs.project import video_labels
+from jabs.project import timeline_annotations, video_labels
 
 DEFAULT_ANNOTATION_COLOR = "#6495ED"  # cornflower blue
 
@@ -31,7 +31,7 @@ end frame, a short tag, an optional animal identity, a display color, and an opt
 <br><br>
 <b>Tag requirements</b><br>
   • Alphanumeric only, may include <code>-</code> and <code>_</code>.<br>
-  • Length ≤ {video_labels.MAX_TAG_LEN} characters.<br>
+  • Length ≤ {timeline_annotations.MAX_TAG_LEN} characters.<br>
   • No whitespace or special characters allowed.<br>
   • Tags are case-preserving for display but are case insensitive for matching and search.<br><br> 
 <b>Color</b><br>

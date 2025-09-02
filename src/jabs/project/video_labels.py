@@ -9,9 +9,6 @@ if TYPE_CHECKING:
     from .project_merge import MergeStrategy
 
 
-MAX_TAG_LEN = 32
-
-
 class VideoLabels:
     """Stores and manages frame-level behavior labels for each identity in a video.
 
