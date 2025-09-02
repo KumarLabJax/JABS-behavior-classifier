@@ -152,18 +152,6 @@ class TimelineAnnotations:
             annotations.append(annotation_data)
         return annotations
 
-    def _intervaltree_candidates(self, start: int, end: int) -> list[Interval]:
-        """Retrieve candidate intervals in the interval tree overlapping the given start and end.
-
-        Args:
-            start (int): The start frame of the interval.
-            end (int): The end frame of the interval (inclusive).
-
-        Returns:
-            list[Interval]: A list of candidate Interval objects overlapping the given range.
-        """
-        return list(self._tree[start : end + 1])
-
     @staticmethod
     def _interval_matches(
         interval: Interval, *, start: int, end: int, tag: str, identity_index: int | None
@@ -199,7 +187,7 @@ class TimelineAnnotations:
         Returns:
             list[Interval]: A list of matching Interval objects.
         """
-        candidates = self._intervaltree_candidates(start, end)
+        candidates = self._tree[start : end + 1]
         return [
             interval
             for interval in candidates
