@@ -101,10 +101,13 @@ class TimelineAnnotations:
             # Create a data dict for the interval.
             # Note: description and identity are optional fields
             identity_index = annotation.get("identity")
-            if pose and identity_index is not None:
-                display_identity = pose.identity_index_to_display(identity_index)
+            if identity_index is not None:
+                if pose:
+                    display_identity = pose.identity_index_to_display(identity_index)
+                else:
+                    display_identity = str(identity_index)
             else:
-                display_identity = str(identity_index)
+                display_identity = None
             data = {
                 "tag": tag,
                 "color": color,
