@@ -45,32 +45,32 @@ def test_find_and_exists_and_remove():
     # Add two overlapping intervals with different tags/identity
     ta.add_annotation(
         TimelineAnnotations.Annotation(
-            start=0, end=5, tag="eat", color="#000000", identity_index=None
+            start=0, end=5, tag="tag1", color="#000000", identity_index=None
         )
     )
     ta.add_annotation(
         TimelineAnnotations.Annotation(
-            start=0, end=5, tag="eat", color="#111111", identity_index=2
+            start=0, end=5, tag="tag1", color="#111111", identity_index=2
         )
     )
 
     # find by exact key should return correct count
-    matches_none = ta.find_matching_intervals(start=0, end=5, tag="eat", identity_index=None)
-    matches_id2 = ta.find_matching_intervals(start=0, end=5, tag="eat", identity_index=2)
+    matches_none = ta.find_matching_intervals(start=0, end=5, tag="tag1", identity_index=None)
+    matches_id2 = ta.find_matching_intervals(start=0, end=5, tag="tag1", identity_index=2)
     assert len(matches_none) == 1
     assert len(matches_id2) == 1
 
     # exists
-    assert ta.annotation_exists(start=0, end=5, tag="eat", identity_index=None)
-    assert ta.annotation_exists(start=0, end=5, tag="eat", identity_index=2)
-    assert not ta.annotation_exists(start=0, end=5, tag="drink", identity_index=None)
+    assert ta.annotation_exists(start=0, end=5, tag="tag1", identity_index=None)
+    assert ta.annotation_exists(start=0, end=5, tag="tag1", identity_index=2)
+    assert not ta.annotation_exists(start=0, end=5, tag="tag2", identity_index=None)
 
     # remove by key should only remove that one
-    removed = ta.remove_annotation_by_key(start=0, end=5, tag="eat", identity_index=None)
+    removed = ta.remove_annotation_by_key(start=0, end=5, tag="tag1", identity_index=None)
     assert removed == 1
     assert len(ta) == 1
-    assert not ta.annotation_exists(start=0, end=5, tag="eat", identity_index=None)
-    assert ta.annotation_exists(start=0, end=5, tag="eat", identity_index=2)
+    assert not ta.annotation_exists(start=0, end=5, tag="tag1", identity_index=None)
+    assert ta.annotation_exists(start=0, end=5, tag="tag1", identity_index=2)
 
 
 def test_serialize_roundtrip_basic():
@@ -78,7 +78,7 @@ def test_serialize_roundtrip_basic():
     ta = TimelineAnnotations()
     ta.add_annotation(
         TimelineAnnotations.Annotation(
-            start=5, end=7, tag="walk", color="#aaaaaa", description="desc"
+            start=5, end=7, tag="tag1", color="#aaaaaa", description="desc"
         )
     )
 
@@ -89,7 +89,7 @@ def test_serialize_roundtrip_basic():
     entry = data[0]
     assert entry["start"] == 5
     assert entry["end"] == 7
-    assert entry["tag"] == "walk"
+    assert entry["tag"] == "tag1"
     assert entry["color"] == "#aaaaaa"
     assert entry["description"] == "desc"
 
@@ -97,14 +97,14 @@ def test_serialize_roundtrip_basic():
     rebuilt = TimelineAnnotations.load(data)
     assert len(rebuilt) == 1
     # using same inclusive selection to hit the interval
-    assert rebuilt.annotation_exists(start=5, end=7, tag="walk", identity_index=None)
+    assert rebuilt.annotation_exists(start=5, end=7, tag="tag1", identity_index=None)
 
 
 def test_load_with_pose_mapping_and_optional_fields():
     """Test load with optional fields and pose identity mapping."""
     data = [
-        {"start": 1, "end": 3, "tag": "run", "color": "#ff0000", "identity": 4},
-        {"start": 10, "end": 10, "tag": "sit", "color": "#00ff00", "description": "chair"},
+        {"start": 1, "end": 3, "tag": "tag1", "color": "#ff0000", "identity": 4},
+        {"start": 10, "end": 10, "tag": "tag2", "color": "#00ff00", "description": "chair"},
     ]
     rebuilt = TimelineAnnotations.load(data, pose=DummyPose())
     assert len(rebuilt) == 2
@@ -112,8 +112,8 @@ def test_load_with_pose_mapping_and_optional_fields():
     # Check that identity/display_identity are stored
     intervals = list(rebuilt._tree)
     stored = [iv.data for iv in intervals]
-    run = next(x for x in stored if x["tag"] == "run")
-    sit = next(x for x in stored if x["tag"] == "sit")
+    run = next(x for x in stored if x["tag"] == "tag1")
+    sit = next(x for x in stored if x["tag"] == "tag2")
     assert run["identity"] == 4
     assert run["display_identity"] == "ID-4"
     assert "description" in sit and sit["description"] == "chair"
