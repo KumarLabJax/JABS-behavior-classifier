@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 from qt_material_icons import MaterialIcon
 
-from jabs.project import timeline_annotations, video_labels
+from jabs.project import timeline_annotations
 
 DEFAULT_ANNOTATION_COLOR = "#6495ED"  # cornflower blue
 
@@ -133,9 +133,9 @@ class AnnotationEditDialog(QDialog):
 
         # Tag
         self._tag_edit = QLineEdit()
-        self._tag_edit.setMaxLength(video_labels.MAX_TAG_LEN)
+        self._tag_edit.setMaxLength(timeline_annotations.MAX_TAG_LEN)
         char_width = self._tag_edit.fontMetrics().averageCharWidth()
-        self._tag_edit.setMinimumWidth(char_width * (video_labels.MAX_TAG_LEN + 2))
+        self._tag_edit.setMinimumWidth(char_width * (timeline_annotations.MAX_TAG_LEN + 2))
         self._tag_edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._tag_edit.textChanged.connect(self._update_tag_label_style)
         form.addRow("Tag:", self._tag_edit)
@@ -352,7 +352,7 @@ class AnnotationEditDialog(QDialog):
         Returns:
             True if valid, False otherwise
         """
-        return 0 < len(tag) <= video_labels.MAX_TAG_LEN and all(
+        return 0 < len(tag) <= timeline_annotations.MAX_TAG_LEN and all(
             c.isalnum() or c in "_-" for c in tag
         )
 
@@ -365,7 +365,9 @@ class AnnotationEditDialog(QDialog):
         invalid = not self._is_tag_valid(tag)
         self._tag_edit.setStyleSheet("" if not invalid else "color: red;")
         self._tag_edit.setToolTip(
-            "" if not invalid else f"Alphanumeric, -, _ only; length ≤ {video_labels.MAX_TAG_LEN}"
+            ""
+            if not invalid
+            else f"Alphanumeric, -, _ only; length ≤ {timeline_annotations.MAX_TAG_LEN}"
         )
 
     def _update_ok_button_state(self) -> None:
