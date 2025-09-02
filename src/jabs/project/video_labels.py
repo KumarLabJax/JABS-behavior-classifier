@@ -1,11 +1,8 @@
-import sys
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-from intervaltree import IntervalTree
+from typing import TYPE_CHECKING, Any
 
 from jabs.pose_estimation import PoseEstimation
 
+from .timeline_annotations import TimelineAnnotations
 from .track_labels import TrackLabels
 
 if TYPE_CHECKING:
@@ -31,23 +28,11 @@ class VideoLabels:
         in several places, identities are currently handled as strings for serialization compatibility.
     """
 
-    @dataclass
-    class Annotation:
-        """Non-behavior annotation for a video."""
-
-        start: int
-        end: int
-        tag: str
-        color: str
-        description: str | None = None
-        identity_index: int | None = None
-        display_identity: str | None = None
-
     def __init__(self, filename: str, num_frames: int):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
-        self._annotations: IntervalTree = IntervalTree()
+        self._annotations = TimelineAnnotations()
 
     @property
     def filename(self):
@@ -60,19 +45,13 @@ class VideoLabels:
         return self._num_frames
 
     @property
-    def interval_annotations(self) -> IntervalTree | None:
+    def timeline_annotations(self) -> TimelineAnnotations:
         """return interval annotations for this video, if any"""
         return self._annotations
 
-    def add_annotation(self, annotation: Annotation) -> None:
+    def add_annotation(self, annotation: TimelineAnnotations.Annotation) -> None:
         """Add a non-behavior annotation to this video"""
-        self._annotations[annotation.start : annotation.end + 1] = {
-            "tag": annotation.tag,
-            "color": annotation.color,
-            "description": annotation.description,
-            "identity": annotation.identity_index,
-            "display_identity": annotation.display_identity,
-        }
+        self._annotations.add_annotation(annotation)
 
     def get_track_labels(self, identity, behavior):
         """return a TrackLabels for an identity & behavior
@@ -191,7 +170,7 @@ class VideoLabels:
         }
 
         """
-        label_dict = {
+        label_dict: dict[str, Any] = {
             "file": self._filename,
             "num_frames": self._num_frames,
             "labels": {},
@@ -222,30 +201,7 @@ class VideoLabels:
                 label_dict["external_identities"][str(i)] = identity
 
         if len(self._annotations) > 0:
-            if "annotations" not in label_dict:
-                label_dict["annotations"] = []
-
-            for annotation in self._annotations:
-                try:
-                    annotation_data = {
-                        "start": annotation.begin,
-                        "end": annotation.end - 1,  # convert to inclusive
-                        "tag": annotation.data["tag"],
-                        "color": annotation.data["color"],
-                    }
-                except KeyError as e:
-                    print(f"Missing required annotation data: {e}")
-                    continue
-
-                # optional fields
-                description = annotation.data.get("description")
-                if description is not None:
-                    annotation_data["description"] = description
-                identity = annotation.data.get("identity")
-                if identity is not None:
-                    annotation_data["identity"] = identity
-
-                label_dict["annotations"].append(annotation_data)
+            label_dict["annotations"]: list[dict] = self._annotations.serialize()
 
         return label_dict
 
@@ -266,53 +222,7 @@ class VideoLabels:
 
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
-            for annotation in video_label_dict["annotations"]:
-                try:
-                    start = annotation["start"]
-                    end = annotation["end"]
-                    tag = annotation["tag"]
-                    color = annotation["color"]
-                except KeyError:
-                    print(
-                        "Missing required annotation fields, skipping annotation:",
-                        annotation,
-                        file=sys.stderr,
-                    )
-                    continue
-
-                # validate the tag format:
-                if 1 > len(tag) > MAX_TAG_LEN:
-                    print(
-                        f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
-                        file=sys.stderr,
-                    )
-                    continue
-                # only allow alphanumeric characters, underscores, and hyphens
-                if not all(c.isalnum() or c in "_-" for c in tag):
-                    print(
-                        f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                # Create a data dict for the interval.
-                # Note: description and identity are optional fields
-                identity_index = annotation.get("identity")
-                if pose and identity_index is not None:
-                    display_identity = pose.identity_index_to_display(identity_index)
-                else:
-                    display_identity = str(identity_index)
-                data = {
-                    "tag": tag,
-                    "color": color,
-                    "description": annotation.get("description"),
-                    "identity": identity_index,
-                    "display_identity": display_identity,
-                }
-
-                # Create the interval and add it to the IntervalTree.
-                # The start and end contained in the JSON file are inclusive, so we add 1 to end.
-                labels._annotations[start : end + 1] = data
+            labels._annotations = TimelineAnnotations.load(video_label_dict["annotations"], pose)
 
         return labels
 

@@ -118,8 +118,7 @@ class AnnotationInfoDialog(QDialog):
             "tag": data.get("tag"),
             "identity": data.get("identity"),  # None means applies to whole video
         }
-
-        identity_scoped = bool(data.get("identity_scoped"))
+        identity_scoped = data.get("identity") is not None
 
         def _on_deleted(payload: dict) -> None:
             central_widget.on_annotation_deleted(payload)

@@ -399,7 +399,7 @@ class StackedTimelineWidget(QWidget):
             widget.set_labels(predictions_list[i], probabilities_list[i])
 
     def set_search_results(
-        self, behavior_search_query: BehaviorSearchQuery, search_results: list[SearchHit]
+        self, behavior_search_query: BehaviorSearchQuery | None, search_results: list[SearchHit]
     ) -> None:
         """Set search results for timelines.
 
