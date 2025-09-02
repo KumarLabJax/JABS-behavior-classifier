@@ -34,11 +34,7 @@ class TimelineAnnotations:
         display_identity: str | None = None
 
     def __init__(self) -> None:
-        """Initialize a TimelineAnnotations instance with an empty IntervalTree.
-
-        Args:
-            tree (IntervalTree): The interval tree containing annotation intervals.
-        """
+        """Initialize a TimelineAnnotations instance with an empty IntervalTree."""
         self._tree: IntervalTree = IntervalTree()
 
     def add_annotation(self, annotation: Annotation) -> None:
