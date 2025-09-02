@@ -67,6 +67,9 @@ class TimelineAnnotations:
 
         Returns:
             TimelineAnnotations: An instance loaded with the provided data.
+
+        Note: loading currently skips invalid entries with a warning printed to stderr. Consider
+        raising an exception for stricter handling in the future.
         """
         annotations = cls()
 
@@ -85,7 +88,7 @@ class TimelineAnnotations:
                 continue
 
             # validate the tag format:
-            if 1 > len(tag) > MAX_TAG_LEN:
+            if len(tag) < 1 or len(tag) > MAX_TAG_LEN:
                 print(
                     f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
                     file=sys.stderr,
