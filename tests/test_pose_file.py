@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-import src.jabs.pose_estimation
+import jabs.pose_estimation
 
 _TEST_FILES = [
     "sample_pose_est_v3.h5.gz",
@@ -57,15 +57,15 @@ class TestOpenPose(unittest.TestCase):
                 with open(cls._tmpdir_path / f.replace(".h5.gz", ".h5"), "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-        cls._pose_est_v3 = src.jabs.pose_estimation.open_pose_file(
+        cls._pose_est_v3 = jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / "sample_pose_est_v3.h5"
         )
 
-        cls._pose_est_v4 = src.jabs.pose_estimation.open_pose_file(
+        cls._pose_est_v4 = jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / "sample_pose_est_v4.h5"
         )
 
-        cls._pose_est_v5 = src.jabs.pose_estimation.open_pose_file(
+        cls._pose_est_v5 = jabs.pose_estimation.open_pose_file(
             cls._tmpdir_path / "sample_pose_est_v5.h5"
         )
 
@@ -76,21 +76,21 @@ class TestOpenPose(unittest.TestCase):
     def test_open_pose_est_v3(self) -> None:
         """test that open_pose_file can open a V3 pose file"""
         self.assertIsInstance(
-            self._pose_est_v3, src.jabs.pose_estimation.PoseEstimationV3
+            self._pose_est_v3, jabs.pose_estimation.PoseEstimationV3
         )
         self.assertEqual(self._pose_est_v3.format_major_version, 3)
 
     def test_open_pose_est_v4(self) -> None:
         """test that open_pose_file can open a V4 pose file"""
         self.assertIsInstance(
-            self._pose_est_v4, src.jabs.pose_estimation.PoseEstimationV4
+            self._pose_est_v4, jabs.pose_estimation.PoseEstimationV4
         )
         self.assertEqual(self._pose_est_v4.format_major_version, 4)
 
     def test_open_pose_est_v5(self) -> None:
         """test that open_pose_file can open a V5 pose file"""
         self.assertIsInstance(
-            self._pose_est_v5, src.jabs.pose_estimation.PoseEstimationV5
+            self._pose_est_v5, jabs.pose_estimation.PoseEstimationV5
         )
         self.assertEqual(self._pose_est_v5.format_major_version, 5)
 
@@ -151,13 +151,13 @@ class TestOpenPose(unittest.TestCase):
             # this will be uncached, so it will read raw data from the pose file
             # and manipulate it to generate data in the form we need, and then
             # will write it back out to the cache directory
-            pose_v4 = src.jabs.pose_estimation.open_pose_file(
+            pose_v4 = jabs.pose_estimation.open_pose_file(
                 self._tmpdir_path / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
             )
 
             # open it again, this time it should be read from the cached
             # file
-            pose_v4_from_cache = src.jabs.pose_estimation.open_pose_file(
+            pose_v4_from_cache = jabs.pose_estimation.open_pose_file(
                 self._tmpdir_path / "sample_pose_est_v4.h5", cache_dir=cache_dir_path
             )
 

@@ -2,7 +2,7 @@ import pytest
 import h5py
 import numpy as np
 from pathlib import Path
-from src.jabs.project.prediction_manager import PredictionManager
+from jabs.project.prediction_manager import PredictionManager
 
 
 class MockProjectPaths:

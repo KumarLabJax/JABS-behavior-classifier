@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 
 # project imports
-from src.jabs.feature_extraction import colnames
+from jabs.feature_extraction import colnames
 
 class TestTemporalFeatures(unittest.TestCase):
 

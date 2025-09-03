@@ -2,7 +2,7 @@ import unittest
 
 # project imports
 from .seg_test_utils import SegDataBaseClass as SBC
-from src.jabs.feature_extraction.segmentation_features import HuMoments
+from jabs.feature_extraction.segmentation_features import HuMoments
 
 
 class Test(SBC, unittest.TestCase):

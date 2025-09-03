@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
 
-from src.jabs.pose_estimation import PoseEstimation
-from src.jabs.feature_extraction.landmark_features.food_hopper import FoodHopper
-from src.jabs.feature_extraction.landmark_features.food_hopper import _EXCLUDED_POINTS
+from jabs.pose_estimation import PoseEstimation
+from jabs.feature_extraction.landmark_features.food_hopper import FoodHopper
+from jabs.feature_extraction.landmark_features.food_hopper import _EXCLUDED_POINTS
 from tests.feature_modules.base import TestFeatureBase
 
 
