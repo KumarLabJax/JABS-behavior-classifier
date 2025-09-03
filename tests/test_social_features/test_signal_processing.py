@@ -8,11 +8,11 @@ import tempfile
 from pathlib import Path
 from time import time
 
-import src.jabs.pose_estimation
+import jabs.pose_estimation
 
 # Bring in base features of interest.
-from src.jabs.feature_extraction.segmentation_features import moments
-from src.jabs.feature_extraction.base_features import point_speeds
+from jabs.feature_extraction.segmentation_features import moments
+from jabs.feature_extraction.base_features import point_speeds
 
 
 # test command: python -m unittest tests.test_social_features.test_fft
@@ -58,7 +58,7 @@ class TestSignalProcessing(unittest.TestCase):
                 shutil.copyfileobj(f_in, f_out)
 
         if os.path.isfile(pose_path):
-            cls._pose_est_v6 = src.jabs.pose_estimation.open_pose_file(pose_path)
+            cls._pose_est_v6 = jabs.pose_estimation.open_pose_file(pose_path)
             cls._poses = cls._pose_est_v6
 
             with h5py.File(pose_path, "r") as f:

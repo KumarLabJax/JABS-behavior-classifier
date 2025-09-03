@@ -10,8 +10,8 @@ import tempfile
 import shutil
 import gzip
 
-from src.jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup
-import src.jabs.pose_estimation as pose_est
+from jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup
+import jabs.pose_estimation as pose_est
 
 
 class SegDataBaseClass(object):
