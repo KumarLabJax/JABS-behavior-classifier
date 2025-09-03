@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from src.jabs.project.track_labels import TrackLabels
+from jabs.project.track_labels import TrackLabels
 
 
 class TestTrackLabels(unittest.TestCase):

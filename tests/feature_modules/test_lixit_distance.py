@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-import src.jabs.feature_extraction.landmark_features.lixit as lixit
+import jabs.feature_extraction.landmark_features.lixit as lixit
 from tests.feature_modules.base import TestFeatureBase
 
 

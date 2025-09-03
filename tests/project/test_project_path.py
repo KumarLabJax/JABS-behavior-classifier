@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from src.jabs.project.project_paths import ProjectPaths
+from jabs.project.project_paths import ProjectPaths
 
 
 @pytest.fixture
