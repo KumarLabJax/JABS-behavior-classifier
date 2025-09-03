@@ -1,0 +1,20 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  format-lint:
+    name: "Format and Lint"
+    uses: ./.github/workflows/_format-lint-action.yml
+
+  test:
+    name: "Run Tests"
+    needs: format-lint
+    uses: ./.github/workflows/_run-tests-action.yml
+
+  build:
+    name: "Build Docker Image"
+    needs: [format-lint, test]
+    uses: ./.github/workflows/_build-docker-action.yml

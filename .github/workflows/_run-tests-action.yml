@@ -1,0 +1,35 @@
+name: 'Python Tests Definition'
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to set up'
+        required: false
+        default: '3.13'
+        type: string
+      runner-os:
+        description: 'Runner OS'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+jobs:
+  run-tests:
+    runs-on: ${{ inputs.runner-os }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies with uv
+        run: uv sync
+
+      - name: Test with pytest
+        run: uv run pytest tests
