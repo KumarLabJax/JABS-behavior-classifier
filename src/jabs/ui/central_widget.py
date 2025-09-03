@@ -1225,13 +1225,15 @@ class CentralWidget(QtWidgets.QWidget):
         start = key["start"]
         end = key["end"]
         tag = key["tag"]
-        identity = key["identity"]
+        old_identity = key["identity"]
 
-        # create a new annotation with updated properties
+        # Determine the new identity based on scope toggle
         new_tag = updated["tag"]
-        identity = identity if updated["identity_scoped"] else None
+        new_identity = old_identity if updated["identity_scoped"] else None
         display_identity = (
-            self._pose_est.identity_index_to_display(identity) if identity is not None else None
+            self._pose_est.identity_index_to_display(new_identity)
+            if new_identity is not None
+            else None
         )
         new_data = TimelineAnnotations.Annotation(
             start=start,
@@ -1239,13 +1241,16 @@ class CentralWidget(QtWidgets.QWidget):
             tag=new_tag,
             color=updated["color"],
             description=updated["description"],
-            identity_index=identity,
+            identity_index=new_identity,
             display_identity=display_identity,
         )
 
-        # check if the updated annotation would create a duplicate
-        if self._labels.timeline_annotations.annotation_exists(
-            start=start, end=end, tag=new_tag, identity_index=identity
+        # Only treat as duplicate if the new key (start,end,tag,identity) collides with a *different* annotation
+        # i.e., if the tag/identity are unchanged, it's the same annotation and should be allowed.
+        if not (
+            new_tag == tag and new_identity == old_identity
+        ) and self._labels.timeline_annotations.annotation_exists(
+            start=start, end=end, tag=new_tag, identity_index=new_identity
         ):
             message = f"An annotation with tag '{new_tag}' for this identity already exists at frames {start}-{end}."
             QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
@@ -1253,7 +1258,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # modification is handled by removing the old annotation and inserting a new one with the updated properties
         self._labels.timeline_annotations.remove_annotation_by_key(
-            start=start, end=end, tag=tag, identity_index=identity
+            start=start, end=end, tag=tag, identity_index=old_identity
         )
         self._labels.timeline_annotations.add_annotation(new_data)
 
