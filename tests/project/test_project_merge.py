@@ -64,7 +64,8 @@ def mock_projects_with_labels(tmp_path):
     src.load_pose_est.side_effect = lambda p: pose_obj("hash1")
 
     patcher = patch(
-        "jabs.project.project_merge.get_pose_path", side_effect=lambda p: p.with_suffix(".h5")
+        "jabs.project.project_merge.get_pose_path",
+        side_effect=lambda p: p.with_name(p.stem + "_pose_est_v6.h5"),
     )
     patcher.start()
 
