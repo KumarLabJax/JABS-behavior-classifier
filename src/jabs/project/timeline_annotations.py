@@ -1,10 +1,9 @@
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from intervaltree import Interval, IntervalTree
-
-from jabs.pose_estimation import PoseEstimation
 
 MAX_TAG_LEN = 32
 
@@ -53,13 +52,13 @@ class TimelineAnnotations:
 
     @classmethod
     def load(
-        cls, data: list[dict[str, Any]], pose: PoseEstimation | None = None
+        cls, data: list[dict[str, Any]], id_index_to_display: Callable[[int], str] | None = None
     ) -> "TimelineAnnotations":
         """Load a TimelineAnnotations instance from a JSON-compatible dictionary.
 
         Args:
             data (dict): The dictionary containing serialized timeline annotations.
-            pose (PoseEstimation | None): Optional PoseEstimation instance for identity mapping.
+            id_index_to_display (Callable[[int], str] | None): Optional function to map identity index to a display string.
 
         Returns:
             TimelineAnnotations: An instance loaded with the provided data.
@@ -102,8 +101,8 @@ class TimelineAnnotations:
             # Note: description and identity are optional fields
             identity_index = annotation.get("identity")
             if identity_index is not None:
-                if pose:
-                    display_identity = pose.identity_index_to_display(identity_index)
+                if id_index_to_display:
+                    display_identity = id_index_to_display(identity_index)
                 else:
                     display_identity = str(identity_index)
             else:

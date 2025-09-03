@@ -4,12 +4,9 @@ from intervaltree import Interval
 from jabs.project.timeline_annotations import MAX_TAG_LEN, TimelineAnnotations
 
 
-class DummyPose:
-    """Dummy pose class with identity mapping function."""
-
-    def identity_index_to_display(self, idx):
-        """Dummy mapping function."""
-        return f"ID-{idx}"
+def identity_index_to_display(idx: int) -> str:
+    """Dummy mapping function."""
+    return f"ID-{idx}"
 
 
 def test_add_and_len_and_getitem():
@@ -106,7 +103,7 @@ def test_load_with_pose_mapping_and_optional_fields():
         {"start": 1, "end": 3, "tag": "tag1", "color": "#ff0000", "identity": 4},
         {"start": 10, "end": 10, "tag": "tag2", "color": "#00ff00", "description": "chair"},
     ]
-    rebuilt = TimelineAnnotations.load(data, pose=DummyPose())
+    rebuilt = TimelineAnnotations.load(data, id_index_to_display=identity_index_to_display)
     assert len(rebuilt) == 2
 
     # Check that identity/display_identity are stored

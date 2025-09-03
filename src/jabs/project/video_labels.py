@@ -219,7 +219,9 @@ class VideoLabels:
 
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
-            labels._annotations = TimelineAnnotations.load(video_label_dict["annotations"], pose)
+            labels._annotations = TimelineAnnotations.load(
+                video_label_dict["annotations"], pose.identity_index_to_display
+            )
 
         return labels
 
