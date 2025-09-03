@@ -60,13 +60,8 @@ packages = [
 ]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.7.19,<0.8.0"]
+build-backend = "uv_build"
 
-# TODO: Migrate to uv_build
-#requires = ["uv_build>=0.7.19,<0.8.0"]
-#build-backend = "uv_build"
-#
-#[tool.uv.build-backend]
-## Your package lives at: src/jabs/__init__.py
-#module-name = "jabs"
+[tool.uv.build-backend]
+module-name = "jabs"
