@@ -152,7 +152,7 @@ class AnnotationOverlay(Overlay):
                     rect = QtCore.QRectF(x, y, rect_width, rect_height)
                     data = annotation.data.copy()
                     data["start"] = annotation.begin
-                    data["end"] = annotation.end
+                    data["end"] = annotation.end - 1  # make end inclusive
                     self._rects_with_data.append((rect, data))
                     fill_color = QtGui.QColor(color_str)
                     if not fill_color.isValid():
@@ -192,7 +192,7 @@ class AnnotationOverlay(Overlay):
             rect = QtCore.QRectF(x, y, rect_width, rect_height)
             data = annotation.data.copy()
             data["start"] = annotation.begin
-            data["end"] = annotation.end
+            data["end"] = annotation.end - 1  # make end inclusive
             self._rects_with_data.append((rect, data))
             fill_color = QtGui.QColor(color_str)
             if not fill_color.isValid():

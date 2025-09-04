@@ -1,5 +1,5 @@
 import pytest
-from pathlib import Path
+
 from jabs.project.project_paths import ProjectPaths
 
 

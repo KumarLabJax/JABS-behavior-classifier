@@ -1,16 +1,14 @@
 import unittest
+from pathlib import Path
+
 import h5py
 import numpy as np
-
-from pathlib import Path
 
 # TODO: this unit test should be removed or fixed. This shouldn't have been commited in it's current state
 #  it references a file that doesn't exist in the repository, and it has significant amounts of unreachable code
 
 
-def ugly_segmentation_sort(
-    seg_data: np.ndarray, longterm_seg_id: np.ndarray
-) -> np.ndarray:
+def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
     """
     This method attempts to sort the segmentation data according to the longterm segmentation id.
     This code is highly inefficient and ugly should be replaced with a vectorized expression.
@@ -40,9 +38,7 @@ class TestPoseMatchSegmentation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        dataPath = (
-            Path(__file__).parent.parent.parent / "data" / "B6J_MDB0054_pose_est_v6.h5"
-        )
+        dataPath = Path(__file__).parent.parent.parent / "data" / "B6J_MDB0054_pose_est_v6.h5"
 
         with h5py.File(dataPath, "r") as f:
             print(f["poseest"].keys())
@@ -93,9 +89,7 @@ class TestPoseMatchSegmentation(unittest.TestCase):
         # Attempt 2
         # ugly, but should work
         if False:
-            seg_data_tmp = np.zeros_like(
-                self.seg_data
-            )  # np.full_like(self.seg_data, -1)
+            seg_data_tmp = np.zeros_like(self.seg_data)  # np.full_like(self.seg_data, -1)
 
             for frame in range(self.seg_data.shape[0]):
                 map = self.longterm_seg_sorting[frame]
@@ -112,9 +106,7 @@ class TestPoseMatchSegmentation(unittest.TestCase):
         # Attempt 3, put into a function.
         if True:
             frame = 5
-            sorted_seg_dat = ugly_segmentation_sort(
-                self.seg_data, self.longterm_seg_sorting
-            )
+            sorted_seg_dat = ugly_segmentation_sort(self.seg_data, self.longterm_seg_sorting)
             print("SEG ID:")
             print(self.longterm_seg_sorting[frame])
             print("RAW:")

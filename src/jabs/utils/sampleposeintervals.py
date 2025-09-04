@@ -73,8 +73,7 @@ def main():
 
     parser.add_argument(
         "--batch-file",
-        help="path to the file that is a new-line separated"
-        " list of all videos to process",
+        help="path to the file that is a new-line separated list of all videos to process",
         required=True,
     )
     parser.add_argument(
@@ -124,9 +123,7 @@ def main():
     elif args.pose_version == 5:
         pose_suffix = "_pose_est_v5.h5"
     else:
-        raise NotImplementedError(
-            "pose version not implemented: " + str(args.pose_version)
-        )
+        raise NotImplementedError("pose version not implemented: " + str(args.pose_version))
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -166,34 +163,26 @@ def main():
                     vid_out_path = os.path.join(args.out_dir, vid_out_filename)
                     vid_out_path_root, _ = os.path.splitext(vid_out_path)
                     vid_out_path = (
-                        vid_out_path_root
-                        + "_"
-                        + str(out_start_frame_index + 1)
-                        + ".avi"
+                        vid_out_path_root + "_" + str(out_start_frame_index + 1) + ".avi"
                     )
                     pose_out_path = (
-                        vid_out_path_root
-                        + "_"
-                        + str(out_start_frame_index + 1)
-                        + pose_suffix
+                        vid_out_path_root + "_" + str(out_start_frame_index + 1) + pose_suffix
                     )
 
                     with h5py.File(pose_out_path, "w") as pose_out:
                         # pose v2 stuff
                         start = out_start_frame_index
                         stop = start + args.out_frame_count
-                        pose_out["poseest/points"] = pose_in["poseest/points"][
-                            start:stop, ...
-                        ]
+                        pose_out["poseest/points"] = pose_in["poseest/points"][start:stop, ...]
                         pose_out["poseest/confidence"] = pose_in["poseest/confidence"][
                             start:stop, ...
                         ]
 
                         # pose v3 stuff
                         if "instance_count" in pose_in["poseest"]:
-                            pose_out["poseest/instance_count"] = pose_in[
-                                "poseest/instance_count"
-                            ][start:stop, ...]
+                            pose_out["poseest/instance_count"] = pose_in["poseest/instance_count"][
+                                start:stop, ...
+                            ]
                         if "instance_embedding" in pose_in["poseest"]:
                             pose_out["poseest/instance_embedding"] = pose_in[
                                 "poseest/instance_embedding"
@@ -231,9 +220,7 @@ def main():
 
                         # copy attributes
                         for attr in pose_in["poseest"].attrs:
-                            pose_out["poseest"].attrs[attr] = pose_in["poseest"].attrs[
-                                attr
-                            ]
+                            pose_out["poseest"].attrs[attr] = pose_in["poseest"].attrs[attr]
 
                     cap = None
                     writer = None
@@ -247,9 +234,7 @@ def main():
 
                             cap.set(cv2.CAP_PROP_POS_FRAMES, out_start_frame_index)
                             if not cap.isOpened():
-                                print(
-                                    f"WARNING: failed to seek to start frame {vid_filename}"
-                                )
+                                print(f"WARNING: failed to seek to start frame {vid_filename}")
                                 continue
 
                             writer = cv2.VideoWriter(

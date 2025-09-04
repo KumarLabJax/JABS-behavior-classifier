@@ -21,9 +21,7 @@ class ShapeDescriptors(Feature):
     # TODO: we're discarding centroid angle and ellipse-fit angle (theta)
     # These need to be handled similar to other angle terms (circular statistics)
 
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
         self._pixel_scale = pixel_scale
@@ -61,23 +59,23 @@ class ShapeDescriptors(Feature):
 
             # Ellipse features
             # Since these features are based on cached moments, they are already adjusted for pixel scaling
-            x[frame] = self._moment_cache.get_moment(
-                frame, "m10"
-            ) / self._moment_cache.get_moment(frame, "m00")
-            y[frame] = self._moment_cache.get_moment(
-                frame, "m01"
-            ) / self._moment_cache.get_moment(frame, "m00")
-            a = self._moment_cache.get_moment(
-                frame, "m20"
-            ) / self._moment_cache.get_moment(frame, "m00") - np.square(x[frame])
+            x[frame] = self._moment_cache.get_moment(frame, "m10") / self._moment_cache.get_moment(
+                frame, "m00"
+            )
+            y[frame] = self._moment_cache.get_moment(frame, "m01") / self._moment_cache.get_moment(
+                frame, "m00"
+            )
+            a = self._moment_cache.get_moment(frame, "m20") / self._moment_cache.get_moment(
+                frame, "m00"
+            ) - np.square(x[frame])
             b = 2 * (
                 self._moment_cache.get_moment(frame, "m11")
                 / self._moment_cache.get_moment(frame, "m00")
                 - x[frame] * y[frame]
             )
-            c = self._moment_cache.get_moment(
-                frame, "m02"
-            ) / self._moment_cache.get_moment(frame, "m00") - np.square(y[frame])
+            c = self._moment_cache.get_moment(frame, "m02") / self._moment_cache.get_moment(
+                frame, "m00"
+            ) - np.square(y[frame])
             ellipse_w[frame] = 0.5 * np.sqrt(
                 8 * (a + c - np.sqrt(np.square(b) + np.square(a - c)))
             )
@@ -113,9 +111,7 @@ class ShapeDescriptors(Feature):
 
             # Place the shape features into the return value
             perimeter_sum[frame] = np.sum(perimeters) * self._pixel_scale
-            elongation[frame] = 1 - (
-                np.min(min_bound_rect[1]) / np.max(min_bound_rect[1])
-            )
+            elongation[frame] = 1 - (np.min(min_bound_rect[1]) / np.max(min_bound_rect[1]))
             rectangularity[frame] = self._moment_cache.get_moment(frame, "m00") / (
                 min_bound_rect[1][0] * min_bound_rect[1][1] * self._pixel_scale**2
             )
@@ -123,9 +119,9 @@ class ShapeDescriptors(Feature):
             solidity[frame] = self._moment_cache.get_moment(frame, "m00") / (
                 hull_area * self._pixel_scale**2
             )
-            euler_number[frame] = np.sum(
-                contour_flags[: len(contour_list)] == 1
-            ) - np.sum(contour_flags[: len(contour_list)] == 0)
+            euler_number[frame] = np.sum(contour_flags[: len(contour_list)] == 1) - np.sum(
+                contour_flags[: len(contour_list)] == 0
+            )
             hole_area_ratio[frame] = (
                 hole_areas * self._pixel_scale**2
             ) / self._moment_cache.get_moment(frame, "m00")

@@ -18,7 +18,7 @@ estimation files. The first time a project directory is opened in JABS, it will
 create a subdirectory called "jabs", which contains various files created by
 JABS to save project state, including labels and current predictions.
 
-### Example JABS project directory listing:
+### Example JABS Project Directory listing:
 
 ```text
 VIDEO_1.avi
@@ -38,9 +38,9 @@ VIDEO_7_pose_est_v3.h5
 jabs/
 ```
 
-## Initializing A JABS Project Directory
+## Initializing a JABS Project Directory
 
-The first time you open a project directory in with JABS it will create the 
+The first time you open a project directory with JABS it will create the 
 "jabs" subdirectory. Features will be computed the first time the "Train" button
 is clicked. This can be very time-consuming depending on the number and length
 of videos in the project directory.
@@ -50,11 +50,11 @@ directory before it is opened in the JABS GUI. This script checks to make sure
 that a pose file exists for each video in the directory, and that the pose file
 and video have the same number of frames. Then, after these basic checks, the
 script will compute features for all the videos in the project. Since
-`jabs-int` can compute features for multiple videos in parallel, it
+`jabs-init` can compute features for multiple videos in parallel, it
 is significantly faster than doing so through the GUI during the training
 process.
 
-### jabs-init usage:
+### jabs-init Usage:
 
 ```text
 usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE] [--force-pixel-distances] [--metadata METADATA]
@@ -81,7 +81,7 @@ options:
                         Skip feature calculation and only initialize/validate the project
 ```
 
-### example jabs-init command
+### Example jabs-init Command
 
 The following command runs the `jabs-init` script to compute features
 using window sizes of 2, 5, and 10. The script will use up to 8 processes for
@@ -323,16 +323,16 @@ tool (`jabs-classify`).
 - **Sliding Window Indicator:** highlights the section of the global views that
   correspond to the frames displayed in the "sliding window" views.
 
-By default, the Timeline shows manual labels and predicted behaviors for the currently 
+By default, the Timeline shows manual labels and predicted behaviors for the current 
 subject animal. The Timeline can be toggled to show all subjects by selecting 
 View->Timeline->All Animals in the menu bar. The Timeline can also be toggled to show only
 manual labels, only predicted labels. If "All Animals" is selected, the Timeline will show
 which set of labels and predictions belong to the subject animal by drawing a colored box 
-them. 
+around them. 
 
 **Timeline Menu**
 
-<img src="imgs/timeline_menu.png" alt="JABS Timeline" alt="Timeline visualization options" />
+<img src="imgs/timeline_menu.png" alt="Timeline visualization options" />
 
 <br />
 **Example Timeline with "Labels & Predictions" and "All Animals" selected**
@@ -455,12 +455,70 @@ unselect the frames and leave select mode without making a change to the labels.
 
 ### Applying Labels
 
-The "Label Behavior Button" will mark all of the frames in the current selection
-as showing the behavior. The "Label Not Behavior" button will mark all of the
-frames in the current selection as not showing the behavior. Finally, the "Clear
-Labels" button will remove all labels from the currently selected frames.
+The label **Behavior** button will mark the selected interval of frames as showing
+the current behavior. The label **Not Behavior** button will mark all the
+frames in the selected interval as not showing the behavior. The **New Timeline Annotation**
+button will open the Timeline Annotation Editor dialog to create a new timeline 
+annotation for the selected interval. Finally, the "Clear Labels" button will remove
+all labels from the currently selected frames.
 
-### Keyboard Shortcuts
+### Timeline Annotations
+
+Timeline annotations mark frame intervals that are not tied to a behavior label. They are never
+used for training and can apply to the entire video or to a specific animal (via an identity).
+Each annotation includes a short tag, an optional description, and a display color. Tags appear
+as overlays in the video and can be searched (with search hits highlighted in the label timeline),
+making it easy to flag edge cases, highlight areas of disagreement for review, or note uncertainty
+and poor pose quality.
+
+#### Where They’re Stored
+Each video’s annotations are saved to `jabs/annotations/<video_name>.json` inside the project directory.
+
+Example annotation file (other top-level fields omitted for clarity):
+```json
+{
+  "annotations": [
+    {
+      "start": 100,
+      "end": 200,
+      "tag": "identity",
+      "identity": 0,
+      "color": "#ff0000",
+      "description": "identity is wrong"
+    },
+    {
+      "start": 150,
+      "end": 250,
+      "tag": "obstructed",
+      "identity": null,
+      "color": "#0000ff",
+      "description": "view is obstructed"
+    }
+  ]
+}
+```
+
+##### Fields
+- start (int): first frame index (inclusive).
+- end (int): last frame index (inclusive).
+- tag (str): short label for quick identification (see Tag rules).
+- identity (int | null): optional animal identity; if omitted or null, the annotation applies to the whole video.
+- color (str): display color, e.g. `#RRGGBB` or an SVG color name.
+- description (str, optional): free-text notes.
+
+##### Tag Rules
+- Characters: letters, digits, underscores `_`, and hyphens `-`; **no whitespace**.
+- Length: 1–32 characters.
+- Matching/filtering is case-insensitive; display preserves your original casing.
+
+##### How They’re Displayed
+- Tag Overlay: the tag appears as a badge in the video.
+- If identity is set, the tag follows that animal.
+- If the pose file includes external identity mapping, the JABS identity is converted to the external ID for display.
+- If pose is missing, the tag snaps to the upper-left corner and is prefixed with the identity (e.g., 1234: tag).
+- Clicking a tag opens details.
+
+### Labeling Using Keyboard Shortcuts
 
 Using the keyboard controls can be the fastest way to label.
 
@@ -470,7 +528,7 @@ The arrow keys can be used for stepping through video. The up arrow skips ahead
 10 frames, and the down arrow skips back 10 frames. The right arrow advances one
 frame, and the left arrow goes back one frame.
 
-#### Labeling  Controls
+#### Labeling Controls
 
 The z, x, and c keys can be used to apply labels.
 

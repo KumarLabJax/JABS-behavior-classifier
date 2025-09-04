@@ -28,9 +28,7 @@ class TestCornerFeatures(TestFeatureBase):
             # check dimensions of window feature values
             dist_window_values = self.lixit_distance.window(i, 5, distances)
             for op in dist_window_values:
-                self.assertEqual(
-                    dist_window_values[op].shape, (self._pose_est_v5.num_frames,)
-                )
+                self.assertEqual(dist_window_values[op].shape, (self._pose_est_v5.num_frames,))
 
     @unittest.skip("")
     def test_distances_greater_equal_zero(self):

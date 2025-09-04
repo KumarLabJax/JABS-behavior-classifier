@@ -364,3 +364,16 @@ class PoseEstimation(ABC):
     def external_identities(self) -> list[int] | None:
         """get the jabs identity to external identity mapping"""
         return self._external_identities
+
+    def identity_index_to_display(self, identity_index: int) -> str:
+        """Convert an identity index to a display string.
+
+        Args:
+            identity_index (int): The identity index to convert.
+
+        Returns:
+            str: The display string for the identity.
+        """
+        if self.external_identities and 0 <= identity_index < len(self.external_identities):
+            return str(self.external_identities[identity_index])
+        return str(identity_index)

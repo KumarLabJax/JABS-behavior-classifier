@@ -90,14 +90,10 @@ class LandmarkFeatureGroup(FeatureGroup):
         modules = {}
 
         if identity not in self._corner_info:
-            self._corner_info[identity] = CornerDistanceInfo(
-                self._poses, self._pixel_scale
-            )
+            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
 
         if identity not in self._lixit_info:
-            self._lixit_info[identity] = LixitDistanceInfo(
-                self._poses, self._pixel_scale
-            )
+            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
 
         # initialize all the feature modules specified in the current config
         for feature in self._enabled_features:
@@ -116,9 +112,7 @@ class LandmarkFeatureGroup(FeatureGroup):
                     self._poses, self._pixel_scale, self._lixit_info[identity]
                 )
             else:
-                modules[feature] = self._features[feature](
-                    self._poses, self._pixel_scale
-                )
+                modules[feature] = self._features[feature](self._poses, self._pixel_scale)
 
         return modules
 
@@ -132,9 +126,7 @@ class LandmarkFeatureGroup(FeatureGroup):
             CornerDistanceInfo object for the requested identity
         """
         if identity not in self._corner_info:
-            self._corner_info[identity] = CornerDistanceInfo(
-                self._poses, self._pixel_scale
-            )
+            self._corner_info[identity] = CornerDistanceInfo(self._poses, self._pixel_scale)
         return self._corner_info[identity]
 
     def get_lixit_info(self, identity: int):
@@ -147,9 +139,7 @@ class LandmarkFeatureGroup(FeatureGroup):
             LixitDistanceInfo object for the requested identity
         """
         if identity not in self._lixit_info:
-            self._lixit_info[identity] = LixitDistanceInfo(
-                self._poses, self._pixel_scale
-            )
+            self._lixit_info[identity] = LixitDistanceInfo(self._poses, self._pixel_scale)
         return self._lixit_info[identity]
 
     @classmethod
@@ -236,9 +226,7 @@ class LandmarkFeatureGroup(FeatureGroup):
         if static_objects is None:
             valid_objects = cls.get_supported_objects()
         else:
-            valid_objects = [
-                x for x in static_objects if x in cls.get_supported_objects()
-            ]
+            valid_objects = [x for x in static_objects if x in cls.get_supported_objects()]
 
         per_frame_features = {}
         window_features = {}
@@ -247,9 +235,7 @@ class LandmarkFeatureGroup(FeatureGroup):
             for current_feature in object_features:
                 object_feature_list = []
                 window_feature_dict = {}
-                per_frame_feature_names = cls.static_object_per_frame_features(
-                    current_feature
-                )
+                per_frame_feature_names = cls.static_object_per_frame_features(current_feature)
                 window_feature_mods = cls.static_object_window_features(current_feature)
                 for frame_feature in per_frame_feature_names:
                     window_feature_dict.update({frame_feature: window_feature_mods})

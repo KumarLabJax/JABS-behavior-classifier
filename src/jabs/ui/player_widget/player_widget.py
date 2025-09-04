@@ -264,7 +264,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._pose_est = pose_est
         self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
-        self._frame_widget.annotations = video_labels.interval_annotations
+        self._frame_widget.annotations = video_labels.timeline_annotations
 
         self._player_thread = PlayerThread(
             self._video_stream,
