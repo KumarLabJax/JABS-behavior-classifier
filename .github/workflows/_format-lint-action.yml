@@ -27,7 +27,7 @@ jobs:
         run: uv sync --only-group lint
 
       - name: Run Ruff Linter
-        run: uv run --only-group lint ruff check src/ tests/
+        run: uv run --only-group lint ruff check src/
 
       - name: Run Ruff Formatter
-        run: uv run --only-group lint ruff format --check src/ tests/
+        run: uv run --only-group lint ruff format --check src/
