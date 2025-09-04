@@ -15,13 +15,12 @@ from rich.console import Console
 from jabs.classifier import Classifier
 from jabs.project import Project, export_training_data
 from jabs.types import ClassifierType
-from jabs.utils import FINAL_TRAIN_SEED
 
 # find out which classifiers are supported in this environment
 CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
 
 
-@click.group()
+@click.group(context_settings={"max_content_width": 120})
 @click.option("--verbose", is_flag=True, help="Enable verbose output.")
 @click.pass_context
 def cli(ctx, verbose):
@@ -44,33 +43,43 @@ def cli(ctx, verbose):
     "--behavior",
     required=True,
     type=str,
-    help="Specify the behavior to use during export (required).",
+    help="Specify the behavior to export (required).",
 )
 @click.option(
-    "--classifier-type",
-    "classifier_type",
-    required=True,
+    "--classifier",
+    "classifier",
+    default="xgboost",
     type=click.Choice([c.name for c in CLASSIFIER_CHOICES], case_sensitive=False),
-    help="Classifier to use. Choices: one of CLASSIFIER_CHOICES.",
+    help="Default classifier set in the training file. Default is 'xgboost'.",
 )
 @click.option(
     "--outfile",
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
     required=False,
-    help="Optional path to write the exported training data file.",
+    help=(
+        "Optional path to write the exported training data file. "
+        "Default is <project_dir>/<behavior>_training_<YYYYMMDD_HHMMSS>.h5"
+    ),
 )
 @click.pass_context
-def export_training(
-    ctx, directory: Path, behavior: str, classifier_type: str, outfile: Path | None
-):
-    """Export training data to the given DIRECTORY with a specified BEHAVIOR."""
+def export_training(ctx, directory: Path, behavior: str, classifier: str, outfile: Path | None):
+    """Export training data for a specified behavior and JABS project directory."""
+    #    ctx: Click context.
+    #    directory (Path): Path to the JABS project directory.
+    #    behavior (str): Behavior to export.
+    #    classifier (str): Default classifier type set in the training file,
+    #        can be overridden by the jabs-classify train command.
+    #    outfile (Path | None): Optional path to write the exported training data
+    #        file. If not provided, export_training_data will generate a unique
+    #        filename in the project directory using .
+
     if ctx.obj["VERBOSE"]:
         click.echo("Exporting training data with the following parameters:")
         click.echo(f"\tBehavior: {behavior}")
-        click.echo(f"\tClassifier type: {classifier_type}")
+        click.echo(f"\tClassifier type: {classifier}")
         click.echo(f"\tJABS project directory: {directory}")
 
-    classifier_type = ClassifierType[classifier_type.upper()]
+    classifier = ClassifierType[classifier.upper()]
     jabs_project = Project(directory, enable_session_tracker=False)
 
     # validate that the behavior exists in the project
@@ -78,16 +87,13 @@ def export_training(
         raise click.ClickException(f"Behavior '{behavior}' not found in project.")
 
     console = Console()
-    status_text = (
-        f"Exporting training data (behavior={behavior}, classifier={classifier_type.name})"
-    )
+    status_text = f"Exporting training data (behavior={behavior}, classifier={classifier.name})"
     with console.status(status_text, spinner="dots"):
         outfile = export_training_data(
             jabs_project,
             behavior,
             jabs_project.feature_manager.min_pose_version,
-            classifier_type,
-            FINAL_TRAIN_SEED,
+            classifier,
             out_file=outfile,
         )
 
