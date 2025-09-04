@@ -1,15 +1,17 @@
 import cv2
 import numpy as np
 
+from jabs.feature_extraction.landmark_features.food_hopper import _EXCLUDED_POINTS, FoodHopper
 from jabs.pose_estimation import PoseEstimation
-from jabs.feature_extraction.landmark_features.food_hopper import FoodHopper
-from jabs.feature_extraction.landmark_features.food_hopper import _EXCLUDED_POINTS
 from tests.feature_modules.base import TestFeatureBase
 
 
 class TestFoodHopper(TestFeatureBase):
+    """Test food hopper feature module."""
+
     @classmethod
     def setUpClass(cls) -> None:
+        """Setup food hopper feature instance."""
         super().setUpClass()
 
         pixel_scale = cls._pose_est_v5.cm_per_pixel
@@ -21,9 +23,7 @@ class TestFoodHopper(TestFeatureBase):
             values = self.food_hopper_feature.per_frame(i)
 
             # TODO check dimensions of all key points, not just for NOSE
-            self.assertEqual(
-                values["food hopper NOSE"].shape, (self._pose_est_v5.num_frames,)
-            )
+            self.assertEqual(values["food hopper NOSE"].shape, (self._pose_est_v5.num_frames,))
 
             # check dimensions of window feature values
             dist_window_values = self.food_hopper_feature.window(i, 5, values)
@@ -43,9 +43,7 @@ class TestFoodHopper(TestFeatureBase):
         # swap the point x,y values and change dtype to float32 for open cv
         hopper_pts = hopper[:, [1, 0]].astype(np.float32)
 
-        points, _ = self._pose_est_v5.get_identity_poses(
-            0, self._pose_est_v5.cm_per_pixel
-        )
+        points, _ = self._pose_est_v5.get_identity_poses(0, self._pose_est_v5.cm_per_pixel)
 
         for key_point in PoseEstimation.KeypointIndex:
             # skip over the key points we don't care about
@@ -57,25 +55,21 @@ class TestFoodHopper(TestFeatureBase):
 
             # check values for this keypoint for a few different frames
             for i in [5, 10, 50, 100, 200, 500, 1000]:
-                signed_dist = cv2.pointPolygonTest(
-                    hopper_pts, (pts[i, 0], pts[i, 1]), True
-                )
+                signed_dist = cv2.pointPolygonTest(hopper_pts, (pts[i, 0], pts[i, 1]), True)
                 if np.isnan(pts[i, 0]):
                     signed_dist = np.nan
 
                 if not np.isnan(signed_dist):
-                    self.assertAlmostEqual(
-                        signed_dist, values[f"food hopper {key_point.name}"][i]
-                    )
+                    self.assertAlmostEqual(signed_dist, values[f"food hopper {key_point.name}"][i])
                 else:
-                    self.assertTrue(
-                        np.isnan(values[f"food hopper {key_point.name}"][i])
-                    )
+                    self.assertTrue(np.isnan(values[f"food hopper {key_point.name}"][i]))
 
     def test_frame_out_of_range(self) -> None:
+        """Test that requesting a frame out of range raises IndexError."""
         with self.assertRaises(IndexError):
             _ = self.food_hopper_feature.per_frame(0)["food hopper NOSE"][100000]
 
     def test_identity_out_of_range(self) -> None:
+        """Test that requesting an identity out of range raises IndexError."""
         with self.assertRaises(IndexError):
             _ = self.food_hopper_feature.per_frame(100)[0]

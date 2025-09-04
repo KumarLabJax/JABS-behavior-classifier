@@ -1,24 +1,26 @@
-import numpy as np
-import h5py
-import unittest
-import os
 import gzip
+import os
 import shutil
 import tempfile
+import unittest
 from pathlib import Path
 from time import time
 
+import h5py
+import numpy as np
+
 import jabs.pose_estimation
+from jabs.feature_extraction.base_features import point_speeds
 
 # Bring in base features of interest.
 from jabs.feature_extraction.segmentation_features import moments
-from jabs.feature_extraction.base_features import point_speeds
-
 
 # test command: python -m unittest tests.test_social_features.test_fft
 
 
 class Color:
+    """Colors for printing to terminal."""
+
     HEADER = "\033[95m"
     BLUE = "\033[94m"
     CYAN = "\033[96m"
@@ -45,6 +47,7 @@ class TestSignalProcessing(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        """Setup temporary directory and copy pose file to it."""
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
@@ -53,9 +56,8 @@ class TestSignalProcessing(unittest.TestCase):
 
         opener = open if ".gz" not in cls._fname else gzip.open
 
-        with opener(cls._test_file, "rb") as f_in:
-            with open(pose_path, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with opener(cls._test_file, "rb") as f_in, open(pose_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
         if os.path.isfile(pose_path):
             cls._pose_est_v6 = jabs.pose_estimation.open_pose_file(pose_path)
@@ -70,6 +72,7 @@ class TestSignalProcessing(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        """Cleanup temporary directory."""
         cls._tmpdir.cleanup()
 
     def test_access_poses(self):
@@ -103,7 +106,6 @@ class TestSignalProcessing(unittest.TestCase):
         For some random identity, attempt to generate the signal processing
         features for an arbitrary base feature.
         """
-
         test_identity = np.random.choice(self._poses._identities)
         window_size = 5
         moment = moments.Moments(self._poses, self._poses.cm_per_pixel)
@@ -112,7 +114,7 @@ class TestSignalProcessing(unittest.TestCase):
         window_values = moment.window(test_identity, window_size, per_frame)
         tf = time()
 
-        random_key = np.random.choice([i for i in window_values.keys()])
+        random_key = np.random.choice(list(window_values))
 
         if False:
             print(f"window values [{random_key}]:", window_values[random_key])
@@ -131,7 +133,6 @@ class TestSignalProcessing(unittest.TestCase):
         seconds.  First I will verify they are correct, then I will attempt to
         optimize.
         """
-
         test_identity = np.random.choice(self._poses._identities)
         window_size = 5
 
@@ -141,9 +142,7 @@ class TestSignalProcessing(unittest.TestCase):
         # print("cm_per_pixel:", self._poses.cm_per_pixel)
 
         t0 = time()
-        signal_processing_values = moment.signal_processing(
-            test_identity, window_size, per_frame
-        )
+        signal_processing_values = moment.signal_processing(test_identity, window_size, per_frame)
         tf = time()
         print(f"signal processing time: {(tf - t0) // 60} m {(tf - t0) % 60} s")
 
@@ -195,9 +194,7 @@ class TestSignalProcessing(unittest.TestCase):
             # Why don't our points match up?
             # Appears to be a "smoothing" issue.  Leaving here in case we want
             # to explore this further.
-            assert np.all(
-                points_for_individual_from_pose_estimation == points_for_individual
-            )
+            assert np.all(points_for_individual_from_pose_estimation == points_for_individual)
             # Computed nose speed not in my per_frame array.
             self.assertIn(nose_speeds[frameIdx], per_frame[frameIdx])
 
@@ -219,9 +216,7 @@ class TestSignalProcessing(unittest.TestCase):
             "__Top_Signal": 3.75,
         }
 
-        nose_speeds = np.genfromtxt(
-            Path(__file__).parent / "nose_speeds.txt", delimiter=","
-        )
+        nose_speeds = np.genfromtxt(Path(__file__).parent / "nose_speeds.txt", delimiter=",")
 
         nose_speeds = nose_speeds.reshape(nose_speeds.shape[0], 1)
 

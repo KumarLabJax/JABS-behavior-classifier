@@ -8,16 +8,19 @@ individual datasets without actually making the h5 file a gzip file, so the .gz 
 might be misleading.
 """
 
-import unittest
-import numpy as np
-import h5py
-import os
 import gzip
+import os
 import shutil
+import unittest
 from random import choice
+
+import h5py
+import numpy as np
 
 
 class TestH5Data(unittest.TestCase):
+    """Test creating, reading, and writing h5 files with gzip compression."""
+
     out_file = "tmp_data.h5"
 
     # some toy datasets to store in h5 files, can be overwritten in tests as needed.
@@ -25,18 +28,18 @@ class TestH5Data(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """Set up test datasets."""
         di = np.arange(50)
         np.random.shuffle(di)
         cls.dataset.append((f"d{len(cls.dataset) + 1}", di))
 
     def test_create_h5(self):
         """Control, can create a simple h5 file with gzipped datasets."""
-
         with h5py.File(self.out_file, "w") as h5obj:
             for name, data in self.dataset:
                 h5obj.create_dataset(name, data=data, compression="gzip")
 
-            for name, data in self.dataset:
+            for name, _data in self.dataset:
                 assert name in h5obj.keys()
 
         os.remove(self.out_file)
@@ -46,7 +49,6 @@ class TestH5Data(unittest.TestCase):
         Check the difference in file size between gzipped and non gzipped file.
         Also try loading the gzipped file.
         """
-
         compressed_file = f"compressed_{self.out_file}.gz"
 
         # write two h5 files with the same data, one file is compressed with gzip
@@ -92,11 +94,10 @@ class TestH5Data(unittest.TestCase):
         os.remove(compressed_file)
 
     def test_gzip_open(self):
-        """
-        Trying to replicate the strategy employed in test_pose_file.
-        """
-
-        compressed_file = f"compressed_{self.out_file}.gz"  # adding a .gz suffix to the compressed dataset file.
+        """Trying to replicate the strategy employed in test_pose_file."""
+        compressed_file = (
+            f"compressed_{self.out_file}.gz"  # adding a .gz suffix to the compressed dataset file.
+        )
 
         # write two h5 files with the same data, one file is compressed with gzip
         # the other is not.
@@ -116,9 +117,11 @@ class TestH5Data(unittest.TestCase):
 
         open_func = open  # gzip.open
 
-        with open_func(compressed_file, "rb") as f_in:
-            with open(compressed_file.replace(".h5.gz", ".h5"), "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with (
+            open_func(compressed_file, "rb") as f_in,
+            open(compressed_file.replace(".h5.gz", ".h5"), "wb") as f_out,
+        ):
+            shutil.copyfileobj(f_in, f_out)
 
         assert True
 
@@ -136,8 +139,9 @@ class TestH5Data(unittest.TestCase):
         """In this test the gzip module is used to add an additional layer
         of gzip compression to the h5 python file.
         """
-
-        compressed_file = f"compressed_{self.out_file}"  # adding a .gz suffix to the compressed dataset file.
+        compressed_file = (
+            f"compressed_{self.out_file}"  # adding a .gz suffix to the compressed dataset file.
+        )
         gz_file = f"{compressed_file}.gz"
 
         with h5py.File(compressed_file, "w") as h5obj_out_comp:
@@ -152,7 +156,6 @@ class TestH5Data(unittest.TestCase):
             gzfile.writelines(h5file)
 
         # ensure that external gzipping doesn't corrupt the data
-        with gzip.open(gz_file, "rb") as gzfile:
-            with h5py.File(gzfile, "r") as h5obj:
-                name, data = choice(self.dataset)
-                assert h5obj.get(name)[:][-1] == data[-1]
+        with gzip.open(gz_file, "rb") as gzfile, h5py.File(gzfile, "r") as h5obj:
+            name, data = choice(self.dataset)
+            assert h5obj.get(name)[:][-1] == data[-1]
