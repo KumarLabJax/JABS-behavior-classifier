@@ -227,3 +227,70 @@ training data from a project folder, transfer it to our HPC cluster, and then tr
 Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
 predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
 which can then be used to classify many videos as part of a pipeline).
+
+## CI/CD and Release Management
+
+JABS uses GitHub Actions for continuous integration and automated releases to PyPI. 
+The CI/CD pipeline is defined in `.github/workflows/` and automatically manages package building, testing, and publishing.
+
+### Pull Request Checks
+
+Pull requests to the `main` branch trigger automated checks to ensure code quality and functionality:
+
+1. **Code Formatting and Linting**: Ensures code adheres to style guidelines
+2. **Test Execution**: Runs the full test suite to verify functionality
+
+### Automated Release Process
+
+The release process is triggered automatically when the version number in `pyproject.toml` is changed on the `main` branch:
+
+1. **Version Detection**: The workflow monitors changes to `pyproject.toml` and extracts the version number
+2. **Pre-release Detection**: Versions containing letters (e.g., `1.0.0a1`, `2.1.0rc1`) are automatically marked as pre-releases
+3. **Build Pipeline**: If version changed, the system runs:
+   - Code formatting and linting checks
+   - Test execution
+   - Package building with `uv build`
+4. **PyPI Publishing**: Successfully built packages are automatically published to PyPI
+5. **GitHub Release**: A corresponding GitHub release is created with build artifacts
+
+### Release Workflow Files
+
+- **`.github/workflows/release.yml`**: Main release workflow that orchestrates the entire process
+- **`.github/workflows/_format-lint-action.yml`**: Reusable workflow for code quality checks
+- **`.github/workflows/_run-tests-action.yml`**: Reusable workflow for test execution
+- **`.github/workflows/pull-request.yml`**: CI checks for pull requests
+
+### Creating a New Release
+
+To create a new release:
+
+1. Update the version number in `pyproject.toml`:
+   ```toml
+   version = "X.Y.Z"  # for stable releases
+   version = "X.Y.Za1" # for alpha pre-releases
+   version = "X.Y.Zrc1" # for release candidates
+   ```
+
+2. Re-lock the uv lock file:
+   ```bash
+   uv lock
+   ```
+
+3. Commit and push the change:
+   ```bash
+   git add pyproject.toml uv.lock
+   git commit -m "Bump version to X.Y.Z"
+   ```
+   
+4. Merge your changes into the `main` branch via a pull request.
+
+3. The CI/CD pipeline will automatically:
+   - Detect the version change
+   - Run all quality checks and tests
+   - Build and publish the package to PyPI
+   - Create a GitHub release with generated release notes
+
+### Environment Requirements
+
+The release workflow requires:
+- **PyPI API Token**: Stored as `PYPI_API_TOKEN` in GitHub repository secrets
