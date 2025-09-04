@@ -3,18 +3,16 @@ This file contains the base class SegTest.  This class can be inherited by tests
 data in the pose file (v6+).
 """
 
-import h5py
-import os
-from pathlib import Path
-import tempfile
-import shutil
 import gzip
+import shutil
+import tempfile
+from pathlib import Path
 
-from jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup
 import jabs.pose_estimation as pose_est
+from jabs.feature_extraction.segmentation_features import SegmentationFeatureGroup
 
 
-class SegDataBaseClass(object):
+class SegDataBaseClass:
     """Common setup and teardown for segmentation tests."""
 
     pixel_scale = 1.0
@@ -24,13 +22,12 @@ class SegDataBaseClass(object):
 
     @classmethod
     def setUpClass(cls) -> None:
+        """Setup temporary directory and copy pose file to it."""
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls._tmpdir_path = Path(cls._tmpdir.name)
 
         with gzip.open(cls.dataPath / cls.dataFileName, "rb") as f_in:
-            with open(
-                cls._tmpdir_path / cls.dataFileName.replace(".h5.gz", ".h5"), "wb"
-            ) as f_out:
+            with open(cls._tmpdir_path / cls.dataFileName.replace(".h5.gz", ".h5"), "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
         cls._pose_est_v6 = pose_est.open_pose_file(
@@ -42,6 +39,7 @@ class SegDataBaseClass(object):
 
     @classmethod
     def tearDown(cls):
+        """Cleanup temporary directory."""
         if cls._tmpdir:
             cls._tmpdir.cleanup()
 

@@ -1,7 +1,7 @@
-import pytest
 import h5py
 import numpy as np
-from pathlib import Path
+import pytest
+
 from jabs.project.prediction_manager import PredictionManager
 
 
@@ -84,9 +84,7 @@ def test_load_predictions(prediction_manager, mock_project):
         prediction_group = h5.create_group("predictions")
         behavior_group = prediction_group.create_group(behavior)
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
-        behavior_group.create_dataset(
-            "probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]]
-        )
+        behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
 
     predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
         video, behavior
