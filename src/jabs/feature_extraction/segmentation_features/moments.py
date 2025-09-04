@@ -36,9 +36,7 @@ class Moments(Feature):
         "nu03",
     ]
 
-    def __init__(
-        self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"
-    ):
+    def __init__(self, poses: PoseEstimation, pixel_scale: float, moment_cache: "MomentInfo"):
         super().__init__(poses, pixel_scale)
         self._moment_cache = moment_cache
 

@@ -27,9 +27,7 @@ def generate_feature_cache(args):
         args: argparse Namespace object containing script arguments, including pose file path,
               pose version, feature directory, distance unit, window size, and fps.
     """
-    distance_unit = (
-        ProjectDistanceUnit.CM if args.cm_units else ProjectDistanceUnit.PIXEL
-    )
+    distance_unit = ProjectDistanceUnit.CM if args.cm_units else ProjectDistanceUnit.PIXEL
     settings = Project.settings_by_pose_version(args.pose_version, distance_unit)
     if args.window_size is not None:
         settings["window_size"] = args.window_size

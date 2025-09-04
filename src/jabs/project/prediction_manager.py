@@ -147,9 +147,7 @@ class PredictionManager:
                 _classes = behavior_group["predicted_class"][:]
 
                 for i in range(nident):
-                    indexes = np.asarray(
-                        range(behavior_group["predicted_class"].shape[1])
-                    )
+                    indexes = np.asarray(range(behavior_group["predicted_class"].shape[1]))
 
                     # first, exclude any probability of -1 as that indicates
                     # a user label, not an inferred class
