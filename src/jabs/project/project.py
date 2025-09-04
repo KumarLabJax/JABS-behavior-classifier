@@ -384,7 +384,7 @@ class Project:
                     archived_labels[video][behavior][ident] = annotations["labels"][ident].pop(
                         behavior
                     )
-            self.save_annotations(VideoLabels.load(annotations), pose)
+            self.save_annotations(VideoLabels.load(annotations, pose), pose)
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
