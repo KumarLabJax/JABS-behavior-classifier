@@ -107,7 +107,7 @@ slightly different.
 
 This project now uses **uv** for dependency management and building. Poetry is no longer required.
 
-JABS developers will need to install Poetry by following the instructions on 
+JABS developers will need to install uv by following the instructions on 
 [uv's official website](https://docs.astral.sh/uv/getting-started/installation/).
 
 1) **Clone** the repository and enter the project directory.
