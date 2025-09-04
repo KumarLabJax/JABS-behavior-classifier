@@ -34,10 +34,16 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "matplotlib>=3.9.3,<4.0.0",
-  "pytest>=8.3.4,<9.0.0",
-  "ruff>=0.11.5,<0.12.0",
+  {include-group = "lint"},
+  {include-group = "test"},
   "pre-commit>=4.2.0,<5.0.0",
+]
+test = [
+  "pytest>=8.3.4,<9.0.0",
+  "matplotlib>=3.9.3,<4.0.0",
+]
+lint = [
+  "ruff>=0.11.5,<0.12.0",
 ]
 
 [project.urls]
@@ -60,5 +66,8 @@ packages = [
 ]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.7.19,<0.8.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "jabs"

@@ -2,7 +2,10 @@
 #   singularity build --fakeroot behavior-classifier.sif behavior-classifier-vm.def
 
 Bootstrap: docker
-From: python:3.13-bookworm
+From: ghcr.io/astral-sh/uv:python3.13-bookworm
+
+%environment
+    export UV_SYSTEM_PYTHON=1
 
 %setup
     mkdir -p ${SINGULARITY_ROOTFS}/behavior-classifier
@@ -17,16 +20,11 @@ From: python:3.13-bookworm
     exec jabs-classify "$@"
 
 %post
-    pip install poetry
-    pip install pytest
-    poetry --directory=/behavior-classifier/ install
-    poetry --directory=/behavior-classifier/ build
-    pip install /behavior-classifier/dist/jabs_behavior_classifier-*-py3-none-any.whl
-
     # Run unittests to ensure build environment should work as intended
     # skip tests of GUI components that will fail since this Singularity image does not support the JABS gui
     cd /behavior-classifier/
-    pytest --ignore=tests/test_search_bar_widget.py  tests
+    uv sync --locked --compile-bytecode --no-editable
+    uv run pytest --ignore=tests/test_search_bar_widget.py  tests
 
     # Cleanup
     rm -R /behavior-classifier

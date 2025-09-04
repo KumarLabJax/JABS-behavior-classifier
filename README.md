@@ -33,7 +33,7 @@ packages. These packages are available from the Python Package Index (PyPI).
 
 Currently, JABS supports Python 3.10 through 3.13.
 
-## Python Env Setup
+## Python Environment Setup
 
 We recommend creating a Python Virtualenv for JABS:
 
@@ -105,17 +105,28 @@ startup times should be significantly reduced.**
 The following instructions are for Linux or macOS Developers. Commands for JABS developers using Windows might be 
 slightly different.
 
-This project uses Poetry for packaging and dependency management. JABS developers will need to install Poetry by 
-following the instructions on [Poetry's official website](https://python-poetry.org/docs/#installation).
+This project now uses **uv** for dependency management and building. Poetry is no longer required.
 
-You can use Poetry to manage your virtualenv, or manage your virtualenv externally to Poetry and use Poetry only for 
-installing dependencies. The following instructions assume that you've already created and activated a Python 
-environment for JABS using whichever method you prefer.
+JABS developers will need to install uv by following the instructions on 
+[uv's official website](https://docs.astral.sh/uv/getting-started/installation/).
 
-Clone the JABS git repository, and with your JABS virtualenv activated, run the following command in the project root:
+1) **Clone** the repository and enter the project directory.
 
-```commandline
-poetry install
+2) **Create/activate** a virtual environment (uv recommended):
+
+Note, if you don't want to activate the virtualenv, you can use `uv run <command>` to run commands in the virtualenv.
+If you don't want to activate the virtualenv, you can skip this step.
+
+```bash
+uv venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\Activate.ps1 # Windows PowerShell
+```
+
+3) **Install dependencies** in editable mode:
+
+```bash
+uv sync
 ```
 
 This will install all dependencies and JABS will be installed in "editable" mode, meaning that the JABS Python modules 
@@ -123,8 +134,16 @@ installed in the virtualenv will be links to the files in the cloned git reposit
 reflected immediately in the Python environment.
 
 Note to Developers: JABS uses package metadata to determine the version number. If you change the version number in the 
-pyproject.toml file, you will need to run `poetry install` to update the version number in the installed package so 
+pyproject.toml file, you will need to run `uv sync` to update the version number in the installed package so 
 that the GUI will display the correct version.
+
+
+#### Adding Dependencies
+```
+uv add <package>            # runtime dependency
+uv add --dev <package>      # dev-only dependency
+```
+
 
 #### Code Style
 
@@ -146,10 +165,18 @@ ruff format src/packagepath/modulename.py
 
 #### Building Python Packages
 
-Developers can build a Python package using the `poetry build` command. This will produce both a .tar.gz and a Python 
-Wheel file (.whl) in the dist directory. The wheel file can be installed with pip:
+Build wheels and source distributions with uv:
 
-```pip install jabs_behavior_classifier-<version>-py3-none-any.whl```
+```bash
+uv build
+```
+
+This will produce both a .tar.gz and a Python Wheel file (.whl) in the dist directory. 
+
+The wheel file can be installed with pip:
+```
+pip install jabs_behavior_classifier-<version>-py3-none-any.whl
+```
 
 Since the Wheel does not contain any compiled code it is platform independent.
 
