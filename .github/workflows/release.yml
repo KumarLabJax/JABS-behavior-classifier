@@ -21,12 +21,6 @@ jobs:
     needs: format-lint
     uses: ./.github/workflows/_run-tests-action.yml
 
-  build:
-    name: "Build Docker Image"
-    needs: [format-lint, test]
-    secrets: inherit
-    uses: ./.github/workflows/_build-docker-action.yml
-
   check-version-changed:
     name: "Check if version changed"
     runs-on: ubuntu-latest
