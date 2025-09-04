@@ -40,8 +40,6 @@ class SegmentationFeatureGroup(FeatureGroup):
         self._moments_cache = MomentInfo(self._poses, identity, self._pixel_scale)
 
         return {
-            feature: self._features[feature](
-                self._poses, self._pixel_scale, self._moments_cache
-            )
+            feature: self._features[feature](self._poses, self._pixel_scale, self._moments_cache)
             for feature in self._enabled_features
         }

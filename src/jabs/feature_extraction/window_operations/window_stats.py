@@ -3,9 +3,7 @@ import warnings
 import numpy as np
 
 
-def pad_sliding_window(
-    arr: np.ndarray, window: int, pad_const: float | None = None
-) -> np.ndarray:
+def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = None) -> np.ndarray:
     """Generates a sliding window view of an input array with nan-padding.
 
     Args:
@@ -17,16 +15,10 @@ def pad_sliding_window(
         an unmodifiable 2d view of the input array where the first axis is time and the second axis is the window. Note that typical usage will use summary stats with axis=1.
     """
     if pad_const:
-        arr_ext = np.concatenate(
-            [np.full(window, pad_const), arr, np.full(window, pad_const)]
-        )
+        arr_ext = np.concatenate([np.full(window, pad_const), arr, np.full(window, pad_const)])
     else:
-        arr_ext = np.concatenate(
-            [np.full(window, arr[0]), arr, np.full(window, arr[-1])]
-        )
-    return np.lib.stride_tricks.sliding_window_view(
-        arr_ext, window_shape=window * 2 + 1
-    )
+        arr_ext = np.concatenate([np.full(window, arr[0]), arr, np.full(window, arr[-1])])
+    return np.lib.stride_tricks.sliding_window_view(arr_ext, window_shape=window * 2 + 1)
 
 
 def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarray:

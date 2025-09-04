@@ -180,15 +180,11 @@ def convert_data_frame(
         pose_group.create_dataset("points", data=jabs_points, dtype=np.uint16)
         pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
         pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
-        pose_group.create_dataset(
-            "instance_embed_id", data=jabs_embed_id, dtype=np.uint32
-        )
+        pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
 
         # the parquet file uses global identities for the animal ids, while JABS always uses 0..(num_identities-1)
         # save the original animal ids in the pose file so we can map back to the original ids downstream
-        pose_group.create_dataset(
-            "external_identity_mapping", data=identities, dtype=np.uint32
-        )
+        pose_group.create_dataset("external_identity_mapping", data=identities, dtype=np.uint32)
 
         static_objects_group = pose_out.create_group("static_objects")
         if lixit_predictions is not None:
@@ -282,9 +278,7 @@ def main():
         formatter_class=FlexiFormatter,
     )
 
-    parser.add_argument(
-        "parquet_path", type=Path, help="Path to the parquet file", nargs="+"
-    )
+    parser.add_argument("parquet_path", type=Path, help="Path to the parquet file", nargs="+")
     parser.add_argument(
         "--lixit-csv",
         type=Path,
