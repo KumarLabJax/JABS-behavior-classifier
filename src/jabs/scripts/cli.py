@@ -33,8 +33,8 @@ def cli(ctx, verbose):
 @click.argument(
     "directory",
     type=click.Path(
-        exists=True,  # require the directory to exist
-        file_okay=False,  # must be a directory
+        exists=True,
+        file_okay=False,
         dir_okay=True,
         path_type=Path,
     ),
