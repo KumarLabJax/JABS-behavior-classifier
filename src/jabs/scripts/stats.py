@@ -89,7 +89,7 @@ def main():
         print(f"              {'not behavior':12}  behavior")
         print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
         print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
-        print(f"  fbeta score {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
+        print(f"  F1 score    {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
         print(f"  support     {pr[3][0]:<12}  {pr[3][1]}")
         print("CONFUSION MATRIX:")
         print(f"{confusion}")
@@ -111,16 +111,16 @@ def main():
                     "precision\n(behavior)",
                     "recall\n(not behavior)",
                     "recall\n(behavior)",
-                    "f beta score\n(not behavior)",
-                    "f beta score\n(behavior)",
+                    "F1 score\n(not behavior)",
+                    "F1 score\n(behavior)",
                     "test - leave one out:\n(video [identity])",
                 ],
             )
         )
 
         print(f"\nmean accuracy: {np.mean(accuracies):.5}")
-        print(f"mean fbeta score (behavior): {np.mean(fbeta_behavior):.5}")
-        print(f"mean fbeta score (not behavior): {np.mean(fbeta_notbehavior):.5}")
+        print(f"mean F1 score (behavior): {np.mean(fbeta_behavior):.5}")
+        print(f"mean F1 score (not behavior): {np.mean(fbeta_notbehavior):.5}")
         print(f"\nClassifier: {classifier.classifier_name}")
         print(f"Behavior: {features['behavior']}")
         unit = (
