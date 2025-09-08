@@ -8,6 +8,7 @@ import numpy as np
 import jabs.feature_extraction
 import jabs.version
 from jabs.project.project_utils import to_safe_name
+from jabs.utils import FINAL_TRAIN_SEED
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
@@ -22,7 +23,7 @@ def export_training_data(
     behavior: str,
     pose_version: int,
     classifier_type: "ClassifierType",
-    training_seed: int,
+    training_seed: int = FINAL_TRAIN_SEED,
     out_file: Path | None = None,
 ):
     """

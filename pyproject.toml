@@ -30,6 +30,7 @@ dependencies = [
   "intervaltree>=3.1.0,<4.0.0",
   "qt-material-icons>=0.2.0,<0.3.0",
   "jsonschema>=4.25.1,<5.0.0",
+  "click>=8.2.1",
 ]
 
 [dependency-groups]
@@ -58,6 +59,7 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 "jabs-stats" = "jabs.scripts.stats:main"
 "jabs-convert-parquet" = "jabs.scripts.convert_parquet:main"
 "jabs-project-merge" = "jabs.scripts.merge_projects:main"
+"jabs-cli" = "jabs.scripts.cli:main"
 
 # Poetry-specific config kept for src/ layout and Poetry's own dev group
 [tool.poetry]
