@@ -67,7 +67,7 @@ jobs:
   build-package:
     name: "Build Python Package"
     runs-on: ubuntu-latest
-    needs: [build, check-version-changed]
+    needs: [check-version-changed]
     if: needs.check-version-changed.outputs.version-changed == 'true'
     steps:
       - uses: actions/checkout@v4
