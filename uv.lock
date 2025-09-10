@@ -333,7 +333,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/50/fb/396d568039d213446
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.35.0"
+version = "0.36.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
