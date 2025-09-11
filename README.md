@@ -90,9 +90,7 @@ If you’ve cloned the JABS repository:
 pip install .
 ```
 
----
-
-### Windows Setup Helpers
+#### Windows Setup Helpers
 
 Two batch scripts are included for Windows users working with a local clone:
 
