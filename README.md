@@ -33,72 +33,92 @@ packages. These packages are available from the Python Package Index (PyPI).
 
 Currently, JABS supports Python 3.10 through 3.13.
 
-## Python Environment Setup
+## Installation
 
-We recommend creating a Python Virtualenv for JABS:
+We recommend installing JABS in a dedicated Python virtual environment.
 
-```
+### Create a Virtual Environment
+
+```bash
 python -m venv jabs.venv
 
-# Linux and MacOS
+# Linux and macOS
 source jabs.venv/bin/activate
 
-# Windows
+# Windows (cmd)
 jabs.venv\Scripts\activate.bat
 ```
 
-### JABS Installation
+> Developers may prefer using [uv](https://docs.astral.sh/uv/getting-started/installation/) for environment and dependency management (see the Developer Setup section below).
 
-Developers should follow the Developer Setup section below. This section describes how to install JABS into a Python 
-environment for a non-developer user.
+---
 
-#### PyPI
+### Install from PyPI (Recommended)
 
-JABS is not available on PyPI at this time, but we hope to begin publishing it there soon.
+JABS can be installed directly from the Python Package Index:
 
-#### Pip install from Github
+```bash
+pip install jabs-behavior-classifier
+```
 
-With the jabs.venv virtualenv activated, run the following command to install JABS from our git repository. This will 
-install the latest commit from the main branch: 
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git`
+This will install JABS and all required dependencies automatically.
 
-you can also specify a branch or tag:
+---
 
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name`
+### Install from Source
 
-or a specific commit:
+If you want the latest development version or need to install a specific branch/commit:
 
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash`
+#### From GitHub
 
-#### Pip install from local source
+```bash
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git
+```
 
-If you've cloned the JABS repository, you can install by running the following command in the project root directory:
+Specify a branch or commit if needed:
 
-`pip install .`
+```bash
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash
+```
 
-#### Windows .bat scripts
+#### From Local Clone
 
-There are two scripts that Windows users can use to simplify installing and running JABS. These can be executed by 
-double-clicking on them in Windows Explorer.
+If you’ve cloned the JABS repository:
 
-* setup_windows.bat: this will create a Python virtualenv called jabs.venv in the project root and then install JABS as 
-a Python package.
-* launch_jabs.bat: this script will activate the jabs.venv environment and then launch the JABS GUI.
+```bash
+pip install .
+```
+
+---
+
+### Windows Setup Helpers
+
+Two batch scripts are included for Windows users working with a local clone:
+
+- **`setup_windows.bat`** — Creates a `jabs.venv` virtual environment and installs JABS.  
+- **`launch_jabs.bat`** — Activates the environment and launches the JABS GUI.
+
+Double-click these scripts in Windows Explorer to run them.
+
+---
 
 ### Running JABS
 
-After installing JABS, five commands will be added to the bin directory of your Python virtualenv:
+After installation, the following commands are available in your environment:
 
-* jabs: launch the JABS GUI
-* jabs-init: initialize a new JABS project directory from the command line
-* jabs-classify: run a trained classifier from the command line
-* jabs-stats: print accuracy statistics for the given classifier
-* jabs-convert-parquet: convert parquet pose file to JABS pose file format
+- `jabs` — launch the JABS GUI  
+- `jabs-init` — initialize a new JABS project directory or recompute features in an existing project 
+- `jabs-classify` — run a trained classifier  
+- `jabs-stats` — print accuracy statistics for a classifier  
+- `jabs-convert-parquet` — convert parquet pose files to JABS format
+- `jabs-export-training` — export training data from an existing JABS project
 
-You can run the `<jabs command> --help` to get usage information for each of the commands.
+You can view usage information for any command with:
 
-**NOTE: On some platforms, the first time you run the JABS GUI it might take several minutes to launch. Subsequent 
-startup times should be significantly reduced.**
+```bash
+<jabs-command> --help
+```
 
 ### Developer Setup
 
