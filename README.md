@@ -49,9 +49,7 @@ source jabs.venv/bin/activate
 jabs.venv\Scripts\activate.bat
 ```
 
-> Developers may prefer using [uv](https://docs.astral.sh/uv/getting-started/installation/) for environment and dependency management (see the Developer Setup section below).
-
----
+> Developers may prefer using [uv](https://docs.astral.sh/uv/getting-started/installation/) for environment and dependency management (see the JABS Developer Setup section below).
 
 ### Install from PyPI (Recommended)
 
@@ -62,8 +60,6 @@ pip install jabs-behavior-classifier
 ```
 
 This will install JABS and all required dependencies automatically.
-
----
 
 ### Install from Source
 
@@ -99,9 +95,16 @@ Two batch scripts are included for Windows users working with a local clone:
 
 Double-click these scripts in Windows Explorer to run them.
 
+### Enabling XGBoost Classifier
+
+The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out 
+of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following 
+command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond 
+the scope of this Readme.
+
 ---
 
-### Running JABS
+## Running JABS
 
 After installation, the following commands are available in your environment:
 
@@ -118,7 +121,56 @@ You can view usage information for any command with:
 <jabs-command> --help
 ```
 
-### Developer Setup
+## Sample Data
+
+We provide sample data for testing and demonstration purposes. You can download the sample data from
+https://doi.org/10.5281/zenodo.16697331
+
+---
+
+## Singularity/Linux
+
+We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
+compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
+environment. Please inspect the definition files for related linux packages to run the software.
+
+## JABS Project Portability
+
+We have 4 version numbers in our software:
+
+* JABS Python package version. This gets bumped every release.
+* Feature version. This gets bumped every time we change feature values or the format used to store 
+calculated features.
+* Classifier version. This gets bumped every time we change characteristics of classifiers.
+* Prediction version. This gets bumped every time we change how predictions are stored.
+
+### Long Term Support of JABS-based Classifiers
+
+There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
+
+* Project folders. These are the most compatible for upgrades. The vast majority of our upgrades to JABS will allow
+transparent upgrades (e.g. re-generation of features) within the project folder without user interaction. We will
+provide instructions for changes that are not.
+* Exported training data. These are compatible across computers, but should generally not be considered compatible
+across JABS package versions. Once we add the appropriate version checks, the error message should be a bit more
+clear when and why these aren't compatible across versions.
+* Classifier pickle files. These are only compatible within a specific install of the package (e.g. mac will not
+be compatible with windows). These are the serialized trained classifiers, so load really fast, but should not be 
+considered portable beyond the computer and specific JABS install that created them.
+
+Project folders are big, but are almost always compatible across JABS versions.
+
+Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These 
+are good for sharing or archiving specific versions (e.g. a version we use in a paper). A comon use case is to export
+training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the 
+`jabs-classify` command from same version of JABS that was used to export the training file.
+
+Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
+predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
+which can then be used to classify many videos as part of a pipeline).
+
+
+## JABS Developer Setup
 
 The following instructions are for Linux or macOS Developers. Commands for JABS developers using Windows might be 
 slightly different.
@@ -156,14 +208,14 @@ pyproject.toml file, you will need to run `uv sync` to update the version number
 that the GUI will display the correct version.
 
 
-#### Adding Dependencies
+### Adding Dependencies
 ```
 uv add <package>            # runtime dependency
 uv add --dev <package>      # dev-only dependency
 ```
 
 
-#### Code Style
+### Code Style
 
 JABS uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Developers should run `ruff check` and `ruff format` before 
 committing code. A pre-commit hook is provided to run these commands automatically.
@@ -181,7 +233,7 @@ ruff check src/packagepath/modulename.py
 ruff format src/packagepath/modulename.py
 ```
 
-#### Building Python Packages
+### Building Python Packages
 
 Build wheels and source distributions with uv:
 
@@ -198,67 +250,19 @@ pip install jabs_behavior_classifier-<version>-py3-none-any.whl
 
 Since the Wheel does not contain any compiled code it is platform independent.
 
-### Enabling XGBoost Classifier
-
-The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out 
-of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following 
-command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond 
-the scope of this Readme.
-
-### Singularity/Linux
-
-We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
-compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
-environment. Please inspect the definition files for related linux packages to run the software.
-
-# JABS Project Portability
-
-We have 4 version numbers in our software:
-
-* JABS Python package version. This gets bumped every release.
-* Feature version. This gets bumped every time we change feature values or the format used to store 
-calculated features.
-* Classifier version. This gets bumped every time we change characteristics of classifiers.
-* Prediction version. This gets bumped every time we change how predictions are stored.
-
-## Long Term Support of JABS-based Classifiers
-
-There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
-
-* Project folders. These are the most compatible for upgrades. The vast majority of our upgrades to JABS will allow
-transparent upgrades (e.g. re-generation of features) within the project folder without user interaction. We will
-provide instructions for changes that are not.
-* Exported training data. These are compatible across computers, but should generally not be considered compatible
-across JABS package versions. Once we add the appropriate version checks, the error message should be a bit more
-clear when and why these aren't compatible across versions.
-* Classifier pickle files. These are only compatible within a specific install of the package (e.g. mac will not
-be compatible with windows). These are the serialized trained classifiers, so load really fast, but should not be 
-considered portable beyond the computer and specific JABS install that created them.
-
-Project folders are big, but are almost always compatible across JABS versions.
-
-Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These 
-are good for sharing or archiving specific versions (e.g. a version we use in a paper). A comon use case is to export
-training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the 
-`jabs-classify` command from same version of JABS that was used to export the training file.
-
-Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
-predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
-which can then be used to classify many videos as part of a pipeline).
-
-## CI/CD and Release Management
+### CI/CD and Release Management
 
 JABS uses GitHub Actions for continuous integration and automated releases to PyPI. 
 The CI/CD pipeline is defined in `.github/workflows/` and automatically manages package building, testing, and publishing.
 
-### Pull Request Checks
+#### Pull Request Checks
 
 Pull requests to the `main` branch trigger automated checks to ensure code quality and functionality:
 
 1. **Code Formatting and Linting**: Ensures code adheres to style guidelines
 2. **Test Execution**: Runs the full test suite to verify functionality
 
-### Automated Release Process
+#### Automated Release Process
 
 The release process is triggered automatically when the version number in `pyproject.toml` is changed on the `main` branch:
 
@@ -271,14 +275,14 @@ The release process is triggered automatically when the version number in `pypro
 4. **PyPI Publishing**: Successfully built packages are automatically published to PyPI
 5. **GitHub Release**: A corresponding GitHub release is created with build artifacts
 
-### Release Workflow Files
+#### Release Workflow Files
 
 - **`.github/workflows/release.yml`**: Main release workflow that orchestrates the entire process
 - **`.github/workflows/_format-lint-action.yml`**: Reusable workflow for code quality checks
 - **`.github/workflows/_run-tests-action.yml`**: Reusable workflow for test execution
 - **`.github/workflows/pull-request.yml`**: CI checks for pull requests
 
-### Creating a New Release
+#### Creating a New Release
 
 To create a new release:
 
@@ -308,7 +312,7 @@ To create a new release:
    - Build and publish the package to PyPI
    - Create a GitHub release with generated release notes
 
-### Environment Requirements
+#### Environment Requirements
 
 The release workflow requires:
 - **PyPI API Token**: Stored as `PYPI_API_TOKEN` in GitHub repository secrets
