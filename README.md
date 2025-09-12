@@ -112,7 +112,6 @@ After installation, the following commands are available in your environment:
 - `jabs-init` — initialize a new JABS project directory or recompute features in an existing project 
 - `jabs-classify` — run a trained classifier  
 - `jabs-stats` — print accuracy statistics for a classifier  
-- `jabs-convert-parquet` — convert parquet pose files to JABS format
 - `jabs-export-training` — export training data from an existing JABS project
 
 You can view usage information for any command with:
