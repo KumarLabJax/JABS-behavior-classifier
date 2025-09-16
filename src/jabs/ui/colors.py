@@ -1,5 +1,4 @@
-import colorsys
-
+import distinctipy
 from PySide6.QtGui import QColor
 
 from jabs.pose_estimation import PoseEstimation
@@ -23,14 +22,11 @@ ACTIVE_ID_COLOR = QColor(255, 0, 0, 255)
 SEARCH_HIT_COLOR = QColor(0, 255, 0, 255)
 
 
-def __rainbow_palette(n: int) -> list[tuple[int, ...]]:
-    """Generate n visually distinct colors using HSV color space."""
-    return [tuple(int(c * 255) for c in colorsys.hsv_to_rgb(i / n, 1, 1)) for i in range(n)]
-
-
-__KEYPOINT_COLORS = __rainbow_palette(len(PoseEstimation.KeypointIndex))
+# Generate distinct colors for keypoints
+# Use a fixed seed for reproducible colors
+__KEYPOINT_COLORS = distinctipy.get_colors(len(PoseEstimation.KeypointIndex), rng=42)
 
 KEYPOINT_COLOR_MAP = {
-    keypoint: QColor(*__KEYPOINT_COLORS[i])  # type: ignore
-    for i, keypoint in enumerate(PoseEstimation.KeypointIndex)
+    kp: QColor(int(r * 255), int(g * 255), int(b * 255))
+    for kp, (r, g, b) in zip(PoseEstimation.KeypointIndex, __KEYPOINT_COLORS, strict=True)
 }

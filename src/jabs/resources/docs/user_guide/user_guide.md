@@ -415,7 +415,7 @@ will dismiss the slider control.
 <img src="imgs/pose_overlay.png" alt="Pose Overlay" width=400 />
 
 **Pose Overlay Keypoint Legend:**  
-<img src="imgs/keypoint_legend.png" alt="Pose Keypoint Legend" width=300 />
+<img src="imgs/keypoint_legend.png" alt="Pose Keypoint Legend" width="500"/>
 
 ##### Identity Overlay
 
