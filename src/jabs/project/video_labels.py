@@ -193,9 +193,13 @@ class VideoLabels:
                     label_dict["labels"][identity][behavior] = blocks
 
         if pose.external_identities is not None:
+            # keep older style mapping for now
             label_dict["external_identities"] = {}
             for i, identity in enumerate(pose.external_identities):
                 label_dict["external_identities"][str(i)] = identity
+
+            # add newer style jabs identity index to external identity mapping
+            label_dict["identity_index_to_external_id"] = list(pose.external_identities)
 
         if len(self._annotations) > 0:
             label_dict["annotations"]: list[dict] = self._annotations.serialize()

@@ -73,9 +73,16 @@ class PoseEstimationV4(PoseEstimation):
                 id_mask = pose_grp["id_mask"][:]
                 instance_embed_id = pose_grp["instance_embed_id"][:]
                 if "external_identity_mapping" in pose_grp:
-                    self._external_identities = (
-                        pose_grp["external_identity_mapping"][:].astype(int).tolist()
-                    )
+                    # If the external identity mapping is stored as integers, convert to strings.
+                    raw_ids = pose_grp["external_identity_mapping"][:]
+                    if np.issubdtype(raw_ids.dtype, np.integer):
+                        self._external_identities = [str(x) for x in raw_ids.tolist()]
+                    else:
+                        # If stored as strings (possibly bytes), decode to Python str if necessary.
+                        self._external_identities = [
+                            x.decode("utf-8") if isinstance(x, bytes) else str(x)
+                            for x in raw_ids.tolist()
+                        ]
 
             self._num_frames = len(all_points)
 
@@ -261,10 +268,16 @@ class PoseEstimationV4(PoseEstimation):
             self._num_frames = int(cache_h5.attrs["num_frames"])
             self._identities = [*range(self._num_identities)]
             if "external_identity_mapping" in pose_grp:
-                # we're going to serialize these in a JSON file so convert from uint32 stored in the hdf5 to Python int
-                self._external_identities = (
-                    pose_grp["external_identity_mapping"][:].astype(int).tolist()
-                )
+                # If the external identity mapping is stored as integers, convert to strings
+                raw_ids = pose_grp["external_identity_mapping"][:]
+                if np.issubdtype(raw_ids.dtype, np.integer):
+                    self._external_identities = [str(x) for x in raw_ids.tolist()]
+                else:
+                    # If stored as strings (possibly bytes), decode to Python str if necessary.
+                    self._external_identities = [
+                        x.decode("utf-8") if isinstance(x, bytes) else str(x)
+                        for x in raw_ids.tolist()
+                    ]
 
             # get pixel size
             self._cm_per_pixel = pose_grp.attrs.get("cm_per_pixel", None)
@@ -294,10 +307,12 @@ class PoseEstimationV4(PoseEstimation):
 
             if self._num_identities > 0:
                 if self._external_identities:
-                    # note, this is a very small array so we're not going to compress it
+                    # Always store external identities as strings in the cache
+                    string_dt = h5py.string_dtype(encoding="utf-8")
                     group.create_dataset(
                         "external_identity_mapping",
-                        data=np.array(self._external_identities, dtype=np.uint32),
+                        data=np.array(self._external_identities, dtype=object),
+                        dtype=string_dt,
                     )
                 group.create_dataset(
                     "points",
