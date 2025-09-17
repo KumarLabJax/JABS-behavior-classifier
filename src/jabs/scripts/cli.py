@@ -150,7 +150,10 @@ def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
     if new_name in jabs_project.settings["behavior"]:
         raise click.ClickException(f"Behavior '{new_name}' already exists in project.")
 
-    jabs_project.rename_behavior(old_name, new_name)
+    console = Console()
+    status_text = f"Renaming behavior '{old_name}' to '{new_name}'"
+    with console.status(status_text, spinner="dots"):
+        jabs_project.rename_behavior(old_name, new_name)
 
 
 def main():
