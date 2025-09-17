@@ -1,10 +1,10 @@
 import dataclasses
-import importlib.resources
 from typing import TYPE_CHECKING
 
-from PySide6 import QtCore, QtGui, QtSvg
+from PySide6 import QtCore, QtGui
 
 from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR
+from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .overlay import Overlay
 
@@ -59,19 +59,8 @@ class FloatingIdOverlay(Overlay):
         self._font = QtGui.QFont()
         self._font.setBold(True)
         self._font.setPointSize(self._FONT_SIZE)
-
         self._rects_with_data = []
-
-        # load murine eartag SVGs
-        self._eartags = {}
-        base = importlib.resources.files("jabs.resources.eartag_images")
-        for entry in base.iterdir():
-            name = entry.name.lower()
-            if not name.endswith(".svg"):
-                continue
-            renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(entry.read_bytes()))
-            key = entry.name.rsplit(".", 1)[0]
-            self._eartags[key] = renderer
+        self._eartags = EarTagIconManager()
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Paints floating id labels.
@@ -171,12 +160,11 @@ class FloatingIdOverlay(Overlay):
 
             widget_x, widget_y = widget_coords
 
-            identity_text = f"{display_id}"
-            identity_text_width = metrics.horizontalAdvance(identity_text)
+            identity_text_width = metrics.horizontalAdvance(display_id)
             identity_text_height = metrics.height()
 
             # check for eartag SVG and add to floating label if found
-            eartag = self._eartags.get(identity_text.lower())
+            eartag = self._eartags.get_icon(display_id)
             icon_w = 0
             icon_h = 0
             icon_gap = 0
@@ -217,7 +205,7 @@ class FloatingIdOverlay(Overlay):
                 y=identity_y,
                 width=identity_rect_width,
                 height=identity_rect_height,
-                tag=identity_text,
+                tag=display_id,
                 color=self._ACTIVE_IDENTITY_COLOR
                 if identity == active_id
                 else self._INACTIVE_IDENTITY_COLOR,

@@ -13,8 +13,10 @@ Todo:
 import sys
 
 from PySide6 import QtCore, QtWidgets
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
+from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,
@@ -90,6 +92,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
+
+        self._ear_tag_icons = EarTagIconManager()
+        self.identity_selection.setIconSize(QtCore.QSize(16, 16))
 
         self._add_label_button = QtWidgets.QToolButton()
         self._add_label_button.setText("+")
@@ -504,12 +509,21 @@ class MainControlWidget(QtWidgets.QWidget):
         # run all the updates for when a behavior changes
         self._behavior_changed()
 
-    def set_identities(self, identities):
-        """populate the identity_selection combobox"""
+    def set_identities(self, identities: list[str]) -> None:
+        """populate the identity_selection combobox with optional SVG icons"""
         self.identity_selection.currentIndexChanged.disconnect()
         self.identity_selection.clear()
+        for display_name in identities:
+            if (renderer := self._ear_tag_icons.get_icon(display_name)) is not None:
+                pixmap = QPixmap(16, 16)
+                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.identity_selection.addItem(QIcon(pixmap), display_name)
+            else:
+                self.identity_selection.addItem(display_name)
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
-        self.identity_selection.addItems([str(i) for i in identities])
 
     def set_window_size(self, size: int):
         """set the current window size"""
