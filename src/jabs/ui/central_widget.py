@@ -312,10 +312,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # update ui components with properties of new video
-            if self._pose_est.external_identities:
-                self._set_identities(self._pose_est.external_identities)
-            else:
-                self._set_identities(self._pose_est.identities)
+            display_identities = [
+                self._pose_est.identity_index_to_display(i) for i in self._pose_est.identities
+            ]
+            self._set_identities(display_identities)
 
             self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
@@ -571,7 +571,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
         self._player_widget.reload_frame()
 
-    def _set_identities(self, identities: list) -> None:
+    def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
         self._controls.set_identities(identities)
 
