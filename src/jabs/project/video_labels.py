@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from .project_merge import MergeStrategy
 
 
+SERIALIZED_VERSION = 1
+
+
 class VideoLabels:
     """Stores and manages frame-level behavior labels for each identity in a video.
 
@@ -168,6 +171,7 @@ class VideoLabels:
 
         """
         label_dict: dict[str, Any] = {
+            "version": SERIALIZED_VERSION,
             "file": self._filename,
             "num_frames": self._num_frames,
             "labels": {},
