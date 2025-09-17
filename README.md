@@ -113,6 +113,7 @@ After installation, the following commands are available in your environment:
 - `jabs-classify` — run a trained classifier  
 - `jabs-stats` — print accuracy statistics for a classifier  
 - `jabs-export-training` — export training data from an existing JABS project
+- `jabs-cli` - collection of smaller command line utilities
 
 You can view usage information for any command with:
 

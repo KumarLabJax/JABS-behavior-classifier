@@ -100,6 +100,59 @@ def export_training(ctx, directory: Path, behavior: str, classifier: str, outfil
     click.echo(f"Exported training data to {outfile}")
 
 
+@cli.command(name="rename-behavior")
+@click.argument(
+    "directory",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.argument(
+    "old-name",
+    type=str,
+)
+@click.argument(
+    "new-name",
+    type=str,
+)
+@click.pass_context
+def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
+    """Rename a behavior in a JABS project."""
+    # Args:
+    #    ctx: Click context.
+    #    directory (Path): Path to the JABS project directory.
+    #    old_name (str): Current name of the behavior to rename.
+    #    new_name (str): New name for the behavior.
+    #
+    # Raises:
+    #    click.ClickException: If the old behavior name does not exist or
+    #        the new behavior name already exists.
+
+    if ctx.obj["VERBOSE"]:
+        click.echo("Renaming behavior with the following parameters:")
+        click.echo(f"\tOld behavior name: {old_name}")
+        click.echo(f"\tNew behavior name: {new_name}")
+        click.echo(f"\tJABS project directory: {directory}")
+
+    if not Project.is_valid_project_directory(directory):
+        raise click.ClickException(f"Invalid JABS project directory: {directory}")
+
+    jabs_project = Project(directory, enable_session_tracker=False)
+
+    # validate that the old behavior exists in the project
+    if old_name not in jabs_project.settings["behavior"]:
+        raise click.ClickException(f"Behavior '{old_name}' not found in project.")
+
+    # validate that the new behavior does not already exist in the project
+    if new_name in jabs_project.settings["behavior"]:
+        raise click.ClickException(f"Behavior '{new_name}' already exists in project.")
+
+    jabs_project.rename_behavior(old_name, new_name)
+
+
 def main():
     """Entry point for the JABS CLI."""
     cli(obj={})
