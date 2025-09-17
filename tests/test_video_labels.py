@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from jabs.project import VideoLabels
+from jabs.project.video_labels import SERIALIZED_VERSION
 
 mock_pose_est = MagicMock()
 mock_pose_est.identity_mask.return_value = np.full(100, 1, dtype=bool)
@@ -36,6 +37,7 @@ class TestVideoLabels(unittest.TestCase):
     def test_load_from_dict(self):
         """Test creating new VideoLabels object from dict representation."""
         video_label_dict = {
+            "version": SERIALIZED_VERSION,
             "file": "filename.avi",
             "num_frames": 100,
             "labels": {"0": {"behavior name": [{"start": 25, "end": 50, "present": True}]}},
