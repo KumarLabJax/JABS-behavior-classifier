@@ -268,7 +268,7 @@ and are portable. This is the same format produced by `jabs-classify`.
 - **Label "Behavior" Button:** Label current selection of frames as showing
   behavior. This button is labeled with the current behavior name.
 - **Label "Not Behavior" Button:** Label current selection of frames as not
-  showing behavior. This button is labeled with "Not <current behavior name>".
+  showing behavior. This button is labeled with `Not <current behavior name>`.
 - **Clear Selection Button:** remove labels from current selection of frames
 - **Toggle Select Mode Button:** toggle select mode on/off (turning select mode
   on will begin selecting frames starting from that point)
