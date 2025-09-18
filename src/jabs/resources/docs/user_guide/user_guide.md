@@ -404,7 +404,7 @@ will dismiss the slider control.
   (v5+ projects with arena corner static object)
   - **Features→Enable Lixit Features:** toggle using lixit features
   (v5+ projects with lixit static object)
-  - **Features→Enable Food Hopper Features:** toggle using food hopper features
+  - **Features→Enable Food_hopper Features:** toggle using food hopper features
   (v5+ projects with food hopper static object)
   - **Features→Enable Segmentation Features:** toggle using segmentation features
   (v6+ projects)
