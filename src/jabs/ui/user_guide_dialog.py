@@ -67,7 +67,7 @@ class UserGuideDialog(QDialog):
 
         try:
             html = markdown2.markdown_path(
-                str(user_guide_path), extras=["fenced-code-blocks", "header-ids"]
+                str(user_guide_path), extras=["fenced-code-blocks", "header-ids", "tables"]
             )
         except OSError as e:
             html = error_html(

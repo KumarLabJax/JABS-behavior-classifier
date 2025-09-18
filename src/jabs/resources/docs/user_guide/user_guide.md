@@ -41,8 +41,8 @@ jabs/
 ## Initializing a JABS Project Directory
 
 The first time you open a project directory with JABS it will create the 
-"jabs" subdirectory. Features will be computed the first time the "Train" button
-is clicked. This can be very time-consuming depending on the number and length
+`jabs` subdirectory. Features will be computed the first time the "Train" button
+is clicked. This can be time-consuming depending on the number and length
 of videos in the project directory.
 
 The `jabs-init` script can also be used to initialize a project
@@ -96,7 +96,6 @@ The --metadata argument can be used to pass a JSON file containing project metad
 following schema:
 
 ```json
-
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "urn:jax.org:schemas:jabs:project-metadata:v1",
@@ -198,7 +197,6 @@ following schema:
         }
     }
 }
-
 ```
 
 ## The JABS Directory
@@ -207,12 +205,13 @@ JABS creates a subdirectory called "jabs" inside the project directory. This
 directory contains app-specific data such as project settings, generated
 features, user labels, cache files, and the latest predictions.
 
-project.json This file contains project settings and metadata.
+### jabs/project.json
+
+The `project.json` file contains project settings and metadata (behaviors, feature toggles, etc.).
 
 ### jabs/annotations
 
-This directory stores the user's labels, stored in one JSON file per labeled
-video.
+This directory stores the user's labels, stored in one JSON file per labeled video.
 
 ### jabs/archive
 
@@ -232,23 +231,24 @@ different platform.
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable. While non-portable,
 these files can be used alongside `jabs-classify classify --classifier` for
-predicting on the same machine as the gui running the training.
+CLI-based prediction on the same machine as the gui running the training.
 
 ### jabs/features
 
 This directory contains the computed features. There is one directory per
 project video, and within each video directory there will be one feature
-directory per identity. Feature files are portable, but JABS may need
-to recompute the features if they were created with a different version of
-JABS.
+subdirectory per identity. Feature files are portable between machines, 
+but JABS may need to recompute the features if they were created with a 
+different version of JABS. Feature files contain a version attribute that
+is incremented when features are added or changed, or the format of the 
+features file is changed.
 
 ### jabs/predictions
 
-This directory contains prediction files. There will be one subdirectory per
-behavior containing one prediction file per video. Prediction files are
-automatically opened and displayed by JABS if they exist. Prediction files are
-portable, and are the same format as the output of the command line classifier
-tool (`jabs-classify`).
+This directory contains one HDF5 prediction file per video (e.g., `VIDEO_1.h5`).
+Each file has a `/predictions` group with one subgroup per behavior.
+Prediction files are automatically opened and displayed by JABS if they exist
+and are portable. This is the same format produced by `jabs-classify`.
 
 ## GUI
 
@@ -268,7 +268,7 @@ tool (`jabs-classify`).
 - **Label "Behavior" Button:** Label current selection of frames as showing
   behavior. This button is labeled with the current behavior name.
 - **Label "Not Behavior" Button:** Label current selection of frames as not
-  showing behavior This button is labeled with "Not <current behavior name>".
+  showing behavior. This button is labeled with `Not <current behavior name>`.
 - **Clear Selection Button:** remove labels from current selection of frames
 - **Toggle Select Mode Button:** toggle select mode on/off (turning select mode
   on will begin selecting frames starting from that point)
@@ -298,9 +298,13 @@ tool (`jabs-classify`).
   means that 11 frames are included into the window feature calculations for
   each frame (5 previous frames, current frame, 5 following frames).
 - **New Window Size:** Add a new window size to the project.
-- **Label Balancing Toggle:** Balances the training data by downsampling the class with more labels such that the distribution is equal.
-- **Symmetric Behavior Toggle:** Tells the classifier that the behavior is symmetric. A symmetric behavior is when left and right features are interchangeable.
-- **All k-fold Toggle:** Uses the maximum number of cross validation folds. Useful when you wish to compare classifier performance and may have an outlier that can be held-out.
+- **Label Balancing Toggle:** Balances the training data by downsampling the
+  class with more labels such that the distribution is equal.
+- **Symmetric Behavior Toggle:** Tells the classifier that the behavior is
+  symmetric. A symmetric behavior is when left and right features are interchangeable.
+- **All k-fold Toggle:** Uses the maximum number of cross validation folds. Useful
+  when you wish to compare classifier performance and may have an outlier that can be
+  held-out.
 - **Cross Validation Slider:** Number of "Leave One Out" cross validation
   iterations to run while training.
 
@@ -325,16 +329,15 @@ tool (`jabs-classify`).
 
 By default, the Timeline shows manual labels and predicted behaviors for the current 
 subject animal. The Timeline can be toggled to show all subjects by selecting 
-View->Timeline->All Animals in the menu bar. The Timeline can also be toggled to show only
-manual labels, only predicted labels. If "All Animals" is selected, the Timeline will show
-which set of labels and predictions belong to the subject animal by drawing a colored box 
-around them. 
+View->Timeline->All Animals in the menu bar. The Timeline can also be configured to
+show only manual labels or only predicted labels. If "All Animals" is selected, the
+Timeline will show which set of labels and predictions belong to the subject animal
+by drawing a colored border around them. 
 
 **Timeline Menu**
-
 <img src="imgs/timeline_menu.png" alt="Timeline visualization options" />
 
-<br />
+<br /><br />
 **Example Timeline with "Labels & Predictions" and "All Animals" selected**
 <img src="imgs/stacked_timeline.png" alt="Timeline with all animals" width=900 />
 
@@ -412,7 +415,7 @@ will dismiss the slider control.
 <img src="imgs/track_overlay.png" alt="Track Overlay" width=400 />
 
 **Pose Overlay Example:**  
-<img src="imgs/pose_overlay.png" alt="Pose Overlay" width=400 />
+<img src="imgs/pose_overlay.png" alt="Pose Overlay" />
 
 **Pose Overlay Keypoint Legend:**  
 <img src="imgs/keypoint_legend.png" alt="Pose Keypoint Legend" width="500"/>
@@ -451,7 +454,7 @@ the current selection and leaves "Select Mode".
 The current selection range is shown on the "Manual Labels" display:  
 <img src="imgs/selecting_frames.png" alt="Selecting Frames" width=900 />  
 Clicking the "Select Frames" button again or pressing the Escape key will
-unselect the frames and leave select mode without making a change to the labels.
+deselect the frames and leave select mode without making a change to the labels.
 
 ### Applying Labels
 
@@ -547,7 +550,8 @@ The z, x, and c keys can be used to apply labels.
 Identities can have gaps if the mouse becomes obstructed or the pose estimation
 failed for those frames. In the manual label visualization, these gaps are
 indicated with a pattern fill instead of the solid gray/orange/blue colors. In
-the predicted class visualization, the gaps are colored white.
+the predicted class visualization, the gaps are colored white (meaning no 
+prediction exists for these frames).
 
 <img src="imgs/identity_gaps.png" alt="Identity Gaps" width=900 />
 
@@ -558,67 +562,32 @@ fill to remain visible.
 
 <img src="imgs/identity_gaps_with_label.png" alt="Identity Gaps with Labels" />
 
+> **Note:** Gaps are excluded from classifier training but are still displayed in timelines. Labels applied in gap regions use partial transparency and won’t bias the classifier.
 
 ## All Keyboard Shortcuts
 
-### File Menu
+| Action                                   | Shortcut |
+|------------------------------------------|----------|
+| Quit JABS                                | Ctrl+Q / Cmd+Q |
+| Export training data                     | Ctrl+T / Cmd+T |
+| Play / Pause video                       | Space bar |
+| Previous / Next frame                    | ← / → |
+| Move forward / back 10 frames            | ↑ / ↓ |
+| Previous / Next video                    | , / . |
+| Start select mode                        | z, x, c |
+| Label selection as behavior              | z |
+| Clear labels from selection              | x |
+| Label selection as not behavior          | c |
+| Exit select mode without making a change | Esc |
+| Select all frames                        | Ctrl+A / Cmd+A |
+| Switch to next / previous subject        | Shift+↑ / Shift+↓ |
+| Toggle track overlay                     | t |
+| Toggle pose overlay                      | p |
+| Toggle landmark overlay                  | l |
+| Toggle Minimalist Identity Labels        | Ctrl+I / Cmd+I |
+| Open behavior search dialog              | Ctrl+F / Cmd+F |
 
-Actions under the file menu have keyboard shortcuts.
-
-- Control Q (Command Q on Mac) quit JABS
-- Control T (Command T on Mac) export training data
-
-### Navigation
-
-- left arrow: move to previous frame
-- right arrow: move to next frame
-- up arrow: move forward 10 frames (TODO: make configurable)
-- down arrow: move back 10 frames (TODO: make configurable)
-- comma: previous video
-- period: next video
-
-
-### Labeling
-
-While in select mode:
-
-- z: label current selection <behavior>and leave select mode
-- x: clear current selection labels and leave select mode
-- c: label current selection not <behavior> and leave select mode
-- Escape: exit select mode without applying/clearing labels for current
-  selection
-
-While not in select mode:
-
-- z, x, c: enter select mode
-
-In all modes:
-
-- ctrl+a (windows) / cmd+a (Mac): select all frames for the current timeline
-
-### Other
-
-Video Player Controls:
-
-- space bar: toggle play/pause
-
-Switching subject:
-
-- shift + up arrow: switch to the next subject
-- shift + down arrow: switch to the previous subject
-
-Note: next/previous subject is determined by the order of subjects in the "Identity Selection" dropdown. 
-
-Overlays:
-
-- t: toggle track overlay for subject
-- p: toggle pose overlay for subject
-- l: toggle landmark overlay
-- ctrl+i (windows) / cmd+i (Mac): Toggle Minimalist Identity Labels
-
-Behavior search:
-
-- ctrl+f (windows) / cmd+f (Mac): open behavior search dialog
+> **Note:** Next/previous subject order follows the “Identity Selection” dropdown ordering.
 
 ## The Command Line Classifier
 
@@ -684,16 +653,17 @@ optionally override the classifier specified in the training file:
   --xgboost            Use XGBoost
 ```
 
-Note: xgboost may be unavailable on Mac OS if libomp is not installed.
+> Note: XGBoost may be unavailable on macOS if `libomp` isn’t installed.
 See `jabs-classify classify --help` output for list of classifiers supported in
 the current execution environment.
 
-Note: fps parameter is used to specify the frames per second (used for scaling
+> Note: fps parameter is used to specify the frames per second (used for scaling
 time unit for speed and velocity features from "per frame" to "per second").
 
 ## Command Line Feature Generation
 
-JABS includes a script called `jabs-features`, which can be used to generate a feature file for a single video from the command line.
+JABS includes a script called `jabs-features`, which can be used to generate a feature file
+for a single video from the command line.
 
 ```text
 usage: jabs-features [-h] --pose-file POSE_FILE --pose-version POSE_VERSION
@@ -726,27 +696,28 @@ one video file.
 
 #### Location
 
-The prediction files are saved
-in `<JABS project dir>/jabs/predictions/<video_name>.h5` if
+The prediction files are saved in `<JABS project dir>/jabs/predictions/<video_name>.h5` if
 they were generated by the JABS GUI.
 
-The `jabs-classify` script saves inference
-files in `<out-dir>/<video_name>_behavior.h5`
+The `jabs-classify` script saves inference files in `<out-dir>/<video_name>_behavior.h5`
 
 #### Contents
 
-The H5 file contains one group, called "predictions". This group contains one or more behavior prediction groups. Each behavior prediction group contains 3 datasets and 1 new group.
+The H5 file contains one group, called `predictions`. This group contains one or more
+behavior prediction groups. Each behavior prediction group contains 3 datasets and 1
+new group.
 
-predictions
+```text
+predictions/
+  behavior_1/
+    predicted_class
+    probabilities
+    identity_to_track
+  behavior_2/
+    ...
+```
 
-- behavior_1
-    - predicted_class
-    - probabilities
-    - identity_to_track
-- behavior_2
-    - ...
-
-The file also has some attributes:
+##### Attributes
 
 The root file contains the following attributes:
 
@@ -799,10 +770,7 @@ A feature file represents features calculated by JABS for a single animal in a v
 
 #### Location
 
-The feature files for JABS projects are saved in `<JABS project dir>/jabs/features/<video_name>/<identity>/features.h5`.
-
-Similarly, feature files generated by `jabs-classify` or `jabs-features` are saved
-in the directory indicated by `--feature-dir` with a similar structure: `<feature_dir>/<video_name>/<identity>/features.h5`.
+Feature files are saved per identity at `<JABS project dir>/jabs/features/<video_name>/<identity>/features.h5`.
 
 #### Contents
 
