@@ -696,7 +696,6 @@ class Project:
         if old_path.exists():
             old_path.rename(new_path)
 
-        # rename labels in all videos
         for video in self._video_manager.videos:
             # Rename predictions dataset inside the per-video HDF5 file.
             pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
@@ -709,14 +708,11 @@ class Project:
                             del grp[safe_new_name]
                         grp.move(safe_old_name, safe_new_name)
 
-            labels = self._video_manager.load_video_labels(video)
-
-            # if no labels for video skip it
-            if labels is None:
+            # rename labels inside annotation file
+            if (labels := self._video_manager.load_video_labels(video)) is None:
                 continue
-
-            pose = self.load_pose_est(self._video_manager.video_path(video))
             labels.rename_behavior(old_name, new_name)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
             self.save_annotations(labels, pose)
 
         # update project settings
