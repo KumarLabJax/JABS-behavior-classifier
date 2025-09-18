@@ -321,8 +321,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
-
             self._update_timeline_search_results()
+            self._update_label_counts()
 
             if previous_video is not None:
                 self._project.session_tracker.video_closed(previous_video)
