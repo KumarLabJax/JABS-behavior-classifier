@@ -231,7 +231,7 @@ different platform.
 This directory contains trained classifiers. Currently, these are stored in
 Python Pickle files and should be considered non-portable. While non-portable,
 these files can be used alongside `jabs-classify classify --classifier` for
-cli-based prediction on the same machine as the gui running the training.
+CLI-based prediction on the same machine as the gui running the training.
 
 ### jabs/features
 
@@ -268,7 +268,7 @@ and are portable. This is the same format produced by `jabs-classify`.
 - **Label "Behavior" Button:** Label current selection of frames as showing
   behavior. This button is labeled with the current behavior name.
 - **Label "Not Behavior" Button:** Label current selection of frames as not
-  showing behavior This button is labeled with "Not <current behavior name>".
+  showing behavior. This button is labeled with "Not <current behavior name>".
 - **Clear Selection Button:** remove labels from current selection of frames
 - **Toggle Select Mode Button:** toggle select mode on/off (turning select mode
   on will begin selecting frames starting from that point)
@@ -351,7 +351,7 @@ Mousing over the video player will display a control overlay with the following 
   will open a menu with options for playback speed. The default speed is 1x.
 - **Video Cropping:** Allows the user to crop the video to a specific region of interest. After 
   clicking the cropping control, the user can click and drag a rectangular selecting tool to select
-  the region of interest. The video will be cropped to the selection, and rescaled to fill the available 
+  the region of interest. The video will be cropped to the selection, and scaled to fill the available 
   player area. If the video is currently cropped, the cropping control will be replaced with a
   "Reset Cropping" control, which will reset the cropping to the original video size.
 - **Brightness Adjustment:** Allows the user to adjust the brightness of the video. Clicking this
@@ -454,7 +454,7 @@ the current selection and leaves "Select Mode".
 The current selection range is shown on the "Manual Labels" display:  
 <img src="imgs/selecting_frames.png" alt="Selecting Frames" width=900 />  
 Clicking the "Select Frames" button again or pressing the Escape key will
-unselect the frames and leave select mode without making a change to the labels.
+deselect the frames and leave select mode without making a change to the labels.
 
 ### Applying Labels
 
@@ -713,7 +713,7 @@ predictions/
     predicted_class
     probabilities
     identity_to_track
-- behavior_2/
+  behavior_2/
     ...
 ```
 
