@@ -242,3 +242,31 @@ class VideoLabels:
             for behavior, other_track_labels in behaviors.items():
                 track_labels = self.get_track_labels(identity, behavior)
                 track_labels.merge(other_track_labels, strategy)
+
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior across all identities in this VideoLabels object.
+
+        Only renames behavior in memory; does not update any associated files on disk.
+        Behavior labels must be saved to disk again after renaming to persist changes.
+
+        Args:
+            old_name (str): The current name of the behavior to rename.
+            new_name (str): The new name for the behavior.
+
+        Returns:
+            None
+
+        Raises:
+            KeyError: If the old behavior name does not exist or
+                if the new behavior name already exists for any identity.
+        """
+        # validate that new_name doesn't already exist for any identity
+        for identity in self._identity_labels:
+            if new_name in self._identity_labels[identity]:
+                raise KeyError(f"Behavior '{new_name}' already exists for identity '{identity}'")
+
+        for identity in self._identity_labels:
+            if old_name in self._identity_labels[identity]:
+                self._identity_labels[identity][new_name] = self._identity_labels[identity].pop(
+                    old_name
+                )

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -156,6 +157,29 @@ class Project:
     def session_tracker(self) -> SessionTracker | None:
         """get the session tracker for this project"""
         return self._session_tracker
+
+    @staticmethod
+    def is_valid_project_directory(directory: Path) -> bool:
+        """Check if a directory is a valid JABS project directory.
+
+        Currently just checks for the existence of the jabs directory and project.json file. This can be
+        called before initializing a Project object, which will create these files if they do not exist which
+        might not be desired behavior for tools that expect to operate on an existing JABS project directory.
+
+        Args:
+            directory: Path to the directory to check.
+
+        Returns:
+            True if the directory is a valid JABS project directory, False otherwise.
+        """
+        try:
+            paths = ProjectPaths(directory)
+            if not paths.jabs_dir.exists() or not paths.project_file.exists():
+                return False
+        except (ValueError, FileNotFoundError):
+            return False
+
+        return True
 
     def load_pose_est(self, video_path: Path) -> PoseEstimation:
         """return a PoseEstimation object for a given video path
@@ -646,3 +670,50 @@ class Project:
                     }
 
         return counts
+
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior throughout the project.
+
+        This updates the project settings, and renames any files associated with the behavior.
+        It also updates any labels for this behavior in all videos.
+
+        Args:
+            old_name (str): current behavior name
+            new_name (str): new behavior name
+
+        Returns:
+            None
+        """
+        if new_name in self._settings_manager.behavior_names:
+            raise ValueError(f"Behavior {new_name} already exists in project")
+
+        safe_old_name = to_safe_name(old_name)
+        safe_new_name = to_safe_name(new_name)
+
+        # rename pickled classifier
+        old_path = self._paths.classifier_dir / f"{safe_old_name}.pickle"
+        new_path = self._paths.classifier_dir / f"{safe_new_name}.pickle"
+        if old_path.exists():
+            old_path.rename(new_path)
+
+        for video in self._video_manager.videos:
+            # Rename predictions dataset inside the per-video HDF5 file.
+            pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
+            if pred_file.exists():
+                with h5py.File(pred_file, "r+") as hf:
+                    if "predictions" in hf and safe_old_name in hf["predictions"]:
+                        grp = hf["predictions"]
+                        # If dataset already exists at the destination, remove it first
+                        if safe_new_name in grp:
+                            del grp[safe_new_name]
+                        grp.move(safe_old_name, safe_new_name)
+
+            # rename labels inside annotation file
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            labels.rename_behavior(old_name, new_name)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            self.save_annotations(labels, pose)
+
+        # update project settings
+        self._settings_manager.rename_behavior(old_name, new_name)

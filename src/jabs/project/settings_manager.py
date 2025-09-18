@@ -180,3 +180,28 @@ class SettingsManager:
         current_version = self._project_info.get("version")
         if current_version != version_str():
             self.save_project_file({"version": version_str()})
+
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior in the project settings.
+
+        Args:
+            old_name: Current name of the behavior to rename.
+            new_name: New name for the behavior.
+
+        Raises:
+            KeyError: If the old behavior name does not exist or
+                the new behavior name already exists.
+        """
+        if old_name not in self._project_info.get("behavior", {}):
+            raise KeyError(f"Behavior '{old_name}' not found in project.")
+
+        if new_name in self._project_info.get("behavior", {}):
+            raise KeyError(f"Behavior '{new_name}' already exists in project.")
+
+        self._project_info["behavior"][new_name] = self._project_info["behavior"].pop(old_name)
+
+        # if the old behavior was the selected behavior, update to new name
+        if self._project_info.get("selected_behavior") == old_name:
+            self._project_info["selected_behavior"] = new_name
+
+        self.save_project_file()

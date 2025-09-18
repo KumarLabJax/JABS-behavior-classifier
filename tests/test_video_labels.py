@@ -105,3 +105,36 @@ class TestVideoLabels(unittest.TestCase):
             {"start": 100, "end": 200, "present": True},
         ]
         self.assertEqual(unfragmented_blocks, expected_unfragmented)
+
+    def test_rename_behavior(self):
+        """renaming a behavior should update both labels and unfragmented_labels"""
+        labels = VideoLabels("filename.avi", 100)
+
+        # Create an initial behavior with one block
+        track = labels.get_track_labels("0", "Walk")
+        track.label_behavior(10, 20)
+
+        # Sanity check before rename
+        d_before = labels.as_dict(mock_pose_est)
+        self.assertIn("Walk", d_before["labels"]["0"])  # old name present
+        self.assertIn("Walk", d_before["unfragmented_labels"]["0"])  # old name present
+
+        # Rename the behavior
+        labels.rename_behavior("Walk", "Walking")
+
+        # After rename, old key should be gone and new key present in both structures
+        d_after = labels.as_dict(mock_pose_est)
+        self.assertNotIn("Walk", d_after["labels"]["0"])  # old name removed
+        self.assertNotIn("Walk", d_after["unfragmented_labels"]["0"])  # old name removed
+        self.assertIn("Walking", d_after["labels"]["0"])  # new name present
+        self.assertIn("Walking", d_after["unfragmented_labels"]["0"])  # new name present
+
+        # Ensure the intervals were preserved under the new name
+        self.assertEqual(
+            d_before["labels"]["0"]["Walk"],
+            d_after["labels"]["0"]["Walking"],
+        )
+        self.assertEqual(
+            d_before["unfragmented_labels"]["0"]["Walk"],
+            d_after["unfragmented_labels"]["0"]["Walking"],
+        )

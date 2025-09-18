@@ -133,3 +133,67 @@ def test_save_behavior(mock_project):
     # Verify that the SettingsManager instance has the updated settings in memory
     behavior_settings = settings_manager.get_behavior("Running")
     assert behavior_settings == new_behavior_settings
+
+
+def test_rename_behavior(mock_project):
+    """Test renaming a behavior in the settings."""
+    initial_settings = {
+        "behavior": {
+            "Walking": {
+                "window_size": 5,
+                "balance_labels": True,
+                "symmetric_behavior": False,
+            }
+        }
+    }
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump(initial_settings, f)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    # Perform rename
+    settings_manager.rename_behavior("Walking", "Walk")
+
+    # Verify file contents
+    with mock_project.project_paths.project_file.open("r") as f:
+        updated_settings = json.load(f)
+
+    assert "Walking" not in updated_settings["behavior"]
+    assert "Walk" in updated_settings["behavior"]
+    assert updated_settings["behavior"]["Walk"] == initial_settings["behavior"]["Walking"]
+
+    # Verify in-memory settings
+    behavior_settings = settings_manager.get_behavior("Walk")
+    assert behavior_settings == initial_settings["behavior"]["Walking"]
+
+
+def test_rename_behavior_updates_selected(mock_project):
+    """Test that renaming also updates selected_behavior if it matches the old name."""
+    initial_settings = {
+        "behavior": {
+            "Walking": {
+                "window_size": 5,
+                "balance_labels": True,
+                "symmetric_behavior": False,
+            }
+        },
+        "selected_behavior": "Walking",
+    }
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump(initial_settings, f)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    # Perform rename
+    settings_manager.rename_behavior("Walking", "Walk")
+
+    with mock_project.project_paths.project_file.open("r") as f:
+        updated_settings = json.load(f)
+
+    # selected_behavior should be updated
+    assert updated_settings["selected_behavior"] == "Walk"
+
+    # Old behavior removed, new one present
+    assert "Walking" not in updated_settings["behavior"]
+    assert "Walk" in updated_settings["behavior"]
+    assert updated_settings["behavior"]["Walk"] == initial_settings["behavior"]["Walking"]
