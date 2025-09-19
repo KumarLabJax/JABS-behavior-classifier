@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import h5py
 import pandas as pd
@@ -18,7 +19,7 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
     all_settings = {}
     root_len = len(h5_file.name) + 1
 
-    def _walk_project_settings(name, node) -> dict:
+    def _walk_project_settings(name, node) -> None:
         """read dict of project settings walker
 
         Args:
@@ -72,7 +73,7 @@ def load_training_data(training_file: Path):
             },
         }
     """
-    features = {"per_frame": {}, "window": {}}
+    features: dict[str, Any] = {"per_frame": {}, "window": {}}
     group_mapping = {}
 
     with h5py.File(training_file, "r") as in_h5:

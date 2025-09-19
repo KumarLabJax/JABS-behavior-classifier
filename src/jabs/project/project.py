@@ -148,9 +148,13 @@ class Project:
     def labeler(self) -> str:
         """return name of labeler
 
-        For now, this is just the username of the user running JABS.
+        For now, this is just the username of the user running JABS. Return
+        "unavailable" if the username cannot be determined.
         """
-        return getpass.getuser()
+        try:
+            return getpass.getuser()
+        except Exception:
+            return "unavailable"
 
     @property
     def session_tracker(self) -> SessionTracker | None:
@@ -195,8 +199,10 @@ class Project:
         )
         annotations["labeler"] = self.labeler
 
-        with path.open(mode="w", newline="\n") as f:
+        tmp = path.with_suffix(".json.tmp")
+        with tmp.open("w") as f:
             json.dump(annotations, f, indent=2)
+        tmp.replace(path)
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
@@ -277,26 +283,31 @@ class Project:
     def save_predictions(
         self, predictions, probabilities, frame_indexes, behavior: str, classifier
     ):
-        """save predictions for the current project
+        """Save predictions for the current project.
 
         Args:
-            predictions: predictions for all videos in project
-                (dictionary with each video name as a key and a numpy array (#identities, #frames))
-            probabilities: corresponding prediction probabilities,
-                similar structure to predictions parameter but with floating point values
-            frame_indexes: mapping of the predictions to video frames
-            behavior: string behavior name
-            classifier: Classifier object used to generate the
-                predictions
+            predictions: dict mapping video name and identity to a 1D numpy array of predicted labels.
+            probabilities: same structure as `predictions` but with floating-point values.
+            frame_indexes: dict mapping video name and identity to 1D numpy array of absolute frame indices
+                listing the frames where the identity has a valid pose (i.e., frames with a meaningful prediction).
+            behavior: string behavior name.
+            classifier: Classifier object used to generate the predictions.
 
         Note:
-            Because the classifier does not run on every frame for every identity
-            (since an identity may not exist for every frame), we extract just
-            the features for the frames we need to classify. Now we want to map
-            these back to the corresponding frame.
-            predictions[video_name][identity, index] and
-            probabilities[video_name][identity, index] correspond to the frame
-            specified by frame_indexes[video][identity, index]
+            Currently, the classifier runs on every frame for every identity -- even when pose is invalid
+            and features are NaN. We copy values for *only* the frames with a valid pose. This is why we
+            index *both* the source and destination with `indexes` (an array with the absolute frame indices
+            of frames with a valid pose), e.g.:
+
+                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
+                prediction_prob[identity, indexes]   = probabilities[video][identity][indexes]
+
+            This leaves the output arrays with default values (-1 for labels, 0.0 for probabilities) for frames
+            without pose.
+
+            In the future, if the upstream caller were to provide compact arrays of
+            length `len(indexes)` instead of full-length arrays, the copy
+            logic would need to drop the indexing on the source side.
         """
         for video in self._video_manager.videos:
             # setup an output filename based on the behavior and video names
@@ -306,8 +317,7 @@ class Project:
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
 
-            # we need some info from the PoseEstimation and VideoLabels objects
-            # associated with this video
+            # we need info from PoseEstimation for this video
             poses = open_pose_file(
                 get_pose_path(self._video_manager.video_path(video)),
                 self._paths.cache_dir,
@@ -321,14 +331,16 @@ class Project:
 
             # populate numpy arrays
             for identity in predictions[video]:
-                inferred_indexes = frame_indexes[video][identity]
+                indexes = frame_indexes[video][identity]
 
-                prediction_labels[identity, inferred_indexes] = predictions[video][identity][
-                    inferred_indexes
-                ]
-                prediction_prob[identity, inferred_indexes] = probabilities[video][identity][
-                    inferred_indexes
-                ]
+                # 'indexes' are absolute frame indices where this identity has a valid pose.
+                # predictions[video][identity] and probabilities[video][identity] are full-length arrays
+                # (len == num_frames) indexed by absolute frame; only elements at 'indexes'
+                # contain meaningful values. We index both source and destination with 'indexes'
+                # to copy only those valid-pose frames.
+                # If upstream ever provides compact arrays instead, drop the source-side indexing.
+                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
+                prediction_prob[identity, indexes] = probabilities[video][identity][indexes]
 
             # write to h5 file
             self._prediction_manager.write_predictions(
@@ -365,7 +377,7 @@ class Project:
         with contextlib.suppress(FileNotFoundError):
             path.unlink()
 
-        # archive labels
+        # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
             labels = self._video_manager.load_video_labels(video)
@@ -376,20 +388,51 @@ class Project:
 
             pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
-            for ident in annotations["labels"]:
-                if behavior in annotations["labels"][ident]:
-                    if video not in archived_labels:
-                        archived_labels[video] = {"num_frames": annotations["num_frames"]}
-                        archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations["labels"][ident].pop(
-                        behavior
-                    )
+
+            # ensure archive structure exists for this video:
+            # {
+            #   "num_frames": ...,
+            #   "labels": {"<behavior>": {}},
+            #   "unfragmented_labels": {"<behavior>": {}}
+            # }
+            if video not in archived_labels:
+                archived_labels[video] = {
+                    "num_frames": annotations["num_frames"],
+                    "labels": {},
+                    "unfragmented_labels": {},
+                }
+            if to_safe_name(behavior) not in archived_labels[video]["labels"]:
+                # keep the behavior key as provided (not safe_name) in the archive per requested schema
+                archived_labels[video]["labels"][behavior] = {}
+            if to_safe_name(behavior) not in archived_labels[video]["unfragmented_labels"]:
+                archived_labels[video]["unfragmented_labels"][behavior] = {}
+
+            # Move per-identity blocks for the behavior from live annotations into archive
+            # Identities are stored as string keys in annotations
+            # 1) Fragmented labels
+            if "labels" in annotations:
+                for ident in list(annotations["labels"].keys()):
+                    labels = annotations["labels"].get(ident, {})
+                    if behavior in labels:
+                        # copy to archive
+                        archived_labels[video]["labels"][behavior][ident] = labels.pop(behavior)
+
+            # 2) Unfragmented labels
+            if "unfragmented_labels" in annotations:
+                for ident in list(annotations["unfragmented_labels"].keys()):
+                    labels = annotations["unfragmented_labels"].get(ident, {})
+                    if behavior in labels:
+                        archived_labels[video]["unfragmented_labels"][behavior][ident] = (
+                            labels.pop(behavior)
+                        )
+
+            # persist the modified annotations back to disk (with the behavior removed)
             self.save_annotations(VideoLabels.load(annotations, pose), pose)
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
-            json.dump(archived_labels, f, indent=True)
+            json.dump(archived_labels, f, indent=2)
 
         # save project file
         self._settings_manager.remove_behavior(behavior)

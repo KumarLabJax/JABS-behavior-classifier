@@ -333,8 +333,10 @@ class SessionTracker:
         """Flush the current session data to the session file."""
         if self._session_file and self._session:
             try:
-                with open(self._session_file, "w") as f:
+                tmp = self._session_file.with_suffix(".json.tmp")
+                with tmp.open("w") as f:
                     json.dump(self._session, f, indent=4)
+                tmp.replace(self._session_file)
             except NameError:
                 # Python is shutting down, and open is no longer available
                 pass

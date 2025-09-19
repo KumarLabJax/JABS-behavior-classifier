@@ -131,6 +131,9 @@ class ClassifyThread(QThread):
                     check_termination_requested()
                     if data.shape[0] > 0:
                         # make predictions
+                        # Note: this makes predictions for all frames in the video, even those without valid pose
+                        # We will later filter these out when saving the predictions to disk
+                        # consider changing this to only predict on frames with valid pose
                         predictions[video][identity] = self._classifier.predict(data)
 
                         # also get the probabilities

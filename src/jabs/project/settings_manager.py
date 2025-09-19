@@ -50,9 +50,11 @@ class SettingsManager:
 
         self._project_info["version"] = version_str()
 
-        # Save combined info to file
-        with self._paths.project_file.open(mode="w", newline="\n") as f:
+        # atomically save combined info to file
+        tmp = self._paths.project_file.with_suffix(".json.tmp")
+        with tmp.open("w") as f:
             json.dump(self._project_info, f, indent=2, sort_keys=True)
+        tmp.replace(self._paths.project_file)
 
     @property
     def project_settings(self) -> dict:
