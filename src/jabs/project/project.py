@@ -334,9 +334,8 @@ class Project:
 
                 # 'indexes' are absolute frame indices where this identity has a valid pose.
                 # predictions[video][identity] and probabilities[video][identity] are full-length arrays
-                # (len == num_frames) indexed by absolute frame; only elements at 'indexes'
-                # contain meaningful values. We index both source and destination with 'indexes'
-                # to copy only those valid-pose frames.
+                # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
+                # We index both source and destination with 'indexes' to copy only those valid-pose frames.
                 # If upstream ever provides compact arrays instead, drop the source-side indexing.
                 prediction_labels[identity, indexes] = predictions[video][identity][indexes]
                 prediction_prob[identity, indexes] = probabilities[video][identity][indexes]
