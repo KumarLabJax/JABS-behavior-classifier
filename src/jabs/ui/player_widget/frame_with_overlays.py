@@ -213,19 +213,15 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._active_identity = 0
         self.clear()
 
-    def convert_identity_to_external(self, identity: int) -> int:
+    def convert_identity_to_external(self, identity: int) -> str:
         """Convert an internal identity index to an external identity index.
 
         This is useful when the pose estimation uses external identities so that we can display
         the external identity instead of the internal jabs identity index.
         """
-        if self._pose and self._pose.external_identities:
-            try:
-                return self._pose.external_identities[identity]
-            except IndexError:
-                # If the identity is not found in external identities, fall through to return the original identity
-                pass
-        return identity
+        if self._pose:
+            return self._pose.identity_index_to_display(identity)
+        return str(identity)
 
     def set_pose(self, pose: PoseEstimation) -> None:
         """Set the pose estimation for the frame widget.

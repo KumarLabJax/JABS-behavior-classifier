@@ -151,10 +151,10 @@ class StackedTimelineWidget(QWidget):
 
         # Create new frames and widgets
         for identity_index in range(self._num_identities):
-            if self._pose and self._pose.external_identities is not None:
-                identity_display_name = self._pose.external_identities[identity_index]
+            if self._pose:
+                identity_display_name = self._pose.identity_index_to_display(identity_index)
             else:
-                identity_display_name = identity_index
+                identity_display_name = str(identity_index)
 
             frame = QFrame(self)
             frame.setFrameShape(QFrame.Shape.NoFrame)

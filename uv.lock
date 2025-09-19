@@ -14,6 +14,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "argparse-formatter"
+version = "1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/46/095633f2da154b09938ab568c951ce67e67f2ae22a67f5dce922039c8202/argparse_formatter-1.4.tar.gz", hash = "sha256:35027941a1e75a1a4df21e5c40a3395d311777d9bb1cfd9744d6ff7cc28de216", size = 5727, upload-time = "2021-02-05T20:21:20.506Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/d8/768708df2d25cc6483083db56521f35e1b47538dd915339c90fa8fce2e77/argparse_formatter-1.4-py3-none-any.whl", hash = "sha256:c1ce58a68ed83d5204e1515c6f8fb52f5f32fc21bc993faa80f0b17a78090265", size = 11917, upload-time = "2021-02-05T20:21:19.011Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -349,6 +358,7 @@ name = "jabs-behavior-classifier"
 version = "0.36.0"
 source = { editable = "." }
 dependencies = [
+    { name = "argparse-formatter" },
     { name = "click" },
     { name = "distinctipy" },
     { name = "h5py" },
@@ -388,6 +398,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argparse-formatter", specifier = ">=1.4" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "distinctipy", specifier = ">=1.3.4" },
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
