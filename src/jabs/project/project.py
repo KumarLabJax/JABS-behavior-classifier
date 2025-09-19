@@ -145,16 +145,16 @@ class Project:
         return self._paths
 
     @property
-    def labeler(self) -> str:
+    def labeler(self) -> str | None:
         """return name of labeler
 
         For now, this is just the username of the user running JABS. Return
-        "unavailable" if the username cannot be determined.
+        None if the username cannot be determined.
         """
         try:
             return getpass.getuser()
         except Exception:
-            return "unavailable"
+            return None
 
     @property
     def session_tracker(self) -> SessionTracker | None:
