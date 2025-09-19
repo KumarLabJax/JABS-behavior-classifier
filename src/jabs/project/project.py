@@ -305,9 +305,8 @@ class Project:
             This leaves the output arrays with default values (-1 for labels, 0.0 for probabilities) for frames
             without pose.
 
-            In the future, if the upstream caller were to provide compact arrays of
-            length `len(indexes)` instead of full-length arrays, the copy
-            logic would need to drop the indexing on the source side.
+            In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
+            instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
         for video in self._video_manager.videos:
             # setup an output filename based on the behavior and video names
