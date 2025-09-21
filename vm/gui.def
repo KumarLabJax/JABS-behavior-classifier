@@ -25,9 +25,13 @@ From: ghcr.io/astral-sh/uv:python3.13-bookworm
     apt-get update && apt-get install -y qt6-base-dev libglu1-mesa-dev libgl1-mesa-glx alsa-utils libnss3 libxkbfile1 'libxcb*'
     # Note that libxcb is wildcarded because it wasn't very clear which xcb library was missing, so we can just grab them all
 
-    # Run unittests to ensure build environment should work as intended
+    export UV_SYSTEM_PYTHON=1
+    export UV_PYTHON=/usr/local/bin/python
+
     cd /behavior-classifier/
     uv sync --locked --compile-bytecode --no-editable
+
+    # Run unittests to ensure build environment should work as intended
     uv run pytest tests
 
     # TODO: Decide if we want to keep this rm -R command
