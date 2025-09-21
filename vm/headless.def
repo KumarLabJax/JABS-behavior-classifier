@@ -1,11 +1,12 @@
 # build like:
-#   singularity build --fakeroot behavior-classifier.sif behavior-classifier-vm.def
+#   singularity build --fakeroot behavior-classifier.sif headless.def
 
 Bootstrap: docker
 From: ghcr.io/astral-sh/uv:python3.13-bookworm
 
 %environment
     export UV_SYSTEM_PYTHON=1
+    export UV_PYTHON=/usr/local/bin/python
 
 %setup
     mkdir -p ${SINGULARITY_ROOTFS}/behavior-classifier
@@ -26,5 +27,6 @@ From: ghcr.io/astral-sh/uv:python3.13-bookworm
     uv sync --locked --compile-bytecode --no-editable
     uv run pytest --ignore=tests/test_search_bar_widget.py  tests
 
+    # TODO: Decide if we want to keep this rm -R command
     # Cleanup
-    rm -R /behavior-classifier
+    # rm -R /behavior-classifier
