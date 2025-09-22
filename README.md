@@ -130,8 +130,8 @@ https://doi.org/10.5281/zenodo.16697331
 
 ## Singularity/Linux
 
-We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
-compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
+We supply a tested pair of singularity definition files. The [first vm](vm/headless.def) is intended for command-line use on 
+compute clusters when scaling inferences. The [second vm](vm/gui.def) is designed for interacting with the GUI in a portable 
 environment. Please inspect the definition files for related linux packages to run the software.
 
 ## JABS Project Portability
