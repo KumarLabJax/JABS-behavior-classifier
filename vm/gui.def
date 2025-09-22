@@ -40,10 +40,8 @@ From: ghcr.io/astral-sh/uv:python3.13-bookworm
     # Run unittests to ensure build environment should work as intended
     uv run pytest tests
 
-    uv build
-    python3 -m pip install dist/*.whl
+    uv build && python3 -m pip install dist/*.whl
 
-    # TODO: Decide if we want to keep this rm -R command
     # Cleanup
-    # rm -R /behavior-classifier
+    rm -R /behavior-classifier
 

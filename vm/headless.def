@@ -25,9 +25,7 @@ From: ghcr.io/astral-sh/uv:python3.13-bookworm
     # skip tests of GUI components that will fail since this Singularity image does not support the JABS gui
     uv run pytest --ignore=tests/test_search_bar_widget.py  tests
 
-    uv build
-    python3 -m pip install dist/*.whl
+    uv build && python3 -m pip install dist/*.whl
 
-    # TODO: Decide if we want to keep this rm -R command
     # Cleanup
-    # rm -R /behavior-classifier
+    rm -R /behavior-classifier
