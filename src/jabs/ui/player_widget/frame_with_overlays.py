@@ -7,6 +7,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 
 from .overlays.annotation_overlay import AnnotationOverlay
+from .overlays.bounding_box import BoundingBoxOverlay
 from .overlays.control_overlay import ControlOverlay
 from .overlays.floating_id_overlay import FloatingIdOverlay
 from .overlays.label_overlay import LabelOverlay
@@ -47,6 +48,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         MINIMAL = enum.auto()
         CENTROID = enum.auto()
         FLOATING = enum.auto()
+        BBOX = enum.auto()
 
     pixmap_clicked = QtCore.Signal(dict)
     playback_speed_changed = QtCore.Signal(float)
@@ -76,7 +78,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._contrast = 1.0
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
-        self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
+        self._id_overlay_mode = self.IdentityOverlayMode.BBOX
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
@@ -87,12 +89,15 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._annotation_overlay = AnnotationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
+        bbox_overlay = BoundingBoxOverlay(self)
+        bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
 
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
         self.overlays: list[Overlay] = [
             PoseOverlay(self),
             LabelOverlay(self),
+            bbox_overlay,
             self._annotation_overlay,
             floating_id_overlay,
             self._control_overlay,

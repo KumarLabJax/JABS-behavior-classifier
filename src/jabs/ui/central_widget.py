@@ -1,6 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 from PySide6 import QtCore, QtWidgets
@@ -11,7 +12,7 @@ from shapely.geometry import Point
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
@@ -35,6 +36,7 @@ class CentralWidget(QtWidgets.QWidget):
     export_training_status_change = QtCore.Signal(bool)
     status_message = QtCore.Signal(str, int)  # message, timeout (ms)
     search_hit_loaded = QtCore.Signal(SearchHit)
+    bbox_overlay_supported = QtCore.Signal(bool)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -296,7 +298,7 @@ class CentralWidget(QtWidgets.QWidget):
 
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
-            self._labels = self._project.video_manager.load_video_labels(path)
+            self._labels = self._project.video_manager.load_video_labels(path, self._pose_est)
             self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
@@ -316,6 +318,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._pose_est.identity_index_to_display(i) for i in self._pose_est.identities
             ]
             self._set_identities(display_identities)
+            self._player_widget.set_active_identity(self._controls.current_identity_index)
 
             self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
@@ -323,6 +326,17 @@ class CentralWidget(QtWidgets.QWidget):
             self._update_select_button_state()
             self._update_timeline_search_results()
             self._update_label_counts()
+
+            # check if bbox overlay is supported by the pose file
+            if self._pose_est.format_major_version < 8:
+                self.bbox_overlay_supported.emit(False)
+            else:
+                # bboxes are optional in v8+, check if they exist. cast to a PoseEstimationV8 to access bbox methods
+                pose_v8 = cast(PoseEstimationV8, self._pose_est)
+                if pose_v8.has_bounding_boxes:
+                    self.bbox_overlay_supported.emit(True)
+                else:
+                    self.bbox_overlay_supported.emit(False)
 
             if previous_video is not None:
                 self._project.session_tracker.video_closed(previous_video)

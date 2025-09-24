@@ -63,7 +63,12 @@ class FloatingIdOverlay(Overlay):
         self._eartags = EarTagIconManager()
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        """Paints floating id labels.
+        """Paints id labels.
+
+        Implements these identity overlay modes:
+            - FLOATING: Floating labels connected to the centroid with a line.
+            - CENTROID: Labels drawn at the centroid position.
+            - MINIMAL: A small circle drawn at the centroid position.
 
         Args:
             painter (QtGui.QPainter): The painter to draw on the frame.
@@ -73,7 +78,16 @@ class FloatingIdOverlay(Overlay):
         the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
         then the overlay will not be drawn.
         """
-        if not self._enabled or self.parent.pixmap().isNull():
+        if (
+            not self._enabled
+            or self.parent.pixmap().isNull()
+            or self.parent.identity_overlay_mode
+            not in [
+                self.parent.IdentityOverlayMode.FLOATING,
+                self.parent.IdentityOverlayMode.CENTROID,
+                self.parent.IdentityOverlayMode.MINIMAL,
+            ]
+        ):
             return
 
         # keep track of drawn rectangles and associated data, used for mouse events so we can
@@ -86,6 +100,7 @@ class FloatingIdOverlay(Overlay):
             painter.setFont(self._font)
             self._overlay_identities_floating(painter, crop_rect)
         else:
+            # self._overlay_identities handles both CENTROID and MINIMAL modes
             self._font.setPointSize(self._CENTROID_FONT_SIZE)
             painter.setFont(self._font)
             self._overlay_identities(painter, crop_rect)

@@ -402,13 +402,13 @@ class Project:
         # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            labels = self._video_manager.load_video_labels(video)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            labels = self._video_manager.load_video_labels(video, pose)
 
             # if no labels for video skip it
             if labels is None:
                 continue
 
-            pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
 
             # ensure archive structure exists for this video:
@@ -536,7 +536,9 @@ class Project:
             if should_terminate_callable:
                 should_terminate_callable()
 
-            video_labels = self._video_manager.load_video_labels(video)
+            video_path = self._video_manager.video_path(video)
+            pose_est = self.load_pose_est(video_path)
+            video_labels = self._video_manager.load_video_labels(video, pose_est)
 
             # if there are no labels for this video, skip it
             if video_labels is None:
@@ -546,8 +548,6 @@ class Project:
                         progress_callable()
                 continue
 
-            video_path = self._video_manager.video_path(video)
-            pose_est = self.load_pose_est(video_path)
             # fps used to scale some features from per pixel time unit to
             # per second
             fps = get_fps(str(video_path))

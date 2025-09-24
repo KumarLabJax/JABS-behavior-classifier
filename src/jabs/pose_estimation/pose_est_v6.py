@@ -47,14 +47,16 @@ class PoseEstimationV6(PoseEstimationV5):
             # transpose seg_data similar to the way the points are transposed.
 
         # sort the segmentation data
-        self._segmentation_dict["seg_data"] = self._segmentation_sort(
-            self._segmentation_dict["seg_data"],
-            self._segmentation_dict["longterm_seg_id"],
-        )
-        self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(
-            self._segmentation_dict["seg_external_flag"],
-            self._segmentation_dict["longterm_seg_id"],
-        )
+        if self._segmentation_dict["seg_data"] is not None:
+            self._segmentation_dict["seg_data"] = self._segmentation_sort(
+                self._segmentation_dict["seg_data"],
+                self._segmentation_dict["longterm_seg_id"],
+            )
+        if self._segmentation_dict["seg_external_flag"] is not None:
+            self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(
+                self._segmentation_dict["seg_external_flag"],
+                self._segmentation_dict["longterm_seg_id"],
+            )
 
     def get_seg_id(self, frame_index: int, identity: int) -> np.ndarray[Any, Any] | None:
         """get segmentation for a given frame and identity."""
