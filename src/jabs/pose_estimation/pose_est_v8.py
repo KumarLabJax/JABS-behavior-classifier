@@ -3,6 +3,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+
 from .pose_est_v7 import PoseEstimationV7
 
 
@@ -15,18 +17,51 @@ class PoseEstimationV8(PoseEstimationV7):
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30) -> None:
         super().__init__(file_path, cache_dir, fps)
         self._has_bounding_boxes = False
+        self._bboxes: np.ndarray | None = None
 
-        # v8 properties
+        # Try to load reorganized bboxes (identity-first) from cache, if present
+        use_cache = False
+        if cache_dir is not None:
+            try:
+                filename = self._path.name.replace(".h5", "_cache.h5")
+                cache_file_path = self._cache_dir / filename
+                with h5py.File(cache_file_path, "r") as cache_h5:
+                    if "poseest/bboxes" in cache_h5:
+                        ds_cache = cache_h5["poseest/bboxes"]
+                        bgen_cache = ds_cache.attrs.get("bboxes_generated", False)
+                        if bgen_cache and ds_cache.size > 0:
+                            self._bboxes = ds_cache[:]
+                            self._has_bounding_boxes = True
+                            use_cache = True
+                        else:
+                            # Cached dataset exists but marked as not generated; treat as absent
+                            # set use_cache to True to skip source loading
+                            use_cache = True
+            except (OSError, KeyError):
+                # Cache missing or unreadable; fall back to source
+                pass
+        if use_cache:
+            # don't need to load from source file and reorganize by identity
+            return
+
+        # v8 specific loading: bounding boxes
         with h5py.File(self._path, "r") as pose_h5:
             ds = pose_h5.get("poseest/bbox")
-            if ds is None:
+            if ds is None or not ds.attrs.get("bboxes_generated", False):
                 # No bounding box data
-                self._bboxes = None
-                return
-            bgen = ds.attrs.get("bboxes_generated", False)
-            if not bool(bgen):
-                # Bboxes not marked as generated
-                self._bboxes = None
+                # Update cache to reflect absence of bboxes
+                if cache_dir is not None:
+                    try:
+                        filename = self._path.name.replace(".h5", "_cache.h5")
+                        cache_file_path = self._cache_dir / filename
+                        with h5py.File(cache_file_path, "a") as cache_h5:
+                            grp = cache_h5.require_group("poseest")
+                            if "bboxes" in grp:
+                                del grp["bboxes"]
+                            empty_ds = grp.create_dataset("bboxes", shape=(0,), dtype=np.float32)
+                            empty_ds.attrs["bboxes_generated"] = False
+                    except OSError:
+                        pass
                 return
 
             bboxes = ds[:]
@@ -81,6 +116,22 @@ class PoseEstimationV8(PoseEstimationV7):
             self._bboxes = bboxes_by_ident.astype(np.float32)
 
             self._has_bounding_boxes = True
+
+            # Write reorganized bboxes to cache for faster future loads
+            if cache_dir is not None:
+                filename = self._path.name.replace(".h5", "_cache.h5")
+                cache_file_path = self._cache_dir / filename
+                with h5py.File(cache_file_path, "a") as cache_h5:
+                    grp = cache_h5.require_group("poseest")
+                    if "bboxes" in grp:
+                        del grp["bboxes"]
+                    ds_out = grp.create_dataset(
+                        "bboxes",
+                        data=self._bboxes,
+                        compression=COMPRESSION,
+                        compression_opts=COMPRESSION_OPTS_DEFAULT,
+                    )
+                    ds_out.attrs["bboxes_generated"] = True
 
     @property
     def format_major_version(self) -> int:
