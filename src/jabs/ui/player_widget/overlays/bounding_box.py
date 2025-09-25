@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from ..frame_with_overlays import FrameWithOverlaysWidget
 
 
+TAB_PADDING = 4  # pixels of padding around text/icon in tab
+TAB_FILL_COLOR = QtGui.QColor(64, 64, 64, 150)
+
+
 class BoundingBoxOverlay(Overlay):
     """Overlay that draws bounding boxes from pose over the video frame.
 
@@ -35,6 +39,7 @@ class BoundingBoxOverlay(Overlay):
         self._eartags = EarTagIconManager()
         self._label_font = QtGui.QFont()
         self._label_font.setPointSize(12)
+        self._font_metrics = QtGui.QFontMetrics(self._label_font)
         self._line_width = 2
         # Track tab rectangles for hit-testing mouse clicks:
         self._tab_rects: list[tuple[int, QtCore.QRectF]] = []
@@ -87,14 +92,13 @@ class BoundingBoxOverlay(Overlay):
             frame_left, frame_top, self.parent.scaled_pix_width, self.parent.scaled_pix_height
         )
 
-        # save the painter state before setting clipping to the frame rectangle so that we can restore later
+        # save the painter state so that we can restore later
         painter.save()
         painter.setClipRect(frame_rect)
-
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         painter.setFont(self._label_font)
-        fm = QtGui.QFontMetrics(self._label_font)
-        identity_text_height = fm.height()
-        pad = 4
+
+        identity_text_height = self._font_metrics.height()
 
         for identity in identities:
             # bbox format is [upper_left_x, upper_left_y], [lower_right_x, lower_right_y]
@@ -109,7 +113,7 @@ class BoundingBoxOverlay(Overlay):
             x1, y1 = top_left.x(), top_left.y()
             x2, y2 = bottom_right.x(), bottom_right.y()
 
-            # Skip degenerate or invalid boxes (zero/negative width/height), which can appear as [0,0]-[0,0]
+            # Skip degenerate or invalid boxes (zero/negative width/height)
             if not (x2 > x1 and y2 > y1):
                 continue
 
@@ -118,7 +122,7 @@ class BoundingBoxOverlay(Overlay):
             if x2 < frame_left or x1 > frame_right or y2 < frame_top or y1 > frame_bottom:
                 continue
 
-            # draw the bounding box
+            # set up the bounding box
             base_color = (
                 self._get_highlight_color() if identity != active_id else self._get_accent_color()
             )
@@ -127,6 +131,11 @@ class BoundingBoxOverlay(Overlay):
             painter.setPen(pen)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             bbox_rect = QtCore.QRectF(x1, y1, x2 - x1, y2 - y1)
+
+            # only draw the portion of the bbox that intersects the visible frame
+            # note: this means if the bbox is partially offscreen due to cropping the video, we resize it
+            # to fit. We could just draw the full box, which will be clipped by the painter's clip rect,
+            # but this looks better.
             bbox_draw_rect = bbox_rect.intersected(frame_rect)
             if bbox_draw_rect.isEmpty():
                 continue
@@ -135,20 +144,11 @@ class BoundingBoxOverlay(Overlay):
             display_id = pose.identity_index_to_display(identity)
 
             # draw a "tab" above the upper-left corner of the bounding box to display the identity
-            painter.save()
-
-            code_str = str(display_id)
-
-            if (
-                eartag_renderer := self._eartags.get_icon(code_str)
-            ) is not None and eartag_renderer.isValid():
-                # Determine target icon size similar to floating ID overlay
+            eartag_renderer = self._eartags.get_icon(display_id)
+            if eartag_renderer and eartag_renderer.isValid():
+                # make the icon height match the text height so the tab height is consistent
                 default_size = eartag_renderer.defaultSize()
-                if (
-                    default_size.isValid()
-                    and default_size.width() > 0
-                    and default_size.height() > 0
-                ):
+                if default_size.width() > 0 and default_size.height() > 0:
                     icon_h = identity_text_height
                     icon_w = int(icon_h * default_size.width() / default_size.height())
                 else:
@@ -159,12 +159,12 @@ class BoundingBoxOverlay(Overlay):
                 icon_w = 0
                 icon_h = 0
 
-            # Tab size depends on whether we draw an icon or text
+            # Tab width depends on whether we draw an icon or text, height is consistent either way
             if has_icon and icon_w > 0:
-                tab_w = icon_w + 2 * pad
+                tab_w = icon_w + 2 * TAB_PADDING
             else:
-                tab_w = fm.horizontalAdvance(code_str) + 2 * pad
-            tab_h = identity_text_height + 2 * pad
+                tab_w = self._font_metrics.horizontalAdvance(display_id) + 2 * TAB_PADDING
+            tab_h = identity_text_height + 2 * TAB_PADDING
 
             # Position: prefer above the box; clamp to keep the tab fully inside frame_rect
             # Horizontal clamp
@@ -189,17 +189,9 @@ class BoundingBoxOverlay(Overlay):
             tab_rect = QtCore.QRectF(tab_x, tab_y, tab_w, tab_h)
 
             # Save for hit-testing in mouse handler
-            try:
-                identity_int = int(identity)
-            except Exception:
-                identity_int = identity  # fallback, keep as-is if already int-like
-            self._tab_rects.append((identity_int, QtCore.QRectF(tab_rect)))
+            self._tab_rects.append((identity, QtCore.QRectF(tab_rect)))
 
-            # Colors to match the bbox styling
-            fill = QtGui.QColor(base_color)
-            fill.setAlpha(128)
-
-            painter.setBrush(QtGui.QBrush(fill))
+            painter.setBrush(QtGui.QBrush(TAB_FILL_COLOR))
             painter.setPen(QtGui.QPen(base_color, self._line_width))
             painter.drawRect(tab_rect)
 
@@ -214,9 +206,7 @@ class BoundingBoxOverlay(Overlay):
                 eartag_renderer.render(painter, icon_rect)
             else:
                 painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255)))
-                painter.drawText(tab_rect, QtCore.Qt.AlignmentFlag.AlignCenter, code_str)
-
-            painter.restore()
+                painter.drawText(tab_rect, QtCore.Qt.AlignmentFlag.AlignCenter, display_id)
 
         painter.restore()
 
@@ -277,10 +267,10 @@ class BoundingBoxOverlay(Overlay):
             return QtCore.QPointF(frame_left, frame_top)
 
         # Compute scale factors
-        sx = self.parent.scaled_pix_width / cw
-        sy = self.parent.scaled_pix_height / ch
+        scale_x = self.parent.scaled_pix_width / cw
+        scale_y = self.parent.scaled_pix_height / ch
 
-        x = frame_left + (point[0] - crop_rect.left()) * sx
-        y = frame_top + (point[1] - crop_rect.top()) * sy
+        x = frame_left + (point[0] - crop_rect.left()) * scale_x
+        y = frame_top + (point[1] - crop_rect.top()) * scale_y
 
         return QtCore.QPointF(x, y)
