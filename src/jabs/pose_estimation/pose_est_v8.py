@@ -19,32 +19,22 @@ class PoseEstimationV8(PoseEstimationV7):
         self._has_bounding_boxes = False
         self._bboxes: np.ndarray | None = None
 
-        # Try to load reorganized bboxes (identity-first) from cache, if present
-        use_cache = False
-        if cache_dir is not None:
-            try:
-                filename = self._path.name.replace(".h5", "_cache.h5")
-                cache_file_path = self._cache_dir / filename
-                with h5py.File(cache_file_path, "r") as cache_h5:
-                    if "poseest/bboxes" in cache_h5:
-                        ds_cache = cache_h5["poseest/bboxes"]
-                        bgen_cache = ds_cache.attrs.get("bboxes_generated", False)
-                        if bgen_cache and ds_cache.size > 0:
-                            self._bboxes = ds_cache[:]
-                            self._has_bounding_boxes = True
-                            use_cache = True
-                        else:
-                            # Cached dataset exists but marked as not generated; treat as absent
-                            # set use_cache to True to skip source loading
-                            use_cache = True
-            except (OSError, KeyError):
-                # Cache missing or unreadable; fall back to source
-                pass
-        if use_cache:
-            # don't need to load from source file and reorganize by identity
-            return
+        # Try to load reorganized bboxes (identity-first) from cache
+        # if not able to use cached bboxes, load from source
+        if not self._load_bboxes_from_cache(cache_dir):
+            self._load_from_h5(cache_dir)
 
-        # v8 specific loading: bounding boxes
+    @property
+    def format_major_version(self) -> int:
+        """Returns the major version of the pose file format."""
+        return 8
+
+    def _load_from_h5(self, cache_dir: Path | None) -> None:
+        """Load bounding boxes from source HDF5 file, reorganizing by identity.
+
+        Args:
+            cache_dir: directory to use for caching reorganized pose files, or None to disable caching.
+        """
         with h5py.File(self._path, "r") as pose_h5:
             ds = pose_h5.get("poseest/bbox")
             if ds is None or not ds.attrs.get("bboxes_generated", False):
@@ -77,10 +67,10 @@ class PoseEstimationV8(PoseEstimationV7):
                     # instance_embed_id is 1-based; take max over valid entries
                     self._num_identities = int(instance_embed_id[valid].max())
                 else:
-                    print(f"Warning: All identities masked in pose file: {file_path}")
+                    print(f"Warning: All identities masked in pose file: {self._path}")
                     self._num_identities = 0
             else:
-                print(f"Warning: No identities found in pose file: {file_path}")
+                print(f"Warning: No identities found in pose file: {self._path}")
                 self._num_identities = 0
 
             # Prepare an array grouped by identity, matching the v4 keypoint transform logic.
@@ -133,10 +123,36 @@ class PoseEstimationV8(PoseEstimationV7):
                     )
                     ds_out.attrs["bboxes_generated"] = True
 
-    @property
-    def format_major_version(self) -> int:
-        """Returns the major version of the pose file format."""
-        return 8
+    def _load_bboxes_from_cache(self, cache_dir: Path | None) -> bool:
+        """Attempt to load bounding boxes from cache.
+
+        Args:
+            cache_dir: directory to use for caching reorganized pose files, or None to disable caching.
+
+        Returns:
+            True if bounding boxes were successfully loaded from cache, False otherwise.
+        """
+        use_cache = False
+        if cache_dir is not None:
+            try:
+                filename = self._path.name.replace(".h5", "_cache.h5")
+                cache_file_path = self._cache_dir / filename
+                with h5py.File(cache_file_path, "r") as cache_h5:
+                    if "poseest/bboxes" in cache_h5:
+                        ds_cache = cache_h5["poseest/bboxes"]
+                        bgen_cache = ds_cache.attrs.get("bboxes_generated", False)
+                        if bgen_cache and ds_cache.size > 0:
+                            self._bboxes = ds_cache[:]
+                            self._has_bounding_boxes = True
+                            use_cache = True
+                        else:
+                            # Cached dataset exists but marked as not generated; treat as absent
+                            # set use_cache to True to skip source loading
+                            use_cache = True
+            except (OSError, KeyError):
+                # Cache missing or unreadable; fall back to source
+                pass
+        return use_cache
 
     def get_bounding_boxes(self, identity: int) -> np.ndarray | None:
         """Get bounding box array for an identity index.
