@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtGui
 
 from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR
+from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .overlay import Overlay
 
@@ -48,6 +49,7 @@ class FloatingIdOverlay(Overlay):
     _SELECTED_INDICATOR_SIZE = (
         2  # size of the circle drawn to indicate selected mouse when ID labels are hidden
     )
+    _ICON_GAP = 4
 
     id_label_clicked = QtCore.Signal(int)
 
@@ -57,12 +59,16 @@ class FloatingIdOverlay(Overlay):
         self._font = QtGui.QFont()
         self._font.setBold(True)
         self._font.setPointSize(self._FONT_SIZE)
-        self._font_metrics = QtGui.QFontMetrics(self._font)
-
         self._rects_with_data = []
+        self._eartags = EarTagIconManager()
 
     def paint(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
-        """Paints floating id labels.
+        """Paints id labels.
+
+        Implements these identity overlay modes:
+            - FLOATING: Floating labels connected to the centroid with a line.
+            - CENTROID: Labels drawn at the centroid position.
+            - MINIMAL: A small circle drawn at the centroid position.
 
         Args:
             painter (QtGui.QPainter): The painter to draw on the frame.
@@ -72,22 +78,31 @@ class FloatingIdOverlay(Overlay):
         the image might be scaled and cropped. If the image coordinates are outside the crop_rect,
         then the overlay will not be drawn.
         """
-        if not self._enabled or self.parent.pixmap().isNull():
+        if (
+            not self._enabled
+            or self.parent.pixmap().isNull()
+            or self.parent.identity_overlay_mode
+            not in [
+                self.parent.IdentityOverlayMode.FLOATING,
+                self.parent.IdentityOverlayMode.CENTROID,
+                self.parent.IdentityOverlayMode.MINIMAL,
+            ]
+        ):
             return
-
-        # get the current painter font so we can restore it later
-        current_font = painter.font()
-        painter.setFont(self._font)
 
         # keep track of drawn rectangles and associated data, used for mouse events so we can
         # determine which id was clicked
         self._rects_with_data.clear()
 
+        current_font = painter.font()
         if self.parent.identity_overlay_mode == self.parent.IdentityOverlayMode.FLOATING:
             self._font.setPointSize(self._FONT_SIZE)
+            painter.setFont(self._font)
             self._overlay_identities_floating(painter, crop_rect)
         else:
+            # self._overlay_identities handles both CENTROID and MINIMAL modes
             self._font.setPointSize(self._CENTROID_FONT_SIZE)
+            painter.setFont(self._font)
             self._overlay_identities(painter, crop_rect)
 
         # restore the original font
@@ -139,6 +154,9 @@ class FloatingIdOverlay(Overlay):
         frame_left = self.parent.scaled_pix_x
         frame_top = self.parent.scaled_pix_y
         frame_right = frame_left + self.parent.scaled_pix_width
+        frame_bottom = frame_top + self.parent.scaled_pix_height
+
+        metrics = QtGui.QFontMetrics(painter.font())
 
         # Draw animal id labels
         for identity in identities:
@@ -157,10 +175,30 @@ class FloatingIdOverlay(Overlay):
 
             widget_x, widget_y = widget_coords
 
-            identity_text = f"{display_id}"
-            identity_text_width = self._font_metrics.horizontalAdvance(identity_text)
-            identity_text_height = self._font_metrics.height()
-            identity_rect_width = identity_text_width + self._HORIZONTAL_PADDING * 2
+            identity_text_width = metrics.horizontalAdvance(display_id)
+            identity_text_height = metrics.height()
+
+            # check for eartag SVG and add to floating label if found
+            eartag = self._eartags.get_icon(display_id)
+            icon_w = 0
+            icon_h = 0
+            icon_gap = 0
+            if eartag is not None:
+                default_size = eartag.defaultSize()
+                if (
+                    default_size.isValid()
+                    and default_size.width() > 0
+                    and default_size.height() > 0
+                ):
+                    icon_h = identity_text_height
+                    icon_w = int(icon_h * default_size.width() / default_size.height())
+                else:
+                    icon_w = icon_h = identity_text_height
+                icon_gap = self._ICON_GAP
+
+            identity_rect_width = (
+                identity_text_width + self._HORIZONTAL_PADDING * 2 + icon_w + icon_gap
+            )
             identity_rect_height = identity_text_height + self._VERTICAL_PADDING * 2
             identity_x = widget_x - identity_rect_width / 2 - self._LABEL_OFFSET_HORIZONTAL
             identity_y = widget_y - identity_rect_height - self._LABEL_OFFSET_VERTICAL
@@ -174,12 +212,15 @@ class FloatingIdOverlay(Overlay):
             if identity_y < frame_top:
                 identity_y = widget_y + self._LABEL_OFFSET_VERTICAL
 
+            if identity_y + identity_rect_height > frame_bottom:
+                identity_y = frame_bottom - identity_rect_height
+
             identity_rect = LabelOverlayRect(
                 x=identity_x,
                 y=identity_y,
                 width=identity_rect_width,
                 height=identity_rect_height,
-                tag=identity_text,
+                tag=display_id,
                 color=self._ACTIVE_IDENTITY_COLOR
                 if identity == active_id
                 else self._INACTIVE_IDENTITY_COLOR,
@@ -208,8 +249,34 @@ class FloatingIdOverlay(Overlay):
             painter.setBrush(identity_rect.color)
             painter.setPen(self._BORDER_COLOR)
             painter.drawRoundedRect(q_rect, self._CORNER_RADIUS, self._CORNER_RADIUS)
+
             painter.setPen(text_color)
-            painter.drawText(q_rect, QtCore.Qt.AlignmentFlag.AlignCenter, identity_rect.tag)
+            if eartag is not None and icon_w > 0 and icon_h > 0:
+                # Draw SVG icon on left inside rectangle, vertically centered
+                icon_rect = QtCore.QRectF(
+                    identity_rect.x + self._HORIZONTAL_PADDING,
+                    identity_rect.y + (identity_rect.height - icon_h) / 2,
+                    icon_w,
+                    icon_h,
+                )
+                eartag.render(painter, icon_rect)
+
+                # Draw text to right of icon, left aligned and vertically centered
+                text_x = icon_rect.right() + icon_gap
+                text_rect = QtCore.QRectF(
+                    text_x,
+                    identity_rect.y,
+                    identity_rect.width - (text_x - identity_rect.x) - self._HORIZONTAL_PADDING,
+                    identity_rect.height,
+                )
+                painter.drawText(
+                    text_rect,
+                    QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft,
+                    identity_rect.tag,
+                )
+            else:
+                # Draw text centered if no icon
+                painter.drawText(q_rect, QtCore.Qt.AlignmentFlag.AlignCenter, identity_rect.tag)
 
     def _overlay_identities(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         """Overlay identities on the current frame.
@@ -237,7 +304,7 @@ class FloatingIdOverlay(Overlay):
                     if identity == self.parent.active_identity
                     else INACTIVE_ID_COLOR
                 )
-                label_text = str(self.parent.convert_identity_to_external(identity))
+                label_text = self.parent.convert_identity_to_external(identity)
 
                 # Convert image coordinates to widget coordinates and draw the label
                 widget_coords = self.parent.image_to_widget_coords_cropped(
@@ -253,7 +320,7 @@ class FloatingIdOverlay(Overlay):
                     # draw a circle at the centroid of the identity
                     painter.setBrush(color)
                     painter.drawEllipse(
-                        QtCore.QPoint(widget_x, widget_y),
+                        QtCore.QPoint(int(widget_x), int(widget_y)),
                         self._SELECTED_INDICATOR_SIZE,
                         self._SELECTED_INDICATOR_SIZE,
                     )

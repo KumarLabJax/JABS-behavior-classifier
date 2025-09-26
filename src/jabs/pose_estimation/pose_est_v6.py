@@ -42,25 +42,23 @@ class PoseEstimationV6(PoseEstimationV5):
 
         # open the hdf5 pose file and extract segmentation data.
         with h5py.File(self._path, "r") as pose_h5:
-            for seg_key in set(pose_h5["poseest"].keys()) & set(
-                self._segmentation_dict.keys()
-            ):
+            for seg_key in set(pose_h5["poseest"].keys()) & set(self._segmentation_dict.keys()):
                 self._segmentation_dict[seg_key] = pose_h5[f"poseest/{seg_key}"][:]
             # transpose seg_data similar to the way the points are transposed.
 
         # sort the segmentation data
-        self._segmentation_dict["seg_data"] = self._segmentation_sort(
-            self._segmentation_dict["seg_data"],
-            self._segmentation_dict["longterm_seg_id"],
-        )
-        self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(
-            self._segmentation_dict["seg_external_flag"],
-            self._segmentation_dict["longterm_seg_id"],
-        )
+        if self._segmentation_dict["seg_data"] is not None:
+            self._segmentation_dict["seg_data"] = self._segmentation_sort(
+                self._segmentation_dict["seg_data"],
+                self._segmentation_dict["longterm_seg_id"],
+            )
+        if self._segmentation_dict["seg_external_flag"] is not None:
+            self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(
+                self._segmentation_dict["seg_external_flag"],
+                self._segmentation_dict["longterm_seg_id"],
+            )
 
-    def get_seg_id(
-        self, frame_index: int, identity: int
-    ) -> np.ndarray[Any, Any] | None:
+    def get_seg_id(self, frame_index: int, identity: int) -> np.ndarray[Any, Any] | None:
         """get segmentation for a given frame and identity."""
         if self._segmentation_dict["longterm_seg_id"] is None:
             return None
@@ -68,9 +66,7 @@ class PoseEstimationV6(PoseEstimationV5):
             return self._segmentation_dict["longterm_seg_id"][frame_index, identity]
 
     @classmethod
-    def _segmentation_sort(
-        cls, seg_data: np.ndarray, longterm_seg_id: np.ndarray
-    ) -> np.ndarray:
+    def _segmentation_sort(cls, seg_data: np.ndarray, longterm_seg_id: np.ndarray) -> np.ndarray:
         """This method attempts to sort the segmentation data according to the longterm segmentation id.
 
         Args:
@@ -126,9 +122,7 @@ class PoseEstimationV6(PoseEstimationV5):
         else:
             return self._segmentation_dict["seg_external_flag"][:, identity, ...]
 
-    def get_segmentation_data_per_frame(
-        self, frame_index, identity: int
-    ) -> np.ndarray | None:
+    def get_segmentation_data_per_frame(self, frame_index, identity: int) -> np.ndarray | None:
         """Given a particular identity, return the appropriate segmentation data.
 
         Args:

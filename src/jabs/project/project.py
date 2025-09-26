@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -145,17 +146,44 @@ class Project:
         return self._paths
 
     @property
-    def labeler(self) -> str:
+    def labeler(self) -> str | None:
         """return name of labeler
 
-        For now, this is just the username of the user running JABS.
+        For now, this is just the username of the user running JABS. Return
+        None if the username cannot be determined.
         """
-        return getpass.getuser()
+        try:
+            return getpass.getuser()
+        except Exception:
+            return None
 
     @property
     def session_tracker(self) -> SessionTracker | None:
         """get the session tracker for this project"""
         return self._session_tracker
+
+    @staticmethod
+    def is_valid_project_directory(directory: Path) -> bool:
+        """Check if a directory is a valid JABS project directory.
+
+        Currently just checks for the existence of the jabs directory and project.json file. This can be
+        called before initializing a Project object, which will create these files if they do not exist which
+        might not be desired behavior for tools that expect to operate on an existing JABS project directory.
+
+        Args:
+            directory: Path to the directory to check.
+
+        Returns:
+            True if the directory is a valid JABS project directory, False otherwise.
+        """
+        try:
+            paths = ProjectPaths(directory)
+            if not paths.jabs_dir.exists() or not paths.project_file.exists():
+                return False
+        except (ValueError, FileNotFoundError):
+            return False
+
+        return True
 
     def load_pose_est(self, video_path: Path) -> PoseEstimation:
         """return a PoseEstimation object for a given video path
@@ -188,11 +216,17 @@ class Project:
         """
         path = self._paths.annotations_dir / Path(annotations.filename).with_suffix(".json")
 
-        annotations = annotations.as_dict(pose)
+        annotations = annotations.as_dict(
+            pose,
+            project_metadata=self.settings_manager.project_metadata,
+            video_metadata=self.settings_manager.video_metadata(annotations.filename),
+        )
         annotations["labeler"] = self.labeler
 
-        with path.open(mode="w", newline="\n") as f:
+        tmp = path.with_suffix(".json.tmp")
+        with tmp.open("w") as f:
             json.dump(annotations, f, indent=2)
+        tmp.replace(path)
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
@@ -273,26 +307,30 @@ class Project:
     def save_predictions(
         self, predictions, probabilities, frame_indexes, behavior: str, classifier
     ):
-        """save predictions for the current project
+        """Save predictions for the current project.
 
         Args:
-            predictions: predictions for all videos in project
-                (dictionary with each video name as a key and a numpy array (#identities, #frames))
-            probabilities: corresponding prediction probabilities,
-                similar structure to predictions parameter but with floating point values
-            frame_indexes: mapping of the predictions to video frames
-            behavior: string behavior name
-            classifier: Classifier object used to generate the
-                predictions
+            predictions: dict mapping video name and identity to a 1D numpy array of predicted labels.
+            probabilities: same structure as `predictions` but with floating-point values.
+            frame_indexes: dict mapping video name and identity to 1D numpy array of absolute frame indices
+                listing the frames where the identity has a valid pose (i.e., frames with a meaningful prediction).
+            behavior: string behavior name.
+            classifier: Classifier object used to generate the predictions.
 
         Note:
-            Because the classifier does not run on every frame for every identity
-            (since an identity may not exist for every frame), we extract just
-            the features for the frames we need to classify. Now we want to map
-            these back to the corresponding frame.
-            predictions[video_name][identity, index] and
-            probabilities[video_name][identity, index] correspond to the frame
-            specified by frame_indexes[video][identity, index]
+            Currently, the classifier runs on every frame for every identity -- even when pose is invalid
+            and features are NaN. We copy values for *only* the frames with a valid pose. This is why we
+            index *both* the source and destination with `indexes` (an array with the absolute frame indices
+            of frames with a valid pose), e.g.:
+
+                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
+                prediction_prob[identity, indexes]   = probabilities[video][identity][indexes]
+
+            This leaves the output arrays with default values (-1 for labels, 0.0 for probabilities) for frames
+            without pose.
+
+            In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
+            instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
         for video in self._video_manager.videos:
             # setup an output filename based on the behavior and video names
@@ -302,8 +340,7 @@ class Project:
             # make sure behavior directory exists
             output_path.parent.mkdir(exist_ok=True)
 
-            # we need some info from the PoseEstimation and VideoLabels objects
-            # associated with this video
+            # we need info from PoseEstimation for this video
             poses = open_pose_file(
                 get_pose_path(self._video_manager.video_path(video)),
                 self._paths.cache_dir,
@@ -317,14 +354,15 @@ class Project:
 
             # populate numpy arrays
             for identity in predictions[video]:
-                inferred_indexes = frame_indexes[video][identity]
+                indexes = frame_indexes[video][identity]
 
-                prediction_labels[identity, inferred_indexes] = predictions[video][identity][
-                    inferred_indexes
-                ]
-                prediction_prob[identity, inferred_indexes] = probabilities[video][identity][
-                    inferred_indexes
-                ]
+                # 'indexes' are absolute frame indices where this identity has a valid pose.
+                # predictions[video][identity] and probabilities[video][identity] are full-length arrays
+                # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
+                # We index both source and destination with 'indexes' to copy only those valid-pose frames.
+                # If upstream ever provides compact arrays instead, drop the source-side indexing.
+                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
+                prediction_prob[identity, indexes] = probabilities[video][identity][indexes]
 
             # write to h5 file
             self._prediction_manager.write_predictions(
@@ -361,31 +399,62 @@ class Project:
         with contextlib.suppress(FileNotFoundError):
             path.unlink()
 
-        # archive labels
+        # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            labels = self._video_manager.load_video_labels(video)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            labels = self._video_manager.load_video_labels(video, pose)
 
             # if no labels for video skip it
             if labels is None:
                 continue
 
-            pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
-            for ident in annotations["labels"]:
-                if behavior in annotations["labels"][ident]:
-                    if video not in archived_labels:
-                        archived_labels[video] = {"num_frames": annotations["num_frames"]}
-                        archived_labels[video][behavior] = {}
-                    archived_labels[video][behavior][ident] = annotations["labels"][ident].pop(
-                        behavior
-                    )
-            self.save_annotations(VideoLabels.load(annotations), pose)
+
+            # ensure archive structure exists for this video:
+            # {
+            #   "num_frames": ...,
+            #   "labels": {"<behavior>": {}},
+            #   "unfragmented_labels": {"<behavior>": {}}
+            # }
+            if video not in archived_labels:
+                archived_labels[video] = {
+                    "num_frames": annotations["num_frames"],
+                    "labels": {},
+                    "unfragmented_labels": {},
+                }
+            if to_safe_name(behavior) not in archived_labels[video]["labels"]:
+                # keep the behavior key as provided (not safe_name) in the archive per requested schema
+                archived_labels[video]["labels"][behavior] = {}
+            if to_safe_name(behavior) not in archived_labels[video]["unfragmented_labels"]:
+                archived_labels[video]["unfragmented_labels"][behavior] = {}
+
+            # Move per-identity blocks for the behavior from live annotations into archive
+            # Identities are stored as string keys in annotations
+            # 1) Fragmented labels
+            if "labels" in annotations:
+                for ident in list(annotations["labels"].keys()):
+                    labels = annotations["labels"].get(ident, {})
+                    if behavior in labels:
+                        # copy to archive
+                        archived_labels[video]["labels"][behavior][ident] = labels.pop(behavior)
+
+            # 2) Unfragmented labels
+            if "unfragmented_labels" in annotations:
+                for ident in list(annotations["unfragmented_labels"].keys()):
+                    labels = annotations["unfragmented_labels"].get(ident, {})
+                    if behavior in labels:
+                        archived_labels[video]["unfragmented_labels"][behavior][ident] = (
+                            labels.pop(behavior)
+                        )
+
+            # persist the modified annotations back to disk (with the behavior removed)
+            self.save_annotations(VideoLabels.load(annotations, pose), pose)
 
         # write the archived labels out
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         with gzip.open(self._paths.archive_dir / f"{safe_behavior}_{ts}.json.gz", "wt") as f:
-            json.dump(archived_labels, f, indent=True)
+            json.dump(archived_labels, f, indent=2)
 
         # save project file
         self._settings_manager.remove_behavior(behavior)
@@ -467,7 +536,9 @@ class Project:
             if should_terminate_callable:
                 should_terminate_callable()
 
-            video_labels = self._video_manager.load_video_labels(video)
+            video_path = self._video_manager.video_path(video)
+            pose_est = self.load_pose_est(video_path)
+            video_labels = self._video_manager.load_video_labels(video, pose_est)
 
             # if there are no labels for this video, skip it
             if video_labels is None:
@@ -477,8 +548,6 @@ class Project:
                         progress_callable()
                 continue
 
-            video_path = self._video_manager.video_path(video)
-            pose_est = self.load_pose_est(video_path)
             # fps used to scale some features from per pixel time unit to
             # per second
             fps = get_fps(str(video_path))
@@ -654,3 +723,50 @@ class Project:
                     }
 
         return counts
+
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior throughout the project.
+
+        This updates the project settings, and renames any files associated with the behavior.
+        It also updates any labels for this behavior in all videos.
+
+        Args:
+            old_name (str): current behavior name
+            new_name (str): new behavior name
+
+        Returns:
+            None
+        """
+        if new_name in self._settings_manager.behavior_names:
+            raise ValueError(f"Behavior {new_name} already exists in project")
+
+        safe_old_name = to_safe_name(old_name)
+        safe_new_name = to_safe_name(new_name)
+
+        # rename pickled classifier
+        old_path = self._paths.classifier_dir / f"{safe_old_name}.pickle"
+        new_path = self._paths.classifier_dir / f"{safe_new_name}.pickle"
+        if old_path.exists():
+            old_path.rename(new_path)
+
+        for video in self._video_manager.videos:
+            # Rename predictions dataset inside the per-video HDF5 file.
+            pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
+            if pred_file.exists():
+                with h5py.File(pred_file, "r+") as hf:
+                    if "predictions" in hf and safe_old_name in hf["predictions"]:
+                        grp = hf["predictions"]
+                        # If dataset already exists at the destination, remove it first
+                        if safe_new_name in grp:
+                            del grp[safe_new_name]
+                        grp.move(safe_old_name, safe_new_name)
+
+            # rename labels inside annotation file
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            labels.rename_behavior(old_name, new_name)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            self.save_annotations(labels, pose)
+
+        # update project settings
+        self._settings_manager.rename_behavior(old_name, new_name)

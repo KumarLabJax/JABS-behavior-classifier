@@ -120,9 +120,7 @@ def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
         warnings.simplefilter("ignore", category=RuntimeWarning)
         return_values = kurtosis(psd, axis=0, nan_policy="omit")
         # If infinity shows up, convert to nan
-        return_values = np.nan_to_num(
-            return_values, nan=np.nan, posinf=np.nan, neginf=np.nan
-        )
+        return_values = np.nan_to_num(return_values, nan=np.nan, posinf=np.nan, neginf=np.nan)
     return return_values
 
 
@@ -140,9 +138,7 @@ def psd_skew(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
         warnings.simplefilter("ignore", category=RuntimeWarning)
         return_values = skew(psd, axis=0, nan_policy="omit")
         # If infinity shows up, convert to nan
-        return_values = np.nan_to_num(
-            return_values, nan=np.nan, posinf=np.nan, neginf=np.nan
-        )
+        return_values = np.nan_to_num(return_values, nan=np.nan, posinf=np.nan, neginf=np.nan)
     return return_values
 
 

@@ -2,7 +2,6 @@ import unittest
 
 # project imports
 from .seg_test_utils import SegDataBaseClass as SBC
-from src.jabs.feature_extraction.segmentation_features import HuMoments
 
 
 class Test(SBC, unittest.TestCase):
@@ -10,7 +9,6 @@ class Test(SBC, unittest.TestCase):
 
     def testHuMomentFeatureName(self) -> None:
         """Test HuMoment class."""
-
         # test that data was read and setup correctly
         huMomentsFeature = self.feature_mods["hu_moments"]
 

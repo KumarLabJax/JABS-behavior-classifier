@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.jabs.project.project_utils import to_safe_name
+from jabs.project.project_utils import to_safe_name
 
 
 def test_to_safe_name():

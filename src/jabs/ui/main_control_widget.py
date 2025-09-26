@@ -13,8 +13,10 @@ Todo:
 import sys
 
 from PySide6 import QtCore, QtWidgets
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
+from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,
@@ -61,6 +63,7 @@ class MainControlWidget(QtWidgets.QWidget):
     label_behavior_clicked = QtCore.Signal()
     label_not_behavior_clicked = QtCore.Signal()
     clear_label_clicked = QtCore.Signal()
+    timeline_annotation_button_clicked = QtCore.Signal()
     start_selection = QtCore.Signal(bool)
     identity_changed = QtCore.Signal()
     train_clicked = QtCore.Signal()
@@ -77,7 +80,7 @@ class MainControlWidget(QtWidgets.QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # initial behavior labels to list in the drop down selection
+        # initial behavior labels to list in the drop-down selection
         self._behaviors = []
 
         # behavior selection form components
@@ -89,6 +92,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
         self.identity_selection.setEditable(False)
         self.identity_selection.installEventFilter(self.identity_selection)
+
+        self._ear_tag_icons = EarTagIconManager()
+        self.identity_selection.setIconSize(QtCore.QSize(16, 16))
 
         self._add_label_button = QtWidgets.QToolButton()
         self._add_label_button.setText("+")
@@ -185,23 +191,25 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button = QtWidgets.QPushButton()
         self._label_behavior_button.setToolTip("[z]")
         self._label_behavior_button.clicked.connect(self.label_behavior_clicked)
-        self._label_behavior_button.setStyleSheet(f"""
-                    QPushButton {{
-                        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                           stop: 0 rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()},
-                                           stop: 1.0 rgba{BEHAVIOR_COLOR.getRgb()});
-                        border-radius: 4px;
-                        padding: 2px;
-                        color: white;
-                    }}
-                    QPushButton:pressed {{
-                        background-color: rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()};
-                    }}
-                    QPushButton:disabled {{
-                        background-color: rgba{BEHAVIOR_BUTTON_DISABLED_COLOR.getRgb()};
-                        color: grey;
-                    }}
-                """)
+        self._label_behavior_button.setStyleSheet(
+            f"""
+                QPushButton {{
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                       stop: 0 rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()},
+                                       stop: 1.0 rgba{BEHAVIOR_COLOR.getRgb()});
+                    border-radius: 4px;
+                    padding: 2px;
+                    color: white;
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()};
+                }}
+                QPushButton:disabled {{
+                    background-color: rgba{BEHAVIOR_BUTTON_DISABLED_COLOR.getRgb()};
+                    color: grey;
+                }}
+            """
+        )
 
         self._label_not_behavior_button = QtWidgets.QPushButton()
         self._label_not_behavior_button.setToolTip("[c]")
@@ -224,6 +232,9 @@ class MainControlWidget(QtWidgets.QWidget):
                     }}
                 """)
 
+        self._timeline_annotation_button = QtWidgets.QPushButton("New Timeline Annotation")
+        self._timeline_annotation_button.clicked.connect(self.timeline_annotation_button_clicked)
+
         self._clear_label_button = QtWidgets.QPushButton("Clear Label")
         self._clear_label_button.setToolTip("[x]")
         self._clear_label_button.clicked.connect(self.clear_label_clicked)
@@ -239,8 +250,9 @@ class MainControlWidget(QtWidgets.QWidget):
 
         label_layout.addWidget(self._label_behavior_button, 0, 0, 1, 2)
         label_layout.addWidget(self._label_not_behavior_button, 1, 0, 1, 2)
-        label_layout.addWidget(self._clear_label_button, 2, 0)
-        label_layout.addWidget(self._select_button, 2, 1)
+        label_layout.addWidget(self._timeline_annotation_button, 2, 0, 1, 2)
+        label_layout.addWidget(self._clear_label_button, 3, 0)
+        label_layout.addWidget(self._select_button, 3, 1)
         label_layout.setContentsMargins(5, 5, 5, 5)
         label_group = QtWidgets.QGroupBox("Labeling")
         label_group.setLayout(label_layout)
@@ -358,12 +370,14 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_not_behavior_button.setEnabled(False)
         self._clear_label_button.setEnabled(False)
         self._select_button.setChecked(False)
+        self._timeline_annotation_button.setEnabled(False)
 
     def enable_label_buttons(self):
         """enable labeling buttons"""
         self._label_behavior_button.setEnabled(True)
         self._label_not_behavior_button.setEnabled(True)
         self._clear_label_button.setEnabled(True)
+        self._timeline_annotation_button.setEnabled(True)
 
     def set_use_balance_labels_checkbox_enabled(self, val: bool):
         """enable or disable the balance labels checkbox"""
@@ -495,12 +509,21 @@ class MainControlWidget(QtWidgets.QWidget):
         # run all the updates for when a behavior changes
         self._behavior_changed()
 
-    def set_identities(self, identities):
-        """populate the identity_selection combobox"""
+    def set_identities(self, identities: list[str]) -> None:
+        """populate the identity_selection combobox with optional SVG icons"""
         self.identity_selection.currentIndexChanged.disconnect()
         self.identity_selection.clear()
+        for display_name in identities:
+            if (renderer := self._ear_tag_icons.get_icon(display_name)) is not None:
+                pixmap = QPixmap(16, 16)
+                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.identity_selection.addItem(QIcon(pixmap), display_name)
+            else:
+                self.identity_selection.addItem(display_name)
         self.identity_selection.currentIndexChanged.connect(self.identity_changed)
-        self.identity_selection.addItems([str(i) for i in identities])
 
     def set_window_size(self, size: int):
         """set the current window size"""

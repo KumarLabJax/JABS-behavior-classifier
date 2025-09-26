@@ -33,125 +33,67 @@ packages. These packages are available from the Python Package Index (PyPI).
 
 Currently, JABS supports Python 3.10 through 3.13.
 
-## Python Env Setup
+## Installation
 
-We recommend creating a Python Virtualenv for JABS:
+We recommend installing JABS in a dedicated Python virtual environment.
 
-```
+### Create a Virtual Environment
+
+```bash
 python -m venv jabs.venv
 
-# Linux and MacOS
+# Linux and macOS
 source jabs.venv/bin/activate
 
-# Windows
+# Windows (cmd)
 jabs.venv\Scripts\activate.bat
 ```
 
-### JABS Installation
+> Developers may prefer using [uv](https://docs.astral.sh/uv/getting-started/installation/) for environment and dependency management (see the JABS Developer Setup section below).
 
-Developers should follow the Developer Setup section below. This section describes how to install JABS into a Python 
-environment for a non-developer user.
+### Install from PyPI (Recommended)
 
-#### PyPI
+JABS can be installed directly from the Python Package Index:
 
-JABS is not available on PyPI at this time, but we hope to begin publishing it there soon.
-
-#### Pip install from Github
-
-With the jabs.venv virtualenv activated, run the following command to install JABS from our git repository. This will 
-install the latest commit from the main branch: 
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git`
-
-you can also specify a branch or tag:
-
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name`
-
-or a specific commit:
-
-`pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash`
-
-#### Pip install from local source
-
-If you've cloned the JABS repository, you can install by running the following command in the project root directory:
-
-`pip install .`
-
-#### Windows .bat scripts
-
-There are two scripts that Windows users can use to simplify installing and running JABS. These can be executed by 
-double-clicking on them in Windows Explorer.
-
-* setup_windows.bat: this will create a Python virtualenv called jabs.venv in the project root and then install JABS as 
-a Python package.
-* launch_jabs.bat: this script will activate the jabs.venv environment and then launch the JABS GUI.
-
-### Running JABS
-
-After installing JABS, five commands will be added to the bin directory of your Python virtualenv:
-
-* jabs: launch the JABS GUI
-* jabs-init: initialize a new JABS project directory from the command line
-* jabs-classify: run a trained classifier from the command line
-* jabs-stats: print accuracy statistics for the given classifier
-* jabs-convert-parquet: convert parquet pose file to JABS pose file format
-
-You can run the `<jabs command> --help` to get usage information for each of the commands.
-
-**NOTE: On some platforms, the first time you run the JABS GUI it might take several minutes to launch. Subsequent 
-startup times should be significantly reduced.**
-
-### Developer Setup
-
-The following instructions are for Linux or macOS Developers. Commands for JABS developers using Windows might be 
-slightly different.
-
-This project uses Poetry for packaging and dependency management. JABS developers will need to install Poetry by 
-following the instructions on [Poetry's official website](https://python-poetry.org/docs/#installation).
-
-You can use Poetry to manage your virtualenv, or manage your virtualenv externally to Poetry and use Poetry only for 
-installing dependencies. The following instructions assume that you've already created and activated a Python 
-environment for JABS using whichever method you prefer.
-
-Clone the JABS git repository, and with your JABS virtualenv activated, run the following command in the project root:
-
-```commandline
-poetry install
+```bash
+pip install jabs-behavior-classifier
 ```
 
-This will install all dependencies and JABS will be installed in "editable" mode, meaning that the JABS Python modules 
-installed in the virtualenv will be links to the files in the cloned git repository. JABS code changes will be 
-reflected immediately in the Python environment.
+This will install JABS and all required dependencies automatically.
 
-Note to Developers: JABS uses package metadata to determine the version number. If you change the version number in the 
-pyproject.toml file, you will need to run `poetry install` to update the version number in the installed package so 
-that the GUI will display the correct version.
+### Install from Source
 
-#### Code Style
+If you want the latest development version or need to install a specific branch/commit:
 
-JABS uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Developers should run `ruff check` and `ruff format` before 
-committing code. A pre-commit hook is provided to run these commands automatically.
+#### From GitHub
 
-To install pre-commit hooks for linting and formatting run:
-
-```commandline
-pre-commit install
+```bash
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git
 ```
 
-You can also run [ruff](https://docs.astral.sh/ruff/) directly from command line:
+Specify a branch or commit if needed:
 
-```commandline
-ruff check src/packagepath/modulename.py
-ruff format src/packagepath/modulename.py
+```bash
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name
+pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash
 ```
 
-#### Building Python Packages
+#### From Local Clone
 
-Developers can build a Python package using the `poetry build` command. This will produce both a .tar.gz and a Python 
-Wheel file (.whl) in the dist directory. The wheel file can be installed with pip:
+If you’ve cloned the JABS repository:
 
-```pip install jabs_behavior_classifier-<version>-py3-none-any.whl```
+```bash
+pip install .
+```
 
-Since the Wheel does not contain any compiled code it is platform independent.
+#### Windows Setup Helpers
+
+Two batch scripts are included for Windows users working with a local clone:
+
+- **`setup_windows.bat`** — Creates a `jabs.venv` virtual environment and installs JABS.  
+- **`launch_jabs.bat`** — Activates the environment and launches the JABS GUI.
+
+Double-click these scripts in Windows Explorer to run them.
 
 ### Enabling XGBoost Classifier
 
@@ -160,13 +102,39 @@ of the box" on other platforms. On macOS, you can install libomp with Homebrew (
 command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond 
 the scope of this Readme.
 
-### Singularity/Linux
+---
 
-We supply a tested pair of singularity definition files. The [first vm](vm/behavior-classifier-vm.def) is intended for command-line use on 
-compute clusters when scaling inferences. The [second vm](vm/behavior-classifier-vm-gui.def) is designed for interacting with the GUI in a portable 
+## Running JABS
+
+After installation, the following commands are available in your environment:
+
+- `jabs` — launch the JABS GUI  
+- `jabs-init` — initialize a new JABS project directory or recompute features in an existing project 
+- `jabs-classify` — run a trained classifier  
+- `jabs-stats` — print accuracy statistics for a classifier  
+- `jabs-export-training` — export training data from an existing JABS project
+- `jabs-cli` - collection of smaller command line utilities
+
+You can view usage information for any command with:
+
+```bash
+<jabs-command> --help
+```
+
+## Sample Data
+
+We provide sample data for testing and demonstration purposes. You can download the sample data from
+https://doi.org/10.5281/zenodo.16697331
+
+---
+
+## Singularity/Linux
+
+We supply a tested pair of singularity definition files. The [first vm](vm/headless.def) is intended for command-line use on 
+compute clusters when scaling inferences. The [second vm](vm/gui.def) is designed for interacting with the GUI in a portable 
 environment. Please inspect the definition files for related linux packages to run the software.
 
-# JABS Project Portability
+## JABS Project Portability
 
 We have 4 version numbers in our software:
 
@@ -176,7 +144,7 @@ calculated features.
 * Classifier version. This gets bumped every time we change characteristics of classifiers.
 * Prediction version. This gets bumped every time we change how predictions are stored.
 
-## Long Term Support of JABS-based Classifiers
+### Long Term Support of JABS-based Classifiers
 
 There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
 
@@ -200,3 +168,151 @@ training data from a project folder, transfer it to our HPC cluster, and then tr
 Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale 
 predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, 
 which can then be used to classify many videos as part of a pipeline).
+
+
+## JABS Developer Setup
+
+The following instructions are for Linux or macOS Developers. Commands for JABS developers using Windows might be 
+slightly different.
+
+This project now uses **uv** for dependency management and building. Poetry is no longer required.
+
+JABS developers will need to install uv by following the instructions on 
+[uv's official website](https://docs.astral.sh/uv/getting-started/installation/).
+
+1) **Clone** the repository and enter the project directory.
+
+2) **Create/activate** a virtual environment (uv recommended):
+
+Note, if you don't want to activate the virtualenv, you can use `uv run <command>` to run commands in the virtualenv.
+If you don't want to activate the virtualenv, you can skip this step.
+
+```bash
+uv venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\Activate.ps1 # Windows PowerShell
+```
+
+3) **Install dependencies** in editable mode:
+
+```bash
+uv sync
+```
+
+This will install all dependencies and JABS will be installed in "editable" mode, meaning that the JABS Python modules 
+installed in the virtualenv will be links to the files in the cloned git repository. JABS code changes will be 
+reflected immediately in the Python environment.
+
+Note to Developers: JABS uses package metadata to determine the version number. If you change the version number in the 
+pyproject.toml file, you will need to run `uv sync` to update the version number in the installed package so 
+that the GUI will display the correct version.
+
+
+### Adding Dependencies
+```
+uv add <package>            # runtime dependency
+uv add --dev <package>      # dev-only dependency
+```
+
+
+### Code Style
+
+JABS uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Developers should run `ruff check` and `ruff format` before 
+committing code. A pre-commit hook is provided to run these commands automatically.
+
+To install pre-commit hooks for linting and formatting run:
+
+```commandline
+pre-commit install
+```
+
+You can also run [ruff](https://docs.astral.sh/ruff/) directly from command line:
+
+```commandline
+ruff check src/packagepath/modulename.py
+ruff format src/packagepath/modulename.py
+```
+
+### Building Python Packages
+
+Build wheels and source distributions with uv:
+
+```bash
+uv build
+```
+
+This will produce both a .tar.gz and a Python Wheel file (.whl) in the dist directory. 
+
+The wheel file can be installed with pip:
+```
+pip install jabs_behavior_classifier-<version>-py3-none-any.whl
+```
+
+Since the Wheel does not contain any compiled code it is platform independent.
+
+### CI/CD and Release Management
+
+JABS uses GitHub Actions for continuous integration and automated releases to PyPI. 
+The CI/CD pipeline is defined in `.github/workflows/` and automatically manages package building, testing, and publishing.
+
+#### Pull Request Checks
+
+Pull requests to the `main` branch trigger automated checks to ensure code quality and functionality:
+
+1. **Code Formatting and Linting**: Ensures code adheres to style guidelines
+2. **Test Execution**: Runs the full test suite to verify functionality
+
+#### Automated Release Process
+
+The release process is triggered automatically when the version number in `pyproject.toml` is changed on the `main` branch:
+
+1. **Version Detection**: The workflow monitors changes to `pyproject.toml` and extracts the version number
+2. **Pre-release Detection**: Versions containing letters (e.g., `1.0.0a1`, `2.1.0rc1`) are automatically marked as pre-releases
+3. **Build Pipeline**: If version changed, the system runs:
+   - Code formatting and linting checks
+   - Test execution
+   - Package building with `uv build`
+4. **PyPI Publishing**: Successfully built packages are automatically published to PyPI
+5. **GitHub Release**: A corresponding GitHub release is created with build artifacts
+
+#### Release Workflow Files
+
+- **`.github/workflows/release.yml`**: Main release workflow that orchestrates the entire process
+- **`.github/workflows/_format-lint-action.yml`**: Reusable workflow for code quality checks
+- **`.github/workflows/_run-tests-action.yml`**: Reusable workflow for test execution
+- **`.github/workflows/pull-request.yml`**: CI checks for pull requests
+
+#### Creating a New Release
+
+To create a new release:
+
+1. Update the version number in `pyproject.toml`:
+   ```toml
+   version = "X.Y.Z"  # for stable releases
+   version = "X.Y.Za1" # for alpha pre-releases
+   version = "X.Y.Zrc1" # for release candidates
+   ```
+
+2. Re-lock the uv lock file:
+   ```bash
+   uv lock
+   ```
+
+3. Commit and push the change:
+   ```bash
+   git add pyproject.toml uv.lock
+   git commit -m "Bump version to X.Y.Z"
+   ```
+   
+4. Merge your changes into the `main` branch via a pull request.
+
+3. The CI/CD pipeline will automatically:
+   - Detect the version change
+   - Run all quality checks and tests
+   - Build and publish the package to PyPI
+   - Create a GitHub release with generated release notes
+
+#### Environment Requirements
+
+The release workflow requires:
+- **PyPI API Token**: Stored as `PYPI_API_TOKEN` in GitHub repository secrets

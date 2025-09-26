@@ -8,6 +8,7 @@ import numpy as np
 import jabs.feature_extraction
 import jabs.version
 from jabs.project.project_utils import to_safe_name
+from jabs.utils import FINAL_TRAIN_SEED
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
@@ -22,7 +23,7 @@ def export_training_data(
     behavior: str,
     pose_version: int,
     classifier_type: "ClassifierType",
-    training_seed: int,
+    training_seed: int = FINAL_TRAIN_SEED,
     out_file: Path | None = None,
 ):
     """
@@ -60,9 +61,7 @@ def export_training_data(
         out_h5.attrs["app_version"] = jabs.version.version_str()
         out_h5.attrs["min_pose_version"] = pose_version
         out_h5.attrs["behavior"] = behavior
-        write_project_settings(
-            out_h5, project.settings_manager.get_behavior(behavior), "settings"
-        )
+        write_project_settings(out_h5, project.settings_manager.get_behavior(behavior), "settings")
         out_h5.attrs["classifier_type"] = classifier_type.value
         out_h5.attrs["training_seed"] = training_seed
         feature_group = out_h5.create_group("features")
@@ -76,9 +75,7 @@ def export_training_data(
 
         # store the video/identity to group mapping in the h5 file
         for group in group_mapping:
-            dset = out_h5.create_dataset(
-                f"group_mapping/{group}/identity", (1,), dtype=np.int64
-            )
+            dset = out_h5.create_dataset(f"group_mapping/{group}/identity", (1,), dtype=np.int64)
             dset[:] = group_mapping[group]["identity"]
             dset = out_h5.create_dataset(
                 f"group_mapping/{group}/video_name", (1,), dtype=string_type

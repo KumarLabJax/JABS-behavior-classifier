@@ -7,6 +7,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from jabs.pose_estimation import PoseEstimation
 
 from .overlays.annotation_overlay import AnnotationOverlay
+from .overlays.bounding_box import BoundingBoxOverlay
 from .overlays.control_overlay import ControlOverlay
 from .overlays.floating_id_overlay import FloatingIdOverlay
 from .overlays.label_overlay import LabelOverlay
@@ -47,6 +48,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         MINIMAL = enum.auto()
         CENTROID = enum.auto()
         FLOATING = enum.auto()
+        BBOX = enum.auto()
 
     pixmap_clicked = QtCore.Signal(dict)
     playback_speed_changed = QtCore.Signal(float)
@@ -73,24 +75,29 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._crop_p1: QtCore.QPoint | None = None
         self._crop_p2: QtCore.QPoint | None = None
         self._brightness = 1.0
+        self._contrast = 1.0
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
-        self._id_overlay_mode = self.IdentityOverlayMode.FLOATING
+        self._id_overlay_mode = self.IdentityOverlayMode.BBOX
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
         self._control_overlay.cropping_changed.connect(self._on_cropping_changed)
         self._control_overlay.brightness_changed.connect(self._on_brightness_changed)
+        self._control_overlay.contrast_changed.connect(self._on_contrast_changed)
 
         self._annotation_overlay = AnnotationOverlay(self)
         floating_id_overlay = FloatingIdOverlay(self)
         floating_id_overlay.id_label_clicked.connect(self.id_label_clicked)
+        bbox_overlay = BoundingBoxOverlay(self)
+        bbox_overlay.id_label_clicked.connect(self.id_label_clicked)
 
         # overlays are listed in the order they should be painted
         # an overlay on top of another overlay will have priority when handling click events
         self.overlays: list[Overlay] = [
             PoseOverlay(self),
             LabelOverlay(self),
+            bbox_overlay,
             self._annotation_overlay,
             floating_id_overlay,
             self._control_overlay,
@@ -211,19 +218,15 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         self._active_identity = 0
         self.clear()
 
-    def convert_identity_to_external(self, identity: int) -> int:
+    def convert_identity_to_external(self, identity: int) -> str:
         """Convert an internal identity index to an external identity index.
 
         This is useful when the pose estimation uses external identities so that we can display
         the external identity instead of the internal jabs identity index.
         """
-        if self._pose and self._pose.external_identities:
-            try:
-                return self._pose.external_identities[identity]
-            except IndexError:
-                # If the identity is not found in external identities, fall through to return the original identity
-                pass
-        return identity
+        if self._pose:
+            return self._pose.identity_index_to_display(identity)
+        return str(identity)
 
     def set_pose(self, pose: PoseEstimation) -> None:
         """Set the pose estimation for the frame widget.
@@ -356,7 +359,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         size = self.size()
         pix = self.pixmap()
 
-        pix = self._adjust_brightness(pix)
+        pix = self._adjust_brightness_contrast(pix)
 
         # Step 1: Crop if crop points are set
         if self._crop_p1 and self._crop_p2:
@@ -482,17 +485,30 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
             self._brightness = brightness
             self.update()
 
-    def _adjust_brightness(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+    def _on_contrast_changed(self, contrast: float) -> None:
+        """Handles contrast changes from the control overlay."""
+        if self._contrast != contrast:
+            self._contrast = contrast
+            self.update()
+
+    def _adjust_brightness_contrast(self, pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
         """Adjust the brightness of the given pixmap based on the current brightness setting."""
-        if abs(self._brightness - 1.0) < 0.01:
+        # use a threshold to avoid unnecessary processing if brightness and contrast are very close to default
+        if abs(self._brightness - 1.0) < 0.01 and abs(self._contrast - 1.0) < 0.01:
             return pixmap
 
+        # convert Qt pixmap to numpy array for brightness and contrast manipulation
         img = pixmap.toImage()
         width, height = img.width(), img.height()
         bytes_per_pixel = img.depth() // 8
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
         arr = arr.reshape((height, width, bytes_per_pixel))
-        arr[..., :3] = np.clip(arr[..., :3] * self._brightness, 0, 255)
+
+        # adjust the RGB channels only, leave alpha channel unchanged
+        arr[..., :3] = np.clip(
+            (arr[..., :3] * self._brightness - 128) * self._contrast + 128, 0, 255
+        )
+
         return QtGui.QPixmap.fromImage(
             QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
         )

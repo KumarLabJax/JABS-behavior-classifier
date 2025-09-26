@@ -52,26 +52,14 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # add static labels to grid
-        layout.addWidget(
-            frame_header, 0, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-        layout.addWidget(
-            QtWidgets.QLabel("Subject"), 1, 1, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        layout.addWidget(
-            QtWidgets.QLabel("Total"), 1, 2, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        layout.addWidget(frame_header, 0, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(QtWidgets.QLabel("Subject"), 1, 1, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(QtWidgets.QLabel("Total"), 1, 2, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addWidget(QtWidgets.QLabel("Behavior"), 2, 0)
         layout.addWidget(QtWidgets.QLabel("Not Behavior"), 3, 0)
-        layout.addWidget(
-            bout_header, 4, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-        layout.addWidget(
-            QtWidgets.QLabel("Subject"), 5, 1, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        layout.addWidget(
-            QtWidgets.QLabel("Total"), 5, 2, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        layout.addWidget(bout_header, 4, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(QtWidgets.QLabel("Subject"), 5, 1, alignment=Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(QtWidgets.QLabel("Total"), 5, 2, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addWidget(QtWidgets.QLabel("Behavior"), 6, 0)
         layout.addWidget(QtWidgets.QLabel("Not Behavior"), 7, 0)
 
@@ -159,21 +147,13 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
               #bouts not behavior for project
         """
         self._frame_labels["behavior_current"].setText(f"{frame_behavior_current}")
-        self._frame_labels["not_behavior_current"].setText(
-            f"{frame_not_behavior_current}"
-        )
+        self._frame_labels["not_behavior_current"].setText(f"{frame_not_behavior_current}")
         self._frame_labels["behavior_project"].setText(f"{frame_behavior_project}")
-        self._frame_labels["not_behavior_project"].setText(
-            f"{frame_not_behavior_project}"
-        )
+        self._frame_labels["not_behavior_project"].setText(f"{frame_not_behavior_project}")
 
         self._bout_labels["behavior_current"].setText(f"{bout_behavior_current}")
-        self._bout_labels["not_behavior_current"].setText(
-            f"{bout_not_behavior_current}"
-        )
+        self._bout_labels["not_behavior_current"].setText(f"{bout_not_behavior_current}")
         self._bout_labels["behavior_project"].setText(f"{bout_behavior_project}")
-        self._bout_labels["not_behavior_project"].setText(
-            f"{bout_not_behavior_project}"
-        )
+        self._bout_labels["not_behavior_project"].setText(f"{bout_not_behavior_project}")
 
         self.update()

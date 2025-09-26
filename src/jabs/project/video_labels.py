@@ -1,17 +1,15 @@
-import sys
-from typing import TYPE_CHECKING
-
-from intervaltree import IntervalTree
+from typing import TYPE_CHECKING, Any
 
 from jabs.pose_estimation import PoseEstimation
 
+from .timeline_annotations import TimelineAnnotations
 from .track_labels import TrackLabels
 
 if TYPE_CHECKING:
     from .project_merge import MergeStrategy
 
 
-MAX_TAG_LEN = 32
+SERIALIZED_VERSION = 1
 
 
 class VideoLabels:
@@ -30,11 +28,11 @@ class VideoLabels:
         in several places, identities are currently handled as strings for serialization compatibility.
     """
 
-    def __init__(self, filename, num_frames):
+    def __init__(self, filename: str, num_frames: int):
         self._filename = filename
         self._num_frames = num_frames
         self._identity_labels = {}
-        self._annotations: IntervalTree | None = None
+        self._annotations = TimelineAnnotations()
 
     @property
     def filename(self):
@@ -47,9 +45,13 @@ class VideoLabels:
         return self._num_frames
 
     @property
-    def interval_annotations(self) -> IntervalTree | None:
+    def timeline_annotations(self) -> TimelineAnnotations:
         """return interval annotations for this video, if any"""
         return self._annotations
+
+    def add_annotation(self, annotation: TimelineAnnotations.Annotation) -> None:
+        """Add a non-behavior annotation to this video"""
+        self._annotations.add_annotation(annotation)
 
     def get_track_labels(self, identity, behavior):
         """return a TrackLabels for an identity & behavior
@@ -105,7 +107,12 @@ class VideoLabels:
                 counts.append((identity, c[0], c[1]))
         return counts
 
-    def as_dict(self, pose: PoseEstimation) -> dict:
+    def as_dict(
+        self,
+        pose: PoseEstimation,
+        project_metadata: dict | None = None,
+        video_metadata: dict | None = None,
+    ) -> dict:
         """return dict representation of video labels
 
         useful for JSON serialization and saving to disk
@@ -117,6 +124,10 @@ class VideoLabels:
             "external_identities: {
                 "jabs identity", 1234,
             },
+            "metadata": {
+                "project": {},
+                "video": {},
+            }
             "labels": {
                 "jabs identity": {
                     "behavior": [
@@ -159,11 +170,16 @@ class VideoLabels:
         }
 
         """
-        label_dict = {
+        label_dict: dict[str, Any] = {
+            "version": SERIALIZED_VERSION,
             "file": self._filename,
             "num_frames": self._num_frames,
             "labels": {},
             "unfragmented_labels": {},
+            "metadata": {
+                "project": project_metadata if project_metadata is not None else {},
+                "video": video_metadata if video_metadata is not None else {},
+            },
         }
 
         for identity in self._identity_labels:
@@ -183,38 +199,16 @@ class VideoLabels:
         if pose.external_identities is not None:
             label_dict["external_identities"] = {}
             for i, identity in enumerate(pose.external_identities):
+                # require identity to be a string for serialization
                 label_dict["external_identities"][str(i)] = identity
 
-        if self._annotations is not None:
-            if "annotations" not in label_dict:
-                label_dict["annotations"] = []
-
-            for annotation in self._annotations:
-                try:
-                    annotation_data = {
-                        "start": annotation.begin,
-                        "end": annotation.end,
-                        "tag": annotation.data["tag"],
-                        "color": annotation.data["color"],
-                    }
-                except KeyError as e:
-                    print(f"Missing required annotation data: {e}")
-                    continue
-
-                # optional fields
-                description = annotation.data.get("description")
-                if description is not None:
-                    annotation_data["description"] = description
-                identity = annotation.data.get("identity")
-                if identity is not None:
-                    annotation_data["identity"] = identity
-
-                label_dict["annotations"].append(annotation_data)
+        if len(self._annotations) > 0:
+            label_dict["annotations"]: list[dict] = self._annotations.serialize()
 
         return label_dict
 
     @classmethod
-    def load(cls, video_label_dict: dict):
+    def load(cls, video_label_dict: dict, pose: PoseEstimation | None = None) -> "VideoLabels":
         """return a VideoLabels object initialized with data from a dict previously exported using the export method"""
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
 
@@ -230,48 +224,9 @@ class VideoLabels:
 
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
-            labels._annotations = IntervalTree()
-            for annotation in video_label_dict["annotations"]:
-                try:
-                    start = annotation["start"]
-                    end = annotation["end"]
-                    tag = annotation["tag"]
-                    color = annotation["color"]
-                except KeyError:
-                    print(
-                        "Missing required annotation fields, skipping annotation:",
-                        annotation,
-                        file=sys.stderr,
-                    )
-                    continue
-
-                # validate the tag format:
-                if 1 > len(tag) > MAX_TAG_LEN:
-                    print(
-                        f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
-                        file=sys.stderr,
-                    )
-                    continue
-                # only allow alphanumeric characters, underscores, and hyphens
-                if not all(c.isalnum() or c in "_-" for c in tag):
-                    print(
-                        f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                # Create a data dict for the interval.
-                # Note: description and identity are optional fields
-                data = {
-                    "tag": tag,
-                    "color": color,
-                    "description": annotation.get("description"),
-                    "identity": annotation.get("identity"),
-                }
-
-                # Create the interval and add it to the IntervalTree.
-                # The start and end contained in the JSON file are inclusive, so we add 1 to end.
-                labels._annotations[start : end + 1] = data
+            labels._annotations = TimelineAnnotations.load(
+                video_label_dict["annotations"], pose.identity_index_to_display
+            )
 
         return labels
 
@@ -292,3 +247,31 @@ class VideoLabels:
             for behavior, other_track_labels in behaviors.items():
                 track_labels = self.get_track_labels(identity, behavior)
                 track_labels.merge(other_track_labels, strategy)
+
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior across all identities in this VideoLabels object.
+
+        Only renames behavior in memory; does not update any associated files on disk.
+        Behavior labels must be saved to disk again after renaming to persist changes.
+
+        Args:
+            old_name (str): The current name of the behavior to rename.
+            new_name (str): The new name for the behavior.
+
+        Returns:
+            None
+
+        Raises:
+            KeyError: If the old behavior name does not exist or
+                if the new behavior name already exists for any identity.
+        """
+        # validate that new_name doesn't already exist for any identity
+        for identity in self._identity_labels:
+            if new_name in self._identity_labels[identity]:
+                raise KeyError(f"Behavior '{new_name}' already exists for identity '{identity}'")
+
+        for identity in self._identity_labels:
+            if old_name in self._identity_labels[identity]:
+                self._identity_labels[identity][new_name] = self._identity_labels[identity].pop(
+                    old_name
+                )

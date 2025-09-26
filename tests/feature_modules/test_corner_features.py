@@ -1,6 +1,6 @@
 import numpy as np
 
-import src.jabs.feature_extraction.landmark_features.corner as corner_module
+import jabs.feature_extraction.landmark_features.corner as corner_module
 from tests.feature_modules.base import TestFeatureBase
 
 

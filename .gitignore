@@ -1,6 +1,8 @@
 *.pyc
 
+# pyinstaller
 dist
+build
 
 .idea
 .vscode

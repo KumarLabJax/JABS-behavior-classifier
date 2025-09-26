@@ -1,20 +1,23 @@
 import sys
 import traceback
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog
 from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.project import Project, VideoLabels
-from jabs.project.track_labels import TrackLabels
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
+from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from jabs.types import ClassifierType
 from jabs.ui.search_bar_widget import SearchBarWidget
 
+from .annotation_edit_dialog import AnnotationEditDialog
 from .classification_thread import ClassifyThread
 from .exceptions import ThreadTerminatedError
 from .main_control_widget import MainControlWidget
@@ -33,6 +36,7 @@ class CentralWidget(QtWidgets.QWidget):
     export_training_status_change = QtCore.Signal(bool)
     status_message = QtCore.Signal(str, int)  # message, timeout (ms)
     search_hit_loaded = QtCore.Signal(SearchHit)
+    bbox_overlay_supported = QtCore.Signal(bool)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -42,39 +46,41 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-        self._search_bar_widget.current_search_hit_changed.connect(self._update_search_hit_later)
+        self._search_bar_widget.current_search_hit_changed.connect(
+            self._on_search_hit_changed_later
+        )
         self._search_bar_widget.search_results_changed.connect(
             lambda _: self._update_timeline_search_results()
         )
         self._debounce_search_hit_timer = QtCore.QTimer(self)
         self._debounce_search_hit_timer.setSingleShot(True)
         self._debounce_search_hit_timer.setInterval(_DEBOUNCE_SEARCH_DELAY_MS)
-        self._debounce_search_hit_timer.timeout.connect(self._update_search_hit)
+        self._debounce_search_hit_timer.timeout.connect(self._on_search_hit_changed)
 
         # timeline widgets
         self._stacked_timeline = StackedTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
-        self._player_widget.update_frame_number.connect(self._frame_change)
+        self._player_widget.update_frame_number.connect(self._on_frame_changed)
         self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
-        self._player_widget.pixmap_clicked.connect(self._pixmap_clicked)
-        self._player_widget.id_label_clicked.connect(self._id_label_clicked)
+        self._player_widget.pixmap_clicked.connect(self._on_pixmap_clicked)
+        self._player_widget.id_label_clicked.connect(self._on_id_label_clicked)
         self._curr_frame_index = 0
 
         self._loaded_video = None
-        self._project = None
-        self._labels = None
+        self._project: Project | None = None
+        self._labels: VideoLabels | None = None
         self._prediction_list = None
         self._probability_list = None
-        self._pose_est = None
+        self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         self._suppress_label_track_update = False
 
         #  classifier
         self._classifier = Classifier(n_jobs=-1)
-        self._training_thread = None
-        self._classify_thread = None
+        self._training_thread: TrainingThread | None = None
+        self._classify_thread: ClassifyThread | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -90,7 +96,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # main controls
         self._controls = MainControlWidget()
-        self._controls.identity_changed.connect(self._change_identity)
+        self._controls.identity_changed.connect(self._on_identity_changed)
         self._controls.label_behavior_clicked.connect(self._label_behavior)
         self._controls.label_not_behavior_clicked.connect(self._label_not_behavior)
         self._controls.clear_label_clicked.connect(self._clear_behavior_label)
@@ -98,12 +104,15 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.train_clicked.connect(self._train_button_clicked)
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
-        self._controls.behavior_changed.connect(self._change_behavior)
+        self._controls.behavior_changed.connect(self._on_behavior_changed)
         self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
-        self._controls.window_size_changed.connect(self._window_feature_size_changed)
+        self._controls.window_size_changed.connect(self._on_window_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
-        self._controls.use_balance_labels_changed.connect(self._use_balance_labels_changed)
-        self._controls.use_symmetric_changed.connect(self._use_symmetric_changed)
+        self._controls.use_balance_labels_changed.connect(self._on_use_balance_labels_changed)
+        self._controls.use_symmetric_changed.connect(self._on_use_symmetric_changed)
+        self._controls.timeline_annotation_button_clicked.connect(
+            self._on_timeline_annotation_button_clicked
+        )
 
         # main grid layout
         layout = QtWidgets.QGridLayout()
@@ -294,7 +303,7 @@ class CentralWidget(QtWidgets.QWidget):
 
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
-            self._labels = self._project.video_manager.load_video_labels(path)
+            self._labels = self._project.video_manager.load_video_labels(path, self._pose_est)
             self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
@@ -310,17 +319,29 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # update ui components with properties of new video
-            if self._pose_est.external_identities:
-                self._set_identities(self._pose_est.external_identities)
-            else:
-                self._set_identities(self._pose_est.identities)
+            display_identities = [
+                self._pose_est.identity_index_to_display(i) for i in self._pose_est.identities
+            ]
+            self._set_identities(display_identities)
+            self._player_widget.set_active_identity(self._controls.current_identity_index)
 
             self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
-
             self._update_timeline_search_results()
+            self._update_label_counts()
+
+            # check if bbox overlay is supported by the pose file
+            if self._pose_est.format_major_version < 8:
+                self.bbox_overlay_supported.emit(False)
+            else:
+                # bboxes are optional in v8+, check if they exist. cast to a PoseEstimationV8 to access bbox methods
+                pose_v8 = cast(PoseEstimationV8, self._pose_est)
+                if pose_v8.has_bounding_boxes:
+                    self.bbox_overlay_supported.emit(True)
+                else:
+                    self.bbox_overlay_supported.emit(False)
 
             if previous_video is not None:
                 self._project.session_tracker.video_closed(previous_video)
@@ -445,7 +466,7 @@ class CentralWidget(QtWidgets.QWidget):
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 
-    def _change_behavior(self) -> None:
+    def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
         if self._project is None:
             return
@@ -569,17 +590,17 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_train_button_enabled_state()
         self._player_widget.reload_frame()
 
-    def _set_identities(self, identities: list) -> None:
+    def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
         self._controls.set_identities(identities)
 
-    def _change_identity(self) -> None:
+    def _on_identity_changed(self) -> None:
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
         self._stacked_timeline.active_identity_index = self._controls.current_identity_index
 
-    def _frame_change(self, new_frame: int) -> None:
+    def _on_frame_changed(self, new_frame: int) -> None:
         """called when the video player widget emits its updateFrameNumber signal"""
         self._curr_frame_index = new_frame
 
@@ -912,7 +933,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.classify_button_enabled = False
             self._classifier.set_classifier(self._controls.classifier_type)
 
-    def _pixmap_clicked(self, event: dict[str, int]) -> None:
+    def _on_pixmap_clicked(self, event: dict[str, int]) -> None:
         """handle event where user clicked on the video
 
         if user clicks on one of the mice, make that one active
@@ -948,12 +969,12 @@ class CentralWidget(QtWidgets.QWidget):
         if clicked_identity is not None:
             self._controls.set_identity_index(clicked_identity)
 
-    def _id_label_clicked(self, id_clicked: int) -> None:
+    def _on_id_label_clicked(self, id_clicked: int) -> None:
         """handle event where use clicked a floating identity label"""
         if self._pose_est is not None and id_clicked < self._pose_est.num_identities:
             self._controls.set_identity_index(id_clicked)
 
-    def _window_feature_size_changed(self, new_size: int) -> None:
+    def _on_window_size_changed(self, new_size: int) -> None:
         """handle window feature size change"""
         if new_size is not None and new_size != self._window_size:
             self._window_size = new_size
@@ -972,7 +993,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._project.settings_manager.save_behavior(self.behavior, {key: val})
 
-    def _use_balance_labels_changed(self) -> None:
+    def _on_use_balance_labels_changed(self) -> None:
         if self.behavior == "":
             # don't do anything if behavior is not set, this means we're
             # the project isn't fully loaded and we just reset the
@@ -982,7 +1003,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.update_behavior_settings("balance_labels", self._controls.use_balance_labels)
         self._update_classifier_controls()
 
-    def _use_symmetric_changed(self) -> None:
+    def _on_use_symmetric_changed(self) -> None:
         if self.behavior == "":
             # Copy behavior of use_balance_labels_changed
             return
@@ -1013,11 +1034,11 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._controls.classify_button_enabled = False
 
-    def _update_search_hit_later(self, _: SearchHit | None) -> None:
+    def _on_search_hit_changed_later(self, _: SearchHit | None) -> None:
         """Update the search hit after a short delay to allow UI updates to complete."""
         self._debounce_search_hit_timer.start()
 
-    def _update_search_hit(self) -> None:
+    def _on_search_hit_changed(self) -> None:
         """Handle updates when the current search hit changes."""
         search_hit = self._search_bar_widget.current_search_hit
         if search_hit is not None and self._project is not None:
@@ -1149,3 +1170,151 @@ class CentralWidget(QtWidgets.QWidget):
         end -= 1
 
         self._player_widget.play_range(start, end)
+
+    def _on_timeline_annotation_button_clicked(self) -> None:
+        """Handle the event when the button to create a new timeline annotation is clicked.
+
+        Note: start, end, tag value, and identity uniquely identify an annotation. If one already exists
+        with the same values, do not create a duplicate and show a warning message instead.
+        """
+        identity_index = self._controls.current_identity_index
+        display_identity = self._pose_est.identity_index_to_display(identity_index)
+        start = min(self._selection_start, self._curr_frame_index)
+        end = max(self._selection_start, self._curr_frame_index)
+
+        dialog = AnnotationEditDialog(
+            start,
+            end,
+            identity_index=identity_index,
+            display_identity=display_identity,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_annotation()
+            # result keys: tag, color, description, identity_scoped
+            tag = result["tag"]
+            identity_index = (
+                self._controls.current_identity_index if result["identity_scoped"] else None
+            )
+            display_identity = (
+                self._pose_est.identity_index_to_display(self._controls.current_identity_index)
+                if identity_index is not None
+                else None
+            )
+
+            # Duplicate check: look for an interval with the same (start, end, tag, identity_index)
+            if self._labels.timeline_annotations.annotation_exists(
+                start=start, end=end, tag=tag, identity_index=identity_index
+            ):
+                if identity_index is None:
+                    message = f"A video-level annotation with tag '{tag}' already exists at frames {start}-{end}."
+                else:
+                    message = f"An annotation with tag '{tag}' for this identity already exists at frames {start}-{end}."
+                QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
+                return
+
+            # No duplicate found; create and insert the annotation
+            annotation = TimelineAnnotations.Annotation(
+                tag=tag,
+                color=result["color"],
+                description=result["description"],
+                identity_index=identity_index,
+                display_identity=display_identity,
+                start=start,
+                end=end,
+            )
+            self._labels.add_annotation(annotation)
+            self._project.save_annotations(self._labels, self._pose_est)
+            self._label_button_common()
+            self._player_widget.update()
+
+    def on_annotation_edited(self, key: dict, updated: dict) -> None:
+        """Handle the event when an existing annotation is edited.
+
+        Args:
+            key (dict): Original annotation key with start, end, tag, identity (uniquely identifies annotation).
+            updated (dict): Updated annotation details from the dialog.
+
+        This is an external API called by the AnnotationEditDialog when an annotation is edited and not a signal
+        handler only used internally in CentralWidget.
+
+        Note: start, end, tag value, and identity uniquely identify an annotation. If the updated annotation
+        would create a duplicate with the same values, do not apply the update and show a warning message instead.
+        """
+        start = key["start"]
+        end = key["end"]
+        tag = key["tag"]
+        old_identity = key["identity"]
+
+        # Determine the new identity based on scope toggle
+        new_tag = updated["tag"]
+        new_identity = old_identity if updated["identity_scoped"] else None
+        display_identity = (
+            self._pose_est.identity_index_to_display(new_identity)
+            if new_identity is not None
+            else None
+        )
+        new_data = TimelineAnnotations.Annotation(
+            start=start,
+            end=end,
+            tag=new_tag,
+            color=updated["color"],
+            description=updated["description"],
+            identity_index=new_identity,
+            display_identity=display_identity,
+        )
+
+        # Only treat as duplicate if the new key (start,end,tag,identity) collides with a *different* annotation
+        # i.e., if the tag/identity are unchanged, it's the same annotation and should be allowed.
+        if not (
+            new_tag == tag and new_identity == old_identity
+        ) and self._labels.timeline_annotations.annotation_exists(
+            start=start, end=end, tag=new_tag, identity_index=new_identity
+        ):
+            message = f"An annotation with tag '{new_tag}' for this identity already exists at frames {start}-{end}."
+            QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
+            return
+
+        # modification is handled by removing the old annotation and inserting a new one with the updated properties
+        self._labels.timeline_annotations.remove_annotation_by_key(
+            start=start, end=end, tag=tag, identity_index=old_identity
+        )
+        self._labels.timeline_annotations.add_annotation(new_data)
+
+        # make sure the changes are saved
+        self._project.save_annotations(self._labels, self._pose_est)
+
+        # refresh video player to show updated annotation
+        self._player_widget.update()
+
+    def on_annotation_deleted(self, payload: dict) -> None:
+        """Handle the event when an existing annotation is deleted.
+
+        Args:
+            payload (dict): Payload from the deleted annotation.
+
+        This is an external API called by the AnnotationEditDialog when an annotation is deleted and not a signal
+        handler only used internally in CentralWidget.
+        """
+        start = payload.get("start")
+        end = payload.get("end")
+        tag = payload.get("tag")
+        identity = payload.get("identity_index")
+
+        if None in (start, end, tag):
+            raise RuntimeWarning("Invalid annotation delete payload")
+
+        self._labels.timeline_annotations.remove_annotation_by_key(
+            start=start, end=end, tag=tag, identity_index=identity
+        )
+
+        # make sure the changes are saved
+        self._project.save_annotations(self._labels, self._pose_est)
+
+        # refresh video player to show updated annotation
+        self._player_widget.update()
+
+    def _save_and_refresh_annotations(self) -> None:
+        """Persist annotation changes and update UI widgets."""
+        self._project.save_annotations(self._labels, self._pose_est)
+        self._player_widget.update()

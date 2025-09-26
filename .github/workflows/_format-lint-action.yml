@@ -1,0 +1,33 @@
+name: 'Lint Code Definition'
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to set up'
+        required: false
+        default: '3.13'
+        type: string
+jobs:
+  format-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies with uv
+        run: uv sync --only-group lint
+
+      - name: Run Ruff Linter
+        run: uv run --only-group lint ruff check src/
+
+      - name: Run Ruff Formatter
+        run: uv run --only-group lint ruff format --check src/

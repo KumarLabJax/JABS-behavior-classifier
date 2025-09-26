@@ -16,6 +16,7 @@ Input parquet file:
     The input parquet file is expected to have the following columns:
     - animal_id: identifier for each animal, unique per frame
     - frame: frame number
+    - eartag_code: external identity string (used for external_identity_mapping)
     - kpt_1_x: x coordinate of keypoint 1
     - kpt_1_y: y coordinate of keypoint 1
     - kpt_2_x: x coordinate of keypoint 2
@@ -134,22 +135,28 @@ def convert_data_frame(
     Returns:
         None
     """
-    # we saw one parquet file with a single row with animal_id == 0
-    # we're going to trim those out if they exist
-    identities = [x for x in df["animal_id"].unique().tolist() if x != 0]
+    # Build identities from the string eartag_code field (external IDs).
+    # Drop missing/empty values and sort for stable index mapping (0..N-1).
+    identities = [
+        s
+        for s in (df["eartag_code"].dropna().astype(str).str.strip().unique().tolist())
+        if s != ""
+    ]
     identities.sort()
     num_identities = len(identities)
-    df = df[df["animal_id"].isin(identities)].copy()
+    df = df[df["eartag_code"].isin(identities)].copy()
 
-    # create "jabs identities" for each row
-    # jabs identities are sequential integers starting at 0
-    df["jabs_identity"] = df["animal_id"].apply(lambda x: identities.index(x))
+    # Create "jabs identities" for each row (sequential integers starting at 0)
+    df["jabs_identity"] = (
+        df["eartag_code"].astype(str).str.strip().apply(lambda x: identities.index(x))
+    )
 
     # build the jabs pose data structure
     jabs_points = np.zeros((num_frames, num_identities, 12, 2), dtype=np.uint16)
     jabs_confidences = np.zeros((num_frames, num_identities, 12), dtype=np.float32)
     jabs_id_mask = np.ones((num_frames, num_identities), dtype=np.bool_)
     jabs_embed_id = np.zeros((num_frames, num_identities), dtype=np.uint32)
+    jabs_bboxes = np.full((num_frames, num_identities, 2, 2), np.nan, dtype=np.float32)
 
     for _, row in df.iterrows():
         frame = row["frame"]
@@ -175,19 +182,28 @@ def convert_data_frame(
                 )
                 jabs_confidences[frame, identity, jabs_keypoint.value] = 1.0
 
+        jabs_bboxes[frame, identity, 0] = [row["bb_left"], row["bb_top"]]
+        jabs_bboxes[frame, identity, 1] = [row["bb_right"], row["bb_bottom"]]
+
+    # Replace NaN with -1 as placeholder for missing bounding box coordinates
+    jabs_bboxes = np.where(np.isnan(jabs_bboxes), -1, jabs_bboxes)
+
     with h5py.File(output_path, "w") as pose_out:
         pose_group = pose_out.create_group("poseest")
         pose_group.create_dataset("points", data=jabs_points, dtype=np.uint16)
         pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
         pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
-        pose_group.create_dataset(
-            "instance_embed_id", data=jabs_embed_id, dtype=np.uint32
-        )
+        pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
+        bbox_dataset = pose_group.create_dataset("bbox", data=jabs_bboxes, dtype=np.float32)
+        bbox_dataset.attrs["bboxes_generated"] = True
 
-        # the parquet file uses global identities for the animal ids, while JABS always uses 0..(num_identities-1)
-        # save the original animal ids in the pose file so we can map back to the original ids downstream
+        # The parquet file provides external IDs via the string field `eartag_code`, while JABS uses 0..(num_identities-1).
+        # Save the original `eartag_code` values in the pose file so we can map back to the original IDs downstream.
+        string_dt = h5py.string_dtype(encoding="utf-8")
         pose_group.create_dataset(
-            "external_identity_mapping", data=identities, dtype=np.uint32
+            "external_identity_mapping",
+            data=np.array(identities, dtype=object),
+            dtype=string_dt,
         )
 
         static_objects_group = pose_out.create_group("static_objects")
@@ -268,6 +284,7 @@ def main():
         Expects the input parquet file to have the following columns:
           - frame: frame number
           - animal_id: identifier for each animal, unique per frame
+          - eartag_code: external identity string (used for external_identity_mapping)
           - kpt_1_x: x coordinate of keypoint 1 (nose)
           - kpt_1_y: y coordinate of keypoint 1
           - kpt_2_x: x coordinate of keypoint 2 (left ear)
@@ -282,9 +299,7 @@ def main():
         formatter_class=FlexiFormatter,
     )
 
-    parser.add_argument(
-        "parquet_path", type=Path, help="Path to the parquet file", nargs="+"
-    )
+    parser.add_argument("parquet_path", type=Path, help="Path to the parquet file", nargs="+")
     parser.add_argument(
         "--lixit-csv",
         type=Path,
@@ -324,11 +339,11 @@ def main():
 
         if args.out_dir is None:
             output_file = parquet_file.with_name(
-                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+                parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
             )
         else:
             output_file = args.out_dir / Path(
-                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+                parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
             )
         convert(parquet_file, output_file, lixit_predictions, args.num_frames)
 
