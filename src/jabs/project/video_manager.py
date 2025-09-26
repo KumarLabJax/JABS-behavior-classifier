@@ -81,7 +81,7 @@ class VideoManager:
         return self._total_project_identities
 
     def load_video_labels(
-        self, video_name: Path, pose: PoseEstimation = None
+        self, video_name: Path | str, pose: PoseEstimation = None
     ) -> VideoLabels | None:
         """load labels for a video
 
