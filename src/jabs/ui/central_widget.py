@@ -152,6 +152,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.update_search(search_query)
 
     @property
+    def loaded_video(self) -> Path | None:
+        """get the currently loaded video path"""
+        return self._loaded_video
+
+    @property
     def overlay_annotations_enabled(self) -> bool:
         """get the annotation overlay enabled status from player widget."""
         return self._player_widget.overlay_annotations_enabled

@@ -617,6 +617,18 @@ class Project:
             "groups": np.concatenate(all_groups),
         }, group_mapping
 
+    def clear_cache(self):
+        """clear the cache directory for this project"""
+        if self._paths.cache_dir is not None:
+            for f in self._paths.cache_dir.glob("*"):
+                try:
+                    if f.is_dir():
+                        shutil.rmtree(f)
+                    else:
+                        f.unlink()
+                except OSError:
+                    pass
+
     def __has_pose(self, vid: str):
         """check to see if a video has a corresponding pose file"""
         path = self._paths.project_dir / vid
