@@ -156,6 +156,7 @@ def convert_data_frame(
     jabs_confidences = np.zeros((num_frames, num_identities, 12), dtype=np.float32)
     jabs_id_mask = np.ones((num_frames, num_identities), dtype=np.bool_)
     jabs_embed_id = np.zeros((num_frames, num_identities), dtype=np.uint32)
+    jabs_bboxes = np.full((num_frames, num_identities, 2, 2), np.nan, dtype=np.float32)
 
     for _, row in df.iterrows():
         frame = row["frame"]
@@ -181,12 +182,20 @@ def convert_data_frame(
                 )
                 jabs_confidences[frame, identity, jabs_keypoint.value] = 1.0
 
+        jabs_bboxes[frame, identity, 0] = [row["bb_left"], row["bb_top"]]
+        jabs_bboxes[frame, identity, 1] = [row["bb_right"], row["bb_bottom"]]
+
+    # Replace NaN with -1 as placeholder for missing bounding box coordinates
+    jabs_bboxes = np.where(np.isnan(jabs_bboxes), -1, jabs_bboxes)
+
     with h5py.File(output_path, "w") as pose_out:
         pose_group = pose_out.create_group("poseest")
         pose_group.create_dataset("points", data=jabs_points, dtype=np.uint16)
         pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
         pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
         pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
+        bbox_dataset = pose_group.create_dataset("bbox", data=jabs_bboxes, dtype=np.float32)
+        bbox_dataset.attrs["bboxes_generated"] = True
 
         # The parquet file provides external IDs via the string field `eartag_code`, while JABS uses 0..(num_identities-1).
         # Save the original `eartag_code` values in the pose file so we can map back to the original IDs downstream.
@@ -330,11 +339,11 @@ def main():
 
         if args.out_dir is None:
             output_file = parquet_file.with_name(
-                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+                parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
             )
         else:
             output_file = args.out_dir / Path(
-                parquet_file.name.replace(".parquet", "_pose_est_v5.h5")
+                parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
             )
         convert(parquet_file, output_file, lixit_predictions, args.num_frames)
 

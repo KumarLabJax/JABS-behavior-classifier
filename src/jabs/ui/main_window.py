@@ -233,14 +233,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._identity_overlay_centroid = QtGui.QAction("Centroid", self, checkable=True)
         self._identity_overlay_floating = QtGui.QAction("Floating", self, checkable=True)
         self._identity_overlay_minimal = QtGui.QAction("Minimalist", self, checkable=True)
+        self._identity_overlay_bbox = QtGui.QAction("Bounding Box", self, checkable=True)
 
         identity_overlay_group.addAction(self._identity_overlay_centroid)
         identity_overlay_group.addAction(self._identity_overlay_floating)
         identity_overlay_group.addAction(self._identity_overlay_minimal)
+        identity_overlay_group.addAction(self._identity_overlay_bbox)
 
         identity_overlay_menu.addAction(self._identity_overlay_centroid)
         identity_overlay_menu.addAction(self._identity_overlay_floating)
         identity_overlay_menu.addAction(self._identity_overlay_minimal)
+        identity_overlay_menu.addAction(self._identity_overlay_bbox)
 
         # set the checked state based on the current identity overlay mode
         match self._central_widget.id_overlay_mode:
@@ -248,6 +251,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._identity_overlay_centroid.setChecked(True)
             case PlayerWidget.IdentityOverlayMode.FLOATING:
                 self._identity_overlay_floating.setChecked(True)
+            case PlayerWidget.IdentityOverlayMode.BBOX:
+                self._identity_overlay_bbox.setChecked(True)
             case _:
                 self._identity_overlay_minimal.setChecked(True)
 
@@ -264,6 +269,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._identity_overlay_minimal.triggered.connect(
             lambda: setattr(
                 self._central_widget, "id_overlay_mode", PlayerWidget.IdentityOverlayMode.MINIMAL
+            )
+        )
+        self._identity_overlay_bbox.triggered.connect(
+            lambda: setattr(
+                self._central_widget, "id_overlay_mode", PlayerWidget.IdentityOverlayMode.BBOX
             )
         )
 
@@ -376,6 +386,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # the video list needs to show search hit counts
         self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
+
+        # enable/disable the bounding box overlay menu item based
+        self._central_widget.bbox_overlay_supported.connect(self._on_bbox_overlay_support_changed)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
@@ -900,6 +913,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._identity_overlay_floating.setChecked(True)
                 case PlayerWidget.IdentityOverlayMode.MINIMAL:
                     self._identity_overlay_minimal.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.BBOX:
+                    self._identity_overlay_bbox.setChecked(True)
                 case _:
                     # default to floating if previous_mode is not recognized
                     self._central_widget.id_overlay_mode = (
@@ -910,3 +925,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self._previous_identity_overlay_mode = self._central_widget.id_overlay_mode
             self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
             self._identity_overlay_minimal.setChecked(True)
+
+    def _on_bbox_overlay_support_changed(self, supported: bool) -> None:
+        """Enable/disable the bounding box overlay menu item based on whether the current pose supports it."""
+        self._identity_overlay_bbox.setEnabled(supported)
+        if (
+            not supported
+            and self._central_widget.id_overlay_mode == PlayerWidget.IdentityOverlayMode.BBOX
+        ):
+            # if the user had bbox overlay selected but the new video doesn't support it, switch to floating
+            self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
+            self._identity_overlay_floating.setChecked(True)
+
+        self._identity_overlay_bbox.setEnabled(supported)

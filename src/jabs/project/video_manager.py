@@ -2,7 +2,12 @@ import json
 import sys
 from pathlib import Path
 
-from jabs.pose_estimation import get_frames_from_file, get_pose_path, open_pose_file
+from jabs.pose_estimation import (
+    PoseEstimation,
+    get_frames_from_file,
+    get_pose_path,
+    open_pose_file,
+)
 from jabs.video_reader import VideoReader
 
 from .project_paths import ProjectPaths
@@ -75,11 +80,14 @@ class VideoManager:
         """Get the total number of identities across all videos."""
         return self._total_project_identities
 
-    def load_video_labels(self, video_name) -> VideoLabels | None:
+    def load_video_labels(
+        self, video_name: Path | str, pose: PoseEstimation = None
+    ) -> VideoLabels | None:
         """load labels for a video
 
         Args:
             video_name: filename of the video: string or pathlib.Path
+            pose: optional PoseEstimation object to use for identity mapping, if None we will open the pose file
 
         Returns:
             initialized VideoLabels object if annotations exist, otherwise None
@@ -92,9 +100,10 @@ class VideoManager:
         # if annotations already exist for this video file in the project open them
         if path.exists():
             # VideoLabels.load can use pose to convert identity index to the display identity
-            pose = open_pose_file(
-                get_pose_path(self.video_path(video_filename)), self._paths.cache_dir
-            )
+            if pose is None:
+                pose = open_pose_file(
+                    get_pose_path(self.video_path(video_filename)), self._paths.cache_dir
+                )
             with path.open() as f:
                 return VideoLabels.load(json.load(f), pose)
         else:

@@ -1,6 +1,6 @@
 import importlib.resources
 
-from PySide6 import QtCore, QtSvg
+from PySide6.QtSvg import QSvgRenderer
 
 
 class EarTagIconManager:
@@ -11,17 +11,17 @@ class EarTagIconManager:
     """
 
     def __init__(self) -> None:
-        self._icons = {}
+        self._icons: dict[str, QSvgRenderer] = {}
 
         base = importlib.resources.files("jabs.resources.eartag_images")
         for entry in base.iterdir():
             if not entry.name.endswith(".svg"):
                 continue
-            renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(entry.read_bytes()))
-            key = entry.name.upper().rsplit(".", 1)[0]
+            renderer = QSvgRenderer(entry.read_bytes())
+            key = entry.stem.upper()  # type: ignore
             self._icons[key] = renderer
 
-    def get_icon(self, code: str) -> QtSvg.QSvgRenderer | None:
+    def get_icon(self, code: str) -> QSvgRenderer | None:
         """Get the SVG renderer for a given ear tag code.
 
         Args:
