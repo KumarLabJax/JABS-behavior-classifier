@@ -14,6 +14,9 @@ class PoseEstimationV8(PoseEstimationV7):
     Adds bounding box support.
     """
 
+    # force a bump in cache file version if either parent class or this class changes
+    _CACHE_FILE_VERSION = PoseEstimationV7._CACHE_FILE_VERSION + 1
+
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30) -> None:
         super().__init__(file_path, cache_dir, fps)
         self._has_bounding_boxes = False
@@ -112,6 +115,7 @@ class PoseEstimationV8(PoseEstimationV7):
                 filename = self._path.name.replace(".h5", "_cache.h5")
                 cache_file_path = self._cache_dir / filename
                 with h5py.File(cache_file_path, "a") as cache_h5:
+                    cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION
                     grp = cache_h5.require_group("poseest")
                     if "bboxes" in grp:
                         del grp["bboxes"]
