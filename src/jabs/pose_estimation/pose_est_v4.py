@@ -37,6 +37,7 @@ class PoseEstimationV4(PoseEstimation):
         get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
+    # bump to force regeneration of pose cache files for v4 or any subclass
     _CACHE_FILE_VERSION = 4
 
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):

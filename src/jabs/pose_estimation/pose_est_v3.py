@@ -36,7 +36,7 @@ class PoseEstimationV3(PoseEstimation):
 
     # super class handles validating cache file version and will delete
     # if it doesn't match expected version so it will get regenerated
-    # bump this version to force v3 pose file cache regeneration
+    # bumping this version to force v3 pose file cache regeneration only
     _CACHE_FILE_VERSION = 2
 
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
