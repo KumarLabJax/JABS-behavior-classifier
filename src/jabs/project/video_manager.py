@@ -143,6 +143,7 @@ class VideoManager:
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
         video_metadata = self._settings_manager.project_settings.get("video_files", {})
+        flush = False
         for video in self._videos:
             vinfo = video_metadata.get(video, {})
             nidentities = vinfo.get("identities")
@@ -153,11 +154,13 @@ class VideoManager:
                 )
                 nidentities = pose_file.num_identities
                 vinfo["identities"] = nidentities
+                flush = True
 
             self._video_identity_count[video] = nidentities
             self._total_project_identities += nidentities
             video_metadata[video] = vinfo
-        self._settings_manager.save_project_file({"video_files": video_metadata})
+        if flush:
+            self._settings_manager.save_project_file({"video_files": video_metadata})
 
     def _validate_video_frame_counts(self):
         """Ensure video and pose file frame counts match."""
