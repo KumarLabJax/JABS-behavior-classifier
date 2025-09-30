@@ -40,7 +40,7 @@ class PoseEstimationV6(PoseEstimationV5):
             "seg_data": None,
         }
 
-        # open the hdf5 pose file and extract segmentation data.
+        # open the hdf5 pose file and extract segmentation data, this is not cached
         with h5py.File(self._path, "r") as pose_h5:
             for seg_key in set(pose_h5["poseest"].keys()) & set(self._segmentation_dict.keys()):
                 self._segmentation_dict[seg_key] = pose_h5[f"poseest/{seg_key}"][:]

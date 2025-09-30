@@ -34,7 +34,10 @@ class PoseEstimationV3(PoseEstimation):
         get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
-    __CACHE_FILE_VERSION = 2
+    # super class handles validating cache file version and will delete
+    # if it doesn't match expected version so it will get regenerated
+    # bumping this version to force v3 pose file cache regeneration only
+    _CACHE_FILE_VERSION = 2
 
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
@@ -47,18 +50,11 @@ class PoseEstimationV3(PoseEstimation):
         # to speedup reopening the pose file later, we'll cache the transformed
         # pose file in the project dir
         if cache_dir is not None:
-            filename = self._path.name.replace(".h5", "_cache.h5")
-            cache_file_path = self._cache_dir / filename
+            cache_file_path = self._cache_file_path()
             use_cache = True
 
             try:
                 with h5py.File(cache_file_path, "r") as cache_h5:
-                    if cache_h5.attrs["version"] != self.__CACHE_FILE_VERSION:
-                        # cache file version is not what we expect, raise
-                        # exception so we will revert to reading source pose
-                        # file
-                        raise _CacheFileVersion
-
                     if cache_h5.attrs["source_pose_hash"] != self._hash:
                         raise PoseHashException
 
@@ -149,7 +145,7 @@ class PoseEstimationV3(PoseEstimation):
 
             if self._cache_dir is not None:
                 with h5py.File(cache_file_path, "w") as cache_h5:
-                    cache_h5.attrs["version"] = self.__CACHE_FILE_VERSION
+                    cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION
                     cache_h5.attrs["source_pose_hash"] = self.hash
                     group = cache_h5.create_group("poseest")
                     if self._cm_per_pixel is not None:

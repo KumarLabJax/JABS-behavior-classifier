@@ -1,4 +1,5 @@
 import enum
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -112,6 +113,8 @@ class PoseEstimation(ABC):
         ),
     )
 
+    _CACHE_FILE_VERSION = 1
+
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         """initialize new object from h5 file
 
@@ -136,6 +139,16 @@ class PoseEstimation(ABC):
         self._fps = fps
 
         self._static_objects = {}
+
+        # check cache version, if it doesn't match, clear the cache file for this pose file
+        if self._cache_dir is not None and not self.check_cache_version():
+            cache_file = self._cache_file_path()
+            if cache_file and cache_file.exists():
+                try:
+                    cache_file.unlink()
+                except Exception:
+                    logging.warning("Unable to delete old cache file %s", cache_file)
+                    pass
 
     @property
     def num_frames(self) -> int:
@@ -377,3 +390,27 @@ class PoseEstimation(ABC):
         if self.external_identities and 0 <= identity_index < len(self.external_identities):
             return self.external_identities[identity_index]
         return str(identity_index)
+
+    def check_cache_version(self) -> bool:
+        """Check if the cache version matches the expected version.
+
+        Returns:
+            bool: True if the cache version matches, False otherwise.
+        """
+        try:
+            with h5py.File(self._cache_file_path(), "r") as cache_h5:
+                cache_version = cache_h5.attrs.get("cache_file_version", None)
+                return cache_version == self._CACHE_FILE_VERSION
+        except Exception:
+            return False
+
+    def _cache_file_path(self) -> Path | None:
+        """Get the path to the cache file for this pose file.
+
+        Returns:
+            Path | None: The path to the cache file, or None if no cache directory is set.
+        """
+        if self._cache_dir is None:
+            return None
+        filename = self._path.name.replace(".h5", "_cache.h5")
+        return self._cache_dir / filename

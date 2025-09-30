@@ -37,7 +37,8 @@ class PoseEstimationV4(PoseEstimation):
         get_identity_point_mask(identity): Get the point mask array for a given identity.
     """
 
-    __CACHE_FILE_VERSION = 4
+    # bump to force regeneration of pose cache files for v4 or any subclass
+    _CACHE_FILE_VERSION = 4
 
     def __init__(self, file_path: Path, cache_dir: Path | None = None, fps: int = 30):
         super().__init__(file_path, cache_dir, fps)
@@ -51,7 +52,7 @@ class PoseEstimationV4(PoseEstimation):
             try:
                 self._load_from_cache()
                 use_cache = True
-            except (OSError, KeyError, _CacheFileVersion, PoseHashException):
+            except (OSError, KeyError, PoseHashException):
                 # if load_from_cache() raises an exception, we'll read from
                 # the source pose file below because use_cache will still be
                 # set to false, just ignore the exceptions here
@@ -250,16 +251,9 @@ class PoseEstimationV4(PoseEstimation):
         Returns:
             None
         """
-        filename = self._path.name.replace(".h5", "_cache.h5")
-        cache_file_path = self._cache_dir / filename
+        cache_file_path = self._cache_file_path()
 
         with h5py.File(cache_file_path, "r") as cache_h5:
-            if cache_h5.attrs["version"] != self.__CACHE_FILE_VERSION:
-                # cache file version is not what we expect, raise
-                # exception so we will revert to reading source pose
-                # file
-                raise _CacheFileVersion
-
             if cache_h5.attrs["source_pose_hash"] != self._hash:
                 raise PoseHashException
 
@@ -297,7 +291,7 @@ class PoseEstimationV4(PoseEstimation):
         cache_file_path = self._cache_dir / filename
 
         with h5py.File(cache_file_path, "w") as cache_h5:
-            cache_h5.attrs["version"] = self.__CACHE_FILE_VERSION
+            cache_h5.attrs["cache_file_version"] = self._CACHE_FILE_VERSION
             cache_h5.attrs["source_pose_hash"] = self.hash
             cache_h5.attrs["num_identities"] = self._num_identities
             cache_h5.attrs["num_frames"] = self._num_frames
