@@ -106,6 +106,13 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         app_menu.addAction(session_tracking_action)
 
+        # clear cache action
+        self._clear_cache = QtGui.QAction("Clear Project Cache", self)
+        self._clear_cache.setStatusTip("Clear Project Cache")
+        self._clear_cache.setEnabled(False)
+        self._clear_cache.triggered.connect(self._clear_cache_action)
+        app_menu.addAction(self._clear_cache)
+
         # exit action
         exit_action = QtGui.QAction(f" &Quit {self._app_name}", self)
         exit_action.setShortcut(QtGui.QKeySequence("Ctrl+Q"))
@@ -149,12 +156,6 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(self._prune_action)
 
         # Setup View Menu
-        # clear cache action
-        self._clear_cache = QtGui.QAction("Clear Project Cache", self)
-        self._clear_cache.setStatusTip("Clear Project Cache")
-        self._clear_cache.setEnabled(False)
-        self._clear_cache.triggered.connect(self._clear_cache_action)
-        file_menu.addAction(self._clear_cache)
 
         # video playlist menu item
         self.view_playlist = QtGui.QAction("View Playlist", self)
