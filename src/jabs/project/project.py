@@ -69,7 +69,8 @@ class Project:
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
         # write out the defaults to the project file
-        self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
+        if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
+            self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
         # Start a session tracker for this project.
         # Since the session has a reference to the Project, the Project should be fully initialized before starting
