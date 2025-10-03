@@ -108,7 +108,6 @@ class PoseEstimationV4(PoseEstimation):
                     self._num_identities = 0
 
             # Validate instance_embed_id range: must be in [0, self._num_identities]
-            # use self._num_identities, which is previously set to the max value found in instance_embed_id
             if max_instance_id > self._num_identities:
                 raise PoseIdEmbeddingException(
                     f"Invalid instance_embed_id, values out of range: {file_path.name}"
