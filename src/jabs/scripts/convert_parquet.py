@@ -194,6 +194,9 @@ def convert_data_frame(
         pose_group.create_dataset("confidence", data=jabs_confidences, dtype=np.float32)
         pose_group.create_dataset("id_mask", data=jabs_id_mask, dtype=np.bool_)
         pose_group.create_dataset("instance_embed_id", data=jabs_embed_id, dtype=np.uint32)
+        pose_group.create_dataset(
+            "instance_id_center", data=np.zeros((num_identities, 1)), dtype=np.float64
+        )
         bbox_dataset = pose_group.create_dataset("bbox", data=jabs_bboxes, dtype=np.float32)
         bbox_dataset.attrs["bboxes_generated"] = True
 
