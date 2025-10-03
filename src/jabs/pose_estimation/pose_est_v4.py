@@ -12,6 +12,12 @@ class _CacheFileVersion(Exception):
     pass
 
 
+class PoseIdEmbeddingException(Exception):
+    """Exception raised for invalid instance_embed_id values in pose file."""
+
+    pass
+
+
 class PoseEstimationV4(PoseEstimation):
     """
     Handler for version 4 pose estimation HDF5 files.
@@ -94,6 +100,11 @@ class PoseEstimationV4(PoseEstimation):
             else:
                 print(f"Warning: No identities found in pose file: {file_path}")
                 self._num_identities = 0
+
+            # Validate instance_embed_id range: must be in [0, self._num_identities]
+            # use self._num_identities, which is previously set to the max value found in instance_embed_id
+            if self._num_identities > instance_embed_id.shape[0]:
+                raise PoseIdEmbeddingException("Invalid instance_embed_id values out of range")
 
             # generate list of identities based on the max number of instances
             # in the pose file
