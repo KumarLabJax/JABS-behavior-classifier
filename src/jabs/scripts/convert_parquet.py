@@ -73,16 +73,16 @@ Todo:
 
 """
 
-import argparse
 import csv
 import math
 import sys
+import textwrap
 from pathlib import Path
 
+import click
 import h5py
 import numpy as np
 import pandas as pd
-from argparse_formatter import FlexiFormatter
 
 from jabs.pose_estimation import PoseEstimation
 
@@ -136,11 +136,11 @@ def convert_data_frame(
         None
     """
     # Build identities from the string eartag_code field (external IDs).
-    # Drop missing/empty values and sort for stable index mapping (0..N-1).
+    # Drop missing/empty values as well as tag no-reads and sort for stable index mapping (0..N-1).
     identities = [
         s
         for s in (df["eartag_code"].dropna().astype(str).str.strip().unique().tolist())
-        if s != ""
+        if s not in ["", "00"]
     ]
     identities.sort()
     num_identities = len(identities)
@@ -278,12 +278,12 @@ def read_lixit_csv(path: Path) -> dict[str, tuple[float, float]]:
     }
 
 
-def main():
-    """jabs-convert-parquet"""
-    parser = argparse.ArgumentParser(
-        description="""
+@click.command(
+    help="\b\n"
+    + textwrap.dedent("""\
         Convert parquet pose file to JABS Pose format.
         
+        \b
         Expects the input parquet file to have the following columns:
           - frame: frame number
           - animal_id: identifier for each animal, unique per frame
@@ -297,59 +297,60 @@ def main():
           - kpt_4_x: x coordinate of keypoint 4 (base tail)
           - kpt_4_y: y coordinate of keypoint 4
           - kpt_5_x: x coordinate of keypoint 5 (tip tail)
-          - kpt_5_y: y coordinate of keypoint 5        
-        """,
-        formatter_class=FlexiFormatter,
-    )
-
-    parser.add_argument("parquet_path", type=Path, help="Path to the parquet file", nargs="+")
-    parser.add_argument(
-        "--lixit-csv",
-        type=Path,
-        help="Path to the csv file containing inferred lixit points",
-    )
-    parser.add_argument(
-        "--num-frames",
-        "-f",
-        type=int,
-        help="Total number of frames in the video (default=1800)",
-        default=1800,
-    )
-    parser.add_argument(
-        "--out-dir",
-        type=Path,
-        help="Output directory path for the converted h5 files. "
-        "Default is the same directory as the input parquet file.",
-    )
-
-    args = parser.parse_args()
-
+          - kpt_5_y: y coordinate of keypoint 5
+    """)
+)
+@click.argument("parquet_path", nargs=-1, type=click.Path(path_type=Path))
+@click.option(
+    "--lixit-csv",
+    type=click.Path(path_type=Path, exists=True, dir_okay=False),
+    help="Path to the csv file containing inferred lixit points",
+)
+@click.option(
+    "--num-frames",
+    "num_frames",
+    type=int,
+    default=1800,
+    show_default=True,
+    help="Total number of frames in the video",
+)
+@click.option(
+    "--out-dir",
+    "out_dir",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Output directory path for the converted h5 files. Default is the same directory as the input parquet file.",
+)
+def cli(
+    parquet_path: tuple[Path, ...], lixit_csv: Path | None, num_frames: int, out_dir: Path | None
+) -> None:
+    """Convert parquet pose file to JABS Pose format."""
     try:
-        if args.out_dir is not None:
-            args.out_dir.mkdir(parents=True, exist_ok=True)
+        if out_dir is not None:
+            out_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        print(f"Unable to create output directory {args.out_dir}", file=sys.stderr)
+        print(f"Unable to create output directory {out_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # read the lixit csv file if provided
-    lixit_predictions = read_lixit_csv(args.lixit_csv) if args.lixit_csv else None
+    lixit_predictions = read_lixit_csv(lixit_csv) if lixit_csv else None
 
-    # convert each file that was passed as a positional argument
-    for parquet_file in args.parquet_path:
+    for parquet_file in parquet_path:
         if not parquet_file.exists():
             print(f"{parquet_file} does not exist. Skipping.", file=sys.stderr)
             continue
 
-        if args.out_dir is None:
+        if out_dir is None:
             output_file = parquet_file.with_name(
                 parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
             )
         else:
-            output_file = args.out_dir / Path(
-                parquet_file.name.replace(".parquet", "_pose_est_v8.h5")
-            )
-        convert(parquet_file, output_file, lixit_predictions, args.num_frames)
+            output_file = out_dir / Path(parquet_file.name.replace(".parquet", "_pose_est_v8.h5"))
+        convert(parquet_file, output_file, lixit_predictions, num_frames)
+
+
+def main():
+    """Entry point for the JABS CLI."""
+    cli(obj={})
 
 
 if __name__ == "__main__":
-    main()
+    cli()
