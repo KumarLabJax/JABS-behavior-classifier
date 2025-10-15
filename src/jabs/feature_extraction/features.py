@@ -115,13 +115,10 @@ class IdentityFeatures:
         self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
 
-        if (
+        self._compute_segmentation_features = (
             pose_est.format_major_version >= 6
             and cast(PoseEstimationV6, pose_est).has_segmentation
-        ):
-            self._compute_segmentation_features = True
-        else:
-            self._compute_segmentation_features = False
+        )
 
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
