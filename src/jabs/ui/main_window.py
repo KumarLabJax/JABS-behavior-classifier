@@ -96,6 +96,12 @@ class MainWindow(QtWidgets.QMainWindow):
         user_guide_action.triggered.connect(self._open_user_guide)
         app_menu.addAction(user_guide_action)
 
+        # license action
+        license_action = QtGui.QAction("View License Agreement", self)
+        license_action.setStatusTip("View License Agreement")
+        license_action.triggered.connect(self._view_license)
+        app_menu.addAction(license_action)
+
         # enable/disable session tracking
         session_tracking_action = QtGui.QAction("Enable Session Tracking", self)
         session_tracking_action.setStatusTip("Enable or disable session tracking")
@@ -979,3 +985,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._identity_overlay_floating.setChecked(True)
 
         self._identity_overlay_bbox.setEnabled(supported)
+
+    def _view_license(self) -> None:
+        """View the license agreement in a read-only dialog."""
+        dialog = LicenseAgreementDialog(self, view_only=True)
+        dialog.exec_()
