@@ -37,9 +37,8 @@ class LicenseAgreementDialog(QDialog):
     """
 
     def __init__(self, *args, **kwargs):
-        self._view_only = kwargs.get("view_only", False)
         super().__init__(*args, **{key: val for key, val in kwargs.items() if key != "view_only"})
-
+        self._view_only = kwargs.get("view_only", False)
         self.setWindowTitle(
             f"Accept {APP_NAME_LONG} License"
             if not self._view_only
@@ -58,9 +57,11 @@ class LicenseAgreementDialog(QDialog):
         layout.addWidget(license_view)
 
         if self._view_only:
+            # this is the license viewer, not the acceptance dialog
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
             buttons.accepted.connect(self.accept)
         else:
+            # this is the acceptance dialog, need to add the prompt and Yes/No buttons
             layout.addWidget(
                 QLabel(f"I have read and I agree to the {APP_NAME} license terms:"),
                 alignment=Qt.AlignmentFlag.AlignCenter,
