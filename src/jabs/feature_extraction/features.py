@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import h5py
 import numpy as np
@@ -6,7 +7,7 @@ import pandas as pd
 
 import jabs.project.track_labels
 from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
-from jabs.pose_estimation import PoseEstimation, PoseHashException
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup
 
@@ -113,7 +114,15 @@ class IdentityFeatures:
         )
         self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
-        self._compute_segmentation_features = pose_est.format_major_version >= 6
+
+        if (
+            pose_est.format_major_version >= 6
+            and cast(PoseEstimationV6, pose_est).has_segmentation
+        ):
+            self._compute_segmentation_features = True
+        else:
+            self._compute_segmentation_features = False
+
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
         )
