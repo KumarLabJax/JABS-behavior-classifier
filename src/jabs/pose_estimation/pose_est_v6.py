@@ -143,3 +143,8 @@ class PoseEstimationV6(PoseEstimationV5):
     def format_major_version(self) -> int:
         """Returns the major version of the pose file format."""
         return 6
+
+    @property
+    def has_segmentation(self) -> bool:
+        """Returns True if segmentation data is available."""
+        return self._segmentation_dict["seg_data"] is not None
