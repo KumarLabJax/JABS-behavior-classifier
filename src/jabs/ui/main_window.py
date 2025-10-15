@@ -987,6 +987,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._identity_overlay_bbox.setEnabled(supported)
 
     def _view_license(self) -> None:
-        """View the license agreement in a read-only dialog."""
+        """View the license agreement (JABS->View License Agreement menu action)"""
         dialog = LicenseAgreementDialog(self, view_only=True)
         dialog.exec_()
