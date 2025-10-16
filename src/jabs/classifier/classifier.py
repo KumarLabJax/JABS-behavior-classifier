@@ -670,23 +670,25 @@ class Classifier:
 
         Returns None if unavailable (e.g., non-tree base estimators).
         """
-        est = self._classifier
-        if not isinstance(est, CalibratedClassifierCV):
+        if not isinstance(self._classifier, CalibratedClassifierCV):
             return None
         try:
-            base_ests = [cc.estimator for cc in est.calibrated_classifiers_]
+            base_ests = [cc.estimator for cc in self._classifier.calibrated_classifiers_]
         except Exception:
             return None
+
+        # get the base estimators that have feature_importances_
         base_ests = [be for be in base_ests if hasattr(be, "feature_importances_")]
         if not base_ests:
             return None
+
+        # get the mean and standard deviation of feature importances from the base estimators
         importances = np.vstack([be.feature_importances_ for be in base_ests])
         mean_imp = importances.mean(axis=0)
         std_imp = importances.std(axis=0)
-        names = self._feature_names or [f"feature_{i}" for i in range(mean_imp.shape[0])]
-        if len(names) != len(mean_imp):
-            names = [f"feature_{i}" for i in range(len(mean_imp))]
-        items = list(zip(names, mean_imp, std_imp, strict=True))
+
+        # combine with feature names and sort by mean importance
+        items = list(zip(self._feature_names, mean_imp, std_imp, strict=True))
         items.sort(key=lambda t: t[1], reverse=True)
         return items
 
@@ -701,19 +703,17 @@ class Classifier:
         if isinstance(self._classifier, CalibratedClassifierCV):
             items = self.get_calibrated_feature_importances()
             if items is not None:
-                print(f"{'Feature Name':100} Mean Importance  Std")
+                print(f"{'Feature Name':100} Mean Importance   Std")
                 print("-" * 120)
                 for name, mean_imp, std_imp in items[:limit]:
-                    print(f"{name:100} {mean_imp:0.4f}        {std_imp:0.4f}")
+                    print(f"{name:100} {mean_imp:0.4f}         {std_imp:0.4f}")
                 return
             # fall through to base-estimator single-source path if calibrated but no importances
 
         # Fallback: single estimator feature_importances_
         est = self._get_estimator_with_feature_importances()
         if est is None:
-            print(
-                "Feature importances are unavailable for the current classifier (e.g., calibrated logistic/linear models)."
-            )
+            print("Feature importances are unavailable for the current classifier.")
             return
         importances = list(est.feature_importances_)
         names = feature_list if feature_list is not None else (self._feature_names or [])
