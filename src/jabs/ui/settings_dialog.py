@@ -60,29 +60,29 @@ class CollapsibleSection(QWidget):
         )
         self._content.setVisible(checked)
         self._content.updateGeometry()
+
         # Ask ancestors to recompute layout so the page grows inside the scroll area
-        p = self.parentWidget()
-        if p is not None and p.layout() is not None:
-            p.layout().activate()
-        lg = self.layout()
-        if lg is not None:
-            lg.activate()
+        parent = self.parentWidget()
+        if parent is not None and parent.layout() is not None:
+            parent.layout().activate()
+
+        if self.layout() is not None:
+            self.layout().activate()
+
         # Let ancestors recompute size hints and notify listeners
-        pw = self.parentWidget()
-        if pw is not None:
-            pw.updateGeometry()
+        if parent is not None:
+            parent.updateGeometry()
         self.updateGeometry()
         self.sizeChanged.emit()
 
 
 class JabsSettingsDialog(QDialog):
-    """Dialog for changing project settings.
+    """
+    Dialog for changing project settings.
 
-    Parameters
-    ----------
-    project_settings: ProjectSettings
-        Object providing .get(key, default) and either .set(key, value) or item assignment.
-    parent: QWidget | None
+    Args:
+        project_settings (SettingsManager): Project settings manager used to load and save settings.
+        parent (QWidget | None, optional): Parent widget for this dialog. Defaults to None.
     """
 
     def __init__(self, project_settings: SettingsManager, parent: QWidget | None = None) -> None:
@@ -218,20 +218,16 @@ class JabsSettingsDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         # Keep content width constant: viewport gutter above matches scrollbar width
         scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
 
-        # When the help section is expanded, ensure it is visible within the scroll area
-        try:
+        def _on_help_toggled(checked: bool) -> None:
+            if checked:
+                # Only scroll; don't resize caps — keeps scrollbar on the window only
+                scroll.ensureWidgetVisible(calibration_help_panel)
 
-            def _on_help_toggled(checked: bool) -> None:
-                if checked:
-                    # Only scroll; don't resize caps — keeps scrollbar on the window only
-                    scroll.ensureWidgetVisible(calibration_help_panel)
-
-            _help_toggle_btn.toggled.connect(_on_help_toggled)
-        except Exception:
-            pass
+        _help_toggle_btn.toggled.connect(_on_help_toggled)
 
         # Buttons
         btn_box = QDialogButtonBox(self)
@@ -249,10 +245,10 @@ class JabsSettingsDialog(QDialog):
 
         # Size to content initially, then give a taller starting height; user-resize preserved later
         self.adjustSize()
-        self.resize(max(self.width(), 720), max(self.height(), 1000))
+        self.resize(max(self.width(), 700), max(self.height(), 600))
 
     def _on_save(self) -> None:
-        # Persist back to project settings
+        """Save settings to project and close dialog."""
         settings = {
             "settings": {
                 "calibrate_probabilities": self._calibrate_checkbox.isChecked(),
