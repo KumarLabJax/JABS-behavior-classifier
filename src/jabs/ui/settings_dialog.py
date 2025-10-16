@@ -130,23 +130,25 @@ class JabsSettingsDialog(QDialog):
         # Keep inputs compact; whitespace grows in column 2
         self._method_selection.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._method_selection.setFixedWidth(self._method_selection.sizeHint().width() + 24)
-        self._method_selection.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._method_selection.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self._cv_selection.setFixedWidth(90)
-        self._cv_selection.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._cv_selection.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-        self._calibrate_checkbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._calibrate_checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-        grid.addWidget(QLabel("Calibrate probabilities:"), 0, 0, Qt.AlignRight)
+        grid.addWidget(QLabel("Calibrate probabilities:"), 0, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self._calibrate_checkbox, 0, 1)
 
-        grid.addWidget(QLabel("Calibration method:"), 1, 0, Qt.AlignRight)
+        grid.addWidget(QLabel("Calibration method:"), 1, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self._method_selection, 1, 1)
 
-        grid.addWidget(QLabel("calibration cv (folds):"), 2, 0, Qt.AlignRight)
+        grid.addWidget(QLabel("calibration cv (folds):"), 2, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self._cv_selection, 2, 1)
 
-        grid.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum), 0, 2, 3, 1)
+        grid.addItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 0, 2, 3, 1
+        )
 
         # Help / inline docs (rich text)
         help_label = QLabel(self)
@@ -206,7 +208,7 @@ class JabsSettingsDialog(QDialog):
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(10)
         page_layout.addWidget(calibration_group)
-        page_layout.setAlignment(calibration_group, Qt.AlignTop)
+        page_layout.setAlignment(calibration_group, Qt.AlignmentFlag.AlignTop)
         page_layout.addStretch(1)
 
         scroll = QScrollArea(self)
