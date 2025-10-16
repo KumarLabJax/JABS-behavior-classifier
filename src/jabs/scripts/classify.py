@@ -105,7 +105,7 @@ def classify_pose(
     prediction_labels = np.full((pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8)
     prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-    classifier_settings = classifier.project_settings
+    classifier_settings = classifier.behavior_settings
 
     print(f"Classifying {input_pose_file}...")
 
@@ -188,7 +188,7 @@ def train(training_file: Path) -> Classifier:
         Classifier: The trained classifier instance.
     """
     classifier = Classifier.from_training_file(training_file)
-    classifier_settings = classifier.project_settings
+    classifier_settings = classifier.behavior_settings
 
     print("Training classifier for:", classifier.behavior_name)
     print(f"  Classifier Type: {__CLASSIFIER_CHOICES[classifier.classifier_type]}")
@@ -315,7 +315,7 @@ def classify_main():
             sys.exit(str(e))
 
         behavior = classifier.behavior_name
-        classifier_settings = classifier.project_settings
+        classifier_settings = classifier.behavior_settings
 
         print(f"Classifying using trained classifier: {args.classifier}")
         try:

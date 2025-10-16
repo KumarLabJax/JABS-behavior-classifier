@@ -8,6 +8,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
@@ -21,7 +22,7 @@ from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
-_VERSION = 9
+_VERSION = 10
 
 _classifier_choices = [ClassifierType.RANDOM_FOREST, ClassifierType.GRADIENT_BOOSTING]
 
@@ -60,6 +61,7 @@ class Classifier:
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         self._classifier_type = classifier
         self._classifier = None
+        self._behavior_settings = None
         self._project_settings = None
         self._behavior = None
         self._feature_names = None
@@ -141,10 +143,10 @@ class Classifier:
         return "NO HASH"
 
     @property
-    def project_settings(self) -> dict:
-        """return a copy of dictionary of project settings for this classifier"""
-        if self._project_settings is not None:
-            return dict(self._project_settings)
+    def behavior_settings(self) -> dict:
+        """return a copy of dictionary of behavior-specific settings for this classifier"""
+        if self._behavior_settings is not None:
+            return dict(self._behavior_settings)
         return {}
 
     @property
@@ -361,19 +363,21 @@ class Classifier:
         if no behavior is currently set will use project defaults
         """
         if self._behavior is None:
-            self._project_settings = project.get_project_defaults()
+            self._behavior_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.settings_manager.get_behavior(self._behavior)
+            self._behavior_settings = project.settings_manager.get_behavior(self._behavior)
+
+        self._project_settings = project.settings_manager.project_settings.get("settings", {})
 
     def set_dict_settings(self, settings: dict):
-        """assign project settings via a dict to the classifier
+        """assign behavior-specific settings via a dict to the classifier
 
         Args:
             settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
         """
-        self._project_settings = dict(settings)
+        self._behavior_settings = dict(settings)
 
     def classifier_choices(self):
         """get the available classifier types
@@ -403,7 +407,7 @@ class Classifier:
 
         raises ValueError for having either unset project settings or an unset classifier
         """
-        if self._project_settings is None:
+        if self._behavior_settings is None:
             raise ValueError("Project settings for classifier unset, cannot train classifier.")
 
         # Assume that feature names is provided, otherwise extract it from the dataframe
@@ -416,32 +420,90 @@ class Classifier:
         features = data["training_data"]
         labels = data["training_labels"]
         # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
-        if self._project_settings.get("symmetric_behavior", False):
+        if self._behavior_settings.get("symmetric_behavior", False):
             features, labels = self.augment_symmetric(features, labels)
-        if self._project_settings.get("balance_labels", False):
+        if self._behavior_settings.get("balance_labels", False):
             features, labels = self.downsample_balance(features, labels, random_seed)
 
-        if self._classifier_type == ClassifierType.RANDOM_FOREST:
-            self._classifier = self._fit_random_forest(features, labels, random_seed=random_seed)
-        elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
-            self._classifier = self._fit_gradient_boost(features, labels, random_seed=random_seed)
-        elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+        # Optional probability calibration, this is currently set at the project level
+        calibrate = self._project_settings.get("calibrate_probabilities", False)
+        calibration_method = self._project_settings.get(
+            "calibration_method", "isotonic"
+        )  # or 'sigmoid'
+        calibration_cv = self._project_settings.get("calibration_cv", 3)
+
+        if calibrate:
+            # Build an unfitted base estimator
+            if self._classifier_type == ClassifierType.RANDOM_FOREST:
+                base_estimator = self._make_random_forest(random_seed=random_seed)
+            elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
+                base_estimator = self._make_gradient_boost(random_seed=random_seed)
+            elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+                base_estimator = self._make_xgboost(random_seed=random_seed)
+            else:
+                raise ValueError("Unsupported classifier")
+
+            # Wrap with calibrated classifier and fit
+            self._classifier = CalibratedClassifierCV(
+                estimator=base_estimator, method=calibration_method, cv=calibration_cv
+            )
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                self._classifier = self._fit_xgboost(features, labels, random_seed=random_seed)
+                self._classifier.fit(self._clean_features_for_training(features), labels)
         else:
-            raise ValueError("Unsupported classifier")
+            # Fit without calibration (original behavior)
+            if self._classifier_type == ClassifierType.RANDOM_FOREST:
+                self._classifier = self._fit_random_forest(
+                    features, labels, random_seed=random_seed
+                )
+            elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
+                self._classifier = self._fit_gradient_boost(
+                    features, labels, random_seed=random_seed
+                )
+            elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    self._classifier = self._fit_xgboost(features, labels, random_seed=random_seed)
+            else:
+                raise ValueError("Unsupported classifier")
 
         # Classifier may have been re-used from a prior training, blank the logging attributes
         self._classifier_file = None
         self._classifier_hash = None
         self._classifier_source = None
 
+    def _clean_features_for_training(self, features: pd.DataFrame):
+        """Clean feature matrix prior to fitting based on classifier type.
+
+        For XGBoost, only replace +/- inf with 0 (XGBoost can handle NaN).
+        For sklearn tree models, also fill NaNs with 0.
+        """
+        if self._classifier_type == ClassifierType.XGBOOST:
+            return features.replace([np.inf, -np.inf], 0)
+        return features.replace([np.inf, -np.inf], 0).fillna(0)
+
+    def _make_random_forest(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+        return RandomForestClassifier(n_jobs=self._n_jobs)
+
+    def _make_gradient_boost(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return GradientBoostingClassifier(random_state=random_seed)
+        return GradientBoostingClassifier()
+
+    def _make_xgboost(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+        return _xgboost.XGBClassifier(n_jobs=self._n_jobs)
+
     def sort_features_to_classify(self, features):
         """sorts features to match the current classifier"""
-        if self._classifier_type == ClassifierType.XGBOOST:
+        if isinstance(self._classifier, CalibratedClassifierCV):
+            # Use the training-time feature order we stored
+            classifier_columns = self._feature_names
+        elif self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
-        # sklearn places feature names in the same spot
         else:
             classifier_columns = self._classifier.feature_names_in_
         features_sorted = features[classifier_columns]
@@ -518,6 +580,7 @@ class Classifier:
 
         self._classifier = c._classifier
         self._behavior = c._behavior
+        self._behavior_settings = c._behavior_settings
         self._project_settings = c._project_settings
         self._classifier_type = c._classifier_type
         if c._classifier_file is not None:
@@ -568,26 +631,64 @@ class Classifier:
         return pd.concat([per_frame, window], axis=1)
 
     def _fit_random_forest(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
-        else:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs)
+        classifier = self._make_random_forest(random_seed=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = GradientBoostingClassifier(random_state=random_seed)
-        else:
-            classifier = GradientBoostingClassifier()
+        classifier = self._make_gradient_boost(random_seed=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_xgboost(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
-        else:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
+        classifier = self._make_xgboost(random_seed=random_seed)
         classifier.fit(features.replace([np.inf, -np.inf]), labels)
         return classifier
+
+    def _get_estimator_with_feature_importances(self):
+        """Return the underlying estimator that exposes `feature_importances_`, if available.
+
+        Handles calibrated classifiers by retrieving the estimator from the first
+        calibrated fold. Returns None if no estimator with `feature_importances_` is found.
+        """
+        est = self._classifier
+        # If wrapped by CalibratedClassifierCV, peel off the estimator
+        if isinstance(est, CalibratedClassifierCV):
+            try:
+                cc0 = est.calibrated_classifiers_[0]
+                est = cc0.estimator
+            except Exception:
+                return None
+        # Some sklearn/xgboost estimators expose feature_importances_
+        return est if hasattr(est, "feature_importances_") else None
+
+    def get_calibrated_feature_importances(self):
+        """Return averaged feature importances across calibrated folds.
+
+        For CalibratedClassifierCV with tree-based base estimators (RF/GBT/XGBoost),
+        this computes the mean and std of `feature_importances_` across
+        `calibrated_classifiers_` estimators and returns a list of tuples:
+        [(feature_name, mean_importance, std_importance), ...] sorted by mean desc.
+
+        Returns None if unavailable (e.g., non-tree base estimators).
+        """
+        est = self._classifier
+        if not isinstance(est, CalibratedClassifierCV):
+            return None
+        try:
+            base_ests = [cc.estimator for cc in est.calibrated_classifiers_]
+        except Exception:
+            return None
+        base_ests = [be for be in base_ests if hasattr(be, "feature_importances_")]
+        if not base_ests:
+            return None
+        importances = np.vstack([be.feature_importances_ for be in base_ests])
+        mean_imp = importances.mean(axis=0)
+        std_imp = importances.std(axis=0)
+        names = self._feature_names or [f"feature_{i}" for i in range(mean_imp.shape[0])]
+        if len(names) != len(mean_imp):
+            names = [f"feature_{i}" for i in range(len(mean_imp))]
+        items = list(zip(names, mean_imp, std_imp, strict=True))
+        items.sort(key=lambda t: t[1], reverse=True)
+        return items
 
     def print_feature_importance(self, feature_list, limit=20):
         """print the most important features and their importance
@@ -596,20 +697,37 @@ class Classifier:
             feature_list: list of feature names used in the classifier
             limit: maximum number of features to print, defaults to 20
         """
-        # Get numerical feature importance
-        importances = list(self._classifier.feature_importances_)
-        # List of tuples with variable and importance
+        # Prefer calibrated importances if available
+        if isinstance(self._classifier, CalibratedClassifierCV):
+            items = self.get_calibrated_feature_importances()
+            if items is not None:
+                print(f"{'Feature Name':100} Mean Importance  Std")
+                print("-" * 120)
+                for name, mean_imp, std_imp in items[:limit]:
+                    print(f"{name:100} {mean_imp:0.4f}        {std_imp:0.4f}")
+                return
+            # fall through to base-estimator single-source path if calibrated but no importances
+
+        # Fallback: single estimator feature_importances_
+        est = self._get_estimator_with_feature_importances()
+        if est is None:
+            print(
+                "Feature importances are unavailable for the current classifier (e.g., calibrated logistic/linear models)."
+            )
+            return
+        importances = list(est.feature_importances_)
+        names = feature_list if feature_list is not None else (self._feature_names or [])
+        if len(importances) != len(names):
+            names = [f"feature_{i}" for i in range(len(importances))]
         feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(feature_list, importances, strict=True)
+            (feature, round(importance, 4))
+            for feature, importance in zip(names, importances, strict=False)
         ]
-        # Sort the feature importance by most important first
         feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
-        # Print out the feature and importance
         print(f"{'Feature Name':100} Importance")
         print("-" * 120)
         for feature, importance in feature_importance[:limit]:
-            print(f"{feature:100} {importance:0.2f}")
+            print(f"{feature:100} {importance:0.4f}")
 
     @staticmethod
     def count_label_threshold(all_counts: dict):

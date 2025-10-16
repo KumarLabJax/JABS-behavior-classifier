@@ -20,6 +20,7 @@ from .player_widget import PlayerWidget
 from .progress_dialog import create_progress_dialog
 from .project_loader_thread import ProjectLoaderThread
 from .project_pruning_dialog import ProjectPruningDialog
+from .settings_dialog import JabsSettingsDialog
 from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_dialog import UserGuideDialog
 from .util import send_file_to_recycle_bin
@@ -118,6 +119,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._clear_cache.setEnabled(False)
         self._clear_cache.triggered.connect(self._clear_cache_action)
         app_menu.addAction(self._clear_cache)
+
+        # model calibration settings
+        self._settings_action = QtGui.QAction("JABS Settings", self)
+        self._settings_action.setStatusTip("Open settings dialog")
+        self._settings_action.setEnabled(False)
+        self._settings_action.triggered.connect(self._open_settings_dialog)
+        app_menu.addAction(self._settings_action)
 
         # exit action
         exit_action = QtGui.QAction(f" &Quit {self._app_name}", self)
@@ -725,6 +733,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._project.feature_manager.can_use_segmentation_features
         )
         self._clear_cache.setEnabled(True)
+        self._settings_action.setEnabled(True)
         available_objects = self._project.feature_manager.static_objects
         for static_object, menu_item in self.enable_landmark_features.items():
             if static_object in available_objects:
@@ -989,4 +998,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _view_license(self) -> None:
         """View the license agreement (JABS->View License Agreement menu action)"""
         dialog = LicenseAgreementDialog(self, view_only=True)
+        dialog.exec_()
+
+    def _open_settings_dialog(self) -> None:
+        """Open the settings dialog (JABS->Settings menu action)"""
+        dialog = JabsSettingsDialog(parent=self, project_settings=self._project.settings_manager)
         dialog.exec_()

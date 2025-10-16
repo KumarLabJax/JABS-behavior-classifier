@@ -655,7 +655,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
         # does the classifier match the current settings?
-        classifier_settings = self._classifier.project_settings
+        classifier_settings = self._classifier.behavior_settings
         if (
             classifier_settings is not None
             and classifier_settings.get("window_size", None) == self.window_size
