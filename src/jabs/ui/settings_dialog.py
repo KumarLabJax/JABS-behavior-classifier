@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project.settings_manager import SettingsManager
 
 
@@ -107,10 +108,10 @@ class JabsSettingsDialog(QDialog):
         self._cv_selection.setToolTip("Number of CV folds used inside the calibrator")
 
         # Load current values from project settings (keys must match classifier usage)
-        current_settings = project_settings.project_settings.get("settings", {})
+        current_settings = project_settings.project_dictionary.get("settings", {})
         calibrate = current_settings.get("calibrate_probabilities", False)
-        method = current_settings.get("calibration_method", "isotonic")
-        cv = current_settings.get("calibration_cv", 3)
+        method = current_settings.get("calibration_method", DEFAULT_CALIBRATION_METHOD)
+        cv = current_settings.get("calibration_cv", DEFAULT_CALIBRATION_CV)
 
         self._calibrate_checkbox.setChecked(calibrate)
         idx = max(0, self._method_selection.findText(method))

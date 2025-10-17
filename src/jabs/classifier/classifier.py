@@ -32,11 +32,11 @@ try:
     # we were able to import xgboost, make it available as an option:
     _classifier_choices.append(ClassifierType.XGBOOST)
 except Exception:
-    # we were unable to import the xgboost module. It's either not
-    # installed (it should be if the user used our requirements-old.txt)
-    # or it may have been unable to be imported due to a missing
-    # libomp. Either way, we won't add it to the available choices and
-    # we can otherwise ignore this exception
+    # we were unable to import the xgboost module -- possibly due to a missing
+    # libomp (which is not available by default on macOS). Mac users should
+    # install libomp via Homebrew (brew install libomp) to enable XGBoost support (this is
+    # detailed in the installation instructions).
+    # we won't add it to the available choices and we can otherwise ignore this exception
     _xgboost = None
 
 

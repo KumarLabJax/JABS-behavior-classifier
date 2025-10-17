@@ -197,6 +197,7 @@ def train(training_file: Path) -> Classifier:
     print(f"  Balanced Labels: {classifier_settings['balance_labels']}")
     print(f"  Symmetric Behavior: {classifier_settings['symmetric_behavior']}")
     print(f"  CM Units: {bool(classifier_settings['cm_units'])}")
+    print(f"  Calibrate Probabilities: {classifier.calibrate_probabilities}")
 
     return classifier
 
