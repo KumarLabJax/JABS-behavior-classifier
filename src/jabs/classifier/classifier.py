@@ -18,6 +18,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
+from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
@@ -62,7 +63,7 @@ class Classifier:
         self._classifier_type = classifier
         self._classifier = None
         self._behavior_settings = None
-        self._project_settings = None
+        self._jabs_settings = None
         self._behavior = None
         self._feature_names = None
         self._n_jobs = n_jobs
@@ -93,7 +94,9 @@ class Classifier:
 
         classifier = cls()
         classifier.behavior_name = behavior
-        classifier.set_dict_settings(loaded_training_data["settings"])
+        classifier.set_behavior_settings(loaded_training_data["behavior_settings"])
+        classifier._jabs_settings = loaded_training_data["jabs_settings"]
+
         classifier_type = ClassifierType(loaded_training_data["classifier_type"])
         if classifier_type in classifier.classifier_choices():
             classifier.set_classifier(classifier_type)
@@ -101,6 +104,7 @@ class Classifier:
             print(
                 f"Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}"
             )
+
         training_features = classifier.combine_data(
             loaded_training_data["per_frame"], loaded_training_data["window"]
         )
@@ -367,9 +371,10 @@ class Classifier:
         else:
             self._behavior_settings = project.settings_manager.get_behavior(self._behavior)
 
-        self._project_settings = project.settings_manager.project_settings.get("settings", {})
+        # grab other JABS settings from settings manager, some might be used by the classifier
+        self._jabs_settings = project.settings_manager.settings
 
-    def set_dict_settings(self, settings: dict):
+    def set_behavior_settings(self, settings: dict):
         """assign behavior-specific settings via a dict to the classifier
 
         Args:
@@ -425,14 +430,14 @@ class Classifier:
         if self._behavior_settings.get("balance_labels", False):
             features, labels = self.downsample_balance(features, labels, random_seed)
 
-        # Optional probability calibration, this is currently set at the project level
-        calibrate = self._project_settings.get("calibrate_probabilities", False)
-        calibration_method = self._project_settings.get(
-            "calibration_method", "isotonic"
-        )  # or 'sigmoid'
-        calibration_cv = self._project_settings.get("calibration_cv", 3)
+        # Optional probability calibration
+        calibrate_probabilities = self._jabs_settings.get("calibrate_probabilities", False)
+        if calibrate_probabilities:
+            calibration_method = self._jabs_settings.get(
+                "calibration_method", DEFAULT_CALIBRATION_METHOD
+            )
+            calibration_cv = self._jabs_settings.get("calibration_cv", DEFAULT_CALIBRATION_CV)
 
-        if calibrate:
             # Build an unfitted base estimator
             if self._classifier_type == ClassifierType.RANDOM_FOREST:
                 base_estimator = self._make_random_forest(random_seed=random_seed)
@@ -581,7 +586,7 @@ class Classifier:
         self._classifier = c._classifier
         self._behavior = c._behavior
         self._behavior_settings = c._behavior_settings
-        self._project_settings = c._project_settings
+        self._jabs_settings = c._jabs_settings
         self._classifier_type = c._classifier_type
         if c._classifier_file is not None:
             self._classifier_file = c._classifier_file

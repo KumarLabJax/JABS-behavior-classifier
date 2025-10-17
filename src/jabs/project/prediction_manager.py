@@ -126,7 +126,7 @@ class PredictionManager:
         file_base = Path(video).with_suffix("").name + ".h5"
         path = self._project.project_paths.prediction_dir / file_base
 
-        nident = self._project.settings_manager.project_settings["video_files"][video][
+        nident = self._project.settings_manager.project_dictionary["video_files"][video][
             "identities"
         ]
 

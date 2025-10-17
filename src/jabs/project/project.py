@@ -69,7 +69,10 @@ class Project:
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
         # write out the defaults to the project file
-        if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
+        if (
+            self._settings_manager.project_dictionary.get("defaults")
+            != self.get_project_defaults()
+        ):
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
         # Start a session tracker for this project.
@@ -110,7 +113,7 @@ class Project:
     @property
     def settings(self):
         """get the project metadata and preferences."""
-        return self._settings_manager.project_settings
+        return self._settings_manager.project_dictionary
 
     @property
     def settings_manager(self) -> SettingsManager:

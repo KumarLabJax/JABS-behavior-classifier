@@ -532,7 +532,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """handle project updates required when user adds new behavior labels"""
         # check for new behaviors
         for behavior in behaviors:
-            if behavior not in self._project.settings_manager.project_settings["behavior"]:
+            if behavior not in self._project.settings_manager.project_dictionary["behavior"]:
                 # save new behavior with default settings
                 self._project.settings_manager.save_behavior(behavior, {})
 
