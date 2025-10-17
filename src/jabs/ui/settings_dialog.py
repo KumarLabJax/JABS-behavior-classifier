@@ -169,6 +169,7 @@ class JabsSettingsDialog(QDialog):
               <li><b>calibration_cv</b>: Number of folds used internally by the calibrator. Typical values are 3-5.
                 Each fold fits the base model and calibrates on held-out training data to avoid leakage.</li>
             </ul>
+            <p>Isotonic is recommended, since it should work well in most cases (>~2000 labeled samples).</p>
             <p><b>Tip</b>: If you see probabilities stuck near 0/1, try enabling calibration.</p>
             """
         )
