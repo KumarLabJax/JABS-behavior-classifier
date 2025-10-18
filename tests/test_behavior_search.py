@@ -51,7 +51,7 @@ def _make_project(
 
 
 def _correct_probs(preds, probs):
-    """Move 0.0 - 1.0 probaabilities into 0.5 - 1.0 range based on predictions."""
+    """Move 0.0 - 1.0 probabilities into 0.5 - 1.0 range based on predictions."""
     probs = probs.copy()
     probs[preds == 0] = 1.0 - probs[preds == 0]
 
