@@ -655,7 +655,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.set_classifier_selection(self._classifier.classifier_type)
 
         # does the classifier match the current settings?
-        classifier_settings = self._classifier.project_settings
+        classifier_settings = self._classifier.behavior_settings
         if (
             classifier_settings is not None
             and classifier_settings.get("window_size", None) == self.window_size
@@ -675,7 +675,7 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
 
-        # setup training thread
+        # setup training thread, training thread will configure self._classifier with current settings
         self._training_thread = TrainingThread(
             self._classifier,
             self._project,

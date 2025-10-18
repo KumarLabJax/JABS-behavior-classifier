@@ -124,7 +124,7 @@ def main():
         print(f"\nClassifier: {classifier.classifier_name}")
         print(f"Behavior: {features['behavior']}")
         unit = (
-            "cm" if classifier.project_settings["cm_units"] == ProjectDistanceUnit.CM else "pixel"
+            "cm" if classifier.behavior_settings["cm_units"] == ProjectDistanceUnit.CM else "pixel"
         )
         print(f"Feature Distance Unit: {unit}")
         print("-" * 70)
