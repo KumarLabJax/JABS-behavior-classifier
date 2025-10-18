@@ -40,7 +40,7 @@ def _make_project(
 
     # SettingsManager mock
     settings_manager = MagicMock()
-    settings_manager.project_settings = project_settings or {}
+    settings_manager.project_dictionary = project_settings or {}
 
     # Project mock
     project = MagicMock()
