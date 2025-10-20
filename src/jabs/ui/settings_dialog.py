@@ -159,18 +159,21 @@ class JabsSettingsDialog(QDialog):
             """
             <h3>What do these parameters do?</h3>
             <p><b>Calibrate probabilities</b> remaps raw model scores to better probabilities, using a small
-            cross-validation inside training. This improves metrics like log-loss and decision thresholds.
-            </p>
+            cross-validation inside training. This improves metrics like log-loss and decision thresholds.</p>
             <ul>
               <li><b>calibration_method</b>:<br/>
-                <i>isotonic</i> (default) is a flexible, non-parametric mapping that often yields the best
-                calibration when you have enough data. <i>sigmoid</i> (a.k.a. Platt scaling) is more constrained and
-                can be better on small datasets.</li>
-              <li><b>calibration_cv</b>: Number of folds used internally by the calibrator. Typical values are 3-5.
-                Each fold fits the base model and calibrates on held-out training data to avoid leakage.</li>
+                <i>isotonic</i> (recommended) works best when you have <b>at least ~2000 labeled samples</b>
+                (ideally balanced). It learns a flexible mapping and produces very accurate probabilities.<br/>
+                <i>sigmoid</i> (Platt scaling) is safer for <b>smaller datasets</b> (below ~2000 labels) and is less likely
+                to overfit on limited data.</li>
+              <li><b>calibration_cv</b>: Number of folds used internally by the calibrator. Typical values are <b>3-5</b>.
+                Each fold fits the base model and calibrates on held-out training data to avoid leakage.
+                Larger values slow training without meaningful benefit.</li>
             </ul>
-            <p>Isotonic is recommended, since it should work well in most cases (>~2000 labeled samples).</p>
-            <p><b>Tip</b>: If you see probabilities stuck near 0/1, try enabling calibration.</p>
+            <p><b>When to use isotonic:</b> If you have thousands of labeled frames and probabilities seem too extreme
+            (many near 0 or 1), isotonic will give smoother and more realistic confidence scores.</p>
+            <p><b>Tip:</b> If training is slow or your dataset is small, start with <code>sigmoid</code> and
+            <code>calibration_cv = 3</code>. You can switch to isotonic later as your dataset grows.</p>
             """
         )
         help_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
