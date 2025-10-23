@@ -99,7 +99,7 @@ def load_training_data(training_file: Path):
         # load other jabs settings that might or might not be present
         calibrate_probabilities = in_h5.attrs.get("calibrate_probabilities", False)
         if calibrate_probabilities:
-            features["jabs_settings"].extend(
+            features["jabs_settings"].update(
                 {
                     "calibrate_probabilities": calibrate_probabilities,
                     "calibration_method": in_h5.attrs.get(

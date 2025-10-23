@@ -130,12 +130,18 @@ class TrainingThread(QThread):
                     self._classifier.behavior_name = self._behavior
                     self._classifier.set_project_settings(self._project)
                     self._classifier.train(data)
-                    predictions = self._classifier.predict(data["test_data"])
+                    # get predicted probabilities for the positive class (class 1)
+                    probabilities = self._classifier.predict_proba(data["test_data"])
+                    positive_proba = probabilities[:, 1]
+
+                    # derive binary predictions by thresholding probabilities
+                    predictions = (positive_proba >= self._classifier.TRUE_THRESHOLD).astype(int)
 
                     # calculate some performance metrics using the classifications
                     accuracy = self._classifier.accuracy_score(data["test_labels"], predictions)
                     pr = self._classifier.precision_recall_score(data["test_labels"], predictions)
                     confusion = self._classifier.confusion_matrix(data["test_labels"], predictions)
+                    brier_score = self._classifier.brier_score(data["test_labels"], probabilities)
 
                     table_rows.append(
                         [
@@ -146,6 +152,7 @@ class TrainingThread(QThread):
                             pr[1][1],
                             pr[2][0],
                             pr[2][1],
+                            brier_score,
                             f"{test_info['video']} [{test_info['identity']}]",
                         ]
                     )
@@ -188,8 +195,9 @@ class TrainingThread(QThread):
                             "precision\n(behavior)",
                             "recall\n(not behavior)",
                             "recall\n(behavior)",
-                            "f beta score\n(not behavior)",
-                            "f beta score\n(behavior)",
+                            "F-1 score\n(not behavior)",
+                            "F-1 score\n(behavior)",
+                            "Brier score",
                             "test - leave one out:\n(video [identity])",
                         ],
                     )

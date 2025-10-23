@@ -13,6 +13,7 @@ from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
+    brier_score_loss,
     confusion_matrix,
     precision_recall_fscore_support,
 )
@@ -52,6 +53,7 @@ class Classifier:
     """
 
     LABEL_THRESHOLD = 20
+    TRUE_THRESHOLD = 0.5
 
     _CLASSIFIER_NAMES: typing.ClassVar[dict] = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
@@ -172,6 +174,13 @@ class Classifier:
     def feature_names(self) -> list:
         """returns the list of feature names used when training this classifier"""
         return self._feature_names
+
+    @property
+    def calibrate_probabilities(self) -> bool:
+        """return whether the classifier is set to calibrate probabilities"""
+        if self._jabs_settings is not None:
+            return self._jabs_settings.get("calibrate_probabilities", False)
+        return False
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -431,8 +440,7 @@ class Classifier:
             features, labels = self.downsample_balance(features, labels, random_seed)
 
         # Optional probability calibration
-        calibrate_probabilities = self._jabs_settings.get("calibrate_probabilities", False)
-        if calibrate_probabilities:
+        if self.calibrate_probabilities:
             calibration_method = self._jabs_settings.get(
                 "calibration_method", DEFAULT_CALIBRATION_METHOD
             )
@@ -621,6 +629,24 @@ class Classifier:
     def confusion_matrix(truth, predictions):
         """return the confusion matrix using sklearn's confusion_matrix function"""
         return confusion_matrix(truth, predictions)
+
+    @staticmethod
+    def brier_score(truth, proba):
+        """Return the Brier score (lower is better).
+
+        Args:
+            truth: array-like of true binary labels (0/1).
+            proba: array of predicted probabilities for the positive class; can be shape (n_samples,)
+                   or a (n_samples, 2) array from `predict_proba`.
+
+        Returns:
+            float Brier score.
+        """
+        proba = np.asarray(proba)
+        if proba.ndim == 2:
+            # assume columns [P(neg), P(pos)] as returned by predict_proba
+            proba = proba[:, 1]
+        return brier_score_loss(truth, proba)
 
     @staticmethod
     def combine_data(per_frame, window):

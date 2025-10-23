@@ -137,13 +137,13 @@ def classify_pose(
             data = Classifier.combine_data(per_frame_features, window_features)
 
             if data.shape[0] > 0:
-                pred = classifier.predict(data)
                 pred_prob = classifier.predict_proba(data)
+                positive_proba = pred_prob[:, 1]
 
-                # Keep the probability for the predicted class only.
-                # The following code uses some
-                # numpy magic to use the pred array as column indexes
-                # for each row of the pred_prob array we just computed.
+                # Derive predicted labels by thresholding at 0.5
+                pred = (positive_proba >= classifier.TRUE_THRESHOLD).astype(int)
+
+                # Keep the probability of the predicted class
                 pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
                 # Only copy out predictions where there was a valid pose

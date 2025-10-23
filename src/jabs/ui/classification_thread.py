@@ -130,23 +130,18 @@ class ClassifyThread(QThread):
 
                     check_termination_requested()
                     if data.shape[0] > 0:
-                        # make predictions
-                        # Note: this makes predictions for all frames in the video, even those without valid pose
-                        # We will later filter these out when saving the predictions to disk
-                        # consider changing this to only predict on frames with valid pose
-                        predictions[video][identity] = self._classifier.predict(data)
-
-                        # also get the probabilities
+                        # get predicted probabilities for the positive class (class 1)
                         prob = self._classifier.predict_proba(data)
-                        # Save the probability for the predicted class only.
-                        # The following code uses some
-                        # numpy magic to use the _predictions array as column indexes
-                        # for each row of the 'prob' array we just computed.
-                        probabilities[video][identity] = prob[
-                            np.arange(len(prob)), predictions[video][identity]
-                        ]
+                        positive_proba = prob[:, 1]
 
-                        # save the indexes for the predicted frames
+                        # derive binary predictions by thresholding probabilities
+                        preds = (positive_proba >= self._classifier.TRUE_THRESHOLD).astype(int)
+                        predictions[video][identity] = preds
+
+                        # save probability of the predicted class for each frame
+                        probabilities[video][identity] = prob[np.arange(len(prob)), preds]
+
+                        # store the frame indexes corresponding to each prediction
                         frame_indexes[video][identity] = feature_values["frame_indexes"]
                     else:
                         predictions[video][identity] = np.array(0)
