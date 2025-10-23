@@ -54,6 +54,7 @@ class Classifier:
 
     LABEL_THRESHOLD = 20
     TRUE_THRESHOLD = 0.5
+    CALIBRATION_METHODS: typing.ClassVar[list[str]] = ["auto", "isotonic", "sigmoid"]
 
     _CLASSIFIER_NAMES: typing.ClassVar[dict] = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
@@ -181,6 +182,38 @@ class Classifier:
         if self._jabs_settings is not None:
             return self._jabs_settings.get("calibrate_probabilities", False)
         return False
+
+    @staticmethod
+    def _choose_auto_calibration_method(
+        labels: np.ndarray, calibration_cv: int
+    ) -> tuple[str, dict]:
+        """Choose 'isotonic' or 'sigmoid' based on data size per calibration fold.
+
+        Heuristic:
+          - Compute class counts on the *training set labels* passed in.
+          - Estimate per-fold calibration set size as min(pos, neg) / calibration_cv
+            (because CalibratedClassifierCV uses 1/cv of the train split for calibration).
+          - If per-fold per-class counts >= 500 ➜ 'isotonic', else 'sigmoid'.
+
+        Returns:
+          (method, info_dict) where info_dict contains counts used for logging.
+        """
+        # count positive and negative labels
+        pos = int(np.sum(labels == TrackLabels.Label.BEHAVIOR))
+        neg = int(np.sum(labels == TrackLabels.Label.NOT_BEHAVIOR))
+        min_per_class = min(pos, neg)
+        per_fold_per_class = max(0, min_per_class // calibration_cv)
+
+        # Threshold for isotonic safety
+        threshold = 500
+        method = "isotonic" if per_fold_per_class >= threshold else "sigmoid"
+        return method, {
+            "pos_total": pos,
+            "neg_total": neg,
+            "cv": calibration_cv,
+            "per_fold_per_class": per_fold_per_class,
+            "threshold": threshold,
+        }
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -408,7 +441,7 @@ class Classifier:
         """
         return {d: self._CLASSIFIER_NAMES[d] for d in _classifier_choices}
 
-    def train(self, data, random_seed: int | None = None):
+    def train(self, data: dict, random_seed: int | None = None) -> None:
         """train the classifier
 
         Args:
@@ -441,10 +474,37 @@ class Classifier:
 
         # Optional probability calibration
         if self.calibrate_probabilities:
+            # get and validate calibration settings
             calibration_method = self._jabs_settings.get(
                 "calibration_method", DEFAULT_CALIBRATION_METHOD
             )
+            if calibration_method.lower() not in self.CALIBRATION_METHODS:
+                raise ValueError(
+                    f"Invalid calibration method: {calibration_method}. Must be one of {self.CALIBRATION_METHODS}"
+                )
             calibration_cv = self._jabs_settings.get("calibration_cv", DEFAULT_CALIBRATION_CV)
+
+            # Auto-select method if requested, always figure out what the auto method would be because some of the
+            # selection info is still useful for warnings/logging purposes if the user specified a method explicitly
+            auto_method, auto_method_info = self._choose_auto_calibration_method(
+                labels, calibration_cv
+            )
+            if calibration_method.lower() == "auto":
+                calibration_method = auto_method
+            else:
+                # Optional safety warning: isotonic with small per-fold sets can overfit
+                if (
+                    str(calibration_method).lower() == "isotonic"
+                    and auto_method_info["per_fold_per_class"] < auto_method_info["threshold"]
+                ):
+                    warnings.warn(
+                        (
+                            "Isotonic calibration selected but per-fold per-class count appears small "
+                            f"(~{auto_method_info['per_fold_per_class']}). Consider 'sigmoid' or lowering calibration_cv."
+                        ),
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
 
             # Build an unfitted base estimator
             if self._classifier_type == ClassifierType.RANDOM_FOREST:
@@ -631,22 +691,21 @@ class Classifier:
         return confusion_matrix(truth, predictions)
 
     @staticmethod
-    def brier_score(truth, proba):
+    def brier_score(truth: np.ndarray, probabilities: np.ndarray) -> float:
         """Return the Brier score (lower is better).
 
         Args:
-            truth: array-like of true binary labels (0/1).
-            proba: array of predicted probabilities for the positive class; can be shape (n_samples,)
+            truth (ndarray): array of true binary labels (0/1).
+            probabilities (ndarray): array of predicted probabilities for the positive class; can be shape (n_samples,)
                    or a (n_samples, 2) array from `predict_proba`.
 
         Returns:
             float Brier score.
         """
-        proba = np.asarray(proba)
-        if proba.ndim == 2:
+        if probabilities.ndim == 2:
             # assume columns [P(neg), P(pos)] as returned by predict_proba
-            proba = proba[:, 1]
-        return brier_score_loss(truth, proba)
+            probabilities = probabilities[:, 1]
+        return brier_score_loss(truth, probabilities)
 
     @staticmethod
     def combine_data(per_frame, window):

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabs.classifier import Classifier
 from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project.settings_manager import SettingsManager
 
@@ -100,7 +101,7 @@ class JabsSettingsDialog(QDialog):
         )
         self._method_selection = QComboBox()
         self._method_selection.addItems(
-            ["isotonic", "sigmoid"]
+            Classifier.CALIBRATION_METHODS
         )  # default will be set from settings
         self._cv_selection = QSpinBox()
         self._cv_selection.setRange(2, 10)
@@ -158,22 +159,32 @@ class JabsSettingsDialog(QDialog):
         help_label.setText(
             """
             <h3>What do these parameters do?</h3>
-            <p><b>Calibrate probabilities</b> remaps raw model scores to better probabilities, using a small
-            cross-validation inside training. This improves metrics like log-loss and decision thresholds.</p>
+            <p><b>Calibrate probabilities</b> remaps raw model scores to better probabilities using
+            cross-validation inside training. This improves log-loss, Brier score, and makes thresholding
+            (e.g., show if p ≥ 0.7) more reliable.</p>
+
             <ul>
               <li><b>calibration_method</b>:<br/>
-                <i>isotonic</i> (recommended) works best when you have <b>at least ~2000 labeled samples</b>
-                (ideally balanced). It learns a flexible mapping and produces very accurate probabilities.<br/>
-                <i>sigmoid</i> (Platt scaling) is safer for <b>smaller datasets</b> (below ~2000 labels) and is less likely
-                to overfit on limited data.</li>
+                <b>auto (default)</b> — automatically selects between <i>isotonic</i> and <i>sigmoid</i> calibration
+                using a simple heuristic based on data size. If each calibration fold has roughly
+                <b>≥ 500 labeled samples per class</b>, isotonic is used; otherwise, sigmoid is chosen for stability.
+                Larger number of folds (<code>calibration_cv</code> setting) increase the data required for selecting
+                isotonic.<br/>
+                <b>isotonic:</b> learns a flexible mapping and produces highly accurate probabilities when enough
+                data is available, but can overfit if the calibration set is small.<br/>
+                <b>sigmoid:</b> (Platt scaling) is smoother and more stable for smaller datasets.
+              </li>
               <li><b>calibration_cv</b>: Number of folds used internally by the calibrator. Typical values are <b>3-5</b>.
                 Each fold fits the base model and calibrates on held-out training data to avoid leakage.
-                Larger values slow training without meaningful benefit.</li>
+                Larger values slow training and require more data per fold for isotonic calibration to be effective.
+              </li>
             </ul>
-            <p><b>When to use isotonic:</b> If you have thousands of labeled frames and probabilities seem too extreme
-            (many near 0 or 1), isotonic will give smoother and more realistic confidence scores.</p>
-            <p><b>Tip:</b> If training is slow or your dataset is small, start with <code>sigmoid</code> and
-            <code>calibration_cv = 3</code>. You can switch to isotonic later as your dataset grows.</p>
+
+            <p><b>Guidance:</b> If your dataset is large (thousands of labeled frames and roughly balanced),
+            <i>auto</i> will select isotonic. If it selects sigmoid, you can collect more labels or reduce
+            <code>calibration_cv</code> to allow isotonic to activate.</p>
+
+            <p><b>Tip:</b> Most users should leave <code>calibration_method = auto</code>.</p>
             """
         )
         help_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
