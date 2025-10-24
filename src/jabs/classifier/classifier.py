@@ -6,9 +6,11 @@ from importlib import import_module
 from pathlib import Path
 
 import joblib
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
@@ -23,6 +25,9 @@ from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
+
+matplotlib.use("Agg")  # use non-GUI backend to avoid thread warnings
+
 
 _VERSION = 10
 
@@ -414,7 +419,7 @@ class Classifier:
             self._behavior_settings = project.settings_manager.get_behavior(self._behavior)
 
         # grab other JABS settings from settings manager, some might be used by the classifier
-        self._jabs_settings = project.settings_manager.settings
+        self._jabs_settings = project.settings_manager.jabs_settings
 
     def set_behavior_settings(self, settings: dict):
         """assign behavior-specific settings via a dict to the classifier
@@ -706,6 +711,83 @@ class Classifier:
             # assume columns [P(neg), P(pos)] as returned by predict_proba
             probabilities = probabilities[:, 1]
         return brier_score_loss(truth, probabilities)
+
+    @staticmethod
+    def plot_reliability(
+        truth: np.ndarray,
+        probabilities: np.ndarray,
+        out_path: Path | str,
+        n_bins: int = 10,
+        strategy: str = "uniform",
+        title: str | None = None,
+        show_hist: bool = True,
+    ) -> dict:
+        """Create and save a reliability (calibration) plot.
+
+        Args:
+            truth: Binary ground truth labels (0 or 1).
+            probabilities: Predicted probabilities (2D array where second column is positive class).
+            out_path: File path to save the reliability plot.
+            n_bins: Number of bins for calibration curve.
+            strategy: Binning strategy ('uniform' or 'quantile').
+            title: Optional plot title.
+            show_hist: If True, adds a histogram of predicted probabilities below the curve.
+
+        Returns:
+            Dict with calibration data: 'bins', 'mean_pred', 'frac_pos', and 'counts'.
+        """
+        prob = probabilities[:, 1]
+        y = np.asarray(truth).astype(int)
+
+        pos = int(np.sum(y == 1))
+        neg = int(np.sum(y == 0))
+        if pos == 0 or neg == 0:
+            warnings.warn(
+                "plot_reliability: need both positive and negative labels.", stacklevel=2
+            )
+
+        # Compute calibration curve
+        frac_pos, mean_pred = calibration_curve(y, prob, n_bins=n_bins, strategy=strategy)
+
+        # Bin edges and counts
+        if strategy == "uniform":
+            bins = np.linspace(0.0, 1.0, n_bins + 1)
+            counts, _ = np.histogram(prob, bins=bins)
+        else:
+            q = np.linspace(0.0, 1.0, n_bins + 1)
+            bins = np.quantile(prob, q)
+            bins = np.unique(bins)
+            counts, _ = np.histogram(prob, bins=bins)
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(6.5, 4.5))
+        ax.plot([0, 1], [0, 1], "--", color="gray", label="Perfect calibration")
+        ax.plot(mean_pred, frac_pos, marker="o", color="C0", label="Model")
+        ax.set_xlabel("Predicted probability")
+        ax.set_ylabel("Empirical frequency")
+        if title:
+            ax.set_title(title)
+        ax.legend(loc="best")
+
+        if show_hist:
+            ax_hist = ax.twinx()
+            ax_hist.set_ylim(0, max(counts) * 1.2 if counts.size else 1)
+            display_bins = bins if strategy == "uniform" else 10
+            ax_hist.hist(prob, bins=display_bins, alpha=0.25, color="C1")
+            ax_hist.set_yticks([])
+
+        fig.tight_layout()
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+
+        return {
+            "bins": bins,
+            "mean_pred": mean_pred,
+            "frac_pos": frac_pos,
+            "counts": counts,
+        }
 
     @staticmethod
     def combine_data(per_frame, window):

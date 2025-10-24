@@ -65,14 +65,14 @@ def export_training_data(
         write_project_settings(out_h5, project.settings_manager.get_behavior(behavior), "settings")
         out_h5.attrs["classifier_type"] = classifier_type.value
         out_h5.attrs["training_seed"] = training_seed
-        out_h5.attrs["calibrate_probabilities"] = project.settings_manager.settings.get(
+        out_h5.attrs["calibrate_probabilities"] = project.settings_manager.jabs_settings.get(
             "calibrate_probabilities", False
         )
         if out_h5.attrs["calibrate_probabilities"]:
-            out_h5.attrs["calibration_method"] = project.settings_manager.settings.get(
+            out_h5.attrs["calibration_method"] = project.settings_manager.jabs_settings.get(
                 "calibration_method", DEFAULT_CALIBRATION_METHOD
             )
-            out_h5.attrs["calibration_cv"] = project.settings_manager.settings.get(
+            out_h5.attrs["calibration_cv"] = project.settings_manager.jabs_settings.get(
                 "calibration_cv", DEFAULT_CALIBRATION_CV
             )
 

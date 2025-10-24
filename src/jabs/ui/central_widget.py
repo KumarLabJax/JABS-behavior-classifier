@@ -277,7 +277,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
-        self._controls.update_project_settings(project.settings)
+        self._controls.update_project_settings(project.settings_manager.project_info)
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()
 

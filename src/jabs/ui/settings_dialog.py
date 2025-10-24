@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QCheckBox,
@@ -83,14 +84,14 @@ class JabsSettingsDialog(QDialog):
     Dialog for changing project settings.
 
     Args:
-        project_settings (SettingsManager): Project settings manager used to load and save settings.
+        settings_manager (SettingsManager): Project settings manager used to load and save settings.
         parent (QWidget | None, optional): Parent widget for this dialog. Defaults to None.
     """
 
-    def __init__(self, project_settings: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(self, settings_manager: SettingsManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Project Settings")
-        self._settings_manager = project_settings
+        self._settings_manager = settings_manager
 
         # Allow resizing and show scrollbars if content overflows
         self.setSizeGripEnabled(True)
@@ -100,24 +101,27 @@ class JabsSettingsDialog(QDialog):
             "Enable probability calibration (calibrate_probabilities)"
         )
         self._method_selection = QComboBox()
-        self._method_selection.addItems(
-            Classifier.CALIBRATION_METHODS
-        )  # default will be set from settings
+        self._method_selection.addItems(Classifier.CALIBRATION_METHODS)
         self._cv_selection = QSpinBox()
         self._cv_selection.setRange(2, 10)
         self._cv_selection.setAccelerated(True)
         self._cv_selection.setToolTip("Number of CV folds used inside the calibrator")
+        self._save_reliability_checkbox = QCheckBox("Save reliability plots")
+        self._save_reliability_checkbox.setToolTip(
+            "If enabled, save reliability (calibration) plots after training/validation."
+        )
 
-        # Load current values from project settings (keys must match classifier usage)
-        current_settings = project_settings.project_dictionary.get("settings", {})
+        # Load current values from project settings
+        current_settings = settings_manager.jabs_settings
         calibrate = current_settings.get("calibrate_probabilities", False)
         method = current_settings.get("calibration_method", DEFAULT_CALIBRATION_METHOD)
         cv = current_settings.get("calibration_cv", DEFAULT_CALIBRATION_CV)
+        save_reliability = current_settings.get("save_reliability_plots", False)
 
         self._calibrate_checkbox.setChecked(calibrate)
-        idx = max(0, self._method_selection.findText(method))
-        self._method_selection.setCurrentIndex(idx)
+        self._method_selection.setCurrentIndex(max(0, self._method_selection.findText(method)))
         self._cv_selection.setValue(cv)
+        self._save_reliability_checkbox.setChecked(save_reliability)
 
         # Layout for form
         form = QWidget(self)
@@ -127,7 +131,9 @@ class JabsSettingsDialog(QDialog):
         grid.setVerticalSpacing(8)
         grid.setColumnStretch(0, 0)  # labels column: natural size
         grid.setColumnStretch(1, 0)  # inputs column: natural size
-        grid.setColumnStretch(2, 1)  # expanding whitespace to the right
+        grid.setColumnStretch(
+            2, 1
+        )  # consume extra width on the right (keeps content left-aligned)
 
         # Keep inputs compact; whitespace grows in column 2
         self._method_selection.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
@@ -138,6 +144,9 @@ class JabsSettingsDialog(QDialog):
         self._cv_selection.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self._calibrate_checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._save_reliability_checkbox.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
 
         grid.addWidget(QLabel("Calibrate probabilities:"), 0, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self._calibrate_checkbox, 0, 1)
@@ -148,8 +157,10 @@ class JabsSettingsDialog(QDialog):
         grid.addWidget(QLabel("calibration cv (folds):"), 2, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self._cv_selection, 2, 1)
 
+        grid.addWidget(QLabel("Save reliability plots:"), 3, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self._save_reliability_checkbox, 3, 1)
         grid.addItem(
-            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 0, 2, 3, 1
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 0, 2, 4, 1
         )
 
         # Help / inline docs (rich text)
@@ -185,6 +196,9 @@ class JabsSettingsDialog(QDialog):
             <code>calibration_cv</code> to allow isotonic to activate.</p>
 
             <p><b>Tip:</b> Most users should leave <code>calibration_method = auto</code>.</p>
+            <p><b>Saving reliability plots:</b> If <i>Save reliability plots</i> is enabled, JABS will write reliability
+            figures after training/validation to <code>&lt;project dir&gt;/plots/&lt;timestamp&gt;/</code>.
+            Each run creates a new timestamped folder so results are easy to compare.</p>
             """
         )
         help_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -196,13 +210,20 @@ class JabsSettingsDialog(QDialog):
         help_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         _help_toggle_btn = (
             calibration_help_panel._toggle_btn
-        )  # internal; used to wire scrolling after scroll area is created
+        )  # used to wire scrolling after scroll area is created
 
-        # When the collapsible expands/collapses, grow the group box to fit content and leave scrolling to the dialog
         def _reflow_calibration_group():
+            """Recompute sizes so the group grows to fit all help content; scrolling handled by the dialog"""
+            help_label.adjustSize()
+            calibration_help_panel.adjustSize()
             calibration_group.adjustSize()
+            page.adjustSize()
             page_layout.activate()
-            scroll.ensureWidgetVisible(calibration_help_panel)
+            page.adjustSize()
+            # Sync page width so group box fills viewport when scrollbar appears/disappears
+            self._sync_page_width()
+            # Defer one tick so QScrollArea can recompute its scroll range correctly
+            QTimer.singleShot(0, lambda: scroll.ensureWidgetVisible(calibration_help_panel))
 
         calibration_help_panel.sizeChanged.connect(_reflow_calibration_group)
 
@@ -229,21 +250,29 @@ class JabsSettingsDialog(QDialog):
 
         scroll = QScrollArea(self)
         scroll.setWidget(page)
-        scroll.setWidgetResizable(True)
+        page.adjustSize()
+        scroll.setWidgetResizable(False)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Keep references for width syncing so the group box fills the viewport width
+        self._scroll = scroll
+        self._page = page
 
         # Keep content width constant: viewport gutter above matches scrollbar width
         scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
 
         def _on_help_toggled(checked: bool) -> None:
             if checked:
-                # Only scroll; don't resize caps — keeps scrollbar on the window only
-                scroll.ensureWidgetVisible(calibration_help_panel)
+                # Defer one tick so QScrollArea can recompute its scroll range correctly, then scroll to the panel
+                QTimer.singleShot(0, lambda: scroll.ensureWidgetVisible(calibration_help_panel))
 
         _help_toggle_btn.toggled.connect(_on_help_toggled)
+
+        # Initial width sync
+        self._sync_page_width()
 
         # Buttons
         btn_box = QDialogButtonBox(self)
@@ -263,6 +292,40 @@ class JabsSettingsDialog(QDialog):
         self.adjustSize()
         self.resize(max(self.width(), 700), max(self.height(), 600))
 
+    def _sync_page_width(self) -> None:
+        """Ensure the inner page expands to the scroll viewport width to avoid right-side whitespace."""
+        try:
+            vp = self._scroll.viewport()
+            if vp is not None:
+                w = vp.width()
+                # Fill available width; when the vertical scrollbar appears, viewport width shrinks automatically
+                self._page.setMinimumWidth(w)
+                self._page.updateGeometry()
+        except Exception:
+            pass
+
+    def showEvent(self, e: QShowEvent) -> None:
+        """Handle the show event.
+
+        Ensures the settings page width is synchronized with the viewport when the dialog is first shown.
+
+        Args:
+            e (QShowEvent): The Qt show event.
+        """
+        super().showEvent(e)
+        self._sync_page_width()
+
+    def resizeEvent(self, e: QResizeEvent) -> None:
+        """Handle the resize event.
+
+        Ensures the settings page width matches the viewport width when the dialog is resized.
+
+        Args:
+            e (QResizeEvent): The Qt resize event.
+        """
+        super().resizeEvent(e)
+        self._sync_page_width()
+
     def _on_save(self) -> None:
         """Save settings to project and close dialog."""
         settings = {
@@ -270,6 +333,7 @@ class JabsSettingsDialog(QDialog):
                 "calibrate_probabilities": self._calibrate_checkbox.isChecked(),
                 "calibration_method": self._method_selection.currentText(),
                 "calibration_cv": self._cv_selection.value(),
+                "save_reliability_plots": self._save_reliability_checkbox.isChecked(),
             }
         }
         self._settings_manager.save_project_file(settings)

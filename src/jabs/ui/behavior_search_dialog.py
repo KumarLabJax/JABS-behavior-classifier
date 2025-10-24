@@ -58,8 +58,8 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
         self.setModal(True)
         self.resize(500, 320)
 
-        proj_settings = project.settings
-        self._behavior_labels = sorted(proj_settings.get("behavior", {}).keys())
+        proj_info = project.settings_manager.project_info
+        self._behavior_labels = sorted(proj_info.get("behavior", {}).keys())
 
         # === Main Layout ===
         main_layout = QtWidgets.QVBoxLayout(self)

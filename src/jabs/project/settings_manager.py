@@ -57,7 +57,7 @@ class SettingsManager:
         tmp.replace(self._paths.project_file)
 
     @property
-    def project_dictionary(self) -> dict:
+    def project_info(self) -> dict:
         """Get a copy of the current project properties and settings.
 
         Returns:
@@ -66,7 +66,7 @@ class SettingsManager:
         return dict(self._project_info)
 
     @property
-    def settings(self) -> dict:
+    def jabs_settings(self) -> dict:
         """Get a copy of general JABS settings from project file
 
         Returns:

@@ -1,3 +1,5 @@
+import datetime
+
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
@@ -74,6 +76,16 @@ class TrainingThread(QThread):
         and print the most important features
         """
         self._tasks_complete = 0
+
+        # Capture timestamp at start of training run
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Prepare path for reliability plots if enabled
+        if self._project.settings_manager.jabs_settings.get("save_reliability_plots", False):
+            plots_dir = self._project.project_paths.project_dir / "plots" / timestamp
+            plots_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            plots_dir = None
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -178,6 +190,13 @@ class TrainingThread(QThread):
                     print("-" * 70)
                     print("Top 10 features by importance:")
                     self._classifier.print_feature_importance(data["feature_names"], 10)
+
+                    # save calibration curve plot for this iteration
+                    if plots_dir is not None:
+                        plot_path = plots_dir / f"calibration_curve_iter_{i + 1}.png"
+                        self._classifier.plot_reliability(
+                            data["test_labels"], probabilities, plot_path, n_bins=5
+                        )
 
                     # let the parent thread know that we've finished this iteration
                     self._tasks_complete += 1
