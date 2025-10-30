@@ -55,7 +55,7 @@ class Project:
     """
 
     def __init__(
-        self, project_path, use_cache=True, enable_video_check=True, enable_session_tracker=True
+        self, project_path, use_cache=True, enable_video_check=True, enable_session_tracker=False
     ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
