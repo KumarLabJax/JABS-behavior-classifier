@@ -13,7 +13,7 @@ import click
 from rich.console import Console
 
 from jabs.classifier import Classifier
-from jabs.project import Project, export_training_data
+from jabs.project import Project, export_training_data, get_videos_to_prune
 from jabs.types import ClassifierType
 
 # find out which classifiers are supported in this environment
@@ -154,6 +154,79 @@ def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
     status_text = f"Renaming behavior '{old_name}' to '{new_name}'"
     with console.status(status_text, spinner="dots"):
         jabs_project.rename_behavior(old_name, new_name)
+
+
+@cli.command(name="prune")
+@click.argument(
+    "directory",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.option(
+    "--behavior",
+    type=str,
+    default=None,
+    help="Filter by behavior name. If provided, only videos labeled for this behavior will be retained; otherwise, all videos with any labeled behavior are kept.",
+)
+@click.pass_context
+def prune(ctx, directory: Path, behavior: str | None):
+    """Prune unused videos from a JABS project directory."""
+    if not Project.is_valid_project_directory(directory):
+        raise click.ClickException(f"Invalid JABS project directory: {directory}")
+
+    project = Project(directory)
+    videos_to_prune = get_videos_to_prune(project, behavior)
+
+    if not videos_to_prune:
+        click.echo("No videos to prune.")
+        return
+
+    click.echo(
+        f"Found {len(videos_to_prune)} videos to prune out of {len(project.video_manager.videos)} total videos."
+    )
+    click.echo("The following videos will be removed:")
+    for video_path in videos_to_prune:
+        click.echo(f" - {video_path.video_path.name}")
+
+    confirm = click.confirm("Do you want to proceed with pruning these videos?", default=False)
+
+    if not confirm:
+        click.echo("Pruning cancelled.")
+        return
+
+    for video_paths in videos_to_prune:
+        # get related files that also need to be cleaned up
+        derived_files = project.get_derived_file_paths(video_paths.video_path.name)
+
+        # Remove files, ignore file not found errors
+        try:
+            video_paths.video_path.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            click.echo(f"Warning: failed to delete video or pose file: {e}")
+
+        try:
+            video_paths.pose_path.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            click.echo(f"Warning: failed to delete video or pose file: {e}")
+
+        for file in derived_files:
+            try:
+                file.unlink()
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                click.echo(f"Warning: failed to delete derived file {file}: {e}")
+
+        # remove from the project.json file
+        project.settings_manager.purge_video(video_paths.video_path.name)
 
 
 def main():

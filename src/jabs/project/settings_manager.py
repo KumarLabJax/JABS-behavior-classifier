@@ -97,15 +97,25 @@ class SettingsManager:
         """
         return self._project_info["video_files"][video].get("metadata", {})
 
-    def set_project_metadata(self, metadata: dict) -> None:
-        """Set or replace project and per-video metadata.
-
-        Removes any existing project-level and per-video metadata, then sets new metadata as provided.
-        Only the "metadata" field is updated for each video; other fields are preserved.
+    def purge_video(self, video_name: str) -> None:
+        """Purge (remove) a video entry from the project if it exists.
 
         Args:
-            metadata (dict): Dictionary containing new project-level metadata under the "project" key,
-                and per-video metadata under the "videos" key. Example:
+            video_name: Name of the video file to remove.
+        """
+        video_files = self._project_info.get("video_files", {})
+        video_files.pop(video_name, None)
+        self.save_project_file()
+
+    def set_project_metadata(self, metadata: dict, replace: bool = False) -> None:
+        """Set or merge project and per-video metadata.
+
+        By default, existing metadata is merged: new fields are added and existing fields
+        are updated. If clear_existing=True, all existing metadata is cleared first.
+
+        Args:
+            metadata (dict): Dictionary containing new project-level metadata under the
+                "project" key, and per-video metadata under the "videos" key. Example:
                 {
                     "project": {...},
                     "videos": {
@@ -113,33 +123,41 @@ class SettingsManager:
                         ...
                     }
                 }
-
-                See src/jabs/schema/metadata.py for the expected structure of the metadata.
+            replace (bool): If true, replace existing metadata instead of merge.
+                Defaults to False.
 
         Raises:
             KeyError: If metadata for a video is provided for a video not present in the project.
+
+        Note:
+            See src/jabs/schema/metadata.py for metadata schema.
         """
-        # Remove existing project-level metadata
-        self._project_info.pop("metadata", None)
-
-        # Remove existing metadata from each video
         video_files = self._project_info.get("video_files", {})
-        for video_entry in video_files.values():
-            video_entry.pop("metadata", None)
 
-        # Set new project-level metadata if provided
+        if replace:
+            # Remove all existing metadata
+            self._project_info.pop("metadata", None)
+            for video_entry in video_files.values():
+                video_entry.pop("metadata", None)
+
+        # Merge or replace project-level metadata
         if "project" in metadata:
-            self._project_info["metadata"] = metadata["project"]
+            existing_project_meta = self._project_info.get("metadata", {}) if not replace else {}
+            merged_project_meta = dict(existing_project_meta)
+            merged_project_meta.update(metadata["project"])
+            self._project_info["metadata"] = merged_project_meta
 
-        # Update per-video metadata
+        # Merge or replace per-video metadata
         for video_name, video_metadata in metadata.get("videos", {}).items():
-            # get the existing video entry, raise KeyError if not found
-            video_entry = video_files[video_name]
-            if video_metadata:
-                video_entry["metadata"] = video_metadata
-            video_files[video_name] = video_entry
+            if video_name not in video_files:
+                raise KeyError(f"Video '{video_name}' not found in project.")
 
-        # Save changes
+            video_entry = video_files[video_name]
+            existing_video_meta = video_entry.get("metadata", {}) if not replace else {}
+            merged_video_meta = dict(existing_video_meta)
+            merged_video_meta.update(video_metadata)
+            video_entry["metadata"] = merged_video_meta
+
         self.save_project_file()
 
     def save_behavior(self, behavior: str, data: dict):
