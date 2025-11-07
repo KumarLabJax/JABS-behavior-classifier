@@ -9,9 +9,9 @@ class TestTrackLabels(unittest.TestCase):
     """test project.track_labels.TrackLabels"""
 
     def test_create(self):
-        """
-        test initializing new TrackLabels and ensures all frames initialized
-        to no label
+        """test initializing new TrackLabels
+
+        ensures all frames initialized to no label
         """
         labels = TrackLabels(100)
         for i in range(0, 99):
@@ -75,10 +75,7 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(ds[2], TrackLabels.Label.NOT_BEHAVIOR)
 
     def test_downsample_mixed_1(self):
-        """
-        test that a bin containing mix of Label.NONE and Label.BEHAVIOR results
-        in a value of Label.BEHAVIOR in downsampled array
-        """
+        """test that a bin containing mix of Label.NONE and Label.BEHAVIOR results in a value of Label.BEHAVIOR in downsampled array"""
         labels = TrackLabels(10)
 
         # label position 0, 1, 2
@@ -93,10 +90,7 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(ds[1], TrackLabels.Label.NONE)
 
     def test_downsample_mixed_2(self):
-        """
-        test that a bin containing mix of Label.BEHAVIOR and Label.NOT_BEHAVIOR
-        results in a special value (Label.MIX)
-        """
+        """test that a bin containing mix of Label.BEHAVIOR and Label.NOT_BEHAVIOR results in a special value (Label.MIX)"""
         labels = TrackLabels(10)
 
         # label position 0, 1,
@@ -112,10 +106,7 @@ class TestTrackLabels(unittest.TestCase):
         self.assertEqual(ds[1], TrackLabels.Label.NONE)
 
     def test_downsample_non_divisible(self):
-        """
-        test that we can downsample to a size that doesn't evenly divide
-        the label array
-        """
+        """test that we can downsample to a size that doesn't evenly divide the label array"""
         labels = TrackLabels(100)
         ds = TrackLabels.downsample(labels.get_labels(), 33)
 

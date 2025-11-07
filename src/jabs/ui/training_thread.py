@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
@@ -15,8 +17,8 @@ class TrainingThread(QThread):
     """Thread used to run classifier training in the background, keeping the Qt main GUI thread responsive.
 
     Signals:
-        training_complete: QtCore.Signal()
-            Emitted when training is finished successfully.
+        training_complete: QtCore.Signal(int)
+            Emitted when training is finished successfully, carrying the elapsed wall-clock time in milliseconds.
         current_status: QtCore.Signal(str)
             Emitted to update the main GUI thread with a status message (e.g., for a status bar).
         update_progress: QtCore.Signal(int)
@@ -32,7 +34,7 @@ class TrainingThread(QThread):
         parent (QWidget or None, optional): Optional parent widget.
     """
 
-    training_complete = Signal()
+    training_complete = Signal(int)
     current_status = Signal(str)
     update_progress = Signal(int)
     error_callback = Signal(Exception)
@@ -59,7 +61,7 @@ class TrainingThread(QThread):
         This method sets a flag that is periodically checked by the worker thread.
         It is safe to call this method from the main Qt GUI thread. Since the flag
         is a simple boolean this is generally thread safe in CPython because
-        assignment to a boolean is atomic and therefore it does not require
+        assignment to a boolean is atomic, and therefore it does not require
         additional synchronization in this scenario.
 
         Could consider using QAtomicBool, but a standard bool should be fine here.
@@ -74,6 +76,9 @@ class TrainingThread(QThread):
         and print the most important features
         """
         self._tasks_complete = 0
+
+        # Measure wall-clock time for training
+        _t0_ns = time.perf_counter_ns()
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -247,8 +252,8 @@ class TrainingThread(QThread):
                     iterations,
                 )
 
-            self.current_status.emit("Training Complete")
-            self.training_complete.emit()
+            elapsed_ms = int((time.perf_counter_ns() - _t0_ns) // 1_000_000)
+            self.training_complete.emit(elapsed_ms)
         except Exception as e:
             # if there was an exception, we'll emit the Exception as a signal so that
             # the main GUI thread can handle it
