@@ -154,11 +154,11 @@ class Project:
           - all files under cache/convex_hulls/<video base name>/** (recursive)
           - cache/<video base name>_pose_est_v*_cache.h5
           - predictions/<video base name>.h5
+          - annotations/<video base name>.json
 
         Excludes:
           - video file
           - pose file
-          - annotation file
 
         Args:
             video_name: File name (or key) of the video in this project.
