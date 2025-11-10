@@ -568,24 +568,15 @@ class Classifier:
         return pd.concat([per_frame, window], axis=1)
 
     def _fit_random_forest(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
-        else:
-            classifier = RandomForestClassifier(n_jobs=self._n_jobs)
+        classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = GradientBoostingClassifier(random_state=random_seed)
-        else:
-            classifier = GradientBoostingClassifier()
+        classifier = GradientBoostingClassifier(random_state=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_xgboost(self, features, labels, random_seed: int | None = None):
-        if random_seed is not None:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
-        else:
-            classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs)
+        classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         classifier.fit(features.replace([np.inf, -np.inf]), labels)
         return classifier
 
