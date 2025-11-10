@@ -227,6 +227,7 @@ def main():
     distance_unit = project.feature_manager.distance_unit
     if metadata:
         has_metadata = False
+        replace = True
 
         if project.settings_manager.project_metadata != {}:
             has_metadata = True
@@ -236,14 +237,16 @@ def main():
                 has_metadata = True
                 break
 
-        if has_metadata and not args.force:
+        if has_metadata:
             response = (
-                input("Warning: Project already has metadata. Overwrite? [y/N]: ").strip().lower()
+                input(
+                    "Metadata already exists. Apply new metadata by [M]erge (default) or [R]eplace (clear existing)? [M/r]: "
+                )
+                .strip()
+                .lower()
             )
-            if response != "y":
-                print("Aborting. Use --force to overwrite without prompt.")
-                sys.exit(1)
-        project.settings_manager.set_project_metadata(metadata)
+            replace = response == "r"
+        project.settings_manager.set_project_metadata(metadata, replace=replace)
 
     # iterate over each video and try to pair it with an h5 file
     # this test is quick, don't bother to parallelize

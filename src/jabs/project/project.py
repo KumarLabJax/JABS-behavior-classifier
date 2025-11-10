@@ -146,6 +146,60 @@ class Project:
         """get the project paths object for this project"""
         return self._paths
 
+    def get_derived_file_paths(self, video_name: str) -> list[Path]:
+        """Return a list of paths for files derived from a given video.
+
+        Includes:
+          - all files under features/<video base name>/** (recursive)
+          - all files under cache/convex_hulls/<video base name>/** (recursive)
+          - cache/<video base name>_pose_est_v*_cache.h5
+          - predictions/<video base name>.h5
+          - annotations/<video base name>.json
+
+        Excludes:
+          - video file
+          - pose file
+
+        Args:
+            video_name: File name (or key) of the video in this project.
+
+        Returns:
+            List of pathlib.Path objects for all related files.
+        """
+        paths: list[Path] = []
+        base = Path(video_name).with_suffix("").name
+
+        # Feature files (recursive under features/<base>/)
+        feature_root = self._paths.feature_dir / base
+        if feature_root.exists():
+            for p in feature_root.rglob("*"):
+                if p.is_file():
+                    paths.append(p)
+
+        # Cached convex hulls (recursive under cache/convex_hulls/<base>/)
+        if self._paths.cache_dir is not None:
+            ch_root = self._paths.cache_dir / "convex_hulls" / base
+            if ch_root.exists():
+                for p in ch_root.rglob("*"):
+                    if p.is_file():
+                        paths.append(p)
+
+            # Cached pose files: cache/<base>_pose_est_v*_cache.h5
+            for p in self._paths.cache_dir.glob(f"{base}_pose_est_v*_cache.h5"):
+                paths.append(p)
+
+        # Predictions file: predictions/<base>.h5
+        prediction = self._paths.prediction_dir / f"{base}.h5"
+        if prediction.exists():
+            paths.append(prediction)
+
+        # Annotation file
+        annotation = self._paths.annotations_dir / f"{base}.json"
+        if annotation.exists():
+            paths.append(annotation)
+
+        return paths
+
     @property
     def labeler(self) -> str | None:
         """return name of labeler
