@@ -44,12 +44,19 @@ def _load_video_labels(annotations_path: Path, pose_est) -> VideoLabels | None:
     return VideoLabels.load(data, pose_est)
 
 
-def collect_video_features(job: JobSpec) -> CollectResult:
-    """Extracts labeled features for a single video in a separate process.
+def collect_labeled_features(job: JobSpec) -> CollectResult:
+    """Extracts labeled features for a single video.
 
-    This function loads pose estimation, labels, and features for a given video
-    and computes per-frame and window-based features for each identity. It is
-    intended to be used in parallel by the main process to build training data.
+    This function loads per-frame and window features for a given video. If features
+    are not pre-computed then this will result in features being computed directly
+    from pose. It is intended to be used in parallel in Project.get_labeled_features().
+
+    Note: this function is a standalone function to facilitate pickling for parallel
+    processing via ProcessPoolExecutor. It should not rely on any instance-specific
+    state, and is passed all necessary data via the JobSpec argument. A Project instance
+    maintains a pool of workers that call this function in parallel from
+    Project.load_labeled_features() in order to speed up feature extraction across
+    multiple videos.
 
     Args:
         job (JobSpec): Specification of the video and settings for feature extraction.
@@ -80,8 +87,7 @@ def collect_video_features(job: JobSpec) -> CollectResult:
     labels_list: list[np.ndarray] = []
     group_keys: list[tuple[str, int]] = []
 
-    # Sort identities for determinism
-    for identity in sorted(pose_est.identities):
+    for identity in pose_est.identities:
         # Extract labels for this (video, identity)
         labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
 
@@ -89,7 +95,7 @@ def collect_video_features(job: JobSpec) -> CollectResult:
         labels = labels.copy()
         labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
 
-        # Skip identities without any BEHAVIOR/NOT_BEHAVIOR marks
+        # Skip identities without any BEHAVIOR/NOT_BEHAVIOR labels
         if (
             (labels == TrackLabels.Label.BEHAVIOR) | (labels == TrackLabels.Label.NOT_BEHAVIOR)
         ).sum() == 0:

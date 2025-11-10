@@ -19,7 +19,7 @@ from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.types import ProjectDistanceUnit
 
 from .feature_manager import FeatureManager
-from .parallel_feature_workers import JobSpec, collect_video_features
+from .parallel_workers import JobSpec, collect_labeled_features
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
@@ -623,7 +623,7 @@ class Project:
         executor = self._ensure_executor()
         # create futures and map to video names
         future_to_video = {
-            executor.submit(collect_video_features, job): job["video"] for job in jobs
+            executor.submit(collect_labeled_features, job): job["video"] for job in jobs
         }
 
         results_by_video: dict[str, dict] = {}
