@@ -97,8 +97,11 @@ class SettingsManager:
         """
         return self._project_info["video_files"][video].get("metadata", {})
 
-    def purge_video(self, video_name: str) -> None:
-        """Purge (remove) a video entry from the project if it exists.
+    def remove_video_from_project_file(self, video_name: str) -> None:
+        """Remove a video entry from the project if it exists.
+
+        Note: does not remove any associated video or data files from disk, this only
+         removes the entry from the project.json file.
 
         Args:
             video_name: Name of the video file to remove.
