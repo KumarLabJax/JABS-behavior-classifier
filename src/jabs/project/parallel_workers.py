@@ -1,3 +1,10 @@
+"""parallel_workers.py
+
+Provides stateless, picklable worker functions for parallel feature extraction
+across multiple videos. These functions are designed to
+be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_features().
+"""
+
 import json
 from pathlib import Path
 from typing import TypedDict
@@ -13,8 +20,12 @@ from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 
 
-class JobSpec(TypedDict):
-    """Specification of a single video feature extraction job."""
+class FeatureLoadJobSpec(TypedDict):
+    """Specification of a single video feature extraction job.
+
+    This TypedDict encapsulates all necessary information for loading
+    a single video's features *for labeled frames* in a parallel worker.
+    """
 
     video: str
     video_path: Path
@@ -25,7 +36,7 @@ class JobSpec(TypedDict):
     behavior_name: str | None
 
 
-class CollectResult(TypedDict):
+class CollectFeatureLoadResult(TypedDict):
     """Result of collecting features from a single video."""
 
     per_frame: list[pd.DataFrame]
@@ -44,12 +55,13 @@ def _load_video_labels(annotations_path: Path, pose_est) -> VideoLabels | None:
     return VideoLabels.load(data, pose_est)
 
 
-def collect_labeled_features(job: JobSpec) -> CollectResult:
-    """Extracts labeled features for a single video.
+def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResult:
+    """Extracts features for labeled frames for a single video.
 
     This function loads per-frame and window features for a given video. If features
     are not pre-computed then this will result in features being computed directly
     from pose. It is intended to be used in parallel in Project.get_labeled_features().
+    Returns features for labeled frame only, features for unlabeled frames are discarded.
 
     Note: this function is a standalone function to facilitate pickling for parallel
     processing via ProcessPoolExecutor. It should not rely on any instance-specific
@@ -59,10 +71,10 @@ def collect_labeled_features(job: JobSpec) -> CollectResult:
     multiple videos.
 
     Args:
-        job (JobSpec): Specification of the video and settings for feature extraction.
+        job (FeatureLoadJobSpec): Specification of the video and settings for feature extraction.
 
     Returns:
-        CollectResult: Collected per-frame and window features, labels, and
+        CollectFeatureLoadResult: Collected per-frame and window features, labels, and
             identity mapping for the video.
     """
     video: str = job["video"]
@@ -73,11 +85,11 @@ def collect_labeled_features(job: JobSpec) -> CollectResult:
     behavior_settings: dict = job["behavior_settings"]
     behavior_name = job.get("behavior_name")
 
-    # Pose + fps
     pose_est = open_pose_file(get_pose_path(video_path), cache_dir)
     fps = get_fps(str(video_path))
 
-    # Labels (might be None)
+    # Get labels for video (might be None)
+    # this loads all labels from the annotations file for any labeled behavior
     labels_obj = _load_video_labels(annotations_path, pose_est)
     if labels_obj is None:
         return {"per_frame": [], "window": [], "labels": [], "group_keys": []}
@@ -88,11 +100,13 @@ def collect_labeled_features(job: JobSpec) -> CollectResult:
     group_keys: list[tuple[str, int]] = []
 
     for identity in pose_est.identities:
-        # Extract labels for this (video, identity)
+        # Extract labels for this (video, identity) pair for the specified behavior
         labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
 
         # Exclude frames where identity does not exist
-        labels = labels.copy()
+        # NOTE: in the future we might want to handle this differently, since we can still predict
+        # behavior even when the identity is not detected in a frame (e.g., occluded) due to
+        # temporal context from surrounding frames provided by window features
         labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
 
         # Skip identities without any BEHAVIOR/NOT_BEHAVIOR labels

@@ -19,7 +19,7 @@ from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.types import ProjectDistanceUnit
 
 from .feature_manager import FeatureManager
-from .parallel_workers import JobSpec, collect_labeled_features
+from .parallel_workers import FeatureLoadJobSpec, collect_labeled_features
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
@@ -604,12 +604,12 @@ class Project:
             }, {}
 
         # Prepare per-video jobs with Path types (workers open resources)
-        jobs: list[JobSpec] = []
+        jobs: list[FeatureLoadJobSpec] = []
         for video in videos:
             if should_terminate_callable:
                 should_terminate_callable()
 
-            job: JobSpec = {
+            job: FeatureLoadJobSpec = {
                 "video": video,
                 "video_path": self._video_manager.video_path(video),
                 "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
