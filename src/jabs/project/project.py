@@ -30,7 +30,7 @@ from .video_manager import VideoManager
 
 
 def _warm_noop(n: int = 0) -> int:
-    """Trivial picklable function to force worker process spin-up."""
+    """Trivial picklable function used to force worker process spin-up."""
     return n
 
 
@@ -137,8 +137,8 @@ class Project:
         executor = self._ensure_executor()
         if wait:
             futures = [executor.submit(_warm_noop, i) for i in range(self._executor_size)]
-            for fut in futures:
-                fut.result()
+            for f in futures:
+                f.result()
 
     def __del__(self):
         # Best-effort shutdown of persistent executor
@@ -401,7 +401,7 @@ class Project:
             instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
         for video in self._video_manager.videos:
-            # setup an output filename based on the behavior and video names
+            # set up an output filename based on the behavior and video names
             file_base = Path(video).with_suffix("").name + ".h5"
             output_path = self._paths.prediction_dir / file_base
 
