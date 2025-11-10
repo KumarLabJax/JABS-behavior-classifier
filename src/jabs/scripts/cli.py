@@ -226,7 +226,10 @@ def prune(ctx, directory: Path, behavior: str | None):
                 click.echo(f"Warning: failed to delete derived file {file}: {e}")
 
         # remove from the project.json file
-        project.settings_manager.remove_video_from_project_file(video_paths.video_path.name)
+        project.settings_manager.remove_video_from_project_file(
+            video_paths.video_path.name, sync=False
+        )
+    project.settings_manager.save_project_file()
 
 
 def main():

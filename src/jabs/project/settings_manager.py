@@ -97,7 +97,7 @@ class SettingsManager:
         """
         return self._project_info["video_files"][video].get("metadata", {})
 
-    def remove_video_from_project_file(self, video_name: str) -> None:
+    def remove_video_from_project_file(self, video_name: str, sync=True) -> None:
         """Remove a video entry from the project if it exists.
 
         Note: does not remove any associated video or data files from disk, this only
@@ -105,10 +105,13 @@ class SettingsManager:
 
         Args:
             video_name: Name of the video file to remove.
+            sync: If True, save the project file after removal to sync the on-disk copy. Defaults to True.
         """
         video_files = self._project_info.get("video_files", {})
         video_files.pop(video_name, None)
-        self.save_project_file()
+
+        if sync:
+            self.save_project_file()
 
     def set_project_metadata(self, metadata: dict, replace: bool = False) -> None:
         """Set or merge project and per-video metadata.
