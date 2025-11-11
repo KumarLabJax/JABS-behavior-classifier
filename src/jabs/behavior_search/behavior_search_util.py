@@ -114,7 +114,7 @@ def _search_behaviors_gen(
                                         )
 
         case PredictionBehaviorSearchQuery() as pred_query:
-            proj_settings = project.settings_manager.project_settings
+            proj_settings = project.settings_manager.project_info
             if pred_query.behavior_label is None:
                 behavior_dict = proj_settings.get("behavior", {})
                 behaviors = list(behavior_dict.keys())

@@ -298,7 +298,7 @@ def main():
 
     # save window sizes to project settings
     deduped_window_sizes = set(
-        project.settings_manager.project_settings.get("window_sizes", []) + window_sizes
+        project.settings_manager.project_info.get("window_sizes", []) + window_sizes
     )
     project.settings_manager.save_project_file({"window_sizes": list(deduped_window_sizes)})
 

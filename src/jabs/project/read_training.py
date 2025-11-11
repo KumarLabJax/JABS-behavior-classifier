@@ -4,6 +4,7 @@ from typing import Any
 import h5py
 import pandas as pd
 
+from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.types import ClassifierType, ProjectDistanceUnit
 
 
@@ -79,9 +80,10 @@ def load_training_data(training_file: Path):
     with h5py.File(training_file, "r") as in_h5:
         features["min_pose_version"] = in_h5.attrs["min_pose_version"]
         features["behavior"] = in_h5.attrs["behavior"]
-        features["settings"] = read_project_settings(in_h5["settings"])
+        features["behavior_settings"] = read_project_settings(in_h5["settings"])
         features["training_seed"] = in_h5.attrs["training_seed"]
         features["classifier_type"] = ClassifierType(in_h5.attrs["classifier_type"])
+
         # convert the string distance_unit attr to corresponding
         # ProjectDistanceUnit enum
         unit = in_h5.attrs.get("distance_unit")
@@ -91,6 +93,21 @@ def load_training_data(training_file: Path):
             features["distance_unit"] = ProjectDistanceUnit.PIXEL
         else:
             features["distance_unit"] = ProjectDistanceUnit[unit]
+
+        features["jabs_settings"] = {}
+
+        # load other jabs settings that might or might not be present
+        calibrate_probabilities = in_h5.attrs.get("calibrate_probabilities", False)
+        if calibrate_probabilities:
+            features["jabs_settings"].update(
+                {
+                    "calibrate_probabilities": calibrate_probabilities,
+                    "calibration_method": in_h5.attrs.get(
+                        "calibration_method", DEFAULT_CALIBRATION_METHOD
+                    ),
+                    "calibration_cv": in_h5.attrs.get("calibration_cv", DEFAULT_CALIBRATION_CV),
+                }
+            )
 
         features["labels"] = in_h5["label"][:]
         features["groups"] = in_h5["group"][:]

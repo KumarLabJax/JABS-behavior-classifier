@@ -147,7 +147,7 @@ class VideoManager:
 
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
-        video_metadata = self._settings_manager.project_settings.get("video_files", {})
+        video_metadata = self._settings_manager.project_info.get("video_files", {})
         flush = False
         for video in self._videos:
             vinfo = video_metadata.get(video, {})

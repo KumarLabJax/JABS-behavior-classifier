@@ -83,7 +83,7 @@ def export_training(ctx, directory: Path, behavior: str, classifier: str, outfil
     jabs_project = Project(directory, enable_session_tracker=False)
 
     # validate that the behavior exists in the project
-    if behavior not in jabs_project.settings["behavior"]:
+    if behavior not in jabs_project.settings_manager.project_info["behavior"]:
         raise click.ClickException(f"Behavior '{behavior}' not found in project.")
 
     console = Console()
@@ -143,11 +143,11 @@ def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
     jabs_project = Project(directory, enable_session_tracker=False)
 
     # validate that the old behavior exists in the project
-    if old_name not in jabs_project.settings["behavior"]:
+    if old_name not in jabs_project.settings_manager.project_info["behavior"]:
         raise click.ClickException(f"Behavior '{old_name}' not found in project.")
 
     # validate that the new behavior does not already exist in the project
-    if new_name in jabs_project.settings["behavior"]:
+    if new_name in jabs_project.settings_manager.project_info["behavior"]:
         raise click.ClickException(f"Behavior '{new_name}' already exists in project.")
 
     console = Console()

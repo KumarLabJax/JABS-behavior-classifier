@@ -85,7 +85,7 @@ class IdentityFeatures:
 
     def __init__(
         self,
-        source_file: str,
+        source_file: str | Path,
         identity: int,
         directory: str | Path | None,
         pose_est: PoseEstimation,

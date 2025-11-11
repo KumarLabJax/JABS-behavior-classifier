@@ -8,3 +8,6 @@ RECENT_PROJECTS_MAX = 10
 # some defaults for compressing hdf5 output
 COMPRESSION = "gzip"
 COMPRESSION_OPTS_DEFAULT = 6
+
+DEFAULT_CALIBRATION_METHOD = "auto"  # can be 'auto', 'isotonic', or 'sigmoid'
+DEFAULT_CALIBRATION_CV = 3

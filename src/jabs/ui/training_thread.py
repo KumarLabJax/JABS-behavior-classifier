@@ -1,3 +1,4 @@
+import datetime
 import time
 
 import numpy as np
@@ -77,6 +78,15 @@ class TrainingThread(QThread):
         """
         self._tasks_complete = 0
 
+        # Capture timestamp at start of training run
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Prepare path for reliability plots if enabled
+        if self._project.settings_manager.jabs_settings.get("save_reliability_plots", False):
+            plots_dir = self._project.project_paths.project_dir / "plots" / timestamp
+            plots_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            plots_dir = None
         # Measure wall-clock time for training
         _t0_ns = time.perf_counter_ns()
 
@@ -135,12 +145,18 @@ class TrainingThread(QThread):
                     self._classifier.behavior_name = self._behavior
                     self._classifier.set_project_settings(self._project)
                     self._classifier.train(data)
-                    predictions = self._classifier.predict(data["test_data"])
+                    # get predicted probabilities for the positive class (class 1)
+                    probabilities = self._classifier.predict_proba(data["test_data"])
+                    positive_proba = probabilities[:, 1]
+
+                    # derive binary predictions by thresholding probabilities
+                    predictions = (positive_proba >= self._classifier.TRUE_THRESHOLD).astype(int)
 
                     # calculate some performance metrics using the classifications
                     accuracy = self._classifier.accuracy_score(data["test_labels"], predictions)
                     pr = self._classifier.precision_recall_score(data["test_labels"], predictions)
                     confusion = self._classifier.confusion_matrix(data["test_labels"], predictions)
+                    brier_score = self._classifier.brier_score(data["test_labels"], probabilities)
 
                     table_rows.append(
                         [
@@ -151,6 +167,7 @@ class TrainingThread(QThread):
                             pr[1][1],
                             pr[2][0],
                             pr[2][1],
+                            brier_score,
                             f"{test_info['video']} [{test_info['identity']}]",
                         ]
                     )
@@ -177,6 +194,13 @@ class TrainingThread(QThread):
                     print("Top 10 features by importance:")
                     self._classifier.print_feature_importance(data["feature_names"], 10)
 
+                    # save calibration curve plot for this iteration
+                    if plots_dir is not None:
+                        plot_path = plots_dir / f"calibration_curve_iter_{i + 1}.png"
+                        self._classifier.plot_reliability(
+                            data["test_labels"], probabilities, plot_path, n_bins=5
+                        )
+
                     # let the parent thread know that we've finished this iteration
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)
@@ -193,8 +217,9 @@ class TrainingThread(QThread):
                             "precision\n(behavior)",
                             "recall\n(not behavior)",
                             "recall\n(behavior)",
-                            "f beta score\n(not behavior)",
-                            "f beta score\n(behavior)",
+                            "F-1 score\n(not behavior)",
+                            "F-1 score\n(behavior)",
+                            "Brier score",
                             "test - leave one out:\n(video [identity])",
                         ],
                     )

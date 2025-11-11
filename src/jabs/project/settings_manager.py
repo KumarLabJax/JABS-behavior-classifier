@@ -57,13 +57,22 @@ class SettingsManager:
         tmp.replace(self._paths.project_file)
 
     @property
-    def project_settings(self) -> dict:
+    def project_info(self) -> dict:
         """Get a copy of the current project properties and settings.
 
         Returns:
             dict
         """
         return dict(self._project_info)
+
+    @property
+    def jabs_settings(self) -> dict:
+        """Get a copy of general JABS settings from project file
+
+        Returns:
+            dict
+        """
+        return dict(self._project_info.get("settings", {}))
 
     @property
     def behavior_names(self) -> list[str]:

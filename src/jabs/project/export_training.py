@@ -7,6 +7,7 @@ import numpy as np
 
 import jabs.feature_extraction
 import jabs.version
+from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project.project_utils import to_safe_name
 from jabs.utils import FINAL_TRAIN_SEED
 
@@ -64,6 +65,17 @@ def export_training_data(
         write_project_settings(out_h5, project.settings_manager.get_behavior(behavior), "settings")
         out_h5.attrs["classifier_type"] = classifier_type.value
         out_h5.attrs["training_seed"] = training_seed
+        out_h5.attrs["calibrate_probabilities"] = project.settings_manager.jabs_settings.get(
+            "calibrate_probabilities", False
+        )
+        if out_h5.attrs["calibrate_probabilities"]:
+            out_h5.attrs["calibration_method"] = project.settings_manager.jabs_settings.get(
+                "calibration_method", DEFAULT_CALIBRATION_METHOD
+            )
+            out_h5.attrs["calibration_cv"] = project.settings_manager.jabs_settings.get(
+                "calibration_cv", DEFAULT_CALIBRATION_CV
+            )
+
         feature_group = out_h5.create_group("features")
         for feature, data in features["per_frame"].items():
             feature_group.create_dataset(f"per_frame/{feature}", data=data)

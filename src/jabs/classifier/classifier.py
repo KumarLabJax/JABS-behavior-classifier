@@ -6,22 +6,30 @@ from importlib import import_module
 from pathlib import Path
 
 import joblib
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
+    brier_score_loss,
     confusion_matrix,
     precision_recall_fscore_support,
 )
 from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
+from jabs.constants import DEFAULT_CALIBRATION_CV, DEFAULT_CALIBRATION_METHOD
 from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
-_VERSION = 9
+matplotlib.use("Agg")  # use non-GUI backend to avoid thread warnings
+
+
+_VERSION = 10
 
 _classifier_choices = [ClassifierType.RANDOM_FOREST, ClassifierType.GRADIENT_BOOSTING]
 
@@ -30,11 +38,11 @@ try:
     # we were able to import xgboost, make it available as an option:
     _classifier_choices.append(ClassifierType.XGBOOST)
 except Exception:
-    # we were unable to import the xgboost module. It's either not
-    # installed (it should be if the user used our requirements-old.txt)
-    # or it may have been unable to be imported due to a missing
-    # libomp. Either way, we won't add it to the available choices and
-    # we can otherwise ignore this exception
+    # we were unable to import the xgboost module -- possibly due to a missing
+    # libomp (which is not available by default on macOS). Mac users should
+    # install libomp via Homebrew (brew install libomp) to enable XGBoost support (this is
+    # detailed in the installation instructions).
+    # we won't add it to the available choices and we can otherwise ignore this exception
     _xgboost = None
 
 
@@ -50,6 +58,8 @@ class Classifier:
     """
 
     LABEL_THRESHOLD = 20
+    TRUE_THRESHOLD = 0.5
+    CALIBRATION_METHODS: typing.ClassVar[list[str]] = ["auto", "isotonic", "sigmoid"]
 
     _CLASSIFIER_NAMES: typing.ClassVar[dict] = {
         ClassifierType.RANDOM_FOREST: "Random Forest",
@@ -60,7 +70,8 @@ class Classifier:
     def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
         self._classifier_type = classifier
         self._classifier = None
-        self._project_settings = None
+        self._behavior_settings = None
+        self._jabs_settings = None
         self._behavior = None
         self._feature_names = None
         self._n_jobs = n_jobs
@@ -91,7 +102,9 @@ class Classifier:
 
         classifier = cls()
         classifier.behavior_name = behavior
-        classifier.set_dict_settings(loaded_training_data["settings"])
+        classifier.set_behavior_settings(loaded_training_data["behavior_settings"])
+        classifier._jabs_settings = loaded_training_data["jabs_settings"]
+
         classifier_type = ClassifierType(loaded_training_data["classifier_type"])
         if classifier_type in classifier.classifier_choices():
             classifier.set_classifier(classifier_type)
@@ -99,6 +112,7 @@ class Classifier:
             print(
                 f"Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}"
             )
+
         training_features = classifier.combine_data(
             loaded_training_data["per_frame"], loaded_training_data["window"]
         )
@@ -141,10 +155,10 @@ class Classifier:
         return "NO HASH"
 
     @property
-    def project_settings(self) -> dict:
-        """return a copy of dictionary of project settings for this classifier"""
-        if self._project_settings is not None:
-            return dict(self._project_settings)
+    def behavior_settings(self) -> dict:
+        """return a copy of dictionary of behavior-specific settings for this classifier"""
+        if self._behavior_settings is not None:
+            return dict(self._behavior_settings)
         return {}
 
     @property
@@ -166,6 +180,45 @@ class Classifier:
     def feature_names(self) -> list:
         """returns the list of feature names used when training this classifier"""
         return self._feature_names
+
+    @property
+    def calibrate_probabilities(self) -> bool:
+        """return whether the classifier is set to calibrate probabilities"""
+        if self._jabs_settings is not None:
+            return self._jabs_settings.get("calibrate_probabilities", False)
+        return False
+
+    @staticmethod
+    def _choose_auto_calibration_method(
+        labels: np.ndarray, calibration_cv: int
+    ) -> tuple[str, dict]:
+        """Choose 'isotonic' or 'sigmoid' based on data size per calibration fold.
+
+        Heuristic:
+          - Compute class counts on the *training set labels* passed in.
+          - Estimate per-fold calibration set size as min(pos, neg) / calibration_cv
+            (because CalibratedClassifierCV uses 1/cv of the train split for calibration).
+          - If per-fold per-class counts >= 500 ➜ 'isotonic', else 'sigmoid'.
+
+        Returns:
+          (method, info_dict) where info_dict contains counts used for logging.
+        """
+        # count positive and negative labels
+        pos = int(np.sum(labels == TrackLabels.Label.BEHAVIOR))
+        neg = int(np.sum(labels == TrackLabels.Label.NOT_BEHAVIOR))
+        min_per_class = min(pos, neg)
+        per_fold_per_class = max(0, min_per_class // calibration_cv)
+
+        # Threshold for isotonic safety
+        threshold = 500
+        method = "isotonic" if per_fold_per_class >= threshold else "sigmoid"
+        return method, {
+            "pos_total": pos,
+            "neg_total": neg,
+            "cv": calibration_cv,
+            "per_fold_per_class": per_fold_per_class,
+            "threshold": threshold,
+        }
 
     @staticmethod
     def train_test_split(per_frame_features, window_features, label_data):
@@ -361,19 +414,22 @@ class Classifier:
         if no behavior is currently set will use project defaults
         """
         if self._behavior is None:
-            self._project_settings = project.get_project_defaults()
+            self._behavior_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.settings_manager.get_behavior(self._behavior)
+            self._behavior_settings = project.settings_manager.get_behavior(self._behavior)
 
-    def set_dict_settings(self, settings: dict):
-        """assign project settings via a dict to the classifier
+        # grab other JABS settings from settings manager, some might be used by the classifier
+        self._jabs_settings = project.settings_manager.jabs_settings
+
+    def set_behavior_settings(self, settings: dict):
+        """assign behavior-specific settings via a dict to the classifier
 
         Args:
             settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
 
         TODO: Add checks to enforce conformity to project settings
         """
-        self._project_settings = dict(settings)
+        self._behavior_settings = dict(settings)
 
     def classifier_choices(self):
         """get the available classifier types
@@ -390,7 +446,7 @@ class Classifier:
         """
         return {d: self._CLASSIFIER_NAMES[d] for d in _classifier_choices}
 
-    def train(self, data, random_seed: int | None = None):
+    def train(self, data: dict, random_seed: int | None = None) -> None:
         """train the classifier
 
         Args:
@@ -403,7 +459,7 @@ class Classifier:
 
         raises ValueError for having either unset project settings or an unset classifier
         """
-        if self._project_settings is None:
+        if self._behavior_settings is None:
             raise ValueError("Project settings for classifier unset, cannot train classifier.")
 
         # Assume that feature names is provided, otherwise extract it from the dataframe
@@ -416,32 +472,116 @@ class Classifier:
         features = data["training_data"]
         labels = data["training_labels"]
         # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
-        if self._project_settings.get("symmetric_behavior", False):
+        if self._behavior_settings.get("symmetric_behavior", False):
             features, labels = self.augment_symmetric(features, labels)
-        if self._project_settings.get("balance_labels", False):
+        if self._behavior_settings.get("balance_labels", False):
             features, labels = self.downsample_balance(features, labels, random_seed)
 
-        if self._classifier_type == ClassifierType.RANDOM_FOREST:
-            self._classifier = self._fit_random_forest(features, labels, random_seed=random_seed)
-        elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
-            self._classifier = self._fit_gradient_boost(features, labels, random_seed=random_seed)
-        elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+        # Optional probability calibration
+        if self.calibrate_probabilities:
+            # get and validate calibration settings
+            calibration_method = self._jabs_settings.get(
+                "calibration_method", DEFAULT_CALIBRATION_METHOD
+            )
+            if calibration_method.lower() not in self.CALIBRATION_METHODS:
+                raise ValueError(
+                    f"Invalid calibration method: {calibration_method}. Must be one of {self.CALIBRATION_METHODS}"
+                )
+            calibration_cv = self._jabs_settings.get("calibration_cv", DEFAULT_CALIBRATION_CV)
+
+            # Auto-select method if requested, always figure out what the auto method would be because some of the
+            # selection info is still useful for warnings/logging purposes if the user specified a method explicitly
+            auto_method, auto_method_info = self._choose_auto_calibration_method(
+                labels, calibration_cv
+            )
+            if calibration_method.lower() == "auto":
+                calibration_method = auto_method
+            else:
+                # Optional safety warning: isotonic with small per-fold sets can overfit
+                if (
+                    str(calibration_method).lower() == "isotonic"
+                    and auto_method_info["per_fold_per_class"] < auto_method_info["threshold"]
+                ):
+                    warnings.warn(
+                        (
+                            "Isotonic calibration selected but per-fold per-class count appears small "
+                            f"(~{auto_method_info['per_fold_per_class']}). Consider 'sigmoid' or lowering calibration_cv."
+                        ),
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+
+            # Build an unfitted base estimator
+            if self._classifier_type == ClassifierType.RANDOM_FOREST:
+                base_estimator = self._make_random_forest(random_seed=random_seed)
+            elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
+                base_estimator = self._make_gradient_boost(random_seed=random_seed)
+            elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+                base_estimator = self._make_xgboost(random_seed=random_seed)
+            else:
+                raise ValueError("Unsupported classifier")
+
+            # Wrap with calibrated classifier and fit
+            self._classifier = CalibratedClassifierCV(
+                estimator=base_estimator, method=calibration_method, cv=calibration_cv
+            )
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                self._classifier = self._fit_xgboost(features, labels, random_seed=random_seed)
+                self._classifier.fit(self._clean_features_for_training(features), labels)
         else:
-            raise ValueError("Unsupported classifier")
+            # Fit without calibration (original behavior)
+            if self._classifier_type == ClassifierType.RANDOM_FOREST:
+                self._classifier = self._fit_random_forest(
+                    features, labels, random_seed=random_seed
+                )
+            elif self._classifier_type == ClassifierType.GRADIENT_BOOSTING:
+                self._classifier = self._fit_gradient_boost(
+                    features, labels, random_seed=random_seed
+                )
+            elif _xgboost is not None and self._classifier_type == ClassifierType.XGBOOST:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=FutureWarning)
+                    self._classifier = self._fit_xgboost(features, labels, random_seed=random_seed)
+            else:
+                raise ValueError("Unsupported classifier")
 
         # Classifier may have been re-used from a prior training, blank the logging attributes
         self._classifier_file = None
         self._classifier_hash = None
         self._classifier_source = None
 
+    def _clean_features_for_training(self, features: pd.DataFrame):
+        """Clean feature matrix prior to fitting based on classifier type.
+
+        For XGBoost, only replace +/- inf with 0 (XGBoost can handle NaN).
+        For sklearn tree models, also fill NaNs with 0.
+        """
+        if self._classifier_type == ClassifierType.XGBOOST:
+            return features.replace([np.inf, -np.inf], 0)
+        return features.replace([np.inf, -np.inf], 0).fillna(0)
+
+    def _make_random_forest(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+        return RandomForestClassifier(n_jobs=self._n_jobs)
+
+    def _make_gradient_boost(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return GradientBoostingClassifier(random_state=random_seed)
+        return GradientBoostingClassifier()
+
+    def _make_xgboost(self, random_seed: int | None = None):
+        if random_seed is not None:
+            return _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
+        return _xgboost.XGBClassifier(n_jobs=self._n_jobs)
+
     def sort_features_to_classify(self, features):
         """sorts features to match the current classifier"""
-        if self._classifier_type == ClassifierType.XGBOOST:
+        if isinstance(self._classifier, CalibratedClassifierCV):
+            # Use the training-time feature order we stored
+            classifier_columns = self._feature_names
+        elif self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
-        # sklearn places feature names in the same spot
         else:
             classifier_columns = self._classifier.feature_names_in_
         features_sorted = features[classifier_columns]
@@ -518,7 +658,8 @@ class Classifier:
 
         self._classifier = c._classifier
         self._behavior = c._behavior
-        self._project_settings = c._project_settings
+        self._behavior_settings = c._behavior_settings
+        self._jabs_settings = c._jabs_settings
         self._classifier_type = c._classifier_type
         if c._classifier_file is not None:
             self._classifier_file = c._classifier_file
@@ -555,6 +696,100 @@ class Classifier:
         return confusion_matrix(truth, predictions)
 
     @staticmethod
+    def brier_score(truth: np.ndarray, probabilities: np.ndarray) -> float:
+        """Return the Brier score (lower is better).
+
+        Args:
+            truth (ndarray): array of true binary labels (0/1).
+            probabilities (ndarray): array of predicted probabilities for the positive class; can be shape (n_samples,)
+                   or a (n_samples, 2) array from `predict_proba`.
+
+        Returns:
+            float Brier score.
+        """
+        if probabilities.ndim == 2:
+            # assume columns [P(neg), P(pos)] as returned by predict_proba
+            probabilities = probabilities[:, 1]
+        return brier_score_loss(truth, probabilities)
+
+    @staticmethod
+    def plot_reliability(
+        truth: np.ndarray,
+        probabilities: np.ndarray,
+        out_path: Path | str,
+        n_bins: int = 10,
+        strategy: str = "uniform",
+        title: str | None = None,
+        show_hist: bool = True,
+    ) -> dict:
+        """Create and save a reliability (calibration) plot.
+
+        Args:
+            truth: Binary ground truth labels (0 or 1).
+            probabilities: Predicted probabilities (2D array where second column is positive class).
+            out_path: File path to save the reliability plot.
+            n_bins: Number of bins for calibration curve.
+            strategy: Binning strategy ('uniform' or 'quantile').
+            title: Optional plot title.
+            show_hist: If True, adds a histogram of predicted probabilities below the curve.
+
+        Returns:
+            Dict with calibration data: 'bins', 'mean_pred', 'frac_pos', and 'counts'.
+        """
+        prob = probabilities[:, 1]
+        y = np.asarray(truth).astype(int)
+
+        pos = int(np.sum(y == 1))
+        neg = int(np.sum(y == 0))
+        if pos == 0 or neg == 0:
+            warnings.warn(
+                "plot_reliability: need both positive and negative labels.", stacklevel=2
+            )
+
+        # Compute calibration curve
+        frac_pos, mean_pred = calibration_curve(y, prob, n_bins=n_bins, strategy=strategy)
+
+        # Bin edges and counts
+        if strategy == "uniform":
+            bins = np.linspace(0.0, 1.0, n_bins + 1)
+            counts, _ = np.histogram(prob, bins=bins)
+        else:
+            q = np.linspace(0.0, 1.0, n_bins + 1)
+            bins = np.quantile(prob, q)
+            bins = np.unique(bins)
+            counts, _ = np.histogram(prob, bins=bins)
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(6.5, 4.5))
+        ax.plot([0, 1], [0, 1], "--", color="gray", label="Perfect calibration")
+        ax.plot(mean_pred, frac_pos, marker="o", color="C0", label="Model")
+        ax.set_xlabel("Predicted probability")
+        ax.set_ylabel("Empirical frequency")
+        if title:
+            ax.set_title(title)
+        ax.legend(loc="best")
+
+        if show_hist:
+            ax_hist = ax.twinx()
+            ax_hist.set_ylim(0, max(counts) * 1.2 if counts.size else 1)
+            display_bins = bins if strategy == "uniform" else 10
+            ax_hist.hist(prob, bins=display_bins, alpha=0.25, color="C1")
+            ax_hist.set_yticks([])
+
+        fig.tight_layout()
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+
+        return {
+            "bins": bins,
+            "mean_pred": mean_pred,
+            "frac_pos": frac_pos,
+            "counts": counts,
+        }
+
+    @staticmethod
     def combine_data(per_frame, window):
         """combine feature sets together
 
@@ -580,6 +815,55 @@ class Classifier:
         classifier.fit(features.replace([np.inf, -np.inf]), labels)
         return classifier
 
+    def _get_estimator_with_feature_importances(self):
+        """Return the underlying estimator that exposes `feature_importances_`, if available.
+
+        Handles calibrated classifiers by retrieving the estimator from the first
+        calibrated fold. Returns None if no estimator with `feature_importances_` is found.
+        """
+        est = self._classifier
+        # If wrapped by CalibratedClassifierCV, peel off the estimator
+        if isinstance(est, CalibratedClassifierCV):
+            try:
+                cc0 = est.calibrated_classifiers_[0]
+                est = cc0.estimator
+            except Exception:
+                return None
+        # Some sklearn/xgboost estimators expose feature_importances_
+        return est if hasattr(est, "feature_importances_") else None
+
+    def get_calibrated_feature_importances(self):
+        """Return averaged feature importances across calibrated folds.
+
+        For CalibratedClassifierCV with tree-based base estimators (RF/GBT/XGBoost),
+        this computes the mean and std of `feature_importances_` across
+        `calibrated_classifiers_` estimators and returns a list of tuples:
+        [(feature_name, mean_importance, std_importance), ...] sorted by mean desc.
+
+        Returns None if unavailable (e.g., non-tree base estimators).
+        """
+        if not isinstance(self._classifier, CalibratedClassifierCV):
+            return None
+        try:
+            base_ests = [cc.estimator for cc in self._classifier.calibrated_classifiers_]
+        except Exception:
+            return None
+
+        # get the base estimators that have feature_importances_
+        base_ests = [be for be in base_ests if hasattr(be, "feature_importances_")]
+        if not base_ests:
+            return None
+
+        # get the mean and standard deviation of feature importances from the base estimators
+        importances = np.vstack([be.feature_importances_ for be in base_ests])
+        mean_imp = importances.mean(axis=0)
+        std_imp = importances.std(axis=0)
+
+        # combine with feature names and sort by mean importance
+        items = list(zip(self._feature_names, mean_imp, std_imp, strict=True))
+        items.sort(key=lambda t: t[1], reverse=True)
+        return items
+
     def print_feature_importance(self, feature_list, limit=20):
         """print the most important features and their importance
 
@@ -587,20 +871,35 @@ class Classifier:
             feature_list: list of feature names used in the classifier
             limit: maximum number of features to print, defaults to 20
         """
-        # Get numerical feature importance
-        importances = list(self._classifier.feature_importances_)
-        # List of tuples with variable and importance
+        # Prefer calibrated importances if available
+        if isinstance(self._classifier, CalibratedClassifierCV):
+            items = self.get_calibrated_feature_importances()
+            if items is not None:
+                print(f"{'Feature Name':100} Mean Importance   Std")
+                print("-" * 120)
+                for name, mean_imp, std_imp in items[:limit]:
+                    print(f"{name:100} {mean_imp:0.4f}         {std_imp:0.4f}")
+                return
+            # fall through to base-estimator single-source path if calibrated but no importances
+
+        # Fallback: single estimator feature_importances_
+        est = self._get_estimator_with_feature_importances()
+        if est is None:
+            print("Feature importances are unavailable for the current classifier.")
+            return
+        importances = list(est.feature_importances_)
+        names = feature_list if feature_list is not None else (self._feature_names or [])
+        if len(importances) != len(names):
+            names = [f"feature_{i}" for i in range(len(importances))]
         feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(feature_list, importances, strict=True)
+            (feature, round(importance, 4))
+            for feature, importance in zip(names, importances, strict=False)
         ]
-        # Sort the feature importance by most important first
         feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
-        # Print out the feature and importance
         print(f"{'Feature Name':100} Importance")
         print("-" * 120)
         for feature, importance in feature_importance[:limit]:
-            print(f"{feature:100} {importance:0.2f}")
+            print(f"{feature:100} {importance:0.4f}")
 
     @staticmethod
     def count_label_threshold(all_counts: dict):

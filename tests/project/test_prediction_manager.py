@@ -25,7 +25,7 @@ class MockSettingsManager:
     """Class to simulate project settings."""
 
     def __init__(self):
-        self.project_settings = {"video_files": {"test_video.avi": {"identities": 2}}}
+        self.project_info = {"video_files": {"test_video.avi": {"identities": 2}}}
 
 
 @pytest.fixture
