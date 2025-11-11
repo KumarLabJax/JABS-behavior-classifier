@@ -2,9 +2,11 @@ import contextlib
 import getpass
 import gzip
 import json
+import os
 import shutil
 import sys
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -15,30 +17,53 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.types import ProjectDistanceUnit
-from jabs.video_reader.utilities import get_fps
 
 from .feature_manager import FeatureManager
+from .parallel_workers import FeatureLoadJobSpec, collect_labeled_features
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
-from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
 
-class Project:
-    """Represents a JABS project, managing all data, settings, and operations for a project directory.
+def _warm_noop(n: int = 0) -> int:
+    """Trivial picklable function used to force worker process spin-up."""
+    return n
 
-    A project consists of video files, pose files, metadata, annotations, classifier data, and possibly predictions.
-    This class provides methods to access and manage project resources, including loading and saving annotations,
-    managing features and predictions, archiving behaviors, and retrieving project settings.
+
+class Project:
+    """Represents a JABS project, managing data, settings, and operations for a project directory.
+
+    A project consists of video files, pose files, metadata, annotations, classifier data, and
+    optionally predictions. This class provides methods to access and manage those resources,
+    including loading/saving annotations, managing features/predictions, archiving behaviors,
+    and retrieving project settings.
+
+    Executor pool:
+        Each Project owns a persistent **non-resizing** `concurrent.futures.ProcessPoolExecutor`
+        used for CPU-bound feature extraction (parallelized per video). The pool size is fixed
+        at construction time via ``executor_workers`` (defaults to ``os.cpu_count()`` if None).
+        The pool is created lazily on first use (e.g., when calling `get_labeled_features`) or
+        can be pre-spawned with `warm_executor(wait=True)` to avoid first-use latency.
+
+        - The pool **does not auto-resize**. If you need a different size, construct a new
+          `Project` with the desired ``executor_workers`` (a dedicated `resize_executor()` may
+          be added later).
+        - Submitting fewer jobs than workers is fine (extra workers idle). Submitting more jobs
+          than workers is also fine (tasks queue).
+        - Submissions are thread-safe; the pool can be used from worker/QThreads.
+        - Call `shutdown_executor()` on application exit for a clean teardown. A best-effort
+          shutdown is also attempted in `__del__`, but explicit shutdown is preferred.
 
     Args:
         project_path: Path to the project directory.
-        use_cache (bool, optional): Whether to use cached data. Defaults to True.
-        enable_video_check (bool, optional): Whether to check for video file validity. Defaults to True.
+        use_cache: Whether to use cached data.
+        enable_video_check: Whether to check for video file validity.
+        enable_session_tracker: Whether to enable session tracking for this project.
+        executor_workers: Fixed size of the process pool; if None, uses CPU count.
 
     Properties:
         dir: Project directory path.
@@ -55,7 +80,12 @@ class Project:
     """
 
     def __init__(
-        self, project_path, use_cache=True, enable_video_check=True, enable_session_tracker=True
+        self,
+        project_path,
+        use_cache=True,
+        enable_video_check=True,
+        enable_session_tracker=True,
+        executor_workers: int | None = None,
     ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
         self._paths.create_directories()
@@ -72,10 +102,47 @@ class Project:
         if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
+        # Persistent, non-resizing process pool for feature extraction
+        self._executor: ProcessPoolExecutor | None = None
+        self._executor_size: int = max(1, (executor_workers or (os.cpu_count() or 1)))
+
         # Start a session tracker for this project.
         # Since the session has a reference to the Project, the Project should be fully initialized before starting
         # the session tracker.
         self._session_tracker.start_session()
+
+    def _ensure_executor(self) -> ProcessPoolExecutor:
+        """Create the persistent ProcessPoolExecutor once using the configured size."""
+        if self._executor is None:
+            self._executor = ProcessPoolExecutor(max_workers=self._executor_size)
+        return self._executor
+
+    def shutdown_executor(self) -> None:
+        """Shut down the persistent executor (call on app exit)."""
+        if self._executor is not None:
+            with contextlib.suppress(Exception):
+                self._executor.shutdown(cancel_futures=False)
+            self._executor = None
+            self._executor_size = 0
+
+    def warm_executor(self, wait: bool = True) -> None:
+        """Warm the project's process pool early (e.g., right after project load).
+
+        The pool size is fixed from `__init__` and does not resize here. See the class
+        docstring for details about the executor's lifecycle and guarantees.
+
+        Args:
+            wait: If True, submit trivial jobs so worker processes fully spawn before return.
+        """
+        executor = self._ensure_executor()
+        if wait:
+            futures = [executor.submit(_warm_noop, i) for i in range(self._executor_size)]
+            for f in futures:
+                f.result()
+
+    def __del__(self):
+        # Best-effort shutdown of persistent executor
+        self.shutdown_executor()
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
@@ -388,7 +455,7 @@ class Project:
             instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
         for video in self._video_manager.videos:
-            # setup an output filename based on the behavior and video names
+            # set up an output filename based on the behavior and video names
             file_base = Path(video).with_suffix("").name + ".h5"
             output_path = self._paths.prediction_dir / file_base
 
@@ -538,138 +605,160 @@ class Project:
         progress_callable: Callable[[], None] | None = None,
         should_terminate_callable: Callable[[], None] | None = None,
     ) -> tuple[dict, dict]:
-        """the features for all labeled frames
+        """Get labeled features for training (parallel per-video).
 
-        NOTE: this will currently take a very long time to run if the features
-        have not already been computed
+        This collects per-frame and window-based features and corresponding labels for all
+        videos in the project that have annotations. Processing is parallelized at the
+        **video** level using separate processes. Progress increments **once per video**.
+
+        Note:
+            This can still take a long time if features have not yet been computed.
 
         Args:
-            behavior: the behavior settings to get labeled features for
-                if None, will use project defaults (all available features)
-            progress_callable: if provided this will be called
-                with no args every time an identity is processed to facilitate
-                progress tracking
-            should_terminate_callable: if provided this will be called to check if
-                the user has requested to terminate the operation. This callable
-                should raise a ThreadTerminatedError if the user has requested
-                early termination.
+            behavior: Behavior name to select behavior-specific settings. If None, uses
+                project defaults (all available features).
+            progress_callable: If provided, it is called **once per video** when that video's
+                features are collected (useful for progress bars).
+            should_terminate_callable: If provided, it may be called between job submissions
+                and as results complete; it should raise a `ThreadTerminatedError` if the user
+                has requested early termination.
 
         Returns:
-            two dicts: features, group_mappings
+            tuple[dict, dict]: A tuple of (features, group_mapping).
 
-            The first dict contains features for all labeled frames and has the
-            following keys:
+                The first dict contains features for all labeled frames and has the keys:
+                    - 'window':    pd.DataFrame of window-based features (labeled frames only)
+                    - 'per_frame': pd.DataFrame of per-frame features (labeled frames only)
+                    - 'labels':    np.ndarray of integer labels
+                    - 'groups':    np.ndarray of group ids aligned to rows in the feature matrices
 
-            {
-                'window': ,
-                'per_frame': ,
-                'labels': ,
-                'groups': ,
-            }
+                The values in the first dict are suitable for `Classifier.leave_one_group_out()`.
 
-            The values contained in the first dict are suitable to pass as
-            arguments to the Classifier.leave_one_group_out() method.
-
-            The second dict in the tuple has group ids as the keys, and the
-            values are a dict containing the video and identity that corresponds to
-            that group id:
-
-            {
-              <group id>: {'video': <video filename>, 'identity': <identity},
-              ...
-            }
+                The second dict maps group ids to their source:
+                    { <group id>: {'video': <video filename>, 'identity': <identity>}, ... }
         """
-        all_per_frame = []
-        all_window = []
-        all_labels = []
-        all_groups = []
-        group_mapping = {}
+        # Parallel per-video feature collection using process workers.
+        # Progress increments once per video.
+        all_per_frame: list[pd.DataFrame] = []
+        all_window: list[pd.DataFrame] = []
+        all_labels: list[np.ndarray] = []
+        all_group_keys: list[tuple[str, int]] = []
 
-        group_id = 0
-        for video in self._video_manager.videos:
-            # check if early termination is requested
+        # Snapshot behavior settings once
+        behavior_settings = self._settings_manager.get_behavior(behavior)
+        videos = list(self._video_manager.videos)
+
+        # Early exit if no videos
+        if not videos:
+            return {
+                "window": pd.DataFrame(),
+                "per_frame": pd.DataFrame(),
+                "labels": np.array([], dtype=np.int8),
+                "groups": np.array([], dtype=np.int32),
+            }, {}
+
+        # Prepare per-video jobs with Path types (workers open resources)
+        jobs: list[FeatureLoadJobSpec] = []
+        for video in videos:
             if should_terminate_callable:
                 should_terminate_callable()
 
-            video_path = self._video_manager.video_path(video)
-            pose_est = self.load_pose_est(video_path)
-            video_labels = self._video_manager.load_video_labels(video, pose_est)
+            job: FeatureLoadJobSpec = {
+                "video": video,
+                "video_path": self._video_manager.video_path(video),
+                "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
+                "feature_dir": self.feature_dir,
+                "cache_dir": self._paths.cache_dir,
+                "behavior_settings": behavior_settings,
+                "behavior_name": behavior,
+            }
+            jobs.append(job)
 
-            # if there are no labels for this video, skip it
-            if video_labels is None:
-                if progress_callable is not None:
-                    # increment progress bar for each skipped identity in the video
-                    for _ in range(self._video_manager.get_video_identity_count(video)):
-                        progress_callable()
+        executor = self._ensure_executor()
+        # create futures and map to video names
+        future_to_video = {
+            executor.submit(collect_labeled_features, job): job["video"] for job in jobs
+        }
+
+        results_by_video: dict[str, dict] = {}
+        for future in as_completed(future_to_video):
+            # check for early exit
+            if should_terminate_callable:
+                should_terminate_callable()
+
+            video_name = future_to_video[future]
+            try:
+                res = future.result()
+            except Exception as e:
+                raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
+
+            # Stage results by video for deterministic finalization
+            results_by_video[video_name] = res
+
+            if progress_callable:
+                progress_callable()  # once per video
+
+        # Deterministic finalize: append results in original 'videos' order
+        for video in videos:
+            if video not in results_by_video:
                 continue
+            res = results_by_video[video]
+            all_per_frame.extend(res.get("per_frame", []))
+            all_window.extend(res.get("window", []))
+            all_labels.extend(res.get("labels", []))
+            all_group_keys.extend(res.get("group_keys", []))
 
-            # fps used to scale some features from per pixel time unit to
-            # per second
-            fps = get_fps(str(video_path))
+        # If nothing was produced anywhere, return empty structures
+        if not (all_per_frame and all_window and all_labels):
+            return {
+                "window": pd.DataFrame(),
+                "per_frame": pd.DataFrame(),
+                "labels": np.array([], dtype=np.int8),
+                "groups": np.array([], dtype=np.int32),
+            }, {}
 
-            for identity in pose_est.identities:
-                # check if early termination is requested
-                if should_terminate_callable:
-                    should_terminate_callable()
+        # Build stable group ids: original video order, then identity order as observed
+        key_to_gid: dict[tuple[str, int], int] = {}
+        gid = 0
+        for v in videos:
+            seen: list[int] = []
+            for video_name, ident in all_group_keys:
+                if video_name == v and ident not in seen:
+                    seen.append(ident)
+            for ident in seen:
+                key = (v, ident)
+                if key not in key_to_gid:
+                    key_to_gid[key] = gid
+                    gid += 1
 
-                group_mapping[group_id] = {"video": video, "identity": identity}
+        # groups vector aligned with all_per_frame entries
+        groups_list: list[np.ndarray] = [
+            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
+            for key, df in zip(all_group_keys, all_per_frame, strict=True)
+        ]
+        groups = np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
 
-                labels = video_labels.get_track_labels(str(identity), behavior).get_labels()
+        group_mapping: dict[int, dict[str, int | str]] = {
+            gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
+        }
 
-                # because we're allowing the user to label frames where the identity drops out,
-                # we need to exclude labels where the identity does not exist
-                # copy labels array to avoid side effect
-                labels = labels.copy()
-                labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
+        window_df = pd.concat(all_window, join="inner")
+        per_frame_df = pd.concat(all_per_frame, join="inner")
+        labels_arr = np.concatenate(all_labels)
 
-                # if there are no labels for this identity, skip it
-                if (
-                    np.count_nonzero(
-                        (labels == TrackLabels.Label.BEHAVIOR)
-                        | (labels == TrackLabels.Label.NOT_BEHAVIOR)
-                    )
-                    == 0
-                ):
-                    if progress_callable is not None:
-                        progress_callable()
-                    continue
-
-                features = fe.IdentityFeatures(
-                    video,
-                    identity,
-                    self.feature_dir,
-                    pose_est,
-                    fps=fps,
-                    op_settings=self._settings_manager.get_behavior(behavior),
-                )
-
-                per_frame_features = features.get_per_frame(labels)
-                per_frame_features = fe.IdentityFeatures.merge_per_frame_features(
-                    per_frame_features
-                )
-                per_frame_features = pd.DataFrame(per_frame_features)
-                all_per_frame.append(per_frame_features)
-
-                window_features = features.get_window_features(
-                    self._settings_manager.get_behavior(behavior)["window_size"], labels
-                )
-                window_features = fe.IdentityFeatures.merge_window_features(window_features)
-                window_features = pd.DataFrame(window_features)
-                all_window.append(window_features)
-
-                all_labels.append(labels[labels != TrackLabels.Label.NONE])
-
-                all_groups.append(np.full(per_frame_features.shape[0], group_id))
-                group_id += 1
-
-                if progress_callable is not None:
-                    progress_callable()
+        # Sanity check: ensure all outputs are aligned
+        if not (len(labels_arr) == per_frame_df.shape[0] == window_df.shape[0] == groups.shape[0]):
+            raise RuntimeError(
+                "Mismatch among labels/per_frame/window/groups lengths: "
+                f"labels={len(labels_arr)}, per_frame={per_frame_df.shape[0]}, "
+                f"window={window_df.shape[0]}, groups={groups.shape[0]}"
+            )
 
         return {
-            "window": pd.concat(all_window, join="inner"),
-            "per_frame": pd.concat(all_per_frame, join="inner"),
-            "labels": np.concatenate(all_labels),
-            "groups": np.concatenate(all_groups),
+            "window": window_df,
+            "per_frame": per_frame_df,
+            "labels": labels_arr,
+            "groups": groups,
         }, group_mapping
 
     def clear_cache(self):

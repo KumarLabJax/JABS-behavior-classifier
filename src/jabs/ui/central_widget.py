@@ -690,7 +690,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # setup progress dialog
         # adds 2 for final training
-        total_steps = self._project.total_project_identities + 2
+        total_steps = self._project.video_manager.num_videos + 2
         if self._controls.all_kfold:
             project_counts = self._project.counts(self._controls.current_behavior)
             total_steps += self._classifier.count_label_threshold(project_counts)
@@ -703,11 +703,17 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
-    def _training_thread_complete(self) -> None:
-        """enable classify button once the training is complete"""
+    def _training_thread_complete(self, elapsed_ms) -> None:
+        """enable classify button once the training is complete
+
+        Args:
+            elapsed_ms (int): time taken to train in milliseconds
+        """
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
-        self.status_message.emit("Training Complete", 3000)
+        self.status_message.emit(
+            f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
+        )
         self._controls.classify_button_enabled = True
 
     def _training_thread_error_callback(self, error: Exception) -> None:
