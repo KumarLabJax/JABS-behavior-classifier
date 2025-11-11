@@ -104,7 +104,7 @@ def draw_track(
         cv2.circle(
             img,
             (int(p[0]), int(p[1])),
-            2,
+            1,
             _FUTURE_TRACK_COLOR,
             -1,
             lineType=cv2.LINE_AA,

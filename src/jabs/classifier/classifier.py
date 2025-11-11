@@ -803,15 +803,15 @@ class Classifier:
         return pd.concat([per_frame, window], axis=1)
 
     def _fit_random_forest(self, features, labels, random_seed: int | None = None):
-        classifier = self._make_random_forest(random_seed=random_seed)
+        classifier = RandomForestClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_gradient_boost(self, features, labels, random_seed: int | None = None):
-        classifier = self._make_gradient_boost(random_seed=random_seed)
+        classifier = GradientBoostingClassifier(random_state=random_seed)
         return classifier.fit(features.replace([np.inf, -np.inf], 0).fillna(0), labels)
 
     def _fit_xgboost(self, features, labels, random_seed: int | None = None):
-        classifier = self._make_xgboost(random_seed=random_seed)
+        classifier = _xgboost.XGBClassifier(n_jobs=self._n_jobs, random_state=random_seed)
         classifier.fit(features.replace([np.inf, -np.inf]), labels)
         return classifier
 

@@ -60,6 +60,11 @@ class VideoManager:
         """Get the list of video filenames in the project."""
         return self._videos
 
+    @property
+    def num_videos(self) -> int:
+        """Get the number of videos in the project."""
+        return len(self._videos)
+
     def remove_video(self, video_name: str):
         """Remove a video from the project.
 
