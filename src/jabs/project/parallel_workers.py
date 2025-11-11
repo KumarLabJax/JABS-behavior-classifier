@@ -7,7 +7,7 @@ be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_featu
 
 import json
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,9 @@ from jabs.video_reader.utilities import get_fps
 
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
+
+if TYPE_CHECKING:
+    from jabs.pose_estimation import PoseEstimation
 
 
 class FeatureLoadJobSpec(TypedDict):
@@ -45,7 +48,7 @@ class CollectFeatureLoadResult(TypedDict):
     group_keys: list[tuple[str, int]]
 
 
-def _load_video_labels(annotations_path: Path, pose_est) -> VideoLabels | None:
+def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:
     """Load VideoLabels from a JSON file if present; else None."""
     ap = annotations_path
     if not ap.exists():
