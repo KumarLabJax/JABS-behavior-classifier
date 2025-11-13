@@ -428,14 +428,14 @@ class Project:
 
     def save_predictions(
         self,
-        pose_est,
-        video_name,
-        predictions,
-        probabilities,
-        frame_indexes,
+        pose_est: PoseEstimation,
+        video_name: str,
+        predictions: dict[int, np.ndarray],
+        probabilities: dict[int, np.ndarray],
+        frame_indexes: dict[int, np.ndarray],
         behavior: str,
-        classifier,
-    ):
+        classifier: object,
+    ) -> None:
         """Save predictions for a video in the project folder.
 
         Args:
