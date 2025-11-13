@@ -11,6 +11,7 @@ from jabs.version import version_str
 from .project_utils import to_safe_name
 
 if typing.TYPE_CHECKING:
+    from jabs.classifier import Classifier
     from jabs.pose_estimation import PoseEstimation
 
     from .project import Project
@@ -54,7 +55,7 @@ class PredictionManager:
         predictions: np.ndarray,
         probabilities: np.ndarray,
         poses: "PoseEstimation",
-        classifier: object,
+        classifier: "Classifier",
     ) -> None:
         """
         Write predicted classes and probabilities for a behavior to an HDF5 file.
@@ -74,12 +75,16 @@ class PredictionManager:
             None
         """
         # TODO catch exceptions
-        with h5py.File(output_path, "w") as h5:
+        with h5py.File(output_path, "a") as h5:
             h5.attrs["pose_file"] = Path(poses.pose_file).name
             h5.attrs["pose_hash"] = poses.hash
             h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
             prediction_group = h5.require_group("predictions")
-            if poses.external_identities is not None:
+            # Write external identity mapping only if not already present.
+            if (
+                poses.external_identities is not None
+                and "external_identity_mapping" not in prediction_group
+            ):
                 prediction_group.create_dataset(
                     "external_identity_mapping",
                     data=np.array(poses.external_identities, dtype=object),

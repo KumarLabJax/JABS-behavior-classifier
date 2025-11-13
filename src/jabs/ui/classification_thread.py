@@ -34,6 +34,12 @@ class ClassifyThread(QThread):
         behavior (str): The behavior label to classify.
         current_video (str): The video currently loaded in the video player.
         parent (QWidget or None, optional): Optional parent widget.
+
+    Note:
+        A future enhancement could offload file-saving operations to a separate
+        worker thread using Qt signals/slots. This would allow classification
+        to continue without blocking on disk IO, improving throughput for
+        projects with many videos.
     """
 
     classification_complete = Signal(dict)
