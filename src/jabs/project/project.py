@@ -463,7 +463,7 @@ class Project:
             In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
             instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
-        # set up an output filename based on the behavior and video names
+        # set up an output filename based on the video names
         file_base = Path(video_name).with_suffix("").name + ".h5"
         output_path = self._paths.prediction_dir / file_base
 
