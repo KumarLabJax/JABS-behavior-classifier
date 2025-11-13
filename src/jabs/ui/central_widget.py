@@ -798,7 +798,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
         self._progress_dialog = create_cancelable_progress_dialog(
-            self, "Predicting", self._project.total_project_identities + 1
+            self, "Predicting", self._project.video_manager.num_videos
         )
         self._progress_dialog.show()
         self._progress_dialog.canceled.connect(self._classify_thread.request_termination)

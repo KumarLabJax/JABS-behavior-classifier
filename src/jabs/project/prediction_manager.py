@@ -53,7 +53,6 @@ class PredictionManager:
         probabilities,
         poses,
         classifier,
-        external_identities: list[int] | None = None,
     ):
         """
         Write predicted classes and probabilities for a behavior to an HDF5 file.
@@ -68,21 +67,21 @@ class PredictionManager:
             probabilities (np.ndarray): Array of predicted class probabilities, shape (n_animals, n_frames).
             poses: PoseEstimation object corresponding to the video.
             classifier: Classifier object used to generate predictions.
-            external_identities (list[int], optional): List mapping JABS identities to external identities.
 
         Returns:
             None
         """
         # TODO catch exceptions
-        with h5py.File(output_path, "a") as h5:
+        with h5py.File(output_path, "w") as h5:
             h5.attrs["pose_file"] = Path(poses.pose_file).name
             h5.attrs["pose_hash"] = poses.hash
             h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
             prediction_group = h5.require_group("predictions")
-            if external_identities is not None:
+            if poses.external_identities is not None:
                 prediction_group.create_dataset(
-                    "external_identity_map",
-                    data=np.array(external_identities, dtype=np.uint32),
+                    "external_identity_mapping",
+                    data=np.array(poses.external_identities, dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
                 )
             behavior_group = prediction_group.require_group(to_safe_name(behavior))
             behavior_group.attrs["classifier_file"] = classifier.classifier_file
