@@ -11,6 +11,8 @@ from jabs.version import version_str
 from .project_utils import to_safe_name
 
 if typing.TYPE_CHECKING:
+    from jabs.pose_estimation import PoseEstimation
+
     from .project import Project
 
 
@@ -49,11 +51,11 @@ class PredictionManager:
         cls,
         behavior: str,
         output_path: Path,
-        predictions,
-        probabilities,
-        poses,
-        classifier,
-    ):
+        predictions: np.ndarray,
+        probabilities: np.ndarray,
+        poses: "PoseEstimation",
+        classifier: object,
+    ) -> None:
         """
         Write predicted classes and probabilities for a behavior to an HDF5 file.
 
