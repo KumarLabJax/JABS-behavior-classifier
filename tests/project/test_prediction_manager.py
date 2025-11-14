@@ -49,7 +49,12 @@ def test_write_predictions(prediction_manager, tmp_path):
     poses = type(
         "PoseEstimation",
         (object,),
-        {"pose_file": "pose_file.h5", "hash": "12345", "identity_to_track": None},
+        {
+            "pose_file": "pose_file.h5",
+            "hash": "12345",
+            "identity_to_track": None,
+            "external_identities": None,
+        },
     )()
     classifier = type(
         "Classifier",

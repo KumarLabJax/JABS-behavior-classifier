@@ -34,6 +34,12 @@ class ClassifyThread(QThread):
         behavior (str): The behavior label to classify.
         current_video (str): The video currently loaded in the video player.
         parent (QWidget or None, optional): Optional parent widget.
+
+    Note:
+        A future enhancement could offload file-saving operations to a separate
+        worker thread using Qt signals/slots. This would allow classification
+        to continue without blocking on disk IO, improving throughput for
+        projects with many videos.
     """
 
     classification_complete = Signal(dict)
@@ -76,10 +82,9 @@ class ClassifyThread(QThread):
         runs the classifier for each identity in each video
         """
         self._tasks_complete = 0
-
-        predictions = {}
-        probabilities = {}
-        frame_indexes = {}
+        current_video_predictions = {}
+        current_video_probabilities = {}
+        current_video_frame_indexes = {}
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -96,10 +101,10 @@ class ClassifyThread(QThread):
                 pose_est = self._project.load_pose_est(video_path)
                 fps = pose_est.fps
 
-                # make predictions for each identity in this video
-                predictions[video] = {}
-                probabilities[video] = {}
-                frame_indexes[video] = {}
+                # collect predictions, probabilities, and frame indexes for each identity in the video
+                predictions = {}
+                probabilities = {}
+                frame_indexes = {}
 
                 for identity in pose_est.identities:
                     check_termination_requested()
@@ -134,7 +139,7 @@ class ClassifyThread(QThread):
                         # Note: this makes predictions for all frames in the video, even those without valid pose
                         # We will later filter these out when saving the predictions to disk
                         # consider changing this to only predict on frames with valid pose
-                        predictions[video][identity] = self._classifier.predict(data)
+                        predictions[identity] = self._classifier.predict(data)
 
                         # also get the probabilities
                         prob = self._classifier.predict_proba(data)
@@ -142,35 +147,43 @@ class ClassifyThread(QThread):
                         # The following code uses some
                         # numpy magic to use the _predictions array as column indexes
                         # for each row of the 'prob' array we just computed.
-                        probabilities[video][identity] = prob[
-                            np.arange(len(prob)), predictions[video][identity]
-                        ]
+                        probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
 
                         # save the indexes for the predicted frames
-                        frame_indexes[video][identity] = feature_values["frame_indexes"]
+                        frame_indexes[identity] = feature_values["frame_indexes"]
                     else:
-                        predictions[video][identity] = np.array(0)
-                        probabilities[video][identity] = np.array(0)
-                        frame_indexes[video][identity] = np.array(0)
-                    self._tasks_complete += 1
-                    self.update_progress.emit(self._tasks_complete)
+                        predictions[identity] = np.array(0)
+                        probabilities[identity] = np.array(0)
+                        frame_indexes[identity] = np.array(0)
 
-            # save predictions to disk
-            self.current_status.emit("Saving Predictions")
-            self._project.save_predictions(
-                predictions, probabilities, frame_indexes, self._behavior, self._classifier
-            )
+                if video == self._current_video:
+                    # keep predictions for the video currently loaded in the video player
+                    current_video_predictions = predictions.copy()
+                    current_video_probabilities = probabilities.copy()
+                    current_video_frame_indexes = frame_indexes.copy()
 
-            self._tasks_complete += 1
-            self.update_progress.emit(self._tasks_complete)
+                # save predictions to disk
+                self.current_status.emit("Saving Predictions")
+                self._project.save_predictions(
+                    pose_est,
+                    video,
+                    predictions,
+                    probabilities,
+                    frame_indexes,
+                    self._behavior,
+                    self._classifier,
+                )
+
+                self._tasks_complete += 1
+                self.update_progress.emit(self._tasks_complete)
 
             # emits the predictions, probabilities, and frame indexes for the video currently loaded in
             # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(
                 {
-                    "predictions": predictions[self._current_video],
-                    "probabilities": probabilities[self._current_video],
-                    "frame_indexes": frame_indexes[self._current_video],
+                    "predictions": current_video_predictions,
+                    "probabilities": current_video_probabilities,
+                    "frame_indexes": current_video_frame_indexes,
                 }
             )
         except Exception as e:

@@ -427,14 +427,23 @@ class Project:
             return False
 
     def save_predictions(
-        self, predictions, probabilities, frame_indexes, behavior: str, classifier
-    ):
-        """Save predictions for the current project.
+        self,
+        pose_est: PoseEstimation,
+        video_name: str,
+        predictions: dict[int, np.ndarray],
+        probabilities: dict[int, np.ndarray],
+        frame_indexes: dict[int, np.ndarray],
+        behavior: str,
+        classifier: object,
+    ) -> None:
+        """Save predictions for a video in the project folder.
 
         Args:
-            predictions: dict mapping video name and identity to a 1D numpy array of predicted labels.
+            pose_est: PoseEstimation object for the video.
+            video_name: name of the video these predictions correspond to.
+            predictions: dict mapping identity to a 1D numpy array of predicted labels.
             probabilities: same structure as `predictions` but with floating-point values.
-            frame_indexes: dict mapping video name and identity to 1D numpy array of absolute frame indices
+            frame_indexes: dict mapping identity to 1D numpy array of absolute frame indices
                 listing the frames where the identity has a valid pose (i.e., frames with a meaningful prediction).
             behavior: string behavior name.
             classifier: Classifier object used to generate the predictions.
@@ -454,47 +463,37 @@ class Project:
             In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
             instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
-        for video in self._video_manager.videos:
-            # set up an output filename based on the behavior and video names
-            file_base = Path(video).with_suffix("").name + ".h5"
-            output_path = self._paths.prediction_dir / file_base
+        # set up an output filename based on the video names
+        file_base = Path(video_name).with_suffix("").name + ".h5"
+        output_path = self._paths.prediction_dir / file_base
 
-            # make sure behavior directory exists
-            output_path.parent.mkdir(exist_ok=True)
+        # allocate numpy arrays to write to h5 file
+        prediction_labels = np.full(
+            (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
+        )
+        prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-            # we need info from PoseEstimation for this video
-            poses = open_pose_file(
-                get_pose_path(self._video_manager.video_path(video)),
-                self._paths.cache_dir,
-            )
+        # populate numpy arrays
+        for identity in predictions:
+            indexes = frame_indexes[identity]
 
-            # allocate numpy arrays to write to h5 file
-            prediction_labels = np.full(
-                (poses.num_identities, poses.num_frames), -1, dtype=np.int8
-            )
-            prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
+            # 'indexes' are absolute frame indices where this identity has a valid pose.
+            # predictions[identity] and probabilities[identity] are full-length arrays
+            # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
+            # We index both source and destination with 'indexes' to copy only those valid-pose frames.
+            # If upstream ever provides compact arrays instead, drop the source-side indexing.
+            prediction_labels[identity, indexes] = predictions[identity][indexes]
+            prediction_prob[identity, indexes] = probabilities[identity][indexes]
 
-            # populate numpy arrays
-            for identity in predictions[video]:
-                indexes = frame_indexes[video][identity]
-
-                # 'indexes' are absolute frame indices where this identity has a valid pose.
-                # predictions[video][identity] and probabilities[video][identity] are full-length arrays
-                # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
-                # We index both source and destination with 'indexes' to copy only those valid-pose frames.
-                # If upstream ever provides compact arrays instead, drop the source-side indexing.
-                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
-                prediction_prob[identity, indexes] = probabilities[video][identity][indexes]
-
-            # write to h5 file
-            self._prediction_manager.write_predictions(
-                behavior,
-                output_path,
-                prediction_labels,
-                prediction_prob,
-                poses,
-                classifier,
-            )
+        # write to h5 file
+        self._prediction_manager.write_predictions(
+            behavior,
+            output_path,
+            prediction_labels,
+            prediction_prob,
+            pose_est,
+            classifier,
+        )
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()

@@ -140,7 +140,7 @@ def convert_data_frame(
     identities = [
         s
         for s in (df["eartag_code"].dropna().astype(str).str.strip().unique().tolist())
-        if s not in ["", "00"]
+        if s not in ["", "00", "01"]
     ]
     identities.sort()
     num_identities = len(identities)

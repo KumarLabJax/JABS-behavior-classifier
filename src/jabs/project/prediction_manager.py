@@ -11,6 +11,9 @@ from jabs.version import version_str
 from .project_utils import to_safe_name
 
 if typing.TYPE_CHECKING:
+    from jabs.classifier import Classifier
+    from jabs.pose_estimation import PoseEstimation
+
     from .project import Project
 
 
@@ -49,12 +52,11 @@ class PredictionManager:
         cls,
         behavior: str,
         output_path: Path,
-        predictions,
-        probabilities,
-        poses,
-        classifier,
-        external_identities: list[int] | None = None,
-    ):
+        predictions: np.ndarray,
+        probabilities: np.ndarray,
+        poses: "PoseEstimation",
+        classifier: "Classifier",
+    ) -> None:
         """
         Write predicted classes and probabilities for a behavior to an HDF5 file.
 
@@ -68,7 +70,6 @@ class PredictionManager:
             probabilities (np.ndarray): Array of predicted class probabilities, shape (n_animals, n_frames).
             poses: PoseEstimation object corresponding to the video.
             classifier: Classifier object used to generate predictions.
-            external_identities (list[int], optional): List mapping JABS identities to external identities.
 
         Returns:
             None
@@ -79,10 +80,15 @@ class PredictionManager:
             h5.attrs["pose_hash"] = poses.hash
             h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
             prediction_group = h5.require_group("predictions")
-            if external_identities is not None:
+            # Write external identity mapping only if not already present.
+            if (
+                poses.external_identities is not None
+                and "external_identity_mapping" not in prediction_group
+            ):
                 prediction_group.create_dataset(
-                    "external_identity_map",
-                    data=np.array(external_identities, dtype=np.uint32),
+                    "external_identity_mapping",
+                    data=np.array(poses.external_identities, dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
                 )
             behavior_group = prediction_group.require_group(to_safe_name(behavior))
             behavior_group.attrs["classifier_file"] = classifier.classifier_file
