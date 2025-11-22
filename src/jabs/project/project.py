@@ -119,9 +119,13 @@ class Project:
 
     def shutdown_executor(self) -> None:
         """Shut down the persistent executor (call on app exit)."""
-        if self._executor is not None:
+        # We need to be defensive against partially constructed Project instances where __init__ may have
+        # raised an Exception before _executor was initialized and then shutdown_executor is called by __del__.
+        # In that case, the attribute may not exist, so we don't access the attribute directly here.
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
             with contextlib.suppress(Exception):
-                self._executor.shutdown(cancel_futures=False)
+                executor.shutdown(cancel_futures=False)
             self._executor = None
             self._executor_size = 0
 
@@ -425,78 +429,6 @@ class Project:
             return True
         except OSError:
             return False
-
-    def save_predictions(
-        self,
-        pose_est: PoseEstimation,
-        video_name: str,
-        predictions: dict[int, np.ndarray],
-        probabilities: dict[int, np.ndarray],
-        frame_indexes: dict[int, np.ndarray],
-        behavior: str,
-        classifier: object,
-    ) -> None:
-        """Save predictions for a video in the project folder.
-
-        Args:
-            pose_est: PoseEstimation object for the video.
-            video_name: name of the video these predictions correspond to.
-            predictions: dict mapping identity to a 1D numpy array of predicted labels.
-            probabilities: same structure as `predictions` but with floating-point values.
-            frame_indexes: dict mapping identity to 1D numpy array of absolute frame indices
-                listing the frames where the identity has a valid pose (i.e., frames with a meaningful prediction).
-            behavior: string behavior name.
-            classifier: Classifier object used to generate the predictions.
-
-        Note:
-            Currently, the classifier runs on every frame for every identity -- even when pose is invalid
-            and features are NaN. We copy values for *only* the frames with a valid pose. This is why we
-            index *both* the source and destination with `indexes` (an array with the absolute frame indices
-            of frames with a valid pose), e.g.:
-
-                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
-                prediction_prob[identity, indexes]   = probabilities[video][identity][indexes]
-
-            This leaves the output arrays with default values (-1 for labels, 0.0 for probabilities) for frames
-            without pose.
-
-            In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
-            instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
-        """
-        # set up an output filename based on the video names
-        file_base = Path(video_name).with_suffix("").name + ".h5"
-        output_path = self._paths.prediction_dir / file_base
-
-        # allocate numpy arrays to write to h5 file
-        prediction_labels = np.full(
-            (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
-        )
-        prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
-
-        # populate numpy arrays
-        for identity in predictions:
-            indexes = frame_indexes[identity]
-
-            # 'indexes' are absolute frame indices where this identity has a valid pose.
-            # predictions[identity] and probabilities[identity] are full-length arrays
-            # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
-            # We index both source and destination with 'indexes' to copy only those valid-pose frames.
-            # If upstream ever provides compact arrays instead, drop the source-side indexing.
-            prediction_labels[identity, indexes] = predictions[identity][indexes]
-            prediction_prob[identity, indexes] = probabilities[identity][indexes]
-
-        # write to h5 file
-        self._prediction_manager.write_predictions(
-            behavior,
-            output_path,
-            prediction_labels,
-            prediction_prob,
-            pose_est,
-            classifier,
-        )
-
-        # update app version saved in project metadata if necessary
-        self._settings_manager.update_version()
 
     def archive_behavior(self, behavior: str):
         """Archive a behavior.

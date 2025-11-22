@@ -1,3 +1,6 @@
+import time
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from PySide6.QtCore import QThread, Signal
@@ -5,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 from jabs.classifier import Classifier
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
+from jabs.io import save_predictions
 from jabs.project import Project
 
 from .exceptions import ThreadTerminatedError
@@ -81,6 +85,7 @@ class ClassifyThread(QThread):
 
         runs the classifier for each identity in each video
         """
+        start_time = time.time()
         self._tasks_complete = 0
         current_video_predictions = {}
         current_video_probabilities = {}
@@ -100,11 +105,13 @@ class ClassifyThread(QThread):
                 video_path = self._project.video_manager.video_path(video)
                 pose_est = self._project.load_pose_est(video_path)
                 fps = pose_est.fps
+                num_identities = pose_est.num_identities
+                num_frames = pose_est.num_frames
 
                 # collect predictions, probabilities, and frame indexes for each identity in the video
-                predictions = {}
-                probabilities = {}
-                frame_indexes = {}
+                predictions = np.full((num_identities, num_frames), -1, dtype=np.int8)
+                probabilities = np.zeros((num_identities, num_frames), dtype=np.float32)
+                frame_indexes = np.zeros((num_identities, num_frames), dtype=np.int32)
 
                 for identity in pose_est.identities:
                     check_termination_requested()
@@ -135,48 +142,66 @@ class ClassifyThread(QThread):
 
                     check_termination_requested()
                     if data.shape[0] > 0:
-                        # make predictions
-                        # Note: this makes predictions for all frames in the video, even those without valid pose
-                        # We will later filter these out when saving the predictions to disk
-                        # consider changing this to only predict on frames with valid pose
-                        predictions[identity] = self._classifier.predict(data)
+                        # compute probabilities for all classes
+                        probs = self._classifier.predict_proba(data)
 
-                        # also get the probabilities
-                        prob = self._classifier.predict_proba(data)
-                        # Save the probability for the predicted class only.
-                        # The following code uses some
-                        # numpy magic to use the _predictions array as column indexes
-                        # for each row of the 'prob' array we just computed.
-                        probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
+                        # get predicted class for each frame
+                        preds = self._classifier.threshold_probabilities(probs)
 
-                        # save the indexes for the predicted frames
-                        frame_indexes[identity] = feature_values["frame_indexes"]
+                        predictions[identity, feature_values["frame_indexes"]] = preds[
+                            feature_values["frame_indexes"]
+                        ]
+
+                        # store probability for the chosen prediction
+                        probabilities[identity, feature_values["frame_indexes"]] = probs[
+                            np.arange(len(probs)), preds
+                        ][feature_values["frame_indexes"]]
+
+                        frame_indexes[identity, feature_values["frame_indexes"]] = feature_values[
+                            "frame_indexes"
+                        ]
                     else:
-                        predictions[identity] = np.array(0)
-                        probabilities[identity] = np.array(0)
-                        frame_indexes[identity] = np.array(0)
+                        # leave default -1 / 0 rows as initialized
+                        pass
 
                 if video == self._current_video:
-                    # keep predictions for the video currently loaded in the video player
-                    current_video_predictions = predictions.copy()
-                    current_video_probabilities = probabilities.copy()
-                    current_video_frame_indexes = frame_indexes.copy()
+                    current_video_predictions = {
+                        identity: predictions[identity].copy()
+                        for identity in range(num_identities)
+                    }
+                    current_video_probabilities = {
+                        identity: probabilities[identity].copy()
+                        for identity in range(num_identities)
+                    }
+                    current_video_frame_indexes = {
+                        identity: frame_indexes[identity][frame_indexes[identity] != 0].copy()
+                        for identity in range(num_identities)
+                    }
 
                 # save predictions to disk
                 self.current_status.emit("Saving Predictions")
-                self._project.save_predictions(
-                    pose_est,
-                    video,
-                    predictions,
-                    probabilities,
-                    frame_indexes,
-                    self._behavior,
-                    self._classifier,
+                output_path = (
+                    self._project.project_paths.prediction_dir
+                    / f"{Path(video).with_suffix('').name}.h5"
+                )
+                save_predictions(
+                    output_path=output_path,
+                    predictions=predictions,
+                    probabilities=probabilities,
+                    behavior=self._behavior,
+                    classifier=self._classifier,
+                    pose_file=pose_est.pose_file.name,
+                    pose_hash=pose_est.hash,
+                    pose_identity_to_track=pose_est.identity_to_track,
+                    external_identities=pose_est.external_identities,
                 )
 
                 self._tasks_complete += 1
                 self.update_progress.emit(self._tasks_complete)
 
+            # emit timing information
+            elapsed = time.time() - start_time
+            self.current_status.emit(f"Classification completed in {elapsed:.2f} seconds")
             # emits the predictions, probabilities, and frame indexes for the video currently loaded in
             # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(

@@ -18,8 +18,8 @@ from rich.progress import BarColumn, Progress, TextColumn
 from jabs.classifier import Classifier
 from jabs.constants import APP_NAME
 from jabs.feature_extraction import IdentityFeatures
+from jabs.io import save_predictions
 from jabs.pose_estimation import open_pose_file
-from jabs.project.prediction_manager import PredictionManager
 
 DEFAULT_FPS = 30
 
@@ -164,13 +164,16 @@ def classify_pose(
         sys.exit(f"Unable to create output directory: {e}")
     behavior_out_path = behavior_out_dir / (pose_stem + "_behavior.h5")
 
-    PredictionManager.write_predictions(
-        behavior,
-        behavior_out_path,
-        prediction_labels,
-        prediction_prob,
-        pose_est,
-        classifier,
+    save_predictions(
+        output_path=behavior_out_path,
+        predictions=prediction_labels,
+        probabilities=prediction_prob,
+        behavior=behavior,
+        classifier=classifier,
+        pose_file=pose_est.pose_file.name,
+        pose_hash=pose_est.hash,
+        pose_identity_to_track=pose_est.identity_to_track,
+        external_identities=pose_est.external_identities,
     )
 
 

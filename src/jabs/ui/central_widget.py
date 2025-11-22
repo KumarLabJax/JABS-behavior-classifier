@@ -814,7 +814,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._frame_indexes = output["frame_indexes"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self.status_message.emit("Classification Complete", 3000)
+        # self.status_message.emit("Classification Complete", 3000)
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step: int) -> None:

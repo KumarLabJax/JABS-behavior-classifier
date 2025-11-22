@@ -193,8 +193,8 @@ class TrainingThread(QThread):
                             "precision\n(behavior)",
                             "recall\n(not behavior)",
                             "recall\n(behavior)",
-                            "f beta score\n(not behavior)",
-                            "f beta score\n(behavior)",
+                            "F1 score\n(not behavior)",
+                            "F1 score\n(behavior)",
                             "test - leave one out:\n(video [identity])",
                         ],
                     )

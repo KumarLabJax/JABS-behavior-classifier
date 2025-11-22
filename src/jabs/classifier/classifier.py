@@ -21,7 +21,8 @@ from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
-_VERSION = 9
+_VERSION = 10
+_DEFAULT_PREDICTION_THRESHOLD = 0.5
 
 _classifier_choices = [ClassifierType.RANDOM_FOREST, ClassifierType.GRADIENT_BOOSTING]
 
@@ -57,7 +58,12 @@ class Classifier:
         ClassifierType.XGBOOST: "XGBoost",
     }
 
-    def __init__(self, classifier=ClassifierType.RANDOM_FOREST, n_jobs=1):
+    def __init__(
+        self,
+        classifier=ClassifierType.RANDOM_FOREST,
+        n_jobs=1,
+        prediction_threshold=_DEFAULT_PREDICTION_THRESHOLD,
+    ):
         self._classifier_type = classifier
         self._classifier = None
         self._project_settings = None
@@ -65,6 +71,7 @@ class Classifier:
         self._feature_names = None
         self._n_jobs = n_jobs
         self._version = _VERSION
+        self._prediction_threshold = prediction_threshold
 
         self._classifier_file = None
         self._classifier_hash = None
@@ -115,6 +122,11 @@ class Classifier:
         classifier._classifier_source = "training_file"
 
         return classifier
+
+    @property
+    def prediction_threshold(self) -> float:
+        """return the prediction threshold used to assign classes"""
+        return self._prediction_threshold
 
     @property
     def classifier_name(self) -> str:
@@ -472,6 +484,19 @@ class Classifier:
         return self._classifier.predict_proba(
             self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
         )
+
+    def threshold_probabilities(self, probabilities: np.ndarray) -> np.ndarray:
+        """apply the prediction threshold to probabilities to get predicted class.
+
+        Args:
+            probabilities: array of shape (n_samples, n_classes) with predicted probabilities
+
+        Returns:
+            array of shape (n_samples,) with binary predictions based on the threshold
+        """
+        # predicted class is the first class whose probability exceeds threshold,
+        # otherwise choose argmax as fallback
+        return (probabilities >= self.prediction_threshold).argmax(axis=1)
 
     def save(self, path: Path):
         """save the classifier to a file

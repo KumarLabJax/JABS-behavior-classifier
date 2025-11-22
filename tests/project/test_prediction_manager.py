@@ -40,43 +40,6 @@ def prediction_manager(mock_project):
     return PredictionManager(mock_project)
 
 
-def test_write_predictions(prediction_manager, tmp_path):
-    """Test writing predictions to an HDF5 file."""
-    output_path = tmp_path / "test_predictions.h5"
-    behavior = "Walking"
-    predictions = np.array([[1, 0, -1], [0, 1, -1]])
-    probabilities = np.array([[0.9, 0.8, -1], [0.7, 0.6, -1]])
-    poses = type(
-        "PoseEstimation",
-        (object,),
-        {
-            "pose_file": "pose_file.h5",
-            "hash": "12345",
-            "identity_to_track": None,
-            "external_identities": None,
-        },
-    )()
-    classifier = type(
-        "Classifier",
-        (object,),
-        {"classifier_file": "classifier.pkl", "classifier_hash": "67890"},
-    )()
-
-    PredictionManager.write_predictions(
-        behavior, output_path, predictions, probabilities, poses, classifier
-    )
-
-    with h5py.File(output_path, "r") as h5:
-        assert h5.attrs["pose_file"] == "pose_file.h5"
-        assert h5.attrs["pose_hash"] == "12345"
-        assert h5.attrs["version"] == 2
-        assert "predictions" in h5
-        assert behavior in h5["predictions"]
-        behavior_group = h5["predictions"][behavior]
-        assert np.array_equal(behavior_group["predicted_class"], predictions)
-        assert np.array_equal(behavior_group["probabilities"], probabilities)
-
-
 def test_load_predictions(prediction_manager, mock_project):
     """Test loading predictions for a video and behavior."""
     video = "test_video.avi"
