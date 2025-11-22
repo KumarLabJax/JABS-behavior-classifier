@@ -11,7 +11,108 @@ from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.io import save_predictions
 from jabs.project import Project
 
+from ..pose_estimation import get_pose_path, open_pose_file
 from .exceptions import ThreadTerminatedError
+
+
+def classify_single_video_worker(
+    video_name: str,
+    pose_path: Path,
+    classifier: "Classifier",
+    project_settings: dict,
+    feature_dir: Path,
+    cache_dir: Path,
+) -> dict:
+    """Run classification for all identities in a single video.
+
+    This helper is intentionally free of Qt and `Project` dependencies so it can
+    be used in a ProcessPool-based parallelization strategy. It loads pose data
+    from disk, computes features per identity, runs the classifier to obtain
+    per-frame predictions and probabilities, and returns the results along with
+    pose metadata.
+
+    Since this is intended to be run in a separate process, all parameters are
+    passed explicitly rather than relying on shared state and must
+    be serializable by the multiprocessing module.
+
+    Args:
+        video_name: Name of the video file being processed.
+        pose_path: Filesystem path to the corresponding pose file.
+        classifier: Classifier instance used to compute probabilities.
+        project_settings: Plain dictionary of behavior-specific settings.
+        feature_dir: Directory where feature caches are stored.
+        cache_dir: Directory used to cache pose estimation files.
+
+    Returns:
+        dict: A dictionary with keys:
+            - "video": video name
+            - "predictions": np.ndarray of shape (num_identities, num_frames)
+            - "probabilities": np.ndarray of shape (num_identities, num_frames)
+            - "frame_indexes": np.ndarray of shape (num_identities, num_frames)
+            - "pose_file": basename of the pose file
+            - "pose_hash": hash of the pose data
+            - "identity_to_track": optional identity mapping array
+            - "external_identities": optional list of external identity labels
+    """
+    # Load pose estimation for this video
+    pose_est = open_pose_file(pose_path, cache_dir)
+    fps = pose_est.fps
+    num_identities = pose_est.num_identities
+    num_frames = pose_est.num_frames
+
+    # Allocate arrays for per-identity, per-frame outputs
+    predictions = np.full((num_identities, num_frames), -1, dtype=np.int8)
+    probabilities = np.zeros((num_identities, num_frames), dtype=np.float32)
+    frame_indexes = np.zeros((num_identities, num_frames), dtype=np.int32)
+
+    for identity in pose_est.identities:
+        # get the features for this identity
+        features = IdentityFeatures(
+            video_name,
+            identity,
+            feature_dir,
+            pose_est,
+            fps=fps,
+            op_settings=project_settings,
+        )
+        feature_values = features.get_features(
+            project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
+        )
+
+        # reformat the data in a single 2D numpy array to pass to the classifier
+        per_frame_features = pd.DataFrame(
+            IdentityFeatures.merge_per_frame_features(feature_values["per_frame"])
+        )
+        window_features = pd.DataFrame(
+            IdentityFeatures.merge_window_features(feature_values["window"])
+        )
+        data = classifier.combine_data(per_frame_features, window_features)
+
+        if data.shape[0] == 0:
+            # leave default -1 / 0 rows as initialized
+            continue
+
+        # compute probabilities for all classes
+        probs = classifier.predict_proba(data)
+
+        # get predicted class for each frame using classifier's thresholding logic
+        preds = classifier.threshold_probabilities(probs)
+
+        idx = feature_values["frame_indexes"]
+        predictions[identity, idx] = preds[idx]
+        probabilities[identity, idx] = probs[np.arange(len(probs)), preds][idx]
+        frame_indexes[identity, idx] = idx
+
+    return {
+        "video": video_name,
+        "predictions": predictions,
+        "probabilities": probabilities,
+        "frame_indexes": frame_indexes,
+        "pose_file": pose_est.pose_file.name,
+        "pose_hash": pose_est.hash,
+        "identity_to_track": pose_est.identity_to_track,
+        "external_identities": pose_est.external_identities,
+    }
 
 
 class ClassifyThread(QThread):
@@ -97,72 +198,41 @@ class ClassifyThread(QThread):
 
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
+            project_settings_dict = dict(project_settings)
+            cache_dir = self._project.project_paths.cache_dir
+            feature_dir = self._project.feature_dir
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
                 check_termination_requested()
 
                 video_path = self._project.video_manager.video_path(video)
-                pose_est = self._project.load_pose_est(video_path)
-                fps = pose_est.fps
-                num_identities = pose_est.num_identities
-                num_frames = pose_est.num_frames
+                pose_path = get_pose_path(video_path)
 
-                # collect predictions, probabilities, and frame indexes for each identity in the video
-                predictions = np.full((num_identities, num_frames), -1, dtype=np.int8)
-                probabilities = np.zeros((num_identities, num_frames), dtype=np.float32)
-                frame_indexes = np.zeros((num_identities, num_frames), dtype=np.int32)
+                # high-level status for this video
+                self.current_status.emit(f"Classifying {video}")
 
-                for identity in pose_est.identities:
-                    check_termination_requested()
+                # Run the per-video worker serially for now. This can later be
+                # offloaded to a ProcessPoolExecutor without changing the
+                # worker implementation.
+                result = classify_single_video_worker(
+                    video_name=video,
+                    pose_path=pose_path,
+                    classifier=self._classifier,
+                    project_settings=project_settings_dict,
+                    feature_dir=feature_dir,
+                    cache_dir=cache_dir,
+                )
 
-                    self.current_status.emit(f"Classifying {video},  Identity {identity}")
+                predictions = result["predictions"]
+                probabilities = result["probabilities"]
+                frame_indexes = result["frame_indexes"]
+                pose_file = result["pose_file"]
+                pose_hash = result["pose_hash"]
+                identity_to_track = result["identity_to_track"]
+                external_identities = result["external_identities"]
 
-                    # get the features for this identity
-                    features = IdentityFeatures(
-                        video,
-                        identity,
-                        self._project.feature_dir,
-                        pose_est,
-                        fps=fps,
-                        op_settings=project_settings,
-                    )
-                    feature_values = features.get_features(
-                        project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
-                    )
-
-                    # reformat the data in a single 2D numpy array to pass to the classifier
-                    per_frame_features = pd.DataFrame(
-                        IdentityFeatures.merge_per_frame_features(feature_values["per_frame"])
-                    )
-                    window_features = pd.DataFrame(
-                        IdentityFeatures.merge_window_features(feature_values["window"])
-                    )
-                    data = self._classifier.combine_data(per_frame_features, window_features)
-
-                    check_termination_requested()
-                    if data.shape[0] > 0:
-                        # compute probabilities for all classes
-                        probs = self._classifier.predict_proba(data)
-
-                        # get predicted class for each frame
-                        preds = self._classifier.threshold_probabilities(probs)
-
-                        predictions[identity, feature_values["frame_indexes"]] = preds[
-                            feature_values["frame_indexes"]
-                        ]
-
-                        # store probability for the chosen prediction
-                        probabilities[identity, feature_values["frame_indexes"]] = probs[
-                            np.arange(len(probs)), preds
-                        ][feature_values["frame_indexes"]]
-
-                        frame_indexes[identity, feature_values["frame_indexes"]] = feature_values[
-                            "frame_indexes"
-                        ]
-                    else:
-                        # leave default -1 / 0 rows as initialized
-                        pass
+                num_identities = predictions.shape[0]
 
                 if video == self._current_video:
                     current_video_predictions = {
@@ -174,7 +244,7 @@ class ClassifyThread(QThread):
                         for identity in range(num_identities)
                     }
                     current_video_frame_indexes = {
-                        identity: frame_indexes[identity][frame_indexes[identity] != 0].copy()
+                        identity: frame_indexes[identity].copy()
                         for identity in range(num_identities)
                     }
 
@@ -190,10 +260,10 @@ class ClassifyThread(QThread):
                     probabilities=probabilities,
                     behavior=self._behavior,
                     classifier=self._classifier,
-                    pose_file=pose_est.pose_file.name,
-                    pose_hash=pose_est.hash,
-                    pose_identity_to_track=pose_est.identity_to_track,
-                    external_identities=pose_est.external_identities,
+                    pose_file=pose_file,
+                    pose_hash=pose_hash,
+                    pose_identity_to_track=identity_to_track,
+                    external_identities=external_identities,
                 )
 
                 self._tasks_complete += 1
