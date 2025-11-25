@@ -18,6 +18,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
 from jabs.project import Project, TrackLabels, load_training_data
+from jabs.postprocess import DurationFilter, HMMFilter
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
@@ -113,6 +114,13 @@ class Classifier:
         classifier._classifier_file = Path(path).name
         classifier._classifier_hash = hash_file(Path(path))
         classifier._classifier_source = "training_file"
+
+        classifier._filters = []
+        filters = {"DurationFilter": DurationFilter, "HMMFilter": HMMFilter}
+        for cur_filter in loaded_training_data["settings"]["filters"]:
+            next_filter = filters[cur_filter](cur_filter["settings"])
+            next_filter.train(loaded_training_data["labels"], loaded_training_data["groups"])
+            classifier._filters.apppend(next_filter)
 
         return classifier
 
