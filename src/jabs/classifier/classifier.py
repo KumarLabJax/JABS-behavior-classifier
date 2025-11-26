@@ -115,13 +115,6 @@ class Classifier:
         classifier._classifier_hash = hash_file(Path(path))
         classifier._classifier_source = "training_file"
 
-        classifier._filters = []
-        filters = {"DurationFilter": DurationFilter, "HMMFilter": HMMFilter}
-        for cur_filter in loaded_training_data["settings"]["filters"]:
-            next_filter = filters[cur_filter](cur_filter["settings"])
-            next_filter.train(loaded_training_data["labels"], loaded_training_data["groups"])
-            classifier._filters.apppend(next_filter)
-
         return classifier
 
     @property

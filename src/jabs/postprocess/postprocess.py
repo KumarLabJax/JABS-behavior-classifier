@@ -4,6 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
+DEFAULT_POSTPROCESSOR_JSON = Path('postprocess.json')
+DEFAULT_POSTPROCESSOR_FOLDER = Path('./filters/')
+AVAILABLE_FILTERS = [DurationFilter]
+
+_VERSION = 1
 
 class BehaviorEvents:
     """Structure for interacting with behavioral event data."""
@@ -188,26 +193,41 @@ class BehaviorEvents:
 
 class BaseFilter:
     """A filter that adjusts classifier predictions."""
+    def __init__(self):
+        self._name = 'BaseFilter'
+        self._extension = '.filter'
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def file_ext(self):
+        return self._file_ext
 
     @abc.abstractmethod
-    def train(self, label: np.ndarray, group: np.ndarray):
+    def train(self, label: np.ndarray, group: np.ndarray, frame: np.ndarray):
         """Trains the filter from annotated data.
 
         Args:
             label: annotated behavioral state data
             group: value indicating group labels belong to
+            frame: frame information of labels
         """
         pass
 
     @abc.abstractmethod
-    def filter(self, prob: np.ndarray) -> np.ndarray:
+    def filter(self, prob: np.ndarray, state: np.ndarray) -> tuple(np.ndarray, np.ndarray):
         """Filters prediction data.
 
         Args:
             prob: probability matrix of shape [frame, class]
+            state: vector of predicted class
 
         Returns:
-            filtered probability matrix
+            tuple of
+                filtered probability matrix
+                filtered state vector
         """
         pass
 
@@ -239,18 +259,24 @@ class DurationFilter(BaseFilter):
         self._stitch_duration = kwargs.get("stitch_duration", 0)
         self._filter_duration = kwargs.get("filter_duration", 0)
 
-    def train(self, label: np.ndarray, group: np.ndarray):
+        self._name = 'DurationFilter'
+        self._file_ext = '.duration.filter'
+
+    def train(self, label: np.ndarray, group: np.ndarray, frame: np.ndarray):
         """Duration filters are not trained."""
         pass
 
-    def filter(self, prob: np.ndarray) -> np.ndarray:
+    def filter(self, prob: np.ndarray, state: np.ndarray) -> tuple(np.ndarray, np.ndarray):
         """Filters prediction data.
 
         Args:
             prob: probability matrix of shape [frame, class]
+            state: vector of predicted class
 
         Returns:
-            filtered probability matrix
+            tuple of
+                filtered probability matrix
+                filtered state vector
 
         Notes:
             Filters are applied in the order of:
@@ -258,8 +284,7 @@ class DurationFilter(BaseFilter):
                 2. Stitch: removes "not behavior"
                 3. Filter: removes "behavior"
         """
-        states = np.argmax(prob, axis=1)
-        rle_data = BehaviorEvents(states)
+        rle_data = BehaviorEvents(state)
         interpolate_to_remove = np.logical_and(
             rle_data.duration < self._interpolate_duration, rle_data.states == -1
         )
@@ -307,3 +332,108 @@ class DurationFilter(BaseFilter):
         self._interpolate_duration = payload["interpolate_duration"]
         self._stitch_duration = payload["stitch_duration"]
         self._filter_duration = payload["filter_duration"]
+
+
+class Postprocesser:
+    """Postprocessing object manages applying filters to prediction data."""
+    def __init__(self):
+        """Initializes a set of filters."""
+        self._filter_funcs = {cur_fitler.name: cur_filter for cur_filter in AVAILABLE_FILTERS}
+        self._filters = []
+
+    def add_filter(self, new_filter: BaseFilter):
+        """Adds a filter to the postprocessor.
+
+        Args:
+            new_filter: New filter to add
+        """
+        self._filters.append(new_filter)
+
+    def train_filters(self, labels: np.ndarray, groups: np.ndarray, frames: np.ndarray):
+        """Trains all filters on labeled data.
+
+        Args:
+            labels: vector containing labeled states
+            groups: vector containing group information
+            frames: vector containing frame within group
+        """
+        for cur_filter in self._filters:
+            cur_filter.train(labels, groups, frames)
+
+    def apply_filters(self, prob: np.ndarray, state: np.ndarray) -> tuple(np.ndarray, np.ndarray):
+        """Applies the postprocessing filters to predictions.
+
+        Args:
+            prob: probability matrix of shape [frame, class]
+            state: vector of predicted class
+
+        Returns:
+            tuple of
+                filtered probability matrix
+                filtered state vector
+        """
+        filtered_probs = np.copy(prob)
+        filtered_states = np.copy(state)
+
+        for cur_fitler in self._filters:
+            filtered_probs, filtered_states = cur_filter.filter(filtered_probs, filtered_states)
+
+        return filtered_probs, fitlered_states
+
+    def save_filters(self, config: Path|None = None, folder: Path|None = None):
+        """Saves postprocessor configuration to files.
+
+        Args:
+            config: json file describing the postprocessor
+            folder: folder where child filters are written
+        """
+        if config is None:
+            config = DEFAULT_POSTPROCESSOR_JSON
+        if folder is None:
+            folder = DEFAULT_POSTPROCESSOR_FOLDER
+
+        # Write out each of the filters
+        written_filters = []
+        for filter_idx, cur_filter in enumerate(self._filters):
+            out_file = folder + Path(str(filter_idx)).with_suffix(cur_filter.file_ext)
+            cur_filter.save(out_file)
+            written_filters.append({
+                "filter_type": cur_filter.name,
+                "file": out_file
+            })
+
+        # Write out the postprocessing config
+        payload = {
+            'version': _VERSION,
+            'filters': written_filters,
+        }
+        with open(config, 'w') as f:
+            json.dumps(f, payload)
+
+    def load_filters(self, config: Path):
+        """Loads a postprocessor from file.
+
+        Args:
+            config: json describing the postprocessor
+        """
+        with open(config) as f:
+            payload = json.loads(f)
+
+        if payload["version"] != _VERSION:
+            raise ValueError(f"Trying to load postprocessing filters from incompatible runtime version. Runtime version: {_VERSION}, config version: {payload["version"]}")
+
+        self._filters = []
+        for cur_filter in payload["filters"]:
+            new_filter = self._filter_funcs[cur_filter["filter_type"]]
+            new_filter.load(cur_filter["file"])
+            self._filters.append(new_filter)
+
+    @classmethod
+    def from_config(cls, config: Path):
+        """Creates a postprocessor from file.
+
+        Args:
+            config: json describign the postprocessor
+        """
+        postprocessor = cls()
+        reutrn cls.load_filters(config)
