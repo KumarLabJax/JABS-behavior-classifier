@@ -447,32 +447,63 @@ class Classifier:
         features_sorted = features[classifier_columns]
         return features_sorted
 
-    def predict(self, features):
-        """predict classes for a given set of features"""
+    def predict(self, features: dict, frame_indexes: np.ndarray|None = None) -> np.ndarray:
+        """predict classes for a given set of features
+
+        Args:
+            features: dictionary of feature data to classify
+            frame_indexes: frame indexes to classify (default all)
+
+        Returns:
+            predicted class vector
+        """
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
                 result = self._classifier.predict(
                     self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0))
                 )
-            return result
-        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
-        return self._classifier.predict(
-            self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
-        )
+        else:
+            # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+            result = self._classifier.predict(
+                self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
+            )
 
-    def predict_proba(self, features):
-        """predict probabilities for a given set of features"""
+        # Insert -1s into class prediction when no prediction is made
+        if frame_indexes is not None:
+            result_adjusted = np.full(result.shape, -1, dtype=np.uint8)
+            result_adjusted[frame_indexes] = result[frame_indexes] 
+            result = result_adjusted
+
+        return result
+
+    def predict_proba(self, features: dict, frame_indexes: np.ndarray|None = None) -> np.ndarray:
+        """predict probabilities for a given set of features.
+
+        Args:
+            features: dictionary of feature data to classify
+            frame_indexes: frame indexes to classify (default all)
+
+        Returns:
+            prediction probability matrix
+        """
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
                 result = self._classifier.predict_proba(self.sort_features_to_classify(features))
-            return result
-        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
-        return self._classifier.predict_proba(
-            self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
-        )
+        else:
+            # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+            result = self._classifier.predict_proba(
+                self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
+            )
 
+        # Insert 0 probabilities when no prediction is made
+        if frame_indexes is not None:
+            result_adjusted = np.full(result.shape, 0, dtype=np.float32)
+            result_adjusted[frame_indexes] = result[frame_indexes]
+            result = result_adjusted
+
+        return result
     def save(self, path: Path):
         """save the classifier to a file
 
