@@ -84,7 +84,6 @@ class ClassifyThread(QThread):
         self._tasks_complete = 0
         current_video_predictions = {}
         current_video_probabilities = {}
-        current_video_frame_indexes = {}
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -104,7 +103,6 @@ class ClassifyThread(QThread):
                 # collect predictions, probabilities, and frame indexes for each identity in the video
                 predictions = {}
                 probabilities = {}
-                frame_indexes = {}
 
                 for identity in pose_est.identities:
                     check_termination_requested()
@@ -136,31 +134,23 @@ class ClassifyThread(QThread):
                     check_termination_requested()
                     if data.shape[0] > 0:
                         # make predictions
-                        # Note: this makes predictions for all frames in the video, even those without valid pose
-                        # We will later filter these out when saving the predictions to disk
-                        # consider changing this to only predict on frames with valid pose
-                        predictions[identity] = self._classifier.predict(data)
+                        predictions[identity] = self._classifier.predict(data, feature_values["frame_indexes"])
 
                         # also get the probabilities
-                        prob = self._classifier.predict_proba(data)
+                        prob = self._classifier.predict_proba(data, feature_values["frame_indexes"])
                         # Save the probability for the predicted class only.
                         # The following code uses some
                         # numpy magic to use the _predictions array as column indexes
                         # for each row of the 'prob' array we just computed.
                         probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
-
-                        # save the indexes for the predicted frames
-                        frame_indexes[identity] = feature_values["frame_indexes"]
                     else:
                         predictions[identity] = np.array(0)
                         probabilities[identity] = np.array(0)
-                        frame_indexes[identity] = np.array(0)
 
                 if video == self._current_video:
                     # keep predictions for the video currently loaded in the video player
                     current_video_predictions = predictions.copy()
                     current_video_probabilities = probabilities.copy()
-                    current_video_frame_indexes = frame_indexes.copy()
 
                 # save predictions to disk
                 self.current_status.emit("Saving Predictions")
@@ -169,7 +159,6 @@ class ClassifyThread(QThread):
                     video,
                     predictions,
                     probabilities,
-                    frame_indexes,
                     self._behavior,
                     self._classifier,
                 )
@@ -183,7 +172,6 @@ class ClassifyThread(QThread):
                 {
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
-                    "frame_indexes": current_video_frame_indexes,
                 }
             )
         except Exception as e:

@@ -432,7 +432,6 @@ class Project:
         video_name: str,
         predictions: dict[int, np.ndarray],
         probabilities: dict[int, np.ndarray],
-        frame_indexes: dict[int, np.ndarray],
         behavior: str,
         classifier: object,
     ) -> None:
@@ -443,25 +442,8 @@ class Project:
             video_name: name of the video these predictions correspond to.
             predictions: dict mapping identity to a 1D numpy array of predicted labels.
             probabilities: same structure as `predictions` but with floating-point values.
-            frame_indexes: dict mapping identity to 1D numpy array of absolute frame indices
-                listing the frames where the identity has a valid pose (i.e., frames with a meaningful prediction).
             behavior: string behavior name.
             classifier: Classifier object used to generate the predictions.
-
-        Note:
-            Currently, the classifier runs on every frame for every identity -- even when pose is invalid
-            and features are NaN. We copy values for *only* the frames with a valid pose. This is why we
-            index *both* the source and destination with `indexes` (an array with the absolute frame indices
-            of frames with a valid pose), e.g.:
-
-                prediction_labels[identity, indexes] = predictions[video][identity][indexes]
-                prediction_prob[identity, indexes]   = probabilities[video][identity][indexes]
-
-            This leaves the output arrays with default values (-1 for labels, 0.0 for probabilities) for frames
-            without pose.
-
-            In the future, if the upstream caller were to provide compact arrays of length `len(indexes)`
-            instead of full-length arrays, the copy logic would need to drop the indexing on the source side.
         """
         # set up an output filename based on the video names
         file_base = Path(video_name).with_suffix("").name + ".h5"
@@ -473,17 +455,10 @@ class Project:
         )
         prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
-        # populate numpy arrays
+        # stack the numpy arrays
         for identity in predictions:
-            indexes = frame_indexes[identity]
-
-            # 'indexes' are absolute frame indices where this identity has a valid pose.
-            # predictions[identity] and probabilities[identity] are full-length arrays
-            # (len == num_frames); however, only elements at 'indexes' contain meaningful values.
-            # We index both source and destination with 'indexes' to copy only those valid-pose frames.
-            # If upstream ever provides compact arrays instead, drop the source-side indexing.
-            prediction_labels[identity, indexes] = predictions[identity][indexes]
-            prediction_prob[identity, indexes] = probabilities[identity][indexes]
+            prediction_labels[identity] = predictions[identity]
+            prediction_prob[identity] = probabilities[identity]
 
         # write to h5 file
         self._prediction_manager.write_predictions(
