@@ -358,6 +358,9 @@ class PoseEstimation(ABC):
     def compute_all_bearings(self, identity):
         """compute the bearing for each frame for a given identity"""
         use_nose = not self.get_reduced_point_mask()[self.KeypointIndex.BASE_NECK.value]
+        if use_nose:
+            logging.warning("Falling back to using nose keypoint for bearing computation")
+
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
         for i in range(self.num_frames):
             points, mask = self.get_points(i, identity)
