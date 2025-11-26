@@ -119,9 +119,14 @@ class Project:
 
     def shutdown_executor(self) -> None:
         """Shut down the persistent executor (call on app exit)."""
-        if self._executor is not None:
+        # We need to be defensive against partially constructed Project instances where __init__ may have
+        # raised an Exception before self._executor was declared and then shutdown_executor is called by __del__.
+        # In that case, the attribute may not exist, so we can't access the attribute directly here -- use
+        # getattr instead.
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
             with contextlib.suppress(Exception):
-                self._executor.shutdown(cancel_futures=False)
+                executor.shutdown(cancel_futures=False)
             self._executor = None
             self._executor_size = 0
 
