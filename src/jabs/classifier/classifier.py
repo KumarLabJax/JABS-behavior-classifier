@@ -447,7 +447,7 @@ class Classifier:
         features_sorted = features[classifier_columns]
         return features_sorted
 
-    def predict(self, features: dict, frame_indexes: np.ndarray|None = None) -> np.ndarray:
+    def predict(self, features: dict, frame_indexes: np.ndarray | None = None) -> np.ndarray:
         """predict classes for a given set of features
 
         Args:
@@ -472,12 +472,12 @@ class Classifier:
         # Insert -1s into class prediction when no prediction is made
         if frame_indexes is not None:
             result_adjusted = np.full(result.shape, -1, dtype=np.uint8)
-            result_adjusted[frame_indexes] = result[frame_indexes] 
+            result_adjusted[frame_indexes] = result[frame_indexes]
             result = result_adjusted
 
         return result
 
-    def predict_proba(self, features: dict, frame_indexes: np.ndarray|None = None) -> np.ndarray:
+    def predict_proba(self, features: dict, frame_indexes: np.ndarray | None = None) -> np.ndarray:
         """predict probabilities for a given set of features.
 
         Args:
@@ -504,6 +504,7 @@ class Classifier:
             result = result_adjusted
 
         return result
+
     def save(self, path: Path):
         """save the classifier to a file
 

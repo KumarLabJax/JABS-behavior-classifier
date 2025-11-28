@@ -134,10 +134,14 @@ class ClassifyThread(QThread):
                     check_termination_requested()
                     if data.shape[0] > 0:
                         # make predictions
-                        predictions[identity] = self._classifier.predict(data, feature_values["frame_indexes"])
+                        predictions[identity] = self._classifier.predict(
+                            data, feature_values["frame_indexes"]
+                        )
 
                         # also get the probabilities
-                        prob = self._classifier.predict_proba(data, feature_values["frame_indexes"])
+                        prob = self._classifier.predict_proba(
+                            data, feature_values["frame_indexes"]
+                        )
                         # Save the probability for the predicted class only.
                         # The following code uses some
                         # numpy magic to use the _predictions array as column indexes
