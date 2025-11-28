@@ -811,7 +811,6 @@ class CentralWidget(QtWidgets.QWidget):
         # display the new predictions
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
-        self._frame_indexes = output["frame_indexes"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
         self.status_message.emit("Classification Complete", 3000)

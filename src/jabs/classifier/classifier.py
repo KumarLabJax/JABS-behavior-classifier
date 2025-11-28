@@ -471,7 +471,7 @@ class Classifier:
 
         # Insert -1s into class prediction when no prediction is made
         if frame_indexes is not None:
-            result_adjusted = np.full(result.shape, -1, dtype=np.uint8)
+            result_adjusted = np.full(result.shape, -1, dtype=np.int8)
             result_adjusted[frame_indexes] = result[frame_indexes]
             result = result_adjusted
 
