@@ -24,6 +24,7 @@ from .stacked_timeline_widget import StackedTimelineWidget
 from .user_guide_dialog import UserGuideDialog
 from .util import send_file_to_recycle_bin
 from .video_list_widget import VideoListDockWidget
+from jabs.ui.postprocess_dialog import PostprocessFilterListDialog
 
 USE_NATIVE_FILE_DIALOG = get_bool_env_var("JABS_NATIVE_FILE_DIALOG", True)
 
@@ -112,6 +113,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu("File")
         view_menu = menu.addMenu("View")
         feature_menu = menu.addMenu("Features")
+        postprocess_menu = menu.addMenu("Postprocess")
 
         # Setup App Menu
         # about app
@@ -401,6 +403,15 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         feature_menu.addAction(self.enable_segmentation_features)
 
+        # Postprocessing Menu
+        # Add Postprocessing Filter menu item
+        self._add_postprocess_filter = QtGui.QAction("Edit Postprocessing Filter", self)
+        self._add_postprocess_filter.setStatusTip("Edit postprocessing filters to the project")
+        self._add_postprocess_filter.setEnabled(False)
+        self._add_postprocess_filter.triggered.connect(self._show_filter_list_dialog)
+
+        postprocess_menu.addAction(self._add_postprocess_filter)
+
         # select all action
         select_all_action = QtGui.QAction(self)
         select_all_action.setShortcut(QtGui.QKeySequence.StandardKey.SelectAll)
@@ -625,6 +636,11 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = AboutDialog(f"{self._app_name_long} ({self._app_name})", self)
         dialog.exec_()
 
+    
+    def _show_filter_list_dialog(self):
+        dialog = PostprocessFilterListDialog(self, self._project)
+        dialog.exec_()
+
     def _open_user_guide(self) -> None:
         """show the user guide document in a separate window"""
         if self._user_guide_window is None:
@@ -770,6 +786,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update which controls should be available
         self._archive_behavior.setEnabled(True)
         self._prune_action.setEnabled(True)
+        self._add_postprocess_filter.setEnabled(True)
         self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
         self.enable_social_features.setEnabled(
             self._project.feature_manager.can_use_social_features
