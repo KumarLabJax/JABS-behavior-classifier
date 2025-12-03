@@ -216,20 +216,24 @@ class TrainingThread(QThread):
                     else "pixel"
                 )
                 print(f"Feature Distance Unit: {unit}")
-                print("-" * 70)
 
             # retrain with all training data and fixed random seed before saving:
             check_termination_requested()
             self.current_status.emit("Training and saving final classifier")
             full_dataset = self._classifier.combine_data(features["per_frame"], features["window"])
+            feature_names = full_dataset.columns.to_list()
             self._classifier.train(
                 {
                     "training_data": full_dataset,
                     "training_labels": features["labels"],
-                    "feature_names": full_dataset.columns.to_list(),
+                    "feature_names": feature_names,
                 },
                 random_seed=FINAL_TRAIN_SEED,
             )
+
+            print("\nFinal classifier, top 10 features by importance:")
+            self._classifier.print_feature_importance(feature_names, 10)
+            print("-" * 70)
 
             self._project.save_classifier(self._classifier, self._behavior)
             self._tasks_complete += 1
