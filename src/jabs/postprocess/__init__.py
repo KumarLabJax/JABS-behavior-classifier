@@ -7,4 +7,5 @@ and `HMMFilter` class, which adjusts raw predictions using hidden markov modelli
 
 from .base_filter import BaseFilter, BehaviorEvents
 from .duration_filter import DurationFilter
+from .hmm_filter import HMMFilter
 from .postprocess import Postprocesser, AVAILABLE_FILTERS

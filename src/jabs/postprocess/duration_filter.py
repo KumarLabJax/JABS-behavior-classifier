@@ -39,24 +39,26 @@ class DurationFilter(BaseFilter):
                 2. Stitch: removes "not behavior"
                 3. Filter: removes "behavior"
         """
-        rle_data = BehaviorEvents(state)
+        rle_data = BehaviorEvents.from_vector(state)
         interpolate_to_remove = np.logical_and(
-            rle_data.duration < self._kwargs["interpolate_duration"], rle_data.states == -1
+            rle_data.durations < self._kwargs["interpolate_duration"], rle_data.states == -1
         )
         if np.any(interpolate_to_remove):
             rle_data.delete_bouts(np.where(interpolate_to_remove)[0])
 
         stitch_to_remove = np.logical_and(
-            rle_data.duration < self._kwargs["stitch_duration"], rle_data.states == 0
+            rle_data.durations < self._kwargs["stitch_duration"], rle_data.states == 0
         )
         if np.any(stitch_to_remove):
             rle_data.delete_bouts(np.where(stitch_to_remove)[0])
 
         filter_to_remove = np.logical_and(
-            rle_data.duration < self._kwargs["filter_duration"], rle_data.states == 1
+            rle_data.durations < self._kwargs["filter_duration"], rle_data.states == 1
         )
         if np.any(filter_to_remove):
             rle_data.delete_bouts(np.where(filter_to_remove)[0])
+        
+        return prob, rle_data.to_vector(rle_data.starts, rle_data.durations, rle_data.states)
 
     def save(self, file: Path):
         """Saves filter settings to file.

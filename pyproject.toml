@@ -33,6 +33,8 @@ dependencies = [
   "click>=8.2.1",
   "argparse-formatter>=1.4",
   "distinctipy>=1.3.4",
+  "dynamax>=1.0.1",
+  "jax==0.6",
 ]
 
 [dependency-groups]

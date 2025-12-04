@@ -4,11 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from . import DurationFilter, BaseFilter
+from . import DurationFilter, HMMFilter, BaseFilter
 
 DEFAULT_POSTPROCESSOR_JSON = Path('postprocess.json')
 DEFAULT_POSTPROCESSOR_FOLDER = Path('./filters/')
-AVAILABLE_FILTERS = [DurationFilter]
+AVAILABLE_FILTERS = [DurationFilter, HMMFilter]
 
 _VERSION = 1
 
@@ -78,10 +78,10 @@ class Postprocesser:
         filtered_probs = np.copy(prob)
         filtered_states = np.copy(state)
 
-        for cur_fitler in self._filters:
+        for cur_filter in self._filters:
             filtered_probs, filtered_states = cur_filter.filter(filtered_probs, filtered_states)
 
-        return filtered_probs, fitlered_states
+        return filtered_probs, filtered_states
 
     def save_filters(self, config: Path|None = None, folder: Path|None = None):
         """Saves postprocessor configuration to files.
