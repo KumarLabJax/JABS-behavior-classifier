@@ -18,7 +18,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import LeaveOneGroupOut, train_test_split
 
 from jabs.project import Project, TrackLabels, load_training_data
-from jabs.postprocess import DurationFilter
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 

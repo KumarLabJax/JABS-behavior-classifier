@@ -9,6 +9,7 @@ from jabs.classifier import Classifier
 from jabs.project import Project
 from jabs.types import ProjectDistanceUnit
 from jabs.utils import FINAL_TRAIN_SEED
+from jabs.postprocess import Postprocesser, DurationFilter, HMMFilter
 
 from .exceptions import ThreadTerminatedError
 
@@ -54,6 +55,17 @@ class TrainingThread(QThread):
         self._tasks_complete = 0
         self._k = k
         self._should_terminate = False
+
+        # Testing -- add a duration filter
+        self._postprocessor = Postprocesser()
+        hmm = HMMFilter()
+        duration_filter = DurationFilter({
+            "interpolate_duration": 0,
+            "stitch_duration": 0,
+            "filter_duration": 0,
+        })
+        self._postprocessor.add_filter(duration_filter)
+        self._postprocessor.add_filter(hmm)
 
     def request_termination(self) -> None:
         """Request the thread to terminate early.
@@ -135,10 +147,21 @@ class TrainingThread(QThread):
                     self._classifier.behavior_name = self._behavior
                     self._classifier.set_project_settings(self._project)
                     self._classifier.train(data)
+                    # TODO:
+                    # data currently doesn't have frames, which is required to train the filters
+                    train_groups = features["groups"][features["groups"] != data["test_group"]]
+                    frames = np.zeros_like(train_groups)
+                    for grp in np.unique(train_groups):
+                        idx = np.where(train_groups == grp)[0]
+                        frames[idx] = np.arange(len(idx))
+                    self._postprocessor.train_filters(data['training_labels'], train_groups, frames)
                     predictions = self._classifier.predict(data["test_data"])
+                    # first arg is not currently used, but should be probabilities
+                    postproc_probs, postproc_predictions = self._postprocessor.apply_filters(predictions, predictions)
 
                     # calculate some performance metrics using the classifications
                     accuracy = self._classifier.accuracy_score(data["test_labels"], predictions)
+                    postproc_accuracy = self._classifier.accuracy_score(data["test_labels"], postproc_predictions)
                     pr = self._classifier.precision_recall_score(data["test_labels"], predictions)
                     confusion = self._classifier.confusion_matrix(data["test_labels"], predictions)
 
@@ -165,6 +188,7 @@ class TrainingThread(QThread):
                     print(f"\tVideo: {test_info['video']}")
                     print(f"\tIdentity: {test_info['identity']}")
                     print(f"ACCURACY: {accuracy * 100:.2f}%")
+                    print(f"POST-PROC ACCURACY: {postproc_accuracy * 100:.2f}%")
                     print("PRECISION RECALL:")
                     print(f"              {'not behavior':12}  behavior")
                     print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
