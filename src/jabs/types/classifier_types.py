@@ -1,9 +1,8 @@
-from enum import IntEnum
+from enum import Enum
 
 
-class ClassifierType(IntEnum):
+class ClassifierType(str, Enum):
     """Classifier type for the project."""
 
-    RANDOM_FOREST = 1
-    GRADIENT_BOOSTING = 2
-    XGBOOST = 3
+    RANDOM_FOREST = "Random Forest"
+    XGBOOST = "XGBoost"
