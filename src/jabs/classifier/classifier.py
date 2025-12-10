@@ -36,9 +36,7 @@ except ImportError:
     logging.warning("Unable to import xgboost. You might need to install libomp.")
 
 
-# Classifier factory helpers and mapping, _CLASSIFIER_FACTORIES is the single source of truth for
-# available classifiers supported in the current JABS environment, and mapping of ClassifierTypes to
-# factory functions
+# Classifier factory helpers and mapping
 def _make_random_forest(n_jobs: int, random_seed: int | None):
     """Factory function to construct a RandomForest classifier."""
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
@@ -53,10 +51,12 @@ def _make_xgboost(n_jobs: int, random_seed: int | None):
     return _xgboost.XGBClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
+# _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
+# supported by the current JABS environment, in addition to the mapping of ClassifierTypes
+# to factory functions that produce instantiated classifiers for that type
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
     ClassifierType.RANDOM_FOREST: _make_random_forest,
 }
-
 if _xgboost is not None:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = _make_xgboost
 
