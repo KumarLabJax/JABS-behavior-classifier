@@ -62,7 +62,7 @@ def export_training_data(
         out_h5.attrs["min_pose_version"] = pose_version
         out_h5.attrs["behavior"] = behavior
         write_project_settings(out_h5, project.settings_manager.get_behavior(behavior), "settings")
-        out_h5.attrs["classifier_type"] = classifier_type.value
+        out_h5.attrs["classifier_type"] = str(classifier_type)
         out_h5.attrs["training_seed"] = training_seed
         feature_group = out_h5.create_group("features")
         for feature, data in features["per_frame"].items():
