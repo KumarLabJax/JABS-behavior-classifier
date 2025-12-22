@@ -3,10 +3,12 @@ from typing import Any
 import markdown2
 from PySide6 import QtCore
 from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
+    QHBoxLayout,
     QPushButton,
     QSplitter,
     QTreeWidget,
@@ -36,18 +38,34 @@ class UserGuidePage(QWebEnginePage):
     def acceptNavigationRequest(
         self, url: QUrl, nav_type: QWebEnginePage.NavigationType, is_main_frame: bool
     ) -> bool:
-        """Intercept navigation requests to handle internal markdown links.
+        """Intercept navigation requests to handle internal markdown links and external URLs.
+
+        The UserGuideDialog uses a QWebEngineView to display application documentation, but
+        sometimes the documentation links to external resources. When navigating to those
+        external resources we want to open them in the system browser, NOT using the
+        UserGuideDialog's QWebEngineView.
+
+        The other custom handling we perform is to intercept navigation requests to user guide
+        markdown pages so that they can be rendered to html before display
 
         Args:
             url: The URL being navigated to.
-            nav_type: The type of navigation (link click, form submit, etc).
+            nav_type: The type of navigation (e.g. link click).
             is_main_frame: Whether this is the main frame or an iframe.
 
         Returns:
-            True if navigation should proceed normally, False if we handle it custom.
+            True if navigation should proceed normally, False if it requires custom handling.
         """
         # Only intercept link clicks in the main frame
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked and is_main_frame:
+            scheme = url.scheme()
+
+            # Check if this is an external URL (http/https)
+            if scheme in ("http", "https"):
+                # Open in system browser
+                QDesktopServices.openUrl(url)
+                return False
+
             path = url.path()
 
             # Check if this is a link to a markdown file (internal documentation link)
@@ -63,7 +81,9 @@ class UserGuidePage(QWebEnginePage):
                 # Load through our custom rendering, deferred to avoid reentrancy
                 # Use QTimer.singleShot to defer the call until after navigation handling completes
                 QtCore.QTimer.singleShot(0, lambda: self._dialog._load_content_from_path(filename))
-                return False  # Prevent default navigation
+
+                # Prevent default navigation
+                return False
 
         # Allow all other navigation (initial load, etc.)
         return True
@@ -90,6 +110,11 @@ class UserGuideDialog(QDialog):
         self.setWindowFlag(QtCore.Qt.WindowType.Tool)
         self.resize(1200, 700)
 
+        # Navigation history tracking
+        self._history: list[str] = []
+        self._history_position = -1
+        self._navigating_from_history = False
+
         # Create tree widget for navigation
         self._tree = QTreeWidget()
         self._tree.setHeaderLabel("Topics")
@@ -112,15 +137,26 @@ class UserGuideDialog(QDialog):
         layout = QVBoxLayout()
         layout.addWidget(splitter)
 
+        # Button layout
+        button_layout = QHBoxLayout()
+
+        self._back_button = QPushButton("← Back")
+        self._back_button.clicked.connect(self._go_back)
+        self._back_button.setEnabled(False)
+        button_layout.addWidget(self._back_button)
+
+        button_layout.addStretch()
+
         close_button = QPushButton("CLOSE")
         close_button.clicked.connect(self.close)
-        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        button_layout.addWidget(close_button)
+
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
         # Build tree and load initial content
         self._build_tree()
-        # self._load_initial_content()
         self._load_content_from_path("overview.md")
 
     def _build_tree(self) -> None:
@@ -208,23 +244,111 @@ class UserGuideDialog(QDialog):
         if file_path:
             self._load_content_from_path(file_path)
 
-    def _load_initial_content(self) -> None:
-        """Load the initial content displayed when the dialog opens.
+    def _go_back(self) -> None:
+        """Navigate back to the previous page in history."""
+        if self._history_position > 0:
+            self._history_position -= 1
+            self._navigating_from_history = True
+            path = self._history[self._history_position]
+            self._load_content_from_path(path)
+            self._select_tree_item_by_path(path)
 
-        Loads the overview page as the default starting content.
+    def _select_tree_item_by_path(self, path_str: str) -> None:
+        """Select the tree item corresponding to the given path.
+
+        Args:
+            path_str: The file path to search for in the tree.
         """
-        self._load_content_from_path("overview.md")
+
+        def find_item(
+            parent: QTreeWidget | QTreeWidgetItem, exact_match_only: bool = False
+        ) -> QTreeWidgetItem | None:
+            """Recursively search for a tree item with matching path.
+
+            Args:
+                parent: The parent widget or item to search within.
+                exact_match_only: If True, only return exact path matches (including anchors).
+            """
+            child_count = (
+                parent.topLevelItemCount()
+                if isinstance(parent, QTreeWidget)
+                else parent.childCount()
+            )
+
+            for i in range(child_count):
+                item = (
+                    parent.topLevelItem(i) if isinstance(parent, QTreeWidget) else parent.child(i)
+                )
+                item_path = item.data(0, Qt.ItemDataRole.UserRole)
+
+                if item_path:
+                    # Check for exact match first
+                    if item_path == path_str:
+                        return item
+
+                    # If not exact match only, check base paths
+                    if not exact_match_only:
+                        item_base = item_path.split("#")[0]
+                        path_base = path_str.split("#")[0]
+                        if item_base == path_base:
+                            # Found a base match, but continue searching children for exact match
+                            exact_match = find_item(item, exact_match_only=False)
+                            if exact_match:
+                                return exact_match
+                            # No exact match in children, return this base match
+                            return item
+
+                # Search children
+                found = find_item(item, exact_match_only=exact_match_only)
+                if found:
+                    return found
+
+            return None
+
+        # First try to find exact match (including anchor)
+        item = find_item(self._tree, exact_match_only=True)
+        # If no exact match, find by base path
+        if not item:
+            item = find_item(self._tree, exact_match_only=False)
+
+        if item:
+            # Block signals to prevent triggering _on_tree_item_clicked
+            self._tree.blockSignals(True)
+            self._tree.setCurrentItem(item)
+            self._tree.blockSignals(False)
+
+    def _update_back_button(self) -> None:
+        """Update the back button enabled state based on history."""
+        self._back_button.setEnabled(self._history_position > 0)
 
     def _load_content_from_path(self, path_str: str) -> None:
         """Load and render markdown content from a documentation file.
 
         Converts the markdown file to HTML with styling and displays it in the web view.
         Supports anchor links for scrolling to specific sections within a page.
+        Updates the selected item in the navigation tree
 
         Args:
             path_str: Relative path to the markdown file within the user_guide directory.
                      May include an anchor (e.g., "gui.md#main-window").
         """
+        # Manage navigation history
+        if not self._navigating_from_history:
+            # When navigating forward (not using back button), add to history
+            # Remove any forward history beyond current position
+            self._history = self._history[: self._history_position + 1]
+
+            # Only add if it's different from the current page
+            if not self._history or self._history[-1] != path_str:
+                self._history.append(path_str)
+                self._history_position = len(self._history) - 1
+        else:
+            # Reset flag after navigating from history
+            self._navigating_from_history = False
+
+        self._update_back_button()
+        self._select_tree_item_by_path(path_str)
+
         # Split anchor if present
         parts = path_str.split("#")
         file_part = parts[0]
