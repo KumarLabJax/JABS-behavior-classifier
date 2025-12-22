@@ -445,7 +445,7 @@ class Classifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                cleaned_features = features.replace([np.inf, -np.inf])
+                cleaned_features = features.replace([np.inf, -np.inf], np.nan)
                 self._classifier = classifier.fit(cleaned_features, labels)
         else:
             cleaned_features = features.replace([np.inf, -np.inf], 0).fillna(0)
