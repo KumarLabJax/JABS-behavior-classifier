@@ -21,7 +21,7 @@ To use JABS effectively, you'll need:
 - **Video files** of animal behavior (`.avi` or `.mp4` format)
 - **Pose estimation files** corresponding to each video (from [Kumar Lab's pose estimation networks](https://github.com/KumarLabJax/deep-hrnet-mouse))
 - **Time for labeling** - Quality classifiers require careful manual labeling of behavior examples
-- **A behavior definition** consistent labeling will help develop a better performing classifier
+- **A behavior definition** - consistent labeling will help develop a better performing classifier
 
 
 ## Quick Start Guide
