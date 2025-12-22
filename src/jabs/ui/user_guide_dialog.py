@@ -54,7 +54,7 @@ class UserGuidePage(QWebEnginePage):
             is_main_frame: Whether this is the main frame or an iframe.
 
         Returns:
-            True if navigation should proceed normally, False if it requires custom handling.
+            True to allow navigation, False to handle with custom logic.
         """
         # Only intercept link clicks in the main frame
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked and is_main_frame:
