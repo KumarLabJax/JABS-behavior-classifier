@@ -137,7 +137,7 @@ class Classifier:
     @property
     def classifier_name(self) -> str:
         """return the name of the classifier used as a string"""
-        return str(self._classifier_type)
+        return self._classifier_type.value
 
     @property
     def classifier_type(self) -> ClassifierType:
