@@ -36,7 +36,10 @@ except ImportError:
     # libomp. Either way, we won't add it to the available choices and
     # we can otherwise ignore this exception
     _xgboost = None
-    logging.warning("Unable to import xgboost. You might need to install libomp.")
+    logging.warning(
+        "Unable to import xgboost. XGBoost support will be unavailable. "
+        "You may need to install xgboost and/or libomp."
+    )
 
 
 # Classifier factory helpers and mapping
