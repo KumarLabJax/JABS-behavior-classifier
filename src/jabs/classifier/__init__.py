@@ -5,11 +5,7 @@ It includes the `Classifier` class, which supports multiple classification algor
 Gradient Boosting, and XGBoost), utilities for feature management, data splitting, model evaluation, and serialization.`
 """
 
-import pathlib
-
 from .classifier import Classifier
-
-HYPERPARAMETER_PATH = pathlib.Path(__file__).parent / "hyperparameters.json"
 
 __all__ = [
     "Classifier",

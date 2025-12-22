@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
+from jabs.types import ClassifierType
 from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .colors import (
@@ -335,7 +336,12 @@ class MainControlWidget(QtWidgets.QWidget):
     @property
     def classifier_type(self):
         """return the selected classifier type"""
-        return self._classifier_selection.currentData()
+        data = self._classifier_selection.currentData()
+        # QComboBox may return a string instead of the enum due to serialization
+        # so we need to convert it back to ClassifierType if it's a string
+        if isinstance(data, str):
+            return ClassifierType(data)
+        return data
 
     @property
     def use_balance_labels(self):

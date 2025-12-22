@@ -643,7 +643,7 @@ See `jabs-classify COMMAND --help` for information on a specific command.
 ```
 
 ```text
-usage: jabs-classify classify [-h] [--random-forest | --gradient-boosting | --xgboost]
+usage: jabs-classify classify [-h] [--random-forest | --xgboost]
                             (--training TRAINING | --classifier CLASSIFIER) --input-pose
                             INPUT_POSE --out-dir OUT_DIR [--fps FPS]
                             [--feature-dir FEATURE_DIR]
@@ -664,7 +664,6 @@ optionally override the classifier specified in the training file:
  Ignored if trained classifier passed with --classifier option.
  (the following options are mutually exclusive):
   --random-forest       Use Random Forest
-  --gradient-boosting   Use Gradient Boosting
   --xgboost             Use XGBoost
 
 Classifier Input (one of the following is required):
@@ -674,7 +673,7 @@ Classifier Input (one of the following is required):
 ```
 
 ```text
-usage: jabs-classify train [-h] [--random-forest | --gradient-boosting | --xgboost]
+usage: jabs-classify train [-h] [--random-forest | --xgboost]
                          training_file out_file
 
 positional arguments:
@@ -687,7 +686,6 @@ optional arguments:
 optionally override the classifier specified in the training file:
  (the following options are mutually exclusive):
   --random-forest      Use Random Forest
-  --gradient-boosting  Use Gradient Boosting
   --xgboost            Use XGBoost
 ```
 
