@@ -366,7 +366,7 @@ class Classifier:
         #     print(str(lowercase_features[idx]) + ' -> ' + str(reflected_feature_names[idx]))
         return features, labels
 
-    def set_classifier(self, classifier):
+    def set_classifier(self, classifier: ClassifierType):
         """change the type of the classifier being used"""
         if classifier not in self._supported_classifiers:
             raise ValueError("Invalid Classifier Type")
