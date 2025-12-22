@@ -405,7 +405,7 @@ class Classifier:
             dict where keys are ClassifierType enum values, and the
               values are string names for the classifiers.
         """
-        return {t: t.value for t in sorted(self._supported_classifiers)}
+        return {t: t.value for t in sorted(self._supported_classifiers, key=lambda t: t.value)}
 
     def _create_classifier(self, random_seed: int | None = None):
         """Instantiate the underlying classifier for the current classifier type."""
