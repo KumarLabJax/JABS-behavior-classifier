@@ -320,10 +320,7 @@ class Classifier:
         selected_samples = []
         for cur_label in label_states:
             idxs = np.where(labels == cur_label)[0]
-            if random_seed is not None:
-                rng = np.random.default_rng(random_seed)
-            else:
-                rng = np.random.default_rng()
+            rng = np.random.default_rng(random_seed)
             sampled_idxs = rng.choice(idxs, max_examples_per_class, replace=False)
             selected_samples.append(sampled_idxs)
         selected_samples = np.sort(np.concatenate(selected_samples))
