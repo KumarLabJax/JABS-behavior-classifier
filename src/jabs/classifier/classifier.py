@@ -459,6 +459,8 @@ class Classifier:
                 cleaned_features = features.replace([np.inf, -np.inf], np.nan)
                 self._classifier = classifier.fit(cleaned_features, labels)
         else:
+            # RandomForestClassifier (and most other sklearn estimators) do not natively support NaN
+            # values, so here we replace infinite values and NaNs with 0 before fitting.
             cleaned_features = features.replace([np.inf, -np.inf], 0).fillna(0)
             self._classifier = classifier.fit(cleaned_features, labels)
 
