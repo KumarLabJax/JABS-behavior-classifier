@@ -22,6 +22,9 @@ from jabs.project import Project, TrackLabels, load_training_data
 from jabs.types import ClassifierType
 from jabs.utils import hash_file
 
+# NOTE (v10): Major version bump due to breaking changes:
+# - Removal of the gradient boosting classifier type from the supported classifiers.
+# - Changes to ClassifierType enum values, which may break persisted models/configs.
 _VERSION = 10
 
 try:
