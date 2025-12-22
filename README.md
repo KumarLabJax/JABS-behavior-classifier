@@ -28,10 +28,10 @@ are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-m
 
 ## Requirements
 
-JABS was initially developed and tested on Python 3.10. See the `pyproject.toml` for a list of required Python 
+JABS was initially developed on Python 3.10. See the `pyproject.toml` for a list of required Python 
 packages. These packages are available from the Python Package Index (PyPI).
 
-Currently, JABS supports Python 3.10 through 3.13.
+Currently, JABS supports Python 3.10 through 3.14.
 
 ## Installation
 
