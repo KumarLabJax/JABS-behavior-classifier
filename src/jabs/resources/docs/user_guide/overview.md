@@ -7,6 +7,7 @@ Welcome to the JABS (JAX Animal Behavior System) user guide. This documentation 
 JABS is a machine learning-based tool for automatically identifying and classifying animal behaviors in video recordings. It uses pose estimation data to extract features and train classifiers that can recognize specific behaviors across multiple animals and videos.
 
 **Key Features:**
+
 - Train custom behavior classifiers with manual labeling
 - Support for single and multi-animal pose estimation
 - View prediction visualization during labeling to support active learning
@@ -52,13 +53,17 @@ Use the navigation tree on the left to explore different topics:
 If you encounter issues or have questions about using JABS:
 
 **📧 Email Support**
+
 Contact the JABS team at **[jabs@jax.org](mailto:jabs@jax.org)** for:
+
 - General questions about JABS functionality
 - Help with installation or setup issues
 - Questions about best practices for labeling and training
 
 **🐛 Report Bugs or Issues**
+
 Submit issues on our [GitHub repository](https://github.com/KumarLabJax/JABS-behavior-classifier/issues) for:
+
 - Bug reports with detailed descriptions and error messages
 - Feature requests or enhancement suggestions
 - Documentation improvements

@@ -469,6 +469,9 @@ class UserGuideDialog(QDialog):
                             margin-left: 0;
                             color: #666;
                         }}
+                        p + ul {{
+                            margin-top: 0.25em;
+                        }}
                     </style>
                 </head>
                 <body>
