@@ -451,6 +451,11 @@ class Classifier:
         if self._classifier_type == ClassifierType.XGBOOST:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
+                # XGBoost natively supports NaN as a marker for missing values and handles them
+                # during tree construction. For XGBoost we therefore convert infinite values to NaN
+                # and leave them as missing, instead of imputing them with 0. This differs from the
+                # Random Forest (and other sklearn) path below, where both infinities and NaN are
+                # replaced with 0.
                 cleaned_features = features.replace([np.inf, -np.inf], np.nan)
                 self._classifier = classifier.fit(cleaned_features, labels)
         else:
