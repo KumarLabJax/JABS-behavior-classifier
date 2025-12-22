@@ -1,6 +1,12 @@
 import argparse
+import os
 import sys
 
+# suppress some potential harmless warnings from Chromium when user opens UserGuideDialog on some platforms
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+    "--disable-skia-graphite --disable-logging --log-level=3"
+)
+os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
 from PySide6 import QtWidgets
 from PySide6.QtGui import QIcon
 
