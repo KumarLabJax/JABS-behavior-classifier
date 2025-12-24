@@ -217,6 +217,16 @@ def prune(ctx, directory: Path, behavior: str | None):
         except Exception as e:
             click.echo(f"Warning: failed to delete video or pose file: {e}")
 
+        # remove parquet files too, these aren't used by JABS but may be present in
+        # envision derived JABS projects
+        parquet_path = video_paths.video_path.with_suffix(".parquet")
+        try:
+            parquet_path.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            click.echo(f"Warning: failed to delete parquet file: {e}")
+
         for file in derived_files:
             try:
                 file.unlink()
