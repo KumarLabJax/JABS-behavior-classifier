@@ -9,6 +9,7 @@ from jabs.pose_estimation import (
 from jabs.types import ProjectDistanceUnit
 
 from .project_paths import ProjectPaths
+from .video_manager import VideoManager
 
 
 class FeatureManager:
@@ -24,7 +25,12 @@ class FeatureManager:
         video_manager: Optional VideoManager instance to use for cached pose path lookups.
     """
 
-    def __init__(self, project_paths: ProjectPaths, videos: list[str], video_manager=None):
+    def __init__(
+        self,
+        project_paths: ProjectPaths,
+        videos: list[str],
+        video_manager: VideoManager | None = None,
+    ):
         """Initialize the FeatureManager."""
         self._lixit_keypoints = 0
 
