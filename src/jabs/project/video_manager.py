@@ -212,16 +212,6 @@ class VideoManager:
         if err:
             raise ValueError("Project missing pose file for one or more video")
 
-    def _has_pose(self, vid: str) -> bool:
-        """check to see if a video has a corresponding pose file"""
-        path = self._paths.project_dir / vid
-
-        try:
-            get_pose_path(path)
-        except ValueError:
-            return False
-        return True
-
     def video_path(self, video_file) -> Path:
         """take a video file name and generate the path used to open it"""
         return Path(self._paths.project_dir, video_file)
