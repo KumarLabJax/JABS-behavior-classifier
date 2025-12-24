@@ -52,6 +52,9 @@ class FeatureManager:
 
         Consolidates all pose file metadata gathering into a single pass through videos
         to minimize file I/O operations.
+
+        Args:
+            videos: List of video filenames to process for metadata extraction.
         """
         pose_versions = []
         static_object_sets = []
