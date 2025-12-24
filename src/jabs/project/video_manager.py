@@ -41,7 +41,7 @@ class VideoManager:
         self._videos = []
         self._video_identity_count = {}
         self._total_project_identities = 0
-        self._pose_path_cache = {}  # Cache to avoid repeated pose path lookups
+        self._pose_path_cache = {}  # Cache mapping video names to their pose file paths to avoid repeated lookups
 
         self._initialize_videos(enable_video_check)
 
