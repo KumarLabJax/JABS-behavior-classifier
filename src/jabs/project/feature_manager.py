@@ -21,15 +21,16 @@ class FeatureManager:
     Args:
         project_paths (ProjectPaths): Paths object for the project.
         videos (list[str]): List of video filenames in the project.
+        video_manager: Optional VideoManager instance to use for cached pose path lookups.
     """
 
-    def __init__(self, project_paths: ProjectPaths, videos: list[str]):
+    def __init__(self, project_paths: ProjectPaths, videos: list[str], video_manager=None):
         """Initialize the FeatureManager."""
         self._lixit_keypoints = 0
 
         self._project_paths = project_paths
+        self._video_manager = video_manager
         self.__initialize_pose_data(videos)
-        self.__initialize_distance_unit(videos)
 
         # determine if this project can use social features or not
         # social data is available for V3+
@@ -41,43 +42,61 @@ class FeatureManager:
         self._extended_features = self.__initialize_extended_features()
 
     def __initialize_pose_data(self, videos: list[str]):
-        """Initialize pose version and static object data."""
+        """Initialize pose version, static object, distance unit, and lixit data.
+
+        Consolidates all pose file metadata gathering into a single pass through videos
+        to minimize file I/O operations.
+        """
         pose_versions = []
         static_object_sets = []
+        lixit_keypoints = []
+        distance_unit_valid = True
 
+        # Single pass through all videos to gather all needed metadata
         for vid in videos:
-            pose_path = get_pose_path(self._project_paths.project_dir / vid)
-            pose_versions.append(get_pose_file_major_version(pose_path))
-            static_object_sets.append(set(get_static_objects_in_file(pose_path)))
+            # Use cached pose path if video_manager is available
+            if self._video_manager:
+                pose_path = self._video_manager.get_cached_pose_path(vid)
+            else:
+                pose_path = get_pose_path(self._project_paths.project_dir / vid)
 
+            # Get pose version
+            pose_versions.append(get_pose_file_major_version(pose_path))
+
+            # Get static objects
+            static_objs = get_static_objects_in_file(pose_path)
+            static_object_sets.append(set(static_objs))
+
+            # Get lixit keypoints if lixit is present in this video
+            if "lixit" in static_objs:
+                lixit_keypoints.append(get_points_per_lixit(pose_path))
+
+            # Check distance unit - if any video lacks cm_per_pixel, use pixels
+            if distance_unit_valid:
+                attrs = PoseEstimation.get_pose_file_attributes(pose_path)
+                cm_per_pixel = attrs["poseest"].get("cm_per_pixel", None)
+                if cm_per_pixel is None:
+                    distance_unit_valid = False
+
+        # Set pose version to minimum across all videos
         self._min_pose_version = min(pose_versions) if pose_versions else 0
+
+        # Static objects are those present in ALL videos
         self._static_objects = (
             set.intersection(*static_object_sets) if len(static_object_sets) else []
         )
 
-        # determine number of keypoints used to define lixit (if present)
+        # Determine number of keypoints used to define lixit (if present)
         # this will be used to determine if we can use single or three lixit keypoints
         # (three keypoint lixit is backwards compatible with single keypoint lixit by
         # ignoring left and right side keypoints)
-        if "lixit" in self._static_objects:
-            lixit_keypoints = []
-            for vid in videos:
-                pose_path = get_pose_path(self._project_paths.project_dir / vid)
-                lixit_keypoints.append(get_points_per_lixit(pose_path))
+        if "lixit" in self._static_objects and lixit_keypoints:
             self._lixit_keypoints = min(lixit_keypoints)
 
-    def __initialize_distance_unit(self, videos: list[str]):
-        """Determine the distance unit for the project."""
-        self._distance_unit = ProjectDistanceUnit.CM
-        for vid in videos:
-            attrs = PoseEstimation.get_pose_file_attributes(
-                get_pose_path(self._project_paths.project_dir / vid)
-            )
-            cm_per_pixel = attrs["poseest"].get("cm_per_pixel", None)
-
-            if cm_per_pixel is None:
-                self._distance_unit = ProjectDistanceUnit.PIXEL
-                break
+        # Set distance unit based on whether all videos have cm_per_pixel
+        self._distance_unit = (
+            ProjectDistanceUnit.CM if distance_unit_valid else ProjectDistanceUnit.PIXEL
+        )
 
     def __initialize_extended_features(self) -> dict:
         """Initialize extended features based on the pose version and static objects.

@@ -94,7 +94,9 @@ class Project:
 
         self._settings_manager = SettingsManager(self._paths)
         self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
-        self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
+        self._feature_manager = FeatureManager(
+            self._paths, self._video_manager.videos, self._video_manager
+        )
         self._prediction_manager = PredictionManager(self)
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 

@@ -41,6 +41,7 @@ class VideoManager:
         self._videos = []
         self._video_identity_count = {}
         self._total_project_identities = 0
+        self._pose_path_cache = {}  # Cache to avoid repeated pose path lookups
 
         self._initialize_videos(enable_video_check)
 
@@ -107,7 +108,7 @@ class VideoManager:
             # VideoLabels.load can use pose to convert identity index to the display identity
             if pose is None:
                 pose = open_pose_file(
-                    get_pose_path(self.video_path(video_filename)), self._paths.cache_dir
+                    self.get_cached_pose_path(video_filename), self._paths.cache_dir
                 )
             with path.open() as f:
                 return VideoLabels.load(json.load(f), pose)
@@ -145,6 +146,23 @@ class VideoManager:
         """
         return self._video_identity_count.get(video_name, 0)
 
+    def get_cached_pose_path(self, video_name: str) -> Path:
+        """Get pose path for a video, using cache to avoid repeated lookups.
+
+        Args:
+            video_name: Name of the video file
+
+        Returns:
+            Path to the pose file
+
+        Raises:
+            ValueError: If video does not have a pose file
+        """
+        if video_name not in self._pose_path_cache:
+            video_path = self.video_path(video_name)
+            self._pose_path_cache[video_name] = get_pose_path(video_path)
+        return self._pose_path_cache[video_name]
+
     def _load_video_metadata(self):
         """Load metadata for each video and calculate total identities."""
         video_metadata = self._settings_manager.project_settings.get("video_files", {})
@@ -154,9 +172,7 @@ class VideoManager:
             nidentities = vinfo.get("identities")
 
             if not nidentities:
-                pose_file = open_pose_file(
-                    get_pose_path(self.video_path(video)), self._paths.cache_dir
-                )
+                pose_file = open_pose_file(self.get_cached_pose_path(video), self._paths.cache_dir)
                 nidentities = pose_file.num_identities
                 vinfo["identities"] = nidentities
                 flush = True
@@ -171,7 +187,7 @@ class VideoManager:
         """Ensure video and pose file frame counts match."""
         err = False
         for v in self._videos:
-            path = get_pose_path(self.video_path(v))
+            path = self.get_cached_pose_path(v)
             pose_frames = get_frames_from_file(path)
             vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
             if pose_frames != vid_frames:
@@ -184,10 +200,13 @@ class VideoManager:
             raise ValueError("Video and Pose File frame counts differ")
 
     def _validate_pose_files(self):
-        """Ensure pose files exist for each video."""
+        """Ensure pose files exist for each video and populate pose path cache."""
         err = False
         for v in self.videos:
-            if self._has_pose(v) is False:
+            try:
+                # Populate cache during validation
+                self._pose_path_cache[v] = get_pose_path(self.video_path(v))
+            except ValueError:
                 print(f"{v} missing pose file", file=sys.stderr)
                 err = True
         if err:
