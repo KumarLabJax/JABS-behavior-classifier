@@ -85,7 +85,7 @@ def load_training_data(training_file: Path):
 
         # Handle classifier_type - support both old integer format and new string format
         classifier_type_value = in_h5.attrs["classifier_type"]
-        if isinstance(classifier_type_value, int | np.integer):
+        if isinstance(classifier_type_value, (int, np.integer)):  # noqa: UP038
             # Old integer format: 1 = Random Forest, 3 = XGBoost
             if classifier_type_value == 1:
                 features["classifier_type"] = ClassifierType.RANDOM_FOREST
