@@ -64,6 +64,7 @@ class Project:
         enable_video_check: Whether to check for video file validity.
         enable_session_tracker: Whether to enable session tracking for this project.
         executor_workers: Fixed size of the process pool; if None, uses CPU count.
+        validate_project_dir: Whether to validate the project directory structure on creation.
 
     Properties:
         dir: Project directory path.
