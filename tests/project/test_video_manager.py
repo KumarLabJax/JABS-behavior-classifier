@@ -16,7 +16,7 @@ from jabs.project.video_manager import VideoManager
 def project_paths(tmp_path):
     """Fixture to create a ProjectPaths instance."""
     paths = ProjectPaths(base_path=tmp_path)
-    paths.create_directories()
+    paths.create_directories(validate=False)
     return paths
 
 

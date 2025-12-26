@@ -83,10 +83,11 @@ class ProjectPaths:
                 the jabs directory. Defaults to True.
         """
         if validate and not self._jabs_dir.exists():
-            # validate that there are some videos and poses in the project directory
-            video_files = list(self._base_path.glob("*.mp4")) + list(self._base_path.glob("*.avi"))
-            pose_files = list(self._base_path.glob("*_pose_est_v*.h5"))
-            if not video_files or not pose_files:
+            has_video = any(
+                file for ext in ("*.mp4", "*.avi") for file in self._base_path.glob(ext)
+            )
+            has_pose = any(self._base_path.glob("*_pose_est_v*.h5"))
+            if not has_video or not has_pose:
                 raise ValueError(
                     f"{self._base_path} does not appear to be a valid JABS project. "
                     "(both video and pose files are required but were not found)"
