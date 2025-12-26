@@ -71,8 +71,27 @@ class ProjectPaths:
         """Get the path to the session directory."""
         return self._session_dir
 
-    def create_directories(self):
-        """Create all necessary directories for the project."""
+    def create_directories(self, validate: bool = True) -> None:
+        """Create all necessary directories for the project.
+
+        If the jabs directory does not exist, it will be created. Optionally,
+        validate that the project directory looks like a valid (contains videos and poses)
+        before creating a jabs directory.
+
+        Args:
+            validate (bool): Whether to validate the project directory before creating
+                the jabs directory. Defaults to True.
+        """
+        if validate and not self._jabs_dir.exists():
+            # validate that there are some videos and poses in the project directory
+            video_files = list(self._base_path.glob("*.mp4")) + list(self._base_path.glob("*.avi"))
+            pose_files = list(self._base_path.glob("*_pose_est_v*.h5"))
+            if not video_files or not pose_files:
+                raise ValueError(
+                    f"{self._base_path} does not appear to be a valid JABS project. "
+                    "(no video or pose files found)"
+                )
+
         self._annotations_dir.mkdir(parents=True, exist_ok=True)
         self._feature_dir.mkdir(parents=True, exist_ok=True)
         self._prediction_dir.mkdir(parents=True, exist_ok=True)
