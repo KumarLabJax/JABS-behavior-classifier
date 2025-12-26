@@ -89,7 +89,7 @@ class ProjectPaths:
             if not video_files or not pose_files:
                 raise ValueError(
                     f"{self._base_path} does not appear to be a valid JABS project. "
-                    "(no video or pose files found)"
+                    "(both video and pose files are required but were not found)"
                 )
 
         self._annotations_dir.mkdir(parents=True, exist_ok=True)
