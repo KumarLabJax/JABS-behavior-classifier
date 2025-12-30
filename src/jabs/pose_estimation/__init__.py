@@ -50,22 +50,12 @@ def get_pose_path(video_path: Path):
     file_base = video_path.with_suffix("")
 
     # default to the highest version pose file for a video
-    if video_path.with_name(file_base.name + "_pose_est_v8.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v8.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v7.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v7.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v6.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v6.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v5.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v5.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v4.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v4.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v3.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v3.h5")
-    elif video_path.with_name(file_base.name + "_pose_est_v2.h5").exists():
-        return video_path.with_name(file_base.name + "_pose_est_v2.h5")
-    else:
-        raise ValueError("Video does not have pose file")
+    supported_versions = [8, 7, 6, 5, 4, 3, 2]
+    for version in supported_versions:
+        pose_file = video_path.with_name(f"{file_base.name}_pose_est_v{version}.h5")
+        if pose_file.exists():
+            return pose_file
+    raise ValueError("Video does not have pose file")
 
 
 def get_pose_file_major_version(path: Path):
