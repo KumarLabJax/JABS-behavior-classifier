@@ -298,6 +298,8 @@ JABS-behavior-classifier/
 
 - **`scripts/`**: Entry points for command-line tools (installed as console scripts).
 
+- **`dev/`**: Development utilities. These are not installed as part of the package, but might be useful for developers.
+
 ## Software Architecture
 
 ### Core Design Principles
