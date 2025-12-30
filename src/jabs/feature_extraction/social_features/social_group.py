@@ -29,7 +29,7 @@ class SocialFeatureGroup(FeatureGroup):
     _name = "social"
 
     # build dictionary mapping feature name to class that implements it
-    _features: typing.ClassVar[dict[str, Feature]] = {
+    _features: typing.ClassVar[dict[str, type[Feature]]] = {
         ClosestDistances.name(): ClosestDistances,
         ClosestFovAngles.name(): ClosestFovAngles,
         ClosestFovDistances.name(): ClosestFovDistances,

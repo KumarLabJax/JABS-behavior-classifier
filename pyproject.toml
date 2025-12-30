@@ -40,10 +40,10 @@ dev = [
   {include-group = "lint"},
   {include-group = "test"},
   "pre-commit>=4.2.0,<5.0.0",
+  "matplotlib>=3.9.3,<4.0.0",
 ]
 test = [
   "pytest>=8.3.4,<9.0.0",
-  "matplotlib>=3.9.3,<4.0.0",
 ]
 lint = [
   "ruff>=0.11.5,<0.12.0",
