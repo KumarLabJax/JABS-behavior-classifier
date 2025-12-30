@@ -24,7 +24,7 @@ class FeatureGroup(abc.ABC):
     """
 
     # to be defined in subclass
-    _features: typing.ClassVar[dict[str, Feature]] = {}
+    _features: typing.ClassVar[dict[str, type[Feature]]] = {}
     _name = None
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):

@@ -3,6 +3,7 @@ from typing import ClassVar
 from jabs.feature_extraction.feature_group_base_class import FeatureGroup
 from jabs.pose_estimation import PoseEstimation
 
+from ..feature_base_class import Feature
 from .corner import BearingToCorner, CornerDistanceInfo, DistanceToCorner
 from .food_hopper import FoodHopper
 from .lixit import BearingToLixit, DistanceToLixit, LixitDistanceInfo, MouseLixitAngle
@@ -40,7 +41,7 @@ class LandmarkFeatureGroup(FeatureGroup):
 
     # build a dictionary that maps a feature name to the class that
     # implements it
-    _features: ClassVar[dict[str, type]] = {
+    _features: ClassVar[dict[str, type[Feature]]] = {
         DistanceToCorner.name(): DistanceToCorner,
         BearingToCorner.name(): BearingToCorner,
         DistanceToLixit.name(): DistanceToLixit,
