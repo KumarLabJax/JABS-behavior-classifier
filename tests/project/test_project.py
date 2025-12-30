@@ -85,7 +85,7 @@ def project_with_data():
 def test_create():
     """test creating a new empty Project"""
     project_dir = Path("test_project_dir")
-    project = Project(project_dir, enable_session_tracker=False)
+    project = Project(project_dir, enable_session_tracker=False, validate_project_dir=False)
 
     # make sure that the empty project directory was created
     assert project_dir.exists()
@@ -192,7 +192,12 @@ def test_can_use_social_true(project_with_data):
 
 def test_rename_behavior_raises_if_new_name_exists(tmp_path) -> None:
     """Test that renaming a behavior to an existing name raises a ValueError."""
-    project = Project(tmp_path, enable_video_check=False, enable_session_tracker=False)
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
 
     # Seed settings with two behaviors: one to rename, and one that already exists
     existing_settings = {

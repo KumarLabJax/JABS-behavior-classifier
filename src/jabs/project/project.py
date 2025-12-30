@@ -64,6 +64,7 @@ class Project:
         enable_video_check: Whether to check for video file validity.
         enable_session_tracker: Whether to enable session tracking for this project.
         executor_workers: Fixed size of the process pool; if None, uses CPU count.
+        validate_project_dir: Whether to validate the project directory structure on creation.
 
     Properties:
         dir: Project directory path.
@@ -86,9 +87,10 @@ class Project:
         enable_video_check=True,
         enable_session_tracker=True,
         executor_workers: int | None = None,
+        validate_project_dir=True,
     ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
-        self._paths.create_directories()
+        self._paths.create_directories(validate=validate_project_dir)
         self._total_project_identities = 0
         self._enabled_extended_features = {}
 
