@@ -68,7 +68,6 @@ class PlayerThread(QtCore.QThread):
         self._video_reader = video_reader
         self._pose_est = pose_est
         self._identity = identity
-        self._label_closest = False
         self._show_track = show_track
         self._overlay_landmarks = overlay_landmarks_flag
         self._overlay_segmentation = overlay_segmentation_flag

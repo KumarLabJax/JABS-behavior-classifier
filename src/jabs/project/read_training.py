@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import h5py
+import numpy as np
 import pandas as pd
 
 from jabs.types import ClassifierType, ProjectDistanceUnit
@@ -81,7 +82,20 @@ def load_training_data(training_file: Path):
         features["behavior"] = in_h5.attrs["behavior"]
         features["settings"] = read_project_settings(in_h5["settings"])
         features["training_seed"] = in_h5.attrs["training_seed"]
-        features["classifier_type"] = ClassifierType(in_h5.attrs["classifier_type"])
+
+        # Handle classifier_type - support both old integer format and new string format
+        classifier_type_value = in_h5.attrs["classifier_type"]
+        if isinstance(classifier_type_value, (int, np.integer)):  # noqa: UP038
+            # Old integer format: 1 = Random Forest, 3 = XGBoost
+            if classifier_type_value == 1:
+                features["classifier_type"] = ClassifierType.RANDOM_FOREST
+            elif classifier_type_value == 3:
+                features["classifier_type"] = ClassifierType.XGBOOST
+            else:
+                raise ValueError(f"Unknown classifier type integer: {classifier_type_value}")
+        else:
+            # New string format: "Random Forest" or "XGBoost"
+            features["classifier_type"] = ClassifierType(classifier_type_value)
         # convert the string distance_unit attr to corresponding
         # ProjectDistanceUnit enum
         unit = in_h5.attrs.get("distance_unit")
