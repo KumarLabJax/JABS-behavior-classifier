@@ -13,6 +13,7 @@ from PySide6.QtGui import QIcon
 from jabs.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
 from jabs.resources import ICON_PATH
 from jabs.ui import MainWindow
+from jabs.version import version_str
 
 
 def main():
@@ -20,14 +21,17 @@ def main():
 
     takes one optional positional argument: path to project directory
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "project_dir", nargs="?", help="Path to JABS project directory to open on startup"
+    )
+    parser.add_argument("--version", action="version", version=f"JABS {version_str()}")
+    args = parser.parse_args()
+
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setWindowIcon(QIcon(str(ICON_PATH)))
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("project_dir", nargs="?")
-    args = parser.parse_args()
 
     main_window = MainWindow(app_name=APP_NAME, app_name_long=APP_NAME_LONG)
     main_window.show()
