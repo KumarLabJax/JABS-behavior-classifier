@@ -1,4 +1,3 @@
-import gzip
 import json
 import shutil
 from pathlib import Path
@@ -46,17 +45,14 @@ def video_manager(project_paths, settings_manager):
 
     # Set data_dir relative to the current file
     data_dir = Path(__file__).parent.parent / "data"
-    pose1_src = data_dir / "sample_pose_est_v3.h5.gz"
-    pose2_src = data_dir / "sample_pose_est_v6.h5.gz"
+    pose1_src = data_dir / "sample_pose_est_v3.h5"
+    pose2_src = data_dir / "sample_pose_est_v6.h5"
     pose1_dst = project_paths.project_dir / "video1_pose_est_v3.h5"
     pose2_dst = project_paths.project_dir / "video2_pose_est_v6.h5"
 
-    # Decompress and copy gzipped pose files
-    with gzip.open(pose1_src, "rb") as f_in, open(pose1_dst, "wb") as f_out:
-        shutil.copyfileobj(f_in, f_out)
-
-    with gzip.open(pose2_src, "rb") as f_in, open(pose2_dst, "wb") as f_out:
-        shutil.copyfileobj(f_in, f_out)
+    # Copy pose files
+    shutil.copy(pose1_src, pose1_dst)
+    shutil.copy(pose2_src, pose2_dst)
 
     return VideoManager(project_paths, settings_manager, enable_video_check=False)
 
