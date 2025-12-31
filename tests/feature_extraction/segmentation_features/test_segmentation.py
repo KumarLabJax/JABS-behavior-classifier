@@ -19,10 +19,10 @@ def ugly_segmentation_sort(seg_data: np.ndarray, longterm_seg_id: np.ndarray) ->
     """
     seg_data_tmp = np.zeros_like(seg_data)  # np.full_like(self.seg_data, -1)
     for frame in range(seg_data.shape[0]):
-        map = longterm_seg_id[frame]
+        seg_id_map = longterm_seg_id[frame]
         B = np.full_like(seg_data[frame, ...], -1)
-        for a_index in range(len(map)):
-            b_index = (map - 1)[a_index]
+        for a_index in range(len(seg_id_map)):
+            b_index = (seg_id_map - 1)[a_index]
             if seg_data.shape[1] > b_index >= 0:
                 B[b_index, :] = seg_data[frame, a_index, :]
 
