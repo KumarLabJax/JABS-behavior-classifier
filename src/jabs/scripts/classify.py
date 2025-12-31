@@ -137,8 +137,8 @@ def classify_pose(
             data = Classifier.combine_data(per_frame_features, window_features)
 
             if data.shape[0] > 0:
-                pred = classifier.predict(data)
-                pred_prob = classifier.predict_proba(data)
+                pred = classifier.predict(data, features["frame_indexes"])
+                pred_prob = classifier.predict_proba(data, features["frame_indexes"])
 
                 # Keep the probability for the predicted class only.
                 # The following code uses some
@@ -146,13 +146,9 @@ def classify_pose(
                 # for each row of the pred_prob array we just computed.
                 pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
-                # Only copy out predictions where there was a valid pose
-                prediction_labels[curr_id, features["frame_indexes"]] = pred[
-                    features["frame_indexes"]
-                ]
-                prediction_prob[curr_id, features["frame_indexes"]] = pred_prob[
-                    features["frame_indexes"]
-                ]
+                # Copy results into results matrix
+                prediction_labels[curr_id] = pred
+                prediction_prob[curr_id] = pred_prob
             progress.update(task, advance=1)
 
     print(f"Writing predictions to {out_dir}")
