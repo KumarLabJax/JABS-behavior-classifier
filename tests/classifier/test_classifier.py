@@ -99,6 +99,11 @@ class TestClassifierInitialization:
         clf = Classifier(classifier=ClassifierType.XGBOOST)
         assert clf.classifier_type == ClassifierType.XGBOOST
 
+    def test_initialization_with_catboost(self):
+        """Test creating a classifier with CatBoost type."""
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        assert clf.classifier_type == ClassifierType.CATBOOST
+
     def test_invalid_classifier_type_raises_error(self):
         """Test that invalid classifier type raises ValueError."""
         with (
@@ -324,6 +329,47 @@ class TestClassifierTraining:
         clf.train(data, random_seed=42)
         assert clf._classifier is not None
 
+    def test_train_catboost(self, sample_features, sample_labels, mock_project):
+        """Test training a CatBoost classifier."""
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        clf.behavior_name = "Test Behavior"
+        clf.set_project_settings(mock_project)
+
+        data = {
+            "training_data": sample_features,
+            "training_labels": sample_labels,
+            "feature_names": sample_features.columns.to_list(),
+        }
+
+        clf.train(data, random_seed=42)
+
+        assert clf._classifier is not None
+        assert clf.feature_names == sample_features.columns.to_list()
+
+    def test_train_catboost_with_nan_values(self, sample_features, sample_labels, mock_project):
+        """Test training CatBoost with NaN values in features.
+
+        CatBoost should handle NaN values natively without imputation.
+        """
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        clf.behavior_name = "Test"
+        clf.set_project_settings(mock_project)
+
+        # Add some NaN values to features
+        features_with_nan = sample_features.copy()
+        features_with_nan.iloc[10:20, 0] = np.nan
+        features_with_nan.iloc[30:35, 2] = np.nan
+
+        data = {
+            "training_data": features_with_nan,
+            "training_labels": sample_labels,
+            "feature_names": features_with_nan.columns.to_list(),
+        }
+
+        # Should train successfully without errors
+        clf.train(data, random_seed=42)
+        assert clf._classifier is not None
+
 
 class TestClassifierPrediction:
     """Test classifier prediction methods."""
@@ -388,6 +434,70 @@ class TestClassifierPrediction:
         test_features.iloc[2, 2] = np.nan
 
         # Should not raise error
+        predictions = clf.predict(test_features)
+        assert len(predictions) == len(test_features)
+
+    def test_predict_catboost(self, sample_features, sample_labels, mock_project):
+        """Test predict method with CatBoost classifier."""
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        clf.behavior_name = "Test"
+        clf.set_project_settings(mock_project)
+
+        data = {
+            "training_data": sample_features,
+            "training_labels": sample_labels,
+        }
+        clf.train(data, random_seed=42)
+
+        predictions = clf.predict(sample_features)
+
+        assert len(predictions) == len(sample_features)
+        assert all(
+            p in [TrackLabels.Label.BEHAVIOR, TrackLabels.Label.NOT_BEHAVIOR] for p in predictions
+        )
+
+    def test_predict_proba_catboost(self, sample_features, sample_labels, mock_project):
+        """Test predict_proba method with CatBoost classifier."""
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        clf.behavior_name = "Test"
+        clf.set_project_settings(mock_project)
+
+        data = {
+            "training_data": sample_features,
+            "training_labels": sample_labels,
+        }
+        clf.train(data, random_seed=42)
+
+        probabilities = clf.predict_proba(sample_features)
+
+        assert probabilities.shape == (len(sample_features), 2)
+        # Probabilities should sum to 1
+        np.testing.assert_array_almost_equal(
+            probabilities.sum(axis=1), np.ones(len(sample_features))
+        )
+
+    def test_catboost_handles_nan_in_prediction(
+        self, sample_features, sample_labels, mock_project
+    ):
+        """Test that CatBoost handles NaN values during prediction.
+
+        CatBoost should handle NaN natively without requiring imputation.
+        """
+        clf = Classifier(classifier=ClassifierType.CATBOOST)
+        clf.behavior_name = "Test"
+        clf.set_project_settings(mock_project)
+
+        data = {
+            "training_data": sample_features,
+            "training_labels": sample_labels,
+        }
+        clf.train(data, random_seed=42)
+
+        # Create test features with NaN values
+        test_features = sample_features.copy()
+        test_features.iloc[5:10, 1] = np.nan
+
+        # Should handle NaN without error
         predictions = clf.predict(test_features)
         assert len(predictions) == len(test_features)
 
@@ -491,7 +601,16 @@ class TestClassifierChoices:
 
         assert isinstance(choices, dict)
         assert ClassifierType.RANDOM_FOREST in choices
+        assert ClassifierType.CATBOOST in choices
         assert all(isinstance(v, str) for v in choices.values())
+
+    def test_catboost_in_choices(self):
+        """Test that CatBoost is available in classifier choices."""
+        clf = Classifier()
+        choices = clf.classifier_choices()
+
+        assert ClassifierType.CATBOOST in choices
+        assert choices[ClassifierType.CATBOOST] == "CatBoost"
 
     def test_set_classifier(self):
         """Test changing classifier type."""
@@ -500,6 +619,14 @@ class TestClassifierChoices:
         # Change to same type should work
         clf.set_classifier(ClassifierType.RANDOM_FOREST)
         assert clf.classifier_type == ClassifierType.RANDOM_FOREST
+
+    def test_set_classifier_to_catboost(self):
+        """Test switching to CatBoost classifier type."""
+        clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
+
+        # Switch to CatBoost
+        clf.set_classifier(ClassifierType.CATBOOST)
+        assert clf.classifier_type == ClassifierType.CATBOOST
 
 
 class TestStaticMethods:

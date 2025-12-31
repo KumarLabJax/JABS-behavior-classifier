@@ -31,7 +31,7 @@ except ImportError:
     # we were unable to import the xgboost module. It's either not
     # installed (it should be if the user installed JABS as a package)
     # or it may have been unable to be imported due to a missing
-    # libomp. Either way, we won't add it to the available choices and
+    # libomp. Either way, we won't add it to the available choices so
     # we can otherwise ignore this exception
     _xgboost = None
     logging.warning(
@@ -463,7 +463,7 @@ class Classifier:
                 # XGBoost and CatBoost natively support NaN as a marker for missing values and handle them
                 # during tree construction. For these classifiers we therefore convert infinite values to NaN
                 # and leave them as missing, instead of imputing them with 0. This differs from the
-                # Random Forest (and other sklearn) path below, where both infinities and NaN are
+                # Random Forest path below, where both infinities and NaN are
                 # replaced with 0.
                 cleaned_features = features.replace([np.inf, -np.inf], np.nan)
                 self._classifier = classifier.fit(cleaned_features, labels)

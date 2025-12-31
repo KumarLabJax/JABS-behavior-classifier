@@ -5,4 +5,5 @@ class ClassifierType(str, Enum):
     """Classifier type for the project."""
 
     RANDOM_FOREST = "Random Forest"
+    CATBOOST = "CatBoost"
     XGBOOST = "XGBoost"
