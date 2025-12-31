@@ -64,10 +64,44 @@ def test_angular_velocity_handles_wraparound(pose_est_v5):
 
 
 def test_angular_velocity_consecutive_same_angles():
-    """Test angular velocity for consecutive frames with same bearing."""
-    # This is a unit test for the logic, but we need a mock pose object
-    # For now, just verify the feature can be computed
-    pass
+    """Test angular velocity for consecutive frames with same bearing.
+
+    Creates a mock pose object where the animal maintains the same bearing
+    angle across consecutive frames, verifying that angular velocity is zero.
+    """
+    from unittest.mock import MagicMock
+
+    # Create a mock pose with constant bearing
+    num_frames = 10
+
+    mock_pose = MagicMock()
+    mock_pose.num_frames = num_frames
+    mock_pose.num_identities = 1
+    mock_pose.fps = 30.0  # 30 frames per second
+
+    # Mock compute_all_bearings to return constant bearing angle of 45 degrees
+    # All frames have the same bearing, so angular velocity should be zero
+    constant_bearings = np.full(num_frames, 45.0, dtype=np.float32)
+    mock_pose.compute_all_bearings.return_value = constant_bearings
+
+    # Create feature instance
+    angular_vel_feature = AngularVelocity(mock_pose, 1.0)
+
+    # Get computed angular velocities
+    values = angular_vel_feature.per_frame(0)
+    velocities = values["angular_velocity"]
+
+    # Filter out NaN values (first frame typically has NaN)
+    non_nan_velocities = velocities[~np.isnan(velocities)]
+
+    # Angular velocity should be zero (or very close to zero) for constant bearing
+    # Allow small numerical errors
+    np.testing.assert_array_almost_equal(
+        non_nan_velocities,
+        np.zeros_like(non_nan_velocities),
+        decimal=3,
+        err_msg=f"Constant bearing should give zero angular velocity, got {non_nan_velocities}",
+    )
 
 
 def test_angular_velocity_feature_name():

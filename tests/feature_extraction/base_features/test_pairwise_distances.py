@@ -1,5 +1,7 @@
 """Unit tests for the PairwisePointDistances feature class."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 
 from jabs.feature_extraction.base_features import PairwisePointDistances
@@ -124,7 +126,66 @@ def test_pairwise_distances_feature_name():
 
 
 def test_pairwise_distances_known_values():
-    """Test pairwise distance computation with known point positions."""
-    # This would require creating a mock pose object with known coordinates
-    # For now, we rely on the real data tests above
-    pass
+    """Test pairwise distance computation with known point positions.
+
+    Creates a mock pose object with known keypoint positions and verifies
+    that computed distances match manual calculations.
+    """
+    # Create a simple scenario with 2 keypoints and 3 frames
+    # Frame 0: NOSE at (0, 0), BASE_NECK at (3, 4) -> distance = 5
+    # Frame 1: NOSE at (0, 0), BASE_NECK at (6, 8) -> distance = 10
+    # Frame 2: NOSE at (1, 1), BASE_NECK at (4, 5) -> distance = 5
+
+    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose.num_frames = 3
+    mock_pose.num_identities = 1
+    mock_pose.cm_per_pixel = 1.0  # No scaling for simplicity
+
+    # Create points array: shape (num_frames, num_keypoints, 2)
+    # Only populate NOSE and BASE_NECK, rest can be NaN
+    num_keypoints = len(PoseEstimation.KeypointIndex)
+    points = np.full((3, num_keypoints, 2), np.nan, dtype=np.float32)
+
+    # Set NOSE positions (keypoint index 0)
+    points[0, PoseEstimation.KeypointIndex.NOSE, :] = [0, 0]
+    points[1, PoseEstimation.KeypointIndex.NOSE, :] = [0, 0]
+    points[2, PoseEstimation.KeypointIndex.NOSE, :] = [1, 1]
+
+    # Set BASE_NECK positions (keypoint index 1)
+    points[0, PoseEstimation.KeypointIndex.BASE_NECK, :] = [3, 4]
+    points[1, PoseEstimation.KeypointIndex.BASE_NECK, :] = [6, 8]
+    points[2, PoseEstimation.KeypointIndex.BASE_NECK, :] = [4, 5]
+
+    # Create point mask (all valid for our two keypoints)
+    point_mask = np.zeros((3, num_keypoints), dtype=bool)
+    point_mask[:, PoseEstimation.KeypointIndex.NOSE] = True
+    point_mask[:, PoseEstimation.KeypointIndex.BASE_NECK] = True
+
+    # Mock the get_identity_poses method
+    mock_pose.get_identity_poses.return_value = (points, point_mask)
+
+    # Create feature instance
+    pairwise_feature = PairwisePointDistances(mock_pose, 1.0)
+
+    # Get computed distances
+    values = pairwise_feature.per_frame(0)
+
+    # Find the NOSE-BASE_NECK distance feature
+    nose_neck_key = None
+    for key in values:
+        if "NOSE" in key and "BASE_NECK" in key:
+            nose_neck_key = key
+            break
+
+    assert nose_neck_key is not None, "NOSE-BASE_NECK feature not found"
+
+    # Verify the computed distances match expected values
+    computed_distances = values[nose_neck_key]
+    expected_distances = np.array([5.0, 10.0, 5.0], dtype=np.float32)
+
+    np.testing.assert_array_almost_equal(
+        computed_distances,
+        expected_distances,
+        decimal=5,
+        err_msg=f"Computed distances {computed_distances} do not match expected {expected_distances}",
+    )

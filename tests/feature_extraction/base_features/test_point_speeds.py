@@ -1,5 +1,7 @@
 """Unit tests for the PointSpeeds feature class."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 
 from jabs.feature_extraction.base_features import PointSpeeds
@@ -78,10 +80,66 @@ def test_point_speeds_scaled_by_fps(pose_est_v5):
 
 
 def test_point_speeds_stationary_point():
-    """Test that stationary points have zero speed."""
-    # This would require creating a mock pose object with stationary points
-    # For now, we rely on the real data tests above
-    pass
+    """Test that stationary points have zero speed.
+
+    Creates a mock pose object where a keypoint remains at the same position
+    across all frames, verifying that the computed speed is zero.
+    """
+    # Create a mock pose with a stationary NOSE keypoint
+    num_frames = 10
+    num_keypoints = len(PoseEstimation.KeypointIndex)
+
+    mock_pose = MagicMock(spec=PoseEstimation)
+    mock_pose.num_frames = num_frames
+    mock_pose.num_identities = 1
+    mock_pose.cm_per_pixel = 1.0
+    mock_pose.fps = 30.0  # 30 frames per second
+
+    # Create points array where NOSE stays at (5, 5) for all frames
+    points = np.full((num_frames, num_keypoints, 2), np.nan, dtype=np.float32)
+
+    # Set NOSE to be stationary at position (5, 5)
+    for frame in range(num_frames):
+        points[frame, PoseEstimation.KeypointIndex.NOSE, :] = [5.0, 5.0]
+
+    # Set BASE_NECK to move slightly so we have some non-zero speeds
+    for frame in range(num_frames):
+        points[frame, PoseEstimation.KeypointIndex.BASE_NECK, :] = [frame, frame]
+
+    # Create point mask (all valid for NOSE and BASE_NECK)
+    point_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
+    point_mask[:, PoseEstimation.KeypointIndex.NOSE] = True
+    point_mask[:, PoseEstimation.KeypointIndex.BASE_NECK] = True
+
+    # Mock the get_identity_poses method
+    mock_pose.get_identity_poses.return_value = (points, point_mask)
+
+    # Create feature instance
+    speeds_feature = PointSpeeds(mock_pose, 1.0)
+
+    # Get computed speeds
+    values = speeds_feature.per_frame(0)
+
+    # Verify NOSE speed is zero (stationary point)
+    nose_speed = values["NOSE speed"]
+
+    # Speed should be zero for all frames (except possibly first frame which may be NaN)
+    # Skip first frame as speed calculation typically requires previous frame
+    non_nan_speeds = nose_speed[~np.isnan(nose_speed)]
+
+    np.testing.assert_array_almost_equal(
+        non_nan_speeds,
+        np.zeros_like(non_nan_speeds),
+        decimal=5,
+        err_msg=f"Stationary NOSE should have zero speed, got {non_nan_speeds}",
+    )
+
+    # Verify BASE_NECK has non-zero speed (as a sanity check)
+    base_neck_speed = values["BASE_NECK speed"]
+    non_nan_base_neck = base_neck_speed[~np.isnan(base_neck_speed)]
+
+    # BASE_NECK is moving, so should have non-zero speeds
+    assert (non_nan_base_neck > 0).any(), "Moving BASE_NECK should have non-zero speeds"
 
 
 def test_point_speeds_window_operations(pose_est_v5):
