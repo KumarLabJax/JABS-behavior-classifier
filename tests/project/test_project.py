@@ -1,5 +1,4 @@
 import contextlib
-import gzip
 import json
 import shutil
 from pathlib import Path
@@ -25,11 +24,11 @@ def project_with_data():
     _EXISTING_PROJ_PATH = Path("test_project_with_data")
     _FILENAMES: list[str] = ["test_file_1.avi", "test_file_2.avi"]
 
-    # filenames of some compressed sample pose files in the test/data directory.
+    # filenames of some sample pose files in the test/data directory.
     # must be at least as long as _FILENAMES
     _POSE_FILES: list[str] = [
-        "identity_with_no_data_pose_est_v3.h5.gz",
-        "sample_pose_est_v3.h5.gz",
+        "identity_with_no_data_pose_est_v3.h5",
+        "sample_pose_est_v3.h5",
     ]
 
     test_data_dir = Path(__file__).parent.parent / "data"
@@ -45,13 +44,12 @@ def project_with_data():
         # make a stub for the .avi file in the project directory
         (_EXISTING_PROJ_PATH / name).touch()
 
-        # extract the sample pose_est files
+        # copy the sample pose_est files
         pose_filename = name.replace(".avi", "_pose_est_v3.h5")
         pose_path = _EXISTING_PROJ_PATH / pose_filename
         pose_source = test_data_dir / _POSE_FILES[i]
 
-        with gzip.open(pose_source, "rb") as f_in, open(pose_path, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+        shutil.copy(pose_source, pose_path)
 
     # set up a project directory with annotations
     Project(_EXISTING_PROJ_PATH, enable_video_check=False, enable_session_tracker=False)
