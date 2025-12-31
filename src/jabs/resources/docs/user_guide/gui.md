@@ -119,7 +119,7 @@ XGBoost is another gradient boosting algorithm known for winning machine learnin
 
 - **Manual Labels (sliding window):** Displays manually assigned labels for a sliding window of frames. The window range is the current frame +/-50 frames. Orange indicates frames labeled as showing the behavior, blue indicates frames labeled as not showing the behavior. Unlabeled frames are colored gray.
 - **Manual Labels (global view):** Displays a zoomed out view of the manual labels for the entire video
-- **Predicted Classes (sliding window):** Displays predicted classes (if the classifier has been run). Color opacity indicates prediction probability for the predicted class. Manually assigned labels are also displayed with probability of 100%.
+- **Predicted Classes (sliding window):** Displays predicted classes (if the classifier has been run). Color opacity indicates prediction probability for the predicted class.
 - **Predicted Class (global view):** Displays a zoomed out view of the predicted classes for the entire video.
 - **Sliding Window Indicator:** highlights the section of the global views that correspond to the frames displayed in the "sliding window" views.
 
