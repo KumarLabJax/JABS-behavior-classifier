@@ -1,7 +1,24 @@
+import pytest
+
 from jabs.behavior_search import SearchHit
-from jabs.ui.search_bar_widget import (
-    _binary_search_with_comparator,
-    _compare_file_frame_vs_search_hit,
+
+# Try to import the functions; if Qt/EGL is not available (e.g., headless CI),
+# mark all tests in this module to be skipped
+try:
+    from jabs.ui.search_bar_widget import (
+        _binary_search_with_comparator,
+        _compare_file_frame_vs_search_hit,
+    )
+
+    SKIP_UI_TESTS = False
+except ImportError as e:
+    # Qt/PySide6 not available (likely headless environment)
+    SKIP_UI_TESTS = True
+    SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+
+pytestmark = pytest.mark.skipif(
+    SKIP_UI_TESTS,
+    reason=SKIP_REASON if SKIP_UI_TESTS else "",
 )
 
 
