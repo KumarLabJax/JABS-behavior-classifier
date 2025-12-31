@@ -9,6 +9,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from catboost import CatBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
@@ -45,6 +46,16 @@ def _make_random_forest(n_jobs: int, random_seed: int | None):
     return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
 
 
+def _make_catboost(n_jobs: int, random_seed: int | None):
+    """Factory function to construct a CatBoost classifier."""
+    return CatBoostClassifier(
+        thread_count=n_jobs,
+        random_state=random_seed,
+        verbose=False,  # Suppress training output
+        allow_writing_files=False,  # Don't write intermediate files
+    )
+
+
 def _make_xgboost(n_jobs: int, random_seed: int | None):
     """Factory function to construct an XGBoost classifier."""
     if _xgboost is None:
@@ -59,6 +70,7 @@ def _make_xgboost(n_jobs: int, random_seed: int | None):
 # to factory functions that produce instantiated classifiers for that type
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
     ClassifierType.RANDOM_FOREST: _make_random_forest,
+    ClassifierType.CATBOOST: _make_catboost,
 }
 if _xgboost is not None:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = _make_xgboost
@@ -445,11 +457,11 @@ class Classifier:
 
         classifier = self._create_classifier(random_seed=random_seed)
 
-        if self._classifier_type == ClassifierType.XGBOOST:
+        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                # XGBoost natively supports NaN as a marker for missing values and handles them
-                # during tree construction. For XGBoost we therefore convert infinite values to NaN
+                # XGBoost and CatBoost natively support NaN as a marker for missing values and handle them
+                # during tree construction. For these classifiers we therefore convert infinite values to NaN
                 # and leave them as missing, instead of imputing them with 0. This differs from the
                 # Random Forest (and other sklearn) path below, where both infinities and NaN are
                 # replaced with 0.
@@ -470,34 +482,40 @@ class Classifier:
         """sorts features to match the current classifier"""
         if self._classifier_type == ClassifierType.XGBOOST:
             classifier_columns = self._classifier.get_booster().feature_names
-        # sklearn places feature names in the same spot
+        elif self._classifier_type == ClassifierType.CATBOOST:
+            classifier_columns = self._classifier.feature_names_
         else:
+            # sklearn places feature names in feature_names_in_
             classifier_columns = self._classifier.feature_names_in_
         features_sorted = features[classifier_columns]
         return features_sorted
 
     def predict(self, features):
         """predict classes for a given set of features"""
-        if self._classifier_type == ClassifierType.XGBOOST:
+        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
+                # XGBoost and CatBoost can handle NaN, just replace infinities
                 result = self._classifier.predict(
-                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0))
+                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], np.nan))
                 )
             return result
-        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+        # Random Forest can't handle NAs & infs, so fill them with 0s
         return self._classifier.predict(
             self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
         )
 
     def predict_proba(self, features):
         """predict probabilities for a given set of features"""
-        if self._classifier_type == ClassifierType.XGBOOST:
+        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                result = self._classifier.predict_proba(self.sort_features_to_classify(features))
+                # XGBoost and CatBoost can handle NaN, just replace infinities
+                result = self._classifier.predict_proba(
+                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], np.nan))
+                )
             return result
-        # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
+        # Random Forest can't handle NAs & infs, so fill them with 0s
         return self._classifier.predict_proba(
             self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
         )
