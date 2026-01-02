@@ -69,6 +69,7 @@ Submit issues on our [GitHub repository](https://github.com/KumarLabJax/JABS-beh
 - Documentation improvements
 
 When reporting issues, please include:
+
 - Your JABS version (shown in Help → About)
 - Operating system and Python version
 - Steps to reproduce the problem
