@@ -196,7 +196,7 @@ If you're interested in contributing to JABS or setting up a development environ
 
 ## Acknowledgements
 
-Although it does not share any code, JABS was heavily influenced by JAABA (Janelia Automatic Animal Behavior Annotator) developed by the Branson lab at Janelia Research Campus of the Howard Hughes Medical Institute. We are grateful for their pioneering work in automated behavior classification.
+JABS was influenced by JAABA (Janelia Automatic Animal Behavior Annotator) developed by the Branson lab at Janelia Research Campus of the Howard Hughes Medical Institute. We are grateful for their pioneering work in automated behavior classification.
 
 **Citation:**
 
