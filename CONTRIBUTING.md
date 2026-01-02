@@ -113,7 +113,7 @@ For detailed information about JABS architecture, development setup, and impleme
 
 ## Code of Conduct
 
-Be respectful and professional in all interactions. We aim to foster an inclusive and welcoming community.
+Be respectful and professional in all interactions. We aim to foster an inclusive and welcoming community. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for details.
 
 ---
 
