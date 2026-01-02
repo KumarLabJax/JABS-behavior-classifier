@@ -181,7 +181,7 @@ There are multiple JABS Classifier artifacts that have different compatibility a
 
 Project folders are big, but are almost always compatible across JABS versions.
 
-Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These are good for sharing or archiving specific versions (e.g. a version we use in a paper). A comon use case is to export training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the`jabs-classify` command from same version of JABS that was used to export the training file.
+Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These are good for sharing or archiving specific versions (e.g. a version we use in a paper). A common use case is to export training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the`jabs-classify` command from same version of JABS that was used to export the training file.
 
 Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, which can then be used to classify many videos as part of a pipeline).
 
