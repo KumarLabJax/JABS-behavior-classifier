@@ -132,6 +132,8 @@ Double-click these scripts in Windows Explorer to run them.
 
 The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond the scope of this Readme.
 
+Because libomp is dynamically loaded by XGBoost it can be installed before or after installing jabs-behavior-classifier.
+
 ---
 
 ## Running JABS
