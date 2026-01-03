@@ -20,6 +20,12 @@ email us at jabs@jax.org
 
 JABS is licensed under a non-commercial use license, see [LICENSE](LICENSE) for more information. Contact us for information about licensing for commercial use.
 
+## Citation
+
+If you use JABS in your research, please cite:
+
+Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J., & Kumar, V. (2025). JAX Animal Behavior System (JABS): A genetics informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse. *eLife*, 14:RP107259. https://doi.org/10.7554/eLife.107259.2
+
 ## Pose Files
 
 JABS requires pose files generated from the Kumar Lab's mouse pose estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
@@ -200,4 +206,14 @@ If you're interested in contributing to JABS or setting up a development environ
   - Testing guidelines
   - Building and distribution
   - CI/CD and release management
+
+---
+
+## Acknowledgements
+
+JABS was influenced by JAABA (Janelia Automatic Animal Behavior Annotator) developed by the Branson lab at Janelia Research Campus of the Howard Hughes Medical Institute. We are grateful for their pioneering work in automated behavior classification.
+
+**Citation:**
+
+Kabra, M., Robie, A., Rivera-Alba, M. et al. JAABA: interactive machine learning for automatic annotation of animal behavior. Nature Methods 10, 64–67 (2013). https://doi.org/10.1038/nmeth.2281
 
