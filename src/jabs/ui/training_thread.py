@@ -94,6 +94,8 @@ class TrainingThread(QThread):
         # Measure wall-clock time for training
         _t0_ns = time.perf_counter_ns()
 
+        behavior_settings = self._project.settings_manager.get_behavior(self._behavior)
+
         def check_termination_requested() -> None:
             if self._should_terminate:
                 raise ThreadTerminatedError("Training was cancelled by the user")
@@ -227,6 +229,8 @@ class TrainingThread(QThread):
             training_data = TrainingReportData(
                 behavior_name=self._behavior,
                 classifier_type=self._classifier.classifier_name,
+                balance_training_labels=behavior_settings.get("balance_labels", False),
+                symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
                 distance_unit=unit,
                 cv_results=cv_results,
                 final_top_features=final_top_features,

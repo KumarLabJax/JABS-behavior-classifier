@@ -51,6 +51,8 @@ class TrainingReportData:
     Attributes:
         behavior_name: Name of the behavior being trained
         classifier_type: Type/name of the classifier (e.g., "Random Forest")
+        balance_training_labels: Whether training labels were balanced
+        symmetric_behavior: Whether the behavior is symmetric
         distance_unit: Unit used for distance features ("cm" or "pixel")
         cv_results: List of CrossValidationResult objects, one per iteration
         final_top_features: Top features from final model (trained on all data)
@@ -63,6 +65,8 @@ class TrainingReportData:
 
     behavior_name: str
     classifier_type: str
+    balance_training_labels: bool
+    symmetric_behavior: bool
     distance_unit: str
     cv_results: list[CrossValidationResult]
     final_top_features: list[tuple[str, float]]
@@ -109,6 +113,10 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     lines.append("")
     lines.append(f"- **Behavior:** {data.behavior_name}")
     lines.append(f"- **Classifier:** {data.classifier_type}")
+    lines.append(
+        f"- **Balanced Training Labels:** {'Yes' if data.balance_training_labels else 'No'}"
+    )
+    lines.append(f"- **Symmetric Behavior:** {'Yes' if data.symmetric_behavior else 'No'}")
     lines.append(f"- **Distance Unit:** {data.distance_unit}")
     lines.append(f"- **Training Time:** {data.training_time_ms / 1000:.2f} seconds")
     lines.append("")
