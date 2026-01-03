@@ -117,7 +117,7 @@ XGBoost is another gradient boosting algorithm known for winning machine learnin
 
 When training completes, JABS displays a training report in a modal dialog. The report includes:
 
-- **Training summary** - Behavior name, classifier type, distance unit, and training time
+- **Training summary** - behavior name, classifier type, distance unit, and training time
 - **Label counts** - Number of labeled frames and bouts for both behavior and not-behavior classes
 - **Cross-validation results** - Performance metrics (accuracy, precision, recall, F1 score) for each leave-one-out iteration, along with which video/identity was held out as the test set
 - **Feature importance** - Top 20 most important features from the final trained classifier
