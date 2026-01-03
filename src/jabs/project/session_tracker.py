@@ -281,7 +281,6 @@ class SessionTracker:
         k: int,
         accuracy: float | None = None,
         fbeta_behavior: float | None = None,
-        fbeta_notbehavior: float | None = None,
     ):
         """Log the training of a classifier."""
         if not self._tracking_enabled or not self._session:
@@ -299,8 +298,6 @@ class SessionTracker:
             activity["mean accuracy"] = f"{accuracy:.3}"
         if fbeta_behavior is not None:
             activity["mean fbeta (behavior)"] = f"{fbeta_behavior:.3}"
-        if fbeta_notbehavior is not None:
-            activity["mean fbeta (not behavior)"] = f"{fbeta_notbehavior:.3}"
 
         self._session["activity_log"].append(activity)
         self._flush_session()

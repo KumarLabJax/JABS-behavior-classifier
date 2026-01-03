@@ -6,7 +6,19 @@ Gradient Boosting, and XGBoost), utilities for feature management, data splittin
 """
 
 from .classifier import Classifier
+from .training_report import (
+    CrossValidationResult,
+    TrainingReportData,
+    generate_markdown_report,
+    markdown_to_html,
+    save_training_report,
+)
 
 __all__ = [
     "Classifier",
+    "CrossValidationResult",
+    "TrainingReportData",
+    "generate_markdown_report",
+    "markdown_to_html",
+    "save_training_report",
 ]

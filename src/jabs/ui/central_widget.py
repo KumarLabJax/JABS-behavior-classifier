@@ -24,6 +24,7 @@ from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
 from .progress_dialog import create_cancelable_progress_dialog
 from .stacked_timeline_widget import StackedTimelineWidget
+from .training_report import TrainingReportDialog
 from .training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -81,6 +82,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(n_jobs=-1)
         self._training_thread: TrainingThread | None = None
         self._classify_thread: ClassifyThread | None = None
+        self._training_report_html: str | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -141,6 +143,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = None
 
         self._counts = None
+        self._bouts_behavior = 0
+        self._bouts_not_behavior = 0
 
         # set focus policy of all children widgets, needed to keep controls
         # from grabbing focus on Windows (which breaks arrow key video nav)
@@ -675,11 +679,15 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
 
+        # reset training report
+        self._training_report_html = None
+
         # setup training thread
         self._training_thread = TrainingThread(
             self._classifier,
             self._project,
             self._controls.current_behavior,
+            (self._bouts_behavior, self._bouts_not_behavior),
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
         )
@@ -687,6 +695,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.error_callback.connect(self._training_thread_error_callback)
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
+        self._training_thread.training_report.connect(self._on_training_report)
 
         # setup progress dialog
         # adds 2 for final training
@@ -703,6 +712,14 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
+    def _on_training_report(self, html_content: str) -> None:
+        """Save the training report HTML for display after training completes.
+
+        Args:
+            html_content: HTML-formatted training report
+        """
+        self._training_report_html = html_content
+
     def _training_thread_complete(self, elapsed_ms) -> None:
         """enable classify button once the training is complete
 
@@ -715,6 +732,16 @@ class CentralWidget(QtWidgets.QWidget):
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
         self._controls.classify_button_enabled = True
+
+        # Display training report if available
+        if self._training_report_html:
+            dialog = TrainingReportDialog(
+                self._training_report_html,
+                title=f"Training Report: {self._controls.current_behavior}",
+                parent=self,
+            )
+            dialog.exec()
+            self._training_report_html = None  # Clear after displaying
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
@@ -931,6 +958,9 @@ class CentralWidget(QtWidgets.QWidget):
             bout_behavior_project,
             bout_not_behavior_project,
         )
+
+        self._bouts_behavior = bout_behavior_project
+        self._bouts_not_behavior = bout_not_behavior_project
 
     def _classifier_changed(self) -> None:
         """handle classifier selection change"""

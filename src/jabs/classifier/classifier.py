@@ -604,6 +604,26 @@ class Classifier:
         """
         return pd.concat([per_frame, window], axis=1)
 
+    def get_feature_importance(self, limit=20) -> list[tuple[str, float]]:
+        """get the most important features and their importance
+
+        Args:
+            limit: maximum number of features to return, defaults to 20
+
+        Returns:
+            list of tuples of feature name and importance
+        """
+        # Get numerical feature importance
+        importances = list(self._classifier.feature_importances_)
+        # List of tuples with variable and importance
+        feature_importance = [
+            (feature, round(importance, 2))
+            for feature, importance in zip(self._feature_names, importances, strict=True)
+        ]
+        # Sort the feature importance by most important first
+        feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
+        return feature_importance[:limit]
+
     def print_feature_importance(self, feature_list, limit=20):
         """print the most important features and their importance
 
@@ -611,15 +631,7 @@ class Classifier:
             feature_list: list of feature names used in the classifier
             limit: maximum number of features to print, defaults to 20
         """
-        # Get numerical feature importance
-        importances = list(self._classifier.feature_importances_)
-        # List of tuples with variable and importance
-        feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(feature_list, importances, strict=True)
-        ]
-        # Sort the feature importance by most important first
-        feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
+        feature_importance = self.get_feature_importance(limit=limit)
         # Print out the feature and importance
         print(f"{'Feature Name':100} Importance")
         print("-" * 120)
