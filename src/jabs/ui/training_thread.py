@@ -127,7 +127,6 @@ class TrainingThread(QThread):
             cv_results = []
             accuracies = []
             fbeta_behavior = []
-            fbeta_notbehavior = []
             iterations = 0
 
             # Figure out the cross validation count if all were requested
@@ -160,7 +159,6 @@ class TrainingThread(QThread):
                     # Collect results for report
                     accuracies.append(accuracy)
                     fbeta_behavior.append(pr[2][1])
-                    fbeta_notbehavior.append(pr[2][0])
 
                     # Get top features for this iteration
                     top_features = self._classifier.get_feature_importance(limit=10)
