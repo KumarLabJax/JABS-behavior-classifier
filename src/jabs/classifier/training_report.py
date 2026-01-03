@@ -1,6 +1,7 @@
 """Training report generation for classifier cross-validation results."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -51,6 +52,7 @@ class TrainingReportData:
     Attributes:
         behavior_name: Name of the behavior being trained
         classifier_type: Type/name of the classifier (e.g., "Random Forest")
+        window_size: Window size used for feature extraction
         balance_training_labels: Whether training labels were balanced
         symmetric_behavior: Whether the behavior is symmetric
         distance_unit: Unit used for distance features ("cm" or "pixel")
@@ -61,10 +63,12 @@ class TrainingReportData:
         bouts_behavior: Total number of behavior bouts labeled
         bouts_not_behavior: Total number of not-behavior bouts labeled
         training_time_ms: Total training time in milliseconds
+        timestamp: Datetime when training was completed
     """
 
     behavior_name: str
     classifier_type: str
+    window_size: int
     balance_training_labels: bool
     symmetric_behavior: bool
     distance_unit: str
@@ -75,6 +79,7 @@ class TrainingReportData:
     bouts_behavior: int
     bouts_not_behavior: int
     training_time_ms: int
+    timestamp: datetime
 
 
 def _escape_markdown(text: str) -> str:
@@ -108,11 +113,14 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
     lines.append(f"# Training Report: {data.behavior_name}")
     lines.append("")
+    lines.append(f"**Date:** {data.timestamp.strftime('%B %d, %Y at %I:%M:%S %p')}")
+    lines.append("")
 
     lines.append("## Training Summary")
     lines.append("")
     lines.append(f"- **Behavior:** {data.behavior_name}")
     lines.append(f"- **Classifier:** {data.classifier_type}")
+    lines.append(f"- **Window Size:** {data.window_size}")
     lines.append(
         f"- **Balanced Training Labels:** {'Yes' if data.balance_training_labels else 'No'}"
     )

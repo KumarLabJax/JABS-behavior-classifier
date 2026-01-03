@@ -1,9 +1,7 @@
 """Dialog for displaying training reports as HTML."""
 
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 
 class TrainingReportDialog(QDialog):
@@ -42,21 +40,8 @@ class TrainingReportDialog(QDialog):
         bottom_layout.addStretch()
 
         close_button = QPushButton("Close")
-        close_button.clicked.connect(self.accept)
+        close_button.clicked.connect(self.close)
         bottom_layout.addWidget(close_button)
 
         main_layout.addLayout(bottom_layout)
         self.setLayout(main_layout)
-
-        # Add keyboard shortcut for Cmd+Q (macOS) / Ctrl+Q to quit application
-        quit_shortcut = QShortcut(QKeySequence.StandardKey.Quit, self)
-        quit_shortcut.activated.connect(self._quit_application)
-
-    def _quit_application(self):
-        """Quit the application.
-
-        Uses QTimer.singleShot to defer the quit operation until after
-        the dialog's modal event loop finishes (exec() is blocking).
-        """
-        self.close()
-        QTimer.singleShot(0, QApplication.instance().quit)

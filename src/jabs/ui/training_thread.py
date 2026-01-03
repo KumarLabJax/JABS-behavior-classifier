@@ -225,6 +225,9 @@ class TrainingThread(QThread):
                 else "pixel"
             )
 
+            # Get current timestamp for report
+            report_timestamp = datetime.now()
+
             # Create training data object (cv_results will be empty list if k=0)
             training_data = TrainingReportData(
                 behavior_name=self._behavior,
@@ -239,11 +242,13 @@ class TrainingThread(QThread):
                 bouts_behavior=behavior_bouts,
                 bouts_not_behavior=not_behavior_bouts,
                 training_time_ms=elapsed_ms,
+                timestamp=report_timestamp,
+                window_size=behavior_settings["window_size"],
             )
 
             # Save markdown report
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            report_filename = f"{self._behavior}_{timestamp}_training_report.md"
+            timestamp_str = report_timestamp.strftime("%Y%m%d_%H%M%S")
+            report_filename = f"{self._behavior}_{timestamp_str}_training_report.md"
             report_path = self._training_log_dir / report_filename
             save_training_report(training_data, report_path)
 

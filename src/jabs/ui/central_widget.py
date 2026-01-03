@@ -83,6 +83,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread: TrainingThread | None = None
         self._classify_thread: ClassifyThread | None = None
         self._training_report_html: str | None = None
+        self._training_report_dialog: TrainingReportDialog | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -728,11 +729,6 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
-
-        # Process pending events to ensure progress dialog is fully closed
-        # before showing the modal training report dialog
-        QtCore.QCoreApplication.processEvents()
-
         self.status_message.emit(
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
@@ -740,13 +736,41 @@ class CentralWidget(QtWidgets.QWidget):
 
         # Display training report if available
         if self._training_report_html:
-            dialog = TrainingReportDialog(
+            # Close any existing training report dialog before showing new one
+            if self._training_report_dialog is not None:
+                self._training_report_dialog.close()
+                self._training_report_dialog = None
+
+            self._training_report_dialog = TrainingReportDialog(
                 self._training_report_html,
                 title=f"Training Report: {self._controls.current_behavior}",
                 parent=self,
             )
-            dialog.exec()
+            # Connect to cleanup when dialog is closed
+            self._training_report_dialog.finished.connect(
+                lambda: setattr(self, "_training_report_dialog", None)
+            )
+
+            # Temporarily set stay-on-top to ensure it appears in front
+            self._training_report_dialog.setWindowFlags(
+                self._training_report_dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+            )
+            self._training_report_dialog.show()
+            self._training_report_dialog.raise_()
+            self._training_report_dialog.activateWindow()
+
+            # Remove stay-on-top flag after a brief delay so user can manage windows normally
+            QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
+
             self._training_report_html = None  # Clear after displaying
+
+    def _remove_stay_on_top_flag(self):
+        """Remove WindowStaysOnTopHint from training report dialog."""
+        if self._training_report_dialog is not None:
+            self._training_report_dialog.setWindowFlags(
+                self._training_report_dialog.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint
+            )
+            self._training_report_dialog.show()  # Need to call show() again after changing flags
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
