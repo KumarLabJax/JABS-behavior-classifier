@@ -728,6 +728,11 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._cleanup_training_thread()
         self._cleanup_progress_dialog()
+
+        # Process pending events to ensure progress dialog is fully closed
+        # before showing the modal training report dialog
+        QtCore.QCoreApplication.processEvents()
+
         self.status_message.emit(
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
