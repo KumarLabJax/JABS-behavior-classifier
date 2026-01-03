@@ -10,7 +10,6 @@ from jabs.classifier import (
     CrossValidationResult,
     TrainingReportData,
     generate_markdown_report,
-    markdown_to_html,
     save_training_report,
 )
 from jabs.project import Project
@@ -33,7 +32,7 @@ class TrainingThread(QThread):
         error_callback: QtCore.Signal(Exception)
             Emitted if an error occurs during training, passing the exception to the main GUI thread.
         training_report: QtCore.Signal(str)
-            Emitted when training is complete, carrying the HTML-formatted training report.
+            Emitted when training is complete, carrying the Markdown-formatted training report.
 
     Args:
         classifier (Classifier): The classifier instance to train.
@@ -252,10 +251,9 @@ class TrainingThread(QThread):
             report_path = self._training_log_dir / report_filename
             save_training_report(training_data, report_path)
 
-            # Generate and emit HTML report
+            # Generate and emit markdown report
             markdown_content = generate_markdown_report(training_data)
-            html_content = markdown_to_html(markdown_content)
-            self.training_report.emit(html_content)
+            self.training_report.emit(markdown_content)
 
             # Update session tracker
             if self._k > 0:

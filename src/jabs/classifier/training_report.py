@@ -3,9 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from textwrap import dedent
 
-import markdown2
 import numpy as np
 from tabulate import tabulate
 
@@ -216,79 +214,6 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     lines.append("")
 
     return "\n".join(lines)
-
-
-def markdown_to_html(markdown_text: str) -> str:
-    """Convert markdown text to HTML.
-
-    Args:
-        markdown_text: Markdown-formatted string
-
-    Returns:
-        HTML string with basic styling
-    """
-    html_content = markdown2.markdown(markdown_text, extras=["tables", "fenced-code-blocks"])
-
-    # Wrap in basic HTML document with styling
-    html = dedent(f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-                    line-height: 1.6;
-                    max-width: 1200px;
-                    margin: 20px auto;
-                    padding: 0 20px;
-                    color: #333;
-                }}
-                h1 {{
-                    border-bottom: 2px solid #333;
-                    padding-bottom: 10px;
-                }}
-                h2 {{
-                    border-bottom: 1px solid #ccc;
-                    padding-bottom: 8px;
-                    margin-top: 30px;
-                }}
-                h3 {{
-                    margin-top: 20px;
-                }}
-                table {{
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 20px 0;
-                }}
-                th, td {{
-                    border: 1px solid #ddd;
-                    padding: 8px;
-                    text-align: left;
-                }}
-                th {{
-                    background-color: #f2f2f2;
-                    font-weight: bold;
-                }}
-                tr:nth-child(even) {{
-                    background-color: #f9f9f9;
-                }}
-                code {{
-                    background-color: #f4f4f4;
-                    padding: 2px 4px;
-                    border-radius: 3px;
-                }}
-                ul {{
-                    line-height: 1.8;
-                }}
-            </style>
-        </head>
-        <body>
-        {html_content}
-        </body>
-        </html>
-    """).strip()
-    return html
 
 
 def save_training_report(data: TrainingReportData, output_path: Path) -> None:

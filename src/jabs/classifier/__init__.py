@@ -10,7 +10,6 @@ from .training_report import (
     CrossValidationResult,
     TrainingReportData,
     generate_markdown_report,
-    markdown_to_html,
     save_training_report,
 )
 
@@ -19,6 +18,5 @@ __all__ = [
     "CrossValidationResult",
     "TrainingReportData",
     "generate_markdown_report",
-    "markdown_to_html",
     "save_training_report",
 ]

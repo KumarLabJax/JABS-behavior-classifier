@@ -82,7 +82,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(n_jobs=-1)
         self._training_thread: TrainingThread | None = None
         self._classify_thread: ClassifyThread | None = None
-        self._training_report_html: str | None = None
+        self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
 
         # information about current predictions
@@ -681,7 +681,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.stop()
 
         # reset training report
-        self._training_report_html = None
+        self._training_report_markdown = None
 
         # setup training thread
         self._training_thread = TrainingThread(
@@ -713,13 +713,13 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
-    def _on_training_report(self, html_content: str) -> None:
-        """Save the training report HTML for display after training completes.
+    def _on_training_report(self, markdown_content: str) -> None:
+        """Save the training report markdown for display after training completes.
 
         Args:
-            html_content: HTML-formatted training report
+            markdown_content: Markdown-formatted training report
         """
-        self._training_report_html = html_content
+        self._training_report_markdown = markdown_content
 
     def _training_thread_complete(self, elapsed_ms) -> None:
         """enable classify button once the training is complete
@@ -735,14 +735,14 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_button_enabled = True
 
         # Display training report if available
-        if self._training_report_html:
+        if self._training_report_markdown:
             # Close any existing training report dialog before showing new one
             if self._training_report_dialog is not None:
                 self._training_report_dialog.close()
                 self._training_report_dialog = None
 
             self._training_report_dialog = TrainingReportDialog(
-                self._training_report_html,
+                self._training_report_markdown,
                 title=f"Training Report: {self._controls.current_behavior}",
                 parent=self,
             )
@@ -762,7 +762,7 @@ class CentralWidget(QtWidgets.QWidget):
             # Remove stay-on-top flag after a brief delay so user can manage windows normally
             QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
 
-            self._training_report_html = None  # Clear after displaying
+            self._training_report_markdown = None  # Clear after displaying
 
     def _remove_stay_on_top_flag(self):
         """Remove WindowStaysOnTopHint from training report dialog."""
