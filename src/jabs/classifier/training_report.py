@@ -73,6 +73,24 @@ class TrainingReportData:
     training_time_ms: int
 
 
+def _escape_markdown(text: str) -> str:
+    """Escape markdown special characters in text.
+
+    Args:
+        text: Text that may contain markdown special characters
+
+    Returns:
+        Text with markdown special characters escaped
+    """
+    # Escape common markdown characters that might appear in filenames
+    # Most important: _ (underscore) which creates italics
+    # Also escape: * (asterisk), [ ] (brackets), ( ) (parentheses)
+    chars_to_escape = ["_", "*", "[", "]", "(", ")", "`", "#"]
+    for char in chars_to_escape:
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
 def generate_markdown_report(data: TrainingReportData) -> str:
     """Generate a markdown-formatted training report.
 
@@ -128,6 +146,9 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
         table_data = []
         for result in data.cv_results:
+            # Escape markdown special characters in video
+            escaped_video = _escape_markdown(result.test_video)
+
             table_data.append(
                 [
                     result.iteration,
@@ -137,7 +158,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
                     f"{result.recall_not_behavior:.4f}",
                     f"{result.recall_behavior:.4f}",
                     f"{result.f1_behavior:.4f}",
-                    f"{result.test_video} [{result.test_identity}]",
+                    f"{escaped_video} [{result.test_identity}]",
                 ]
             )
 
@@ -170,7 +191,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
     feature_table = []
     for rank, (feature_name, importance) in enumerate(data.final_top_features, start=1):
-        feature_table.append([rank, feature_name, f"{importance:.2f}"])
+        feature_table.append([rank, _escape_markdown(feature_name), f"{importance:.2f}"])
 
     feature_markdown = tabulate(
         feature_table, headers=["Rank", "Feature Name", "Importance"], tablefmt="github"

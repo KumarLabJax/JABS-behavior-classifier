@@ -624,11 +624,10 @@ class Classifier:
         feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
         return feature_importance[:limit]
 
-    def print_feature_importance(self, feature_list, limit=20):
+    def print_feature_importance(self, limit=20):
         """print the most important features and their importance
 
         Args:
-            feature_list: list of feature names used in the classifier
             limit: maximum number of features to print, defaults to 20
         """
         feature_importance = self.get_feature_importance(limit=limit)
