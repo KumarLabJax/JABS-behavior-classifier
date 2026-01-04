@@ -3,6 +3,7 @@
 from textwrap import dedent
 
 import markdown2
+from PySide6 import QtCore
 from PySide6.QtGui import QIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -39,10 +40,14 @@ class TrainingReportDialog(QDialog):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Convert markdown to HTML and create web view
-        html_content = self._markdown_to_html(markdown_content)
+        # Create web view for content
         self.web_view = QWebEngineView()
-        self.web_view.setHtml(html_content)
+
+        # Defer HTML content setting to avoid "Compositor returned null texture" errors
+        # (even though these are harmless because Qt will retry rendering)
+        # The compositor needs the window to be shown before it can create rendering surfaces
+        html_content = self._markdown_to_html(markdown_content)
+        QtCore.QTimer.singleShot(0, lambda: self.web_view.setHtml(html_content))
 
         main_layout.addWidget(self.web_view)
 
@@ -69,6 +74,28 @@ class TrainingReportDialog(QDialog):
         """Copy the markdown content to the system clipboard."""
         clipboard = QApplication.clipboard()
         clipboard.setText(self._markdown_content)
+
+    def update_content(self, markdown_content: str, title: str | None = None):
+        """Update the dialog with new markdown content.
+
+        This allows reusing an existing dialog instead of creating a new one,
+        which preserves the user's window position and size.
+
+        Args:
+            markdown_content: New markdown-formatted training report content
+            title: Optional new window title
+        """
+        # Update stored markdown content
+        self._markdown_content = markdown_content
+
+        # Update title if provided
+        if title:
+            self.setWindowTitle(title)
+
+        # Convert new markdown to HTML and update web view
+        # Defer to avoid compositor errors
+        html_content = self._markdown_to_html(markdown_content)
+        QtCore.QTimer.singleShot(0, lambda: self.web_view.setHtml(html_content))
 
     def _markdown_to_html(self, markdown_text: str) -> str:
         """Convert markdown text to HTML.

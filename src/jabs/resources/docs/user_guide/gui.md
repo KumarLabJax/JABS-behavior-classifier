@@ -190,6 +190,11 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
   - **Features→Enable Lixit Features:** toggle using lixit features (v5+ projects with lixit static object)
   - **Features→Enable Food_hopper Features:** toggle using food hopper features (v5+ projects with food hopper static object)
   - **Features→Enable Segmentation Features:** toggle using segmentation features (v6+ projects)
+- **Window:** Menu for managing JABS windows.
+  - **Window→Minimize:** Minimize the main window (⌘M on macOS, Ctrl+M on other platforms)
+  - **Window→Zoom:** Toggle between normal and maximized window state
+  - **Window→Bring All to Front:** Bring all JABS windows to the front
+  - The Window menu also displays a list of all open JABS windows (main window, user guide, training reports, etc.) with a checkmark (✓) next to the currently active window. Click any window in the list to activate and bring it to the front.
 
 ## Overlays
 
