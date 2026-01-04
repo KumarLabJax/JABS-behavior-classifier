@@ -2,11 +2,11 @@
 
 ## Application
 
-| Action                      | Shortcut       |
-| --------------------------- | -------------- |
-| Quit JABS                   | Ctrl+Q / Cmd+Q |
-| Export training data        | Ctrl+T / Cmd+T |
-| Open behavior search dialog | Ctrl+F / Cmd+F |
+| Action                      | Shortcut      |
+| --------------------------- | ------------- |
+| Quit JABS                   | Ctrl+Q / ⌘Q   |
+| Export training data        | Ctrl+T / ⌘T   |
+| Open behavior search dialog | Ctrl+F / ⌘F   |
 
 ## Video Navigation
 
@@ -26,7 +26,7 @@
 | Clear labels from selection              | x              |
 | Label selection as not behavior          | c              |
 | Exit select mode without making a change | Esc            |
-| Select all frames                        | Ctrl+A / Cmd+A |
+| Select all frames                        | Ctrl+A / ⌘A   |
 
 ## Identity & Overlays
 
@@ -36,6 +36,6 @@
 | Toggle track overlay              | t                 |
 | Toggle pose overlay               | p                 |
 | Toggle landmark overlay           | l                 |
-| Toggle Minimalist Identity Labels | Ctrl+I / Cmd+I    |
+| Toggle Minimalist Identity Labels | Ctrl+I / ⌘I   |
 
 > **Note:** Next/previous subject order follows the "Identity Selection" dropdown ordering.

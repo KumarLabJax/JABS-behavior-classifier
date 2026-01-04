@@ -1,11 +1,17 @@
 import time
+from datetime import datetime
 
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
-from tabulate import tabulate
 
-from jabs.classifier import Classifier
+from jabs.classifier import (
+    Classifier,
+    CrossValidationResult,
+    TrainingReportData,
+    generate_markdown_report,
+    save_training_report,
+)
 from jabs.project import Project
 from jabs.types import ProjectDistanceUnit
 from jabs.utils import FINAL_TRAIN_SEED
@@ -25,11 +31,14 @@ class TrainingThread(QThread):
             Emitted to inform the main GUI thread of the number of completed tasks (e.g., for a progress bar).
         error_callback: QtCore.Signal(Exception)
             Emitted if an error occurs during training, passing the exception to the main GUI thread.
+        training_report: QtCore.Signal(str)
+            Emitted when training is complete, carrying the Markdown-formatted training report.
 
     Args:
         classifier (Classifier): The classifier instance to train.
         project (Project): The project containing data and settings.
         behavior (str): The behavior label to train on.
+        bout_counts (tuple[int, int]): Tuple containing counts of behavior and not-behavior bouts.
         k (int, optional): Number of cross-validation splits. Defaults to 1.
         parent (QWidget or None, optional): Optional parent widget.
     """
@@ -38,12 +47,14 @@ class TrainingThread(QThread):
     current_status = Signal(str)
     update_progress = Signal(int)
     error_callback = Signal(Exception)
+    training_report = Signal(str)
 
     def __init__(
         self,
         classifier: Classifier,
         project: Project,
         behavior: str,
+        bout_counts: tuple[int, int],
         k: int = 1,
         parent: QWidget | None = None,
     ):
@@ -54,6 +65,8 @@ class TrainingThread(QThread):
         self._tasks_complete = 0
         self._k = k
         self._should_terminate = False
+        self._training_log_dir = project.project_paths.training_log_dir
+        self._bout_counts = bout_counts
 
     def request_termination(self) -> None:
         """Request the thread to terminate early.
@@ -72,13 +85,15 @@ class TrainingThread(QThread):
         """thread's main function
 
         Will get the feature set for all labeled frames, do the leave one group out train/test split,
-        run the training, run the trained classifier on the test data, print some performance metrics,
-        and print the most important features
+        run the training, run the trained classifier on the test data, collect performance metrics,
+        and generate a training report (saved as markdown and emitted as HTML).
         """
         self._tasks_complete = 0
 
         # Measure wall-clock time for training
         _t0_ns = time.perf_counter_ns()
+
+        behavior_settings = self._project.settings_manager.get_behavior(self._behavior)
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -109,10 +124,10 @@ class TrainingThread(QThread):
                 features["groups"],
             )
 
-            table_rows = []
+            # Collect cross-validation results for the training report
+            cv_results = []
             accuracies = []
             fbeta_behavior = []
-            fbeta_notbehavior = []
             iterations = 0
 
             # Figure out the cross validation count if all were requested
@@ -142,80 +157,35 @@ class TrainingThread(QThread):
                     pr = self._classifier.precision_recall_score(data["test_labels"], predictions)
                     confusion = self._classifier.confusion_matrix(data["test_labels"], predictions)
 
-                    table_rows.append(
-                        [
-                            accuracy,
-                            pr[0][0],
-                            pr[0][1],
-                            pr[1][0],
-                            pr[1][1],
-                            pr[2][0],
-                            pr[2][1],
-                            f"{test_info['video']} [{test_info['identity']}]",
-                        ]
-                    )
+                    # Collect results for report
                     accuracies.append(accuracy)
                     fbeta_behavior.append(pr[2][1])
-                    fbeta_notbehavior.append(pr[2][0])
 
-                    # print performance metrics and feature importance to console
-                    print("-" * 70)
-                    print(f"training iteration {i + 1}")
-                    print("TEST DATA:")
-                    print(f"\tVideo: {test_info['video']}")
-                    print(f"\tIdentity: {test_info['identity']}")
-                    print(f"ACCURACY: {accuracy * 100:.2f}%")
-                    print("PRECISION RECALL:")
-                    print(f"              {'not behavior':12}  behavior")
-                    print(f"  precision   {pr[0][0]:<12.8}  {pr[0][1]:<.8}")
-                    print(f"  recall      {pr[1][0]:<12.8}  {pr[1][1]:<.8}")
-                    print(f"  F1 score    {pr[2][0]:<12.8}  {pr[2][1]:<.8}")
-                    print(f"  support     {pr[3][0]:<12}  {pr[3][1]}")
-                    print("CONFUSION MATRIX:")
-                    print(f"{confusion}")
-                    print("-" * 70)
-                    print("Top 10 features by importance:")
-                    self._classifier.print_feature_importance(data["feature_names"], 10)
+                    # Get top features for this iteration
+                    top_features = self._classifier.get_feature_importance(limit=10)
+
+                    # Store cross-validation result
+                    cv_results.append(
+                        CrossValidationResult(
+                            iteration=i + 1,
+                            test_video=test_info["video"],
+                            test_identity=test_info["identity"],
+                            accuracy=accuracy,
+                            precision_behavior=pr[0][1],
+                            precision_not_behavior=pr[0][0],
+                            recall_behavior=pr[1][1],
+                            recall_not_behavior=pr[1][0],
+                            f1_behavior=pr[2][1],
+                            support_behavior=int(pr[3][1]),
+                            support_not_behavior=int(pr[3][0]),
+                            confusion_matrix=confusion,
+                            top_features=top_features,
+                        )
+                    )
 
                     # let the parent thread know that we've finished this iteration
                     self._tasks_complete += 1
                     self.update_progress.emit(self._tasks_complete)
-
-                print("\n" + "=" * 120)
-                print("SUMMARY\n")
-                print(
-                    tabulate(
-                        table_rows,
-                        showindex="always",
-                        headers=[
-                            "accuracy",
-                            "precision\n(not behavior)",
-                            "precision\n(behavior)",
-                            "recall\n(not behavior)",
-                            "recall\n(behavior)",
-                            "f beta score\n(not behavior)",
-                            "f beta score\n(behavior)",
-                            "test - leave one out:\n(video [identity])",
-                        ],
-                    )
-                )
-
-                print(f"\nmean accuracy: {np.mean(accuracies):.5}")
-                print(f"std-dev accuracy: {np.std(accuracies):.5}")
-                print(f"mean F1 score (behavior): {np.mean(fbeta_behavior):.5}")
-                print(f"std-dev F1 score (behavior): {np.std(fbeta_behavior):.05}")
-                print(f"mean F1 score (not behavior): {np.mean(fbeta_notbehavior):.5}")
-                print(f"std-dev F1 score (not behavior): {np.std(fbeta_notbehavior):.05}")
-                print(f"\nClassifier: {self._classifier.classifier_name}")
-                print(f"Behavior: {self._behavior}")
-                # TODO: move settings print to a common project function
-                # this will reduce repeated formatting across this and classify.py
-                unit = (
-                    "cm"
-                    if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM
-                    else "pixel"
-                )
-                print(f"Feature Distance Unit: {unit}")
 
             # retrain with all training data and fixed random seed before saving:
             check_termination_requested()
@@ -231,14 +201,61 @@ class TrainingThread(QThread):
                 random_seed=FINAL_TRAIN_SEED,
             )
 
-            print("\nFinal classifier, top 10 features by importance:")
-            self._classifier.print_feature_importance(feature_names, 10)
-            print("-" * 70)
+            # Get top features from final model
+            final_top_features = self._classifier.get_feature_importance(limit=20)
 
             self._project.save_classifier(self._classifier, self._behavior)
             self._tasks_complete += 1
             self.update_progress.emit(self._tasks_complete)
 
+            # Calculate elapsed training time
+            elapsed_ms = int((time.perf_counter_ns() - _t0_ns) // 1_000_000)
+
+            # Get label counts
+            behavior_count = int(np.sum(features["labels"] == 1))
+            not_behavior_count = int(np.sum(features["labels"] == 0))
+
+            behavior_bouts, not_behavior_bouts = self._bout_counts
+
+            # Determine distance unit
+            unit = (
+                "cm"
+                if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM
+                else "pixel"
+            )
+
+            # Get current timestamp for report
+            report_timestamp = datetime.now()
+
+            # Create training data object (cv_results will be empty list if k=0)
+            training_data = TrainingReportData(
+                behavior_name=self._behavior,
+                classifier_type=self._classifier.classifier_name,
+                balance_training_labels=behavior_settings.get("balance_labels", False),
+                symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
+                distance_unit=unit,
+                cv_results=cv_results,
+                final_top_features=final_top_features,
+                frames_behavior=behavior_count,
+                frames_not_behavior=not_behavior_count,
+                bouts_behavior=behavior_bouts,
+                bouts_not_behavior=not_behavior_bouts,
+                training_time_ms=elapsed_ms,
+                timestamp=report_timestamp,
+                window_size=behavior_settings["window_size"],
+            )
+
+            # Save markdown report
+            timestamp_str = report_timestamp.strftime("%Y%m%d_%H%M%S")
+            report_filename = f"{self._behavior}_{timestamp_str}_training_report.md"
+            report_path = self._training_log_dir / report_filename
+            save_training_report(training_data, report_path)
+
+            # Generate and emit markdown report
+            markdown_content = generate_markdown_report(training_data)
+            self.training_report.emit(markdown_content)
+
+            # Update session tracker
             if self._k > 0:
                 self._project.session_tracker.classifier_trained(
                     self._behavior,
@@ -246,7 +263,6 @@ class TrainingThread(QThread):
                     iterations,
                     float(np.mean(accuracies)),
                     float(np.mean(fbeta_behavior)),
-                    float(np.mean(fbeta_notbehavior)),
                 )
             else:
                 # user didn't request cross validation, so we just log the training but can't include accuracy or fbeta scores
@@ -256,7 +272,6 @@ class TrainingThread(QThread):
                     iterations,
                 )
 
-            elapsed_ms = int((time.perf_counter_ns() - _t0_ns) // 1_000_000)
             self.training_complete.emit(elapsed_ms)
         except Exception as e:
             # if there was an exception, we'll emit the Exception as a signal so that

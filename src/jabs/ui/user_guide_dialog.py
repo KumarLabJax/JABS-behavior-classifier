@@ -107,7 +107,6 @@ class UserGuideDialog(QDialog):
         super().__init__(*args, **kwargs)
         self.setWindowTitle(f"{app_name} User Guide")
         self.setWindowModality(QtCore.Qt.WindowModality.NonModal)
-        self.setWindowFlag(QtCore.Qt.WindowType.Tool)
         self.resize(1200, 700)
 
         # Navigation history tracking
@@ -155,9 +154,9 @@ class UserGuideDialog(QDialog):
 
         self.setLayout(layout)
 
-        # Build tree and load initial content
+        # Defer initial content loading to avoid compositor texture errors (compositor needs window shown first).
         self._build_tree()
-        self._load_content_from_path("overview.md")
+        QtCore.QTimer.singleShot(0, lambda: self._load_content_from_path("overview.md"))
 
     def _build_tree(self) -> None:
         """Build the hierarchical tree structure for documentation navigation.
