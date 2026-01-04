@@ -154,8 +154,7 @@ class UserGuideDialog(QDialog):
 
         self.setLayout(layout)
 
-        # Build tree and defer initial content loading to avoid "Compositor returned null texture" errors
-        # The compositor needs the window to be shown before it can create rendering surfaces
+        # Defer initial content loading to avoid compositor texture errors (compositor needs window shown first).
         self._build_tree()
         QtCore.QTimer.singleShot(0, lambda: self._load_content_from_path("overview.md"))
 
