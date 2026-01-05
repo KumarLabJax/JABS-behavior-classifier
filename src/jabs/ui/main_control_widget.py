@@ -30,6 +30,8 @@ from .colors import (
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
 
+DEFAULT_CLASSIFIER = ClassifierType.RANDOM_FOREST
+
 
 class MainControlWidget(QtWidgets.QWidget):
     """Controls for classifier training, labeling, and settings.
@@ -156,6 +158,12 @@ class MainControlWidget(QtWidgets.QWidget):
         classifier_types = Classifier().classifier_choices()
         for classifier, name in classifier_types.items():
             self._classifier_selection.addItem(name, userData=classifier)
+
+        # Set default classifier as the initial selection
+        for i in range(self._classifier_selection.count()):
+            if self._classifier_selection.itemData(i) == DEFAULT_CLASSIFIER:
+                self._classifier_selection.setCurrentIndex(i)
+                break
 
         #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
