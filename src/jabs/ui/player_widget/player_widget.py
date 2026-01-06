@@ -256,6 +256,10 @@ class PlayerWidget(QtWidgets.QWidget):
         # cleanup the old player thread if it exists
         self._cleanup_player_thread()
 
+        # close the old video stream if it exists
+        if self._video_stream is not None:
+            self._video_stream.close()
+
         # reset the button state to not playing
         self.stop()
         self.reset()

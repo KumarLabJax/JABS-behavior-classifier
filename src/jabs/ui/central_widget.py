@@ -272,8 +272,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
-        # labels when we do so (the current labels belong to the previous
-        # project)
+        # labels when we do so (the current labels belong to the previous project)
         self._labels = None
         self._loaded_video = None
 
@@ -304,19 +303,17 @@ class CentralWidget(QtWidgets.QWidget):
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path, self._pose_est)
-            self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 self._labels = VideoLabels(path.name, self._pose_est.num_frames)
 
+            self._player_widget.load_video(path, self._pose_est, self._labels)
+
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
-
-            # load video into player
-            self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # update ui components with properties of new video
             display_identities = [
@@ -325,6 +322,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_identities(display_identities)
             self._player_widget.set_active_identity(self._controls.current_identity_index)
 
+            self._stacked_timeline.pose = self._pose_est
             self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
             self._set_label_track()
