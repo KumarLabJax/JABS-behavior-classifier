@@ -109,14 +109,6 @@ class MenuHandlers:
 
     def show_project_pruning_dialog(self) -> None:
         """Open dialog to prune videos without labels from the project."""
-        if self.window._project is None:
-            QtWidgets.QMessageBox.warning(
-                self.window,
-                "No Project Loaded",
-                "Please load a project before attempting to prune videos.",
-            )
-            return
-
         prune_dialog = ProjectPruningDialog(self.window._project, parent=self.window)
         if prune_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             # Get the videos to delete from the dialog

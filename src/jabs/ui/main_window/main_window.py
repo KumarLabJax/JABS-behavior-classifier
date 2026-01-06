@@ -84,7 +84,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._app_name = app_name
         self._app_name_long = app_name_long
         self._project = None
-        self._previous_project = None
         self._project_loader_thread = None
         self._progress_dialog = None
         self._pool_warm_thread = None
@@ -256,13 +255,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
         self._progress_dialog.show()
 
-        # Save reference to current project in case the new project load fails
-        # We'll restore it so the user can continue working
-        # Don't shut down its executor yet - only do that if the new project loads successfully
-        self._previous_project = self._project
-
-        # Clear the current project reference while loading
-        self._project = None
+        # Shut down old project executor if needed
+        if self._project is not None:
+            try:
+                self._project.shutdown_executor()
+            except Exception as e:
+                print(
+                    f"Warning: failed to shut down executor for old project: {e}", file=sys.stderr
+                )
+            self._project = None
 
         session_tracking_enabled = bool(
             self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
@@ -355,19 +356,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = self._project_loader_thread.project
         self._project_loader_thread = None
 
-        # Shut down the previous project's executor now that the new project loaded successfully
-        if self._previous_project is not None:
-            try:
-                self._previous_project.shutdown_executor()
-            except Exception as e:
-                print(
-                    f"Warning: failed to shut down executor for previous project: {e}",
-                    file=sys.stderr,
-                )
-
-        # Clear the previous project reference since new project loaded successfully
-        self._previous_project = None
-
         # The central_widget updates main_control_widget
         self._central_widget.set_project(self._project)
         self.video_list.set_project(self._project)
@@ -443,13 +431,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
-
-        # Restore the previous project so the user can continue working
-        # (If there was no previous project, self._project will remain None)
-        if self._previous_project:
-            self._project = self._previous_project
-            self._previous_project = None
-
         QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
 
     def show_license_dialog(self) -> QtWidgets.QDialog.DialogCode:
