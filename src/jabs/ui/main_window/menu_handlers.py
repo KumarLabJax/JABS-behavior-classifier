@@ -14,11 +14,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.project import export_training_data
-from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
 from jabs.utils import FINAL_TRAIN_SEED
 
 from ..about_dialog import AboutDialog
 from ..archive_behavior_dialog import ArchiveBehaviorDialog
+from ..behavior_search_dialog import BehaviorSearchDialog
 from ..license_dialog import LicenseAgreementDialog
 from ..player_widget import PlayerWidget
 from ..project_pruning_dialog import ProjectPruningDialog
