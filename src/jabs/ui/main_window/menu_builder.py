@@ -113,7 +113,6 @@ class MenuBuilder:
         feature_actions = self._build_feature_menu(feature_menu)
         self._build_window_menu(window_menu)
 
-        # Add global shortcuts
         self._add_global_shortcuts()
 
         return MenuReferences(
@@ -129,7 +128,11 @@ class MenuBuilder:
         )
 
     def _build_app_menu(self, menu: QtWidgets.QMenu) -> None:
-        """Build the application menu (About, User Guide, Quit, etc.)."""
+        """Build the application menu (About, User Guide, Quit, etc.).
+
+        Args:
+            menu: The application menu to populate
+        """
         # About action
         about_action = QtGui.QAction(f" &About {self.app_name}", self.main_window)
         about_action.setStatusTip("About this application")
@@ -175,6 +178,9 @@ class MenuBuilder:
 
     def _build_file_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the File menu.
+
+        Args:
+            menu: The file menu to populate
 
         Returns:
             Dictionary of file menu action references
@@ -222,6 +228,9 @@ class MenuBuilder:
     def _build_view_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the View menu.
 
+        Args:
+            menu: The view menu to populate
+
         Returns:
             Dictionary of view menu action references
         """
@@ -231,16 +240,12 @@ class MenuBuilder:
         view_playlist.triggered.connect(self.handlers.set_video_list_visibility)
         menu.addAction(view_playlist)
 
-        # Timeline submenu
+        # build submenus
         timeline_actions = self._build_timeline_submenu(menu)
-
-        # Label overlay submenu
         label_overlay_actions = self._build_label_overlay_submenu(menu)
-
-        # Identity overlay submenu
         identity_overlay_actions = self._build_identity_overlay_submenu(menu)
 
-        # Overlay annotations
+        # Overlay annotations action
         overlay_annotations = QtGui.QAction("Overlay Annotations", self.main_window)
         overlay_annotations.setCheckable(True)
         overlay_annotations.setChecked(self._central_widget.overlay_annotations_enabled)
@@ -249,31 +254,31 @@ class MenuBuilder:
         )
         menu.addAction(overlay_annotations)
 
-        # Show track
+        # Show track action
         show_track = QtGui.QAction("Show Track", self.main_window)
         show_track.setCheckable(True)
         show_track.triggered.connect(self.handlers.set_animal_track_visibility)
         menu.addAction(show_track)
 
-        # Overlay pose
+        # Overlay pose action
         overlay_pose = QtGui.QAction("Overlay Pose", self.main_window)
         overlay_pose.setCheckable(True)
         overlay_pose.triggered.connect(self.handlers.set_pose_overlay_visibility)
         menu.addAction(overlay_pose)
 
-        # Overlay landmarks
+        # Overlay landmarks action
         overlay_landmark = QtGui.QAction("Overlay Landmarks", self.main_window)
         overlay_landmark.setCheckable(True)
         overlay_landmark.triggered.connect(self.handlers.set_landmark_overlay_visibility)
         menu.addAction(overlay_landmark)
 
-        # Overlay segmentation
+        # Overlay segmentation action
         overlay_segmentation = QtGui.QAction("Overlay Segmentation", self.main_window)
         overlay_segmentation.setCheckable(True)
         overlay_segmentation.triggered.connect(self.handlers.set_segmentation_overlay_visibility)
         menu.addAction(overlay_segmentation)
 
-        # Behavior search
+        # Behavior search action
         behavior_search = QtGui.QAction("Search Behaviors", self.main_window)
         behavior_search.setShortcut(QtGui.QKeySequence.StandardKey.Find)
         behavior_search.setStatusTip("Search for behaviors")
@@ -295,6 +300,9 @@ class MenuBuilder:
 
     def _build_timeline_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
         """Build the Timeline submenu.
+
+        Args:
+            parent_menu: The parent menu to which the timeline submenu will be added
 
         Returns:
             Dictionary of timeline action references
@@ -359,6 +367,9 @@ class MenuBuilder:
     def _build_label_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
         """Build the Label Overlay submenu.
 
+        Args:
+            parent_menu: The parent menu to which the label overlay submenu will be added
+
         Returns:
             Dictionary of label overlay action references
         """
@@ -394,6 +405,9 @@ class MenuBuilder:
 
     def _build_identity_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
         """Build the Identity Overlay submenu.
+
+        Args:
+            parent_menu: The parent menu to which the identity overlay submenu will be added
 
         Returns:
             Dictionary of identity overlay action references
@@ -462,6 +476,9 @@ class MenuBuilder:
     def _build_feature_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the Features menu.
 
+        Args:
+            menu: The feature menu to populate
+
         Returns:
             Dictionary of feature menu action references
         """
@@ -524,7 +541,11 @@ class MenuBuilder:
         }
 
     def _build_window_menu(self, menu: QtWidgets.QMenu) -> None:
-        """Build the Window menu."""
+        """Build the Window menu.
+
+        Args:
+            menu: The window menu to populate
+        """
         # Minimize action
         minimize_action = QtGui.QAction("Minimize", self.main_window)
         minimize_action.setShortcut(QtGui.QKeySequence("Ctrl+M"))

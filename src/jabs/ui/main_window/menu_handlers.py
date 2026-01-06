@@ -3,16 +3,15 @@
 
 This module contains all the callback methods for menu actions, extracted from
 MainWindow to improve code organization and maintainability.
-
-Note: This module intentionally accesses protected members of MainWindow
-as it serves as a helper/companion class for menu handling.
 """
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 
 from jabs.project import export_training_data
 from jabs.ui.behavior_search_dialog import BehaviorSearchDialog
@@ -20,6 +19,7 @@ from jabs.utils import FINAL_TRAIN_SEED
 
 from ..about_dialog import AboutDialog
 from ..archive_behavior_dialog import ArchiveBehaviorDialog
+from ..license_dialog import LicenseAgreementDialog
 from ..player_widget import PlayerWidget
 from ..project_pruning_dialog import ProjectPruningDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
@@ -90,8 +90,6 @@ class MenuHandlers:
             )
             self.window.display_status_message(f"Training data exported: {out_path}", 5000)
         except OSError as e:
-            import sys
-
             print(f"Unable to export training data: {e}", file=sys.stderr)
 
     def open_archive_behavior_dialog(self) -> None:
@@ -195,8 +193,6 @@ class MenuHandlers:
 
     def view_license(self) -> None:
         """View the license agreement (JABS→View License Agreement menu action)."""
-        from ..license_dialog import LicenseAgreementDialog
-
         dialog = LicenseAgreementDialog(self.window, view_only=True)
         dialog.exec_()
 
@@ -403,8 +399,6 @@ class MenuHandlers:
             self.window._window_menu.removeAction(action)
 
         # Add Main Window
-        from PySide6.QtGui import QAction
-
         main_window_action = QAction("Main Window", self.window)
         main_window_action.setCheckable(True)
         main_window_action.setChecked(self.window.isActiveWindow())
