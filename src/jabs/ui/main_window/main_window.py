@@ -1,0 +1,518 @@
+import sys
+from pathlib import Path
+
+from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import QEvent, Qt
+
+from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
+from jabs.version import version_str
+
+from ..central_widget import CentralWidget
+from ..license_dialog import LicenseAgreementDialog
+from ..player_widget import PlayerWidget
+from ..progress_dialog import create_progress_dialog
+from ..project_loader_thread import ProjectLoaderThread
+from ..video_list_widget import VideoListDockWidget
+from .constants import (
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
+    LICENSE_ACCEPTED_KEY,
+    LICENSE_VERSION_KEY,
+    RECENT_PROJECTS_KEY,
+    SESSION_TRACKING_ENABLED_KEY,
+    WINDOW_SIZE_KEY,
+)
+from .menu_builder import MenuBuilder
+from .menu_handlers import MenuHandlers
+
+
+class MainWindow(QtWidgets.QMainWindow):
+    """Main application window for the JABS UI.
+
+    Handles the setup and management of the main user interface, including menus, status bar,
+    central widget, and dock widgets. Manages project loading, user actions, and feature toggles.
+
+    Args:
+        app_name (str): Short application name.
+        app_name_long (str): Full application name.
+        *args: Additional positional arguments for QMainWindow.
+        **kwargs: Additional keyword arguments for QMainWindow.
+    """
+
+    class _WarmExecutorThread(QtCore.QThread):
+        """Background thread to warm the project's persistent ProcessPoolExecutor.
+
+        Spawns worker processes off the UI thread so subsequent feature extraction
+        calls avoid process start/import overhead for the pool.
+
+        This thread is spawned after a project is loaded to "warm" the Project's executor
+        """
+
+        def __init__(self, project, parent: QtCore.QObject | None = None) -> None:
+            super().__init__(parent)
+            self._project = project
+
+        def run(self) -> None:
+            """Thread entry point to warm the executor."""
+            try:
+                # If we've been asked to stop before starting, exit quietly
+                if self.isInterruptionRequested():
+                    return
+
+                # If parent (MainWindow) has switched projects, skip warming the old one's executor pool
+                parent = self.parent()
+                if parent is not None and getattr(parent, "_project", None) is not self._project:
+                    return
+
+                # wait=True ensures processes are fully spawned before we finish
+                self._project.warm_executor(wait=True)
+            except Exception as e:
+                print(f"[warm_executor] failed: {e}", file=sys.stderr)
+
+    def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.setWindowTitle(f"{app_name_long} {version_str()}")
+        self._central_widget = CentralWidget(self)
+        self._central_widget.status_message.connect(self.display_status_message)
+        self._central_widget.search_hit_loaded.connect(self._search_hit_loaded)
+        self.setCentralWidget(self._central_widget)
+        self.setStatusBar(QtWidgets.QStatusBar(self))
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setUnifiedTitleAndToolBarOnMac(True)
+
+        self._app_name = app_name
+        self._app_name_long = app_name_long
+        self._project = None
+        self._project_loader_thread = None
+        self._progress_dialog = None
+        self._pool_warm_thread = None
+        self._user_guide_window = None
+        self._settings = QtCore.QSettings(ORG_NAME, app_name)
+        self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
+
+        # Load window size from settings
+        size = self._settings.value(WINDOW_SIZE_KEY, None, type=QtCore.QSize)
+        if size and isinstance(size, QtCore.QSize):
+            self.resize(size)
+        else:
+            self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+
+        # Create menu handlers (must be before MenuBuilder)
+        self.menu_handlers = MenuHandlers(self)
+
+        # Build all menus using MenuBuilder
+        menu_builder = MenuBuilder(self, app_name, app_name_long)
+        menu_refs = menu_builder.build_menus()
+
+        # Store references to menus and actions for later use
+        self._window_menu = menu_refs.window_menu
+        self._open_recent_menu = menu_refs.open_recent_menu
+        self._export_training = menu_refs.export_training
+        self._archive_behavior = menu_refs.archive_behavior
+        self._prune_action = menu_refs.prune_action
+        self._clear_cache = menu_refs.clear_cache
+        self.view_playlist = menu_refs.view_playlist
+        self.show_track = menu_refs.show_track
+        self.overlay_pose = menu_refs.overlay_pose
+        self.overlay_landmark = menu_refs.overlay_landmark
+        self.overlay_segmentation = menu_refs.overlay_segmentation
+        self.behavior_search = menu_refs.behavior_search
+        self._timeline_labels_preds = menu_refs.timeline_labels_preds
+        self._timeline_labels = menu_refs.timeline_labels
+        self._timeline_preds = menu_refs.timeline_preds
+        self._timeline_all_animals = menu_refs.timeline_all_animals
+        self._timeline_selected_animal = menu_refs.timeline_selected_animal
+        self._label_overlay_none = menu_refs.label_overlay_none
+        self._label_overlay_labels = menu_refs.label_overlay_labels
+        self._label_overlay_preds = menu_refs.label_overlay_preds
+        self._identity_overlay_centroid = menu_refs.identity_overlay_centroid
+        self._identity_overlay_floating = menu_refs.identity_overlay_floating
+        self._identity_overlay_minimal = menu_refs.identity_overlay_minimal
+        self._identity_overlay_bbox = menu_refs.identity_overlay_bbox
+        self.enable_cm_units = menu_refs.enable_cm_units
+        self.enable_window_features = menu_refs.enable_window_features
+        self.enable_fft_features = menu_refs.enable_fft_features
+        self.enable_social_features = menu_refs.enable_social_features
+        self.enable_landmark_features = menu_refs.enable_landmark_features
+        self.enable_segmentation_features = menu_refs.enable_segmentation_features
+
+        # Update recent projects menu
+        self._update_recent_projects()
+
+        # Connect central widget signals to behavior events
+        self._central_widget.controls.behavior_changed.connect(self.behavior_changed_event)
+        self._central_widget.controls.new_behavior_label.connect(self.behavior_label_add_event)
+
+        # Setup dock widgets
+        self._setup_dock_widgets()
+
+        # Connect central widget signals for menu state updates
+        self._central_widget.export_training_status_change.connect(
+            self._export_training.setEnabled
+        )
+        self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
+        self._central_widget.bbox_overlay_supported.connect(
+            self.menu_handlers.on_bbox_overlay_support_changed
+        )
+
+    def _setup_dock_widgets(self) -> None:
+        """Setup playlist and other dock widgets."""
+        # Playlist widget added to dock on left side of main window
+        self.video_list = VideoListDockWidget(self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.video_list)
+        self.video_list.setFloating(False)
+        self.video_list.setFeatures(
+            QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+
+        # If the playlist visibility changes, make sure the view_playlists check mark is set correctly
+        self.video_list.visibilityChanged.connect(self.view_playlist.setChecked)
+
+        # Handle event where user selects a different video in the playlist
+        self.video_list.selectionChanged.connect(self._video_list_selection)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """override keyPressEvent so we can pass some key press events on to the centralWidget"""
+        key = event.key()
+
+        # pass along some of the key press events to the central widget
+        if key in [
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Space,
+            Qt.Key.Key_Z,
+            Qt.Key.Key_X,
+            Qt.Key.Key_C,
+            Qt.Key.Key_Escape,
+            Qt.Key.Key_Question,
+            Qt.Key.Key_Shift,
+        ]:
+            self.centralWidget().keyPressEvent(event)
+            return
+
+        match key:
+            case Qt.Key.Key_T:
+                self.show_track.trigger()
+            case Qt.Key.Key_P:
+                self.overlay_pose.trigger()
+            case Qt.Key.Key_L:
+                self.overlay_landmark.trigger()
+            case Qt.Key.Key_Comma:
+                self.video_list.select_previous_video()
+            case Qt.Key.Key_Period:
+                self.video_list.select_next_video()
+            case Qt.Key.Key_I if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                self._toggle_identity_overlay_minimalist()
+            case _:
+                # anything else pass on to the super class keyPressEvent
+                super().keyPressEvent(event)
+
+    def eventFilter(self, source: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        """filter events emitted by progress dialog
+
+        The main purpose of this is to prevent the progress dialog from closing if the user presses the escape key.
+        """
+        if source == self._progress_dialog and (
+            event.type() == QtCore.QEvent.Type.Close
+            or (
+                event.type() == QtCore.QEvent.Type.KeyPress
+                and isinstance(event, QtGui.QKeyEvent)
+                and event.key() == Qt.Key.Key_Escape
+            )
+        ):
+            event.accept()
+            return True
+        return super().eventFilter(source, event)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        """Handle the resize event of the main window.
+
+        This method saves the current size of the main window to the settings so the size can be restored next time
+        the application is run.
+        """
+        super().resizeEvent(event)
+        self._settings.setValue("main_window_size", self.size())
+
+    def open_project(self, project_path: str) -> None:
+        """open a new project directory"""
+        # If a background warm thread is running from a previous project, interrupt and wait briefly
+        if self._pool_warm_thread is not None:
+            try:
+                running = self._pool_warm_thread.isRunning()
+            except RuntimeError:
+                # Underlying C++ object already deleted; clear stale reference
+                self._pool_warm_thread = None
+            else:
+                if running:
+                    self._pool_warm_thread.requestInterruption()
+                    self._pool_warm_thread.wait(2000)
+                    self._pool_warm_thread = None
+        self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
+        self._progress_dialog.show()
+
+        # Shut down old project executor if needed
+        if self._project is not None:
+            try:
+                self._project.shutdown_executor()
+            except Exception as e:
+                print(
+                    f"Warning: failed to shut down executor for old project: {e}", file=sys.stderr
+                )
+            self._project = None
+
+        session_tracking_enabled = bool(
+            self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
+        )
+        self._project_loader_thread = ProjectLoaderThread(
+            project_path, parent=self, session_tracking_enabled=session_tracking_enabled
+        )
+        self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
+        self._project_loader_thread.load_error.connect(self._project_load_error_callback)
+        self._project_loader_thread.start()
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Handle change events for the main window.
+
+        If a project is open, minimizing the window will pause the session tracker
+        """
+        if event.type() == QEvent.Type.WindowStateChange and self._project:
+            old_state = event.oldState()
+            new_state = self.windowState()
+
+            was_minimized = bool(old_state & Qt.WindowState.WindowMinimized)
+            is_minimized = bool(new_state & Qt.WindowState.WindowMinimized)
+
+            if not was_minimized and is_minimized:
+                # just entered minimized state
+                self._project.session_tracker.pause_session()
+            elif was_minimized and not is_minimized:
+                self._project.session_tracker.resume_session()
+
+        super().changeEvent(event)
+
+    def behavior_changed_event(self, new_behavior: str) -> None:
+        """menu items to change when a new behavior is selected."""
+        # skip if no behavior assigned (only should occur during new project)
+        if new_behavior is None or new_behavior == "":
+            return
+
+        # Populate settings based project data
+        behavior_metadata = self._project.settings_manager.get_behavior(new_behavior)
+        self.enable_cm_units.setChecked(behavior_metadata.get("cm_units", False))
+        self.enable_window_features.setChecked(behavior_metadata.get("window", False))
+        self.enable_fft_features.setChecked(behavior_metadata.get("fft", False))
+        self.enable_social_features.setChecked(behavior_metadata.get("social", False))
+        self.enable_segmentation_features.setChecked(behavior_metadata.get("segmentation", False))
+        static_settings = behavior_metadata.get("static_objects", {})
+        for static_object, menu_item in self.enable_landmark_features.items():
+            menu_item.setChecked(static_settings.get(static_object, False))
+
+    def behavior_label_add_event(self, behaviors: list[str]) -> None:
+        """handle project updates required when user adds new behavior labels"""
+        # check for new behaviors
+        for behavior in behaviors:
+            if behavior not in self._project.settings_manager.project_settings["behavior"]:
+                # save new behavior with default settings
+                self._project.settings_manager.save_behavior(behavior, {})
+
+    def display_status_message(self, message: str, duration: int = 3000) -> None:
+        """display a message in the main window status bar
+
+        Args:
+            message: message to display
+            duration: duration of the message in milliseconds. Use 0 to
+                display the message until clear_status_bar() is called
+
+        Returns:
+            None
+        """
+        if duration < 0:
+            raise ValueError("duration must be >= 0")
+        self.statusBar().showMessage(message, duration)
+
+    def clear_status_bar(self) -> None:
+        """clear the status bar message
+
+        Returns:
+            None
+        """
+        self.statusBar().clearMessage()
+
+    def _video_list_selection(self, filename: str) -> None:
+        """handle a click on a new video in the list loaded into the main window dock"""
+        try:
+            self._central_widget.load_video(self._project.video_manager.video_path(filename))
+        except OSError as e:
+            self.display_status_message(f"Unable to load video: {e}")
+            self._project_load_error_callback(e)
+
+    def _project_loaded_callback(self) -> None:
+        """Callback function to be called when the project is loaded."""
+        self._project = self._project_loader_thread.project
+        self._project_loader_thread = None
+
+        # The central_widget updates main_control_widget
+        self._central_widget.set_project(self._project)
+        self.video_list.set_project(self._project)
+
+        # Update which controls should be available
+        self._archive_behavior.setEnabled(True)
+        self._prune_action.setEnabled(True)
+        self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
+        self.enable_social_features.setEnabled(
+            self._project.feature_manager.can_use_social_features
+        )
+        self.enable_segmentation_features.setEnabled(
+            self._project.feature_manager.can_use_segmentation_features
+        )
+        self._clear_cache.setEnabled(True)
+        available_objects = self._project.feature_manager.static_objects
+        for static_object, menu_item in self.enable_landmark_features.items():
+            if static_object in available_objects:
+                menu_item.setEnabled(True)
+            else:
+                menu_item.setEnabled(False)
+        self.behavior_search.setEnabled(True)
+
+        # update the recent project menu
+        self._add_recent_project(self._project.project_paths.project_dir)
+
+        # Start warming the ProcessPoolExecutor in the background
+        # First, stop any previous warm thread to avoid warming a stale project
+        if self._pool_warm_thread is not None:
+            try:
+                running = self._pool_warm_thread.isRunning()
+            except RuntimeError:
+                # C++ object behind the Python wrapper was already deleted
+                self._pool_warm_thread = None
+            else:
+                if running:
+                    self._pool_warm_thread.requestInterruption()
+                    self._pool_warm_thread.wait(2000)
+                    self._pool_warm_thread = None
+
+        # Warm the project's persistent ProcessPoolExecutor in the background
+        # so repeated training/feature extraction runs are faster.
+        try:
+            self._pool_warm_thread = self._WarmExecutorThread(self._project, parent=self)
+
+            # Ensure we don't keep a stale Python wrapper after C++ deletion
+            self._pool_warm_thread.finished.connect(self._pool_warm_thread.deleteLater)
+            self._pool_warm_thread.finished.connect(self._on_warm_thread_finished)
+            self._pool_warm_thread.destroyed.connect(self._on_warm_thread_destroyed)
+
+            self._pool_warm_thread.start()
+        except Exception as e:
+            print(f"Failed to start pool warm thread: {e}", file=sys.stderr)
+
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
+
+    @QtCore.Slot()
+    def _on_warm_thread_finished(self) -> None:
+        """Clear reference when warm thread finishes."""
+        self._pool_warm_thread = None
+
+    @QtCore.Slot()
+    def _on_warm_thread_destroyed(self, *_args) -> None:
+        """Clear reference if Qt deletes the underlying C++ object."""
+        self._pool_warm_thread = None
+
+    def _project_load_error_callback(self, error: Exception) -> None:
+        """Callback function to be called when the project fails to load."""
+        self._project_loader_thread.deleteLater()
+        self._project_loader_thread = None
+        self._progress_dialog.close()
+        self._progress_dialog.deleteLater()
+        self._progress_dialog = None
+        QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
+
+    def show_license_dialog(self) -> QtWidgets.QDialog.DialogCode:
+        """prompt the user to accept the license agreement if they haven't already"""
+        # check to see if user already accepted the license
+        if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+        # show dialog
+        dialog = LicenseAgreementDialog(self)
+        result = dialog.exec_()
+
+        # persist the license acceptance
+        if result == QtWidgets.QDialog.DialogCode.Accepted:
+            self._settings.setValue(LICENSE_ACCEPTED_KEY, True)
+            self._settings.setValue(LICENSE_VERSION_KEY, version_str())
+            self._settings.sync()
+
+        return QtWidgets.QDialog.DialogCode(result)
+
+    def _update_recent_projects(self) -> None:
+        """update the contents of the Recent Projects menu"""
+        self._open_recent_menu.clear()
+        recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
+
+        # add menu action for each of the recent projects
+        for project_path in recent_projects:
+            action = self._open_recent_menu.addAction(project_path)
+            # Use lambda to pass project_path explicitly instead of using sender()
+            action.triggered.connect(
+                lambda checked=False, path=project_path: self.open_project(path)
+            )
+
+    def _add_recent_project(self, project_path: Path) -> None:
+        """add a project to the recent projects list"""
+        # project path in the _project_loaded_callback is a Path object, Qt needs a string to add to the menu
+        path_str = str(project_path.absolute())
+
+        recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
+
+        # remove the project if it already exists in the list since we're going to add it to the front of the list
+        # this keeps the list sorted with the most recent project at the top
+        if path_str in recent_projects:
+            recent_projects.remove(path_str)
+
+        # add the project to the front of the list and truncate the list to the max size
+        recent_projects.insert(0, path_str)
+        recent_projects = recent_projects[:RECENT_PROJECTS_MAX]
+
+        # persist updated recent projects list
+        self._settings.setValue(RECENT_PROJECTS_KEY, recent_projects)
+        self._settings.sync()
+
+        # update the menu
+        self._update_recent_projects()
+
+    def _search_hit_loaded(self, search_hit) -> None:
+        """Update the selected video in the video list when a search hit is loaded."""
+        if search_hit is not None:
+            self.video_list.select_video(search_hit.file, suppress_event=True)
+
+    def _toggle_identity_overlay_minimalist(self) -> None:
+        checked = self._identity_overlay_minimal.isChecked()
+
+        if checked:
+            self._central_widget.id_overlay_mode = self._previous_identity_overlay_mode
+            match self._previous_identity_overlay_mode:
+                case PlayerWidget.IdentityOverlayMode.CENTROID:
+                    self._identity_overlay_centroid.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.FLOATING:
+                    self._identity_overlay_floating.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.MINIMAL:
+                    self._identity_overlay_minimal.setChecked(True)
+                case PlayerWidget.IdentityOverlayMode.BBOX:
+                    self._identity_overlay_bbox.setChecked(True)
+                case _:
+                    # default to floating if previous_mode is not recognized
+                    self._central_widget.id_overlay_mode = (
+                        PlayerWidget.IdentityOverlayMode.FLOATING
+                    )
+                    self._identity_overlay_floating.setChecked(True)
+        else:
+            self._previous_identity_overlay_mode = self._central_widget.id_overlay_mode
+            self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
+            self._identity_overlay_minimal.setChecked(True)
