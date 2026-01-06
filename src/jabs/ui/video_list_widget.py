@@ -114,14 +114,11 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         When rapidly switching videos, this cancels pending video loads and
         delays the selectionChanged signal emission to prevent race conditions.
         """
-        if self._suppress_selection_event:
+        if self._suppress_selection_event or not current:
             return
 
-        # Store the pending selection
-        if current:
-            self._pending_selection = current.data(QtCore.Qt.ItemDataRole.UserRole)
-        else:
-            self._pending_selection = ""
+        # Store the pending selection (current should always have a value due to SingleSelection mode)
+        self._pending_selection = current.data(QtCore.Qt.ItemDataRole.UserRole)
 
         # Cancel any pending timer and start a new one
         # This ensures only the final video in a rapid sequence gets loaded
