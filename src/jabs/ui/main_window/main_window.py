@@ -265,7 +265,7 @@ class MainWindow(QtWidgets.QMainWindow):
         the application is run.
         """
         super().resizeEvent(event)
-        self._settings.setValue("main_window_size", self.size())
+        self._settings.setValue(WINDOW_SIZE_KEY, self.size())
 
     def open_project(self, project_path: str) -> None:
         """open a new project directory"""
