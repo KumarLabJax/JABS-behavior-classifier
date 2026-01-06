@@ -202,6 +202,7 @@ class UserGuideDialog(QDialog):
                 "Prediction File": "file-formats.md#prediction-file",
                 "Feature File": "file-formats.md#feature-file",
             },
+            "Choosing a Classifier": "classifier-types.md",
             "Features Reference": "features.md",
             "Keyboard Shortcuts Reference": "keyboard-shortcuts.md",
         }
