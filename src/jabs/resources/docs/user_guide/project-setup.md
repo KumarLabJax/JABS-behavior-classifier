@@ -202,3 +202,8 @@ This directory contains the computed features. There is one directory per projec
 ### jabs/predictions
 
 This directory contains one HDF5 prediction file per video (e.g., `VIDEO_1.h5`). Each file has a `/predictions` group with one subgroup per behavior. Prediction files are automatically opened and displayed by JABS if they exist and are portable. This is the same format produced by `jabs-classify`.
+
+### jabs/training_logs
+
+This directory contains training reports generated each time a classifier is trained. Reports are saved as Markdown files with filenames in the format `<BehaviorName>_<timestamp>_training_report.md`. Each report includes training performance metrics, cross-validation results, and feature importance rankings. These reports provide a permanent record of training sessions for documentation and comparison purposes.
+

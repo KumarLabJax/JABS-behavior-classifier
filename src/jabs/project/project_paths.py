@@ -18,6 +18,7 @@ class ProjectPaths:
         self._archive_dir = self._jabs_dir / "archive"
         self._session_dir = self._jabs_dir / "session"
         self._cache_dir = self._jabs_dir / "cache" if use_cache else None
+        self._training_log_dir = self._jabs_dir / "training_logs"
 
         self._project_file = self._jabs_dir / self.__PROJECT_FILE
 
@@ -71,6 +72,11 @@ class ProjectPaths:
         """Get the path to the session directory."""
         return self._session_dir
 
+    @property
+    def training_log_dir(self) -> Path:
+        """Get the path to the training logs directory."""
+        return self._training_log_dir
+
     def create_directories(self, validate: bool = True) -> None:
         """Create all necessary directories for the project.
 
@@ -99,6 +105,7 @@ class ProjectPaths:
         self._classifier_dir.mkdir(parents=True, exist_ok=True)
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         self._session_dir.mkdir(parents=True, exist_ok=True)
+        self._training_log_dir.mkdir(parents=True, exist_ok=True)
 
         if self._cache_dir:
             self._cache_dir.mkdir(parents=True, exist_ok=True)

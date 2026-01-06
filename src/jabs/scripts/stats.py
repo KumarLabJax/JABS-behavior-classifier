@@ -96,7 +96,7 @@ def main():
         print("-" * 70)
 
         print("Top 10 features by importance:")
-        classifier.print_feature_importance(data["feature_names"], 10)
+        classifier.print_feature_importance(10)
 
     if iter_count >= 1:
         print("\n" + "=" * 70)

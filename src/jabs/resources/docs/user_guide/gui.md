@@ -22,7 +22,7 @@
 
 <img src="imgs/classifier_controls.png" alt="JABS Classifier Controls" width=900 />
 
-- **Train Button:** Train the classifier with the current parameters. This button is disabled until minimum number of frames have been labeled for a minimum number of mice (increasing the cross validation k parameter increases the minimum number of labeled mice)
+- **Train Button:** Train the classifier with the current parameters. This button is disabled until minimum number of frames have been labeled for a minimum number of mice (increasing the cross validation k parameter increases the minimum number of labeled mice). When training completes, a training report dialog will display performance metrics including cross-validation results and feature importance rankings.
 - **Classify Button:** Infer class of unlabeled frames. Disabled until classifier is trained. Changing classifier parameters may require retraining before the Classify button becomes active again.
 - **Classifier Type Selection:** Users can select from a list of supported classifiers.
 - **Window Size Selection:** Number of frames on each side of the current frame to include in window feature calculations for that frame. A "window size" of 5 means that 11 frames are included into the window feature calculations for each frame (5 previous frames, current frame, 5 following frames).
@@ -113,6 +113,22 @@ XGBoost is another gradient boosting algorithm known for winning machine learnin
 
 **Note:** The actual performance difference between classifiers varies by behavior type and dataset. We recommend testing multiple classifiers on your specific data to find the best option for your use case.
 
+### Training Reports
+
+When training completes, JABS displays a training report in a modal dialog. The report includes:
+
+- **Training summary** - behavior name, classifier type, distance unit, and training time
+- **Label counts** - Number of labeled frames and bouts for both behavior and not-behavior classes
+- **Cross-validation results** - Performance metrics (accuracy, precision, recall, F1 score) for each leave-one-out iteration, along with which video/identity was held out as the test set
+- **Feature importance** - Top 20 most important features from the final trained classifier
+
+The training report is also saved as a Markdown file in the `jabs/training_logs` directory within your project. The filename includes the behavior name and timestamp (e.g., `Grooming_20260102_143022_training_report.md`). These reports provide a permanent record of your training sessions and can be useful for:
+
+- Comparing different classifier configurations
+- Identifying problematic videos or identities with poor cross-validation performance
+- Understanding which features contribute most to behavior classification
+- Documenting your analysis workflow
+
 ## Timeline Visualizations
 
 <img src="imgs/label_viz.png" alt="JABS Label Visualizations" width=900 />
@@ -174,6 +190,11 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
   - **Features→Enable Lixit Features:** toggle using lixit features (v5+ projects with lixit static object)
   - **Features→Enable Food_hopper Features:** toggle using food hopper features (v5+ projects with food hopper static object)
   - **Features→Enable Segmentation Features:** toggle using segmentation features (v6+ projects)
+- **Window:** Menu for managing JABS windows.
+  - **Window→Minimize:** Minimize the main window (⌘M on macOS, Ctrl+M on other platforms)
+  - **Window→Zoom:** Toggle between normal and maximized window state
+  - **Window→Bring All to Front:** Bring all JABS windows to the front
+  - The Window menu also displays a list of all open JABS windows (main window, user guide, training reports, etc.) with a checkmark (✓) next to the currently active window. Click any window in the list to activate and bring it to the front.
 
 ## Overlays
 
