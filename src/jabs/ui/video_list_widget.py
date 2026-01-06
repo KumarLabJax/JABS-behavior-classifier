@@ -117,7 +117,8 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         if self._suppress_selection_event or not current:
             return
 
-        # Store the pending selection (current should always have a value due to SingleSelection mode)
+        # Store the pending selection. In normal operation, current should not be None due to
+        # SingleSelection mode and the selectionCommand override, but we guard defensively.
         self._pending_selection = current.data(QtCore.Qt.ItemDataRole.UserRole)
 
         # Cancel any pending timer and start a new one
