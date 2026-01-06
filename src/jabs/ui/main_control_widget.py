@@ -556,10 +556,20 @@ class MainControlWidget(QtWidgets.QWidget):
             self._get_first_label()
 
     def _set_window_sizes(self, sizes: list[int]):
-        """set the list of available window sizes"""
+        """set the list of available window sizes
+
+        Args:
+            sizes: list of window sizes to set
+
+        Temporarily block signals to prevent currentIndexChanged from firing
+        when clear() sets the index to -1. When loading project settings, JABS should set
+        the window size, which will emit the signal appropriately.
+        """
+        self._window_size.blockSignals(True)
         self._window_size.clear()
         for w in sizes:
             self._window_size.addItem(str(w), userData=w)
+        self._window_size.blockSignals(False)
 
     def _new_label(self):
         """callback for the "new behavior" button
