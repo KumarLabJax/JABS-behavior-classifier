@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal, SignalInstance
 
 from jabs.project import Project
+from jabs.utils.process_pool_manager import ProcessPoolManager
 
 
 class ProjectLoaderThread(QThread):
@@ -13,9 +14,16 @@ class ProjectLoaderThread(QThread):
     project_loaded: SignalInstance = Signal()
     load_error: SignalInstance = Signal(Exception)
 
-    def __init__(self, project_path: str, parent=None, session_tracking_enabled: bool = False):
+    def __init__(
+        self,
+        project_path: str,
+        process_pool: ProcessPoolManager | None = None,
+        parent=None,
+        session_tracking_enabled: bool = False,
+    ):
         super().__init__(parent)
         self._project_path = project_path
+        self._process_pool = process_pool
         self._project = None
         self._tracking_enabled = session_tracking_enabled
 
@@ -24,7 +32,9 @@ class ProjectLoaderThread(QThread):
         # Open the project, this can take a while
         try:
             self._project = Project(
-                self._project_path, enable_session_tracker=self._tracking_enabled
+                self._project_path,
+                process_pool=self._process_pool,
+                enable_session_tracker=self._tracking_enabled,
             )
             self.project_loaded.emit()
         except Exception as e:

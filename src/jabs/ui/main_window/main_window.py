@@ -1,10 +1,12 @@
-import sys
+import logging
+import time
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
+from jabs.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
 from ..central_widget import CentralWidget
@@ -25,6 +27,8 @@ from .constants import (
 from .menu_builder import MenuBuilder
 from .menu_handlers import MenuHandlers
 
+logger = logging.getLogger(__name__)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window for the JABS UI.
@@ -40,34 +44,41 @@ class MainWindow(QtWidgets.QMainWindow):
     """
 
     class _WarmExecutorThread(QtCore.QThread):
-        """Background thread to warm the project's persistent ProcessPoolExecutor.
+        """Background thread to warm the application's shared ProcessPoolManager.
 
         Spawns worker processes off the UI thread so subsequent feature extraction
         calls avoid process start/import overhead for the pool.
 
-        This thread is spawned after a project is loaded to "warm" the Project's executor
+        This thread is spawned when the app starts or when a project is loaded.
         """
 
-        def __init__(self, project, parent: QtCore.QObject | None = None) -> None:
+        # Signal emitted when warming completes with stats message
+        warm_complete = QtCore.Signal(str)
+
+        def __init__(
+            self, pool_manager: ProcessPoolManager, parent: QtCore.QObject | None = None
+        ) -> None:
             super().__init__(parent)
-            self._project = project
+            self._pool_manager = pool_manager
 
         def run(self) -> None:
-            """Thread entry point to warm the executor."""
+            """Thread entry point to warm the pool."""
             try:
                 # If we've been asked to stop before starting, exit quietly
                 if self.isInterruptionRequested():
                     return
 
-                # If parent (MainWindow) has switched projects, skip warming the old one's executor pool
-                parent = self.parent()
-                if parent is not None and getattr(parent, "_project", None) is not self._project:
-                    return
-
+                start_time = time.time()
                 # wait=True ensures processes are fully spawned before we finish
-                self._project.warm_executor(wait=True)
+                self._pool_manager.warm_up(wait=True)
+                elapsed = time.time() - start_time
+
+                # Emit signal with stats (will be handled on main thread)
+                self.warm_complete.emit(
+                    f"PPM {self._pool_manager.name} warmed up ({self._pool_manager.max_workers} workers in {elapsed:.2f}s)"
+                )
             except Exception as e:
-                print(f"[warm_executor] failed: {e}", file=sys.stderr)
+                logger.error(f"[warm_pool] failed: {e}", exc_info=True)
 
     def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -90,6 +101,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._user_guide_window = None
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
         self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
+
+        # Create application-level process pool that will be shared across all projects
+        self._process_pool = ProcessPoolManager(name="JABS-AppProcessPool")
+        logger.debug(f"[MainWindow] Created ProcessPoolManager id={id(self._process_pool)}")
+
+        # Warm the process pool in the background immediately on startup
+        try:
+            self._pool_warm_thread = self._WarmExecutorThread(self._process_pool, parent=self)
+
+            # Connect signals (these run on main thread)
+            self._pool_warm_thread.warm_complete.connect(self.display_status_message)
+            self._pool_warm_thread.finished.connect(self._pool_warm_thread.deleteLater)
+            self._pool_warm_thread.finished.connect(self._on_warm_thread_finished)
+            self._pool_warm_thread.destroyed.connect(self._on_warm_thread_destroyed)
+
+            self._pool_warm_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to start pool warm thread: {e}", exc_info=True)
 
         # Load window size from settings
         size = self._settings.value(WINDOW_SIZE_KEY, None, type=QtCore.QSize)
@@ -240,36 +269,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project(self, project_path: str) -> None:
         """open a new project directory"""
-        # If a background warm thread is running from a previous project, interrupt and wait briefly
-        if self._pool_warm_thread is not None:
-            try:
-                running = self._pool_warm_thread.isRunning()
-            except RuntimeError:
-                # Underlying C++ object already deleted; clear stale reference
-                self._pool_warm_thread = None
-            else:
-                if running:
-                    self._pool_warm_thread.requestInterruption()
-                    self._pool_warm_thread.wait(2000)
-                    self._pool_warm_thread = None
+        # Note: Process pool warming happens on startup and is shared across all projects
+        # No need to interrupt or restart warming when opening projects
         self._progress_dialog = create_progress_dialog(self, "Loading Project...", 0)
         self._progress_dialog.show()
 
-        # Shut down old project executor if needed
-        if self._project is not None:
-            try:
-                self._project.shutdown_executor()
-            except Exception as e:
-                print(
-                    f"Warning: failed to shut down executor for old project: {e}", file=sys.stderr
-                )
-            self._project = None
+        # Clear the current project reference (no need to shut down executor - it's shared)
+        self._project = None
 
         session_tracking_enabled = bool(
             self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
         )
         self._project_loader_thread = ProjectLoaderThread(
-            project_path, parent=self, session_tracking_enabled=session_tracking_enabled
+            project_path,
+            process_pool=self._process_pool,
+            parent=self,
+            session_tracking_enabled=session_tracking_enabled,
         )
         self._project_loader_thread.project_loaded.connect(self._project_loaded_callback)
         self._project_loader_thread.load_error.connect(self._project_load_error_callback)
@@ -382,33 +397,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
 
-        # Start warming the ProcessPoolExecutor in the background
-        # First, stop any previous warm thread to avoid warming a stale project
-        if self._pool_warm_thread is not None:
-            try:
-                running = self._pool_warm_thread.isRunning()
-            except RuntimeError:
-                # C++ object behind the Python wrapper was already deleted
-                self._pool_warm_thread = None
-            else:
-                if running:
-                    self._pool_warm_thread.requestInterruption()
-                    self._pool_warm_thread.wait(2000)
-                    self._pool_warm_thread = None
-
-        # Warm the project's persistent ProcessPoolExecutor in the background
-        # so repeated training/feature extraction runs are faster.
-        try:
-            self._pool_warm_thread = self._WarmExecutorThread(self._project, parent=self)
-
-            # Ensure we don't keep a stale Python wrapper after C++ deletion
-            self._pool_warm_thread.finished.connect(self._pool_warm_thread.deleteLater)
-            self._pool_warm_thread.finished.connect(self._on_warm_thread_finished)
-            self._pool_warm_thread.destroyed.connect(self._on_warm_thread_destroyed)
-
-            self._pool_warm_thread.start()
-        except Exception as e:
-            print(f"Failed to start pool warm thread: {e}", file=sys.stderr)
+        # Note: Process pool is warmed on MainWindow startup, no need to warm here
 
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
@@ -516,3 +505,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self._previous_identity_overlay_mode = self._central_widget.id_overlay_mode
             self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
             self._identity_overlay_minimal.setChecked(True)
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        """Handle the close event for the main window.
+
+        Ensures proper cleanup of the process pool before the application exits.
+        """
+        logger.debug("[MainWindow] closeEvent: shutting down process pool")
+        # Shutdown the process pool with wait=False and cancel_futures=True
+        # This allows for quick exit without hanging
+        self._process_pool.shutdown(wait=False, cancel_futures=True)
+        super().closeEvent(event)
