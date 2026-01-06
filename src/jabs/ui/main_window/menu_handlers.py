@@ -143,7 +143,7 @@ class MenuHandlers:
                     duration=5000,
                 )
 
-    def clear_cache_action(self):
+    def clear_cache(self) -> None:
         """Clear the project's feature cache after user confirmation."""
         app = QtWidgets.QApplication.instance()
         dont_use_native_dialogs = app.testAttribute(
@@ -191,7 +191,7 @@ class MenuHandlers:
             )
         self.window._user_guide_window.show()
 
-    def view_license(self) -> None:
+    def show_license_dialog(self) -> None:
         """View the license agreement (JABS→View License Agreement menu action)."""
         dialog = LicenseAgreementDialog(self.window, view_only=True)
         dialog.exec_()
@@ -260,7 +260,7 @@ class MenuHandlers:
         """
         self.window._central_widget.overlay_segmentation(checked)
 
-    def search_behaviors(self) -> None:
+    def show_behavior_search_dialog(self) -> None:
         """Open the behavior search dialog."""
         search_dialog = BehaviorSearchDialog(
             self.window._project,

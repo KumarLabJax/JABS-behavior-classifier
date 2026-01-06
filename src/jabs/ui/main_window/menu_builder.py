@@ -149,7 +149,7 @@ class MenuBuilder:
         # License action
         license_action = QtGui.QAction("View License Agreement", self.main_window)
         license_action.setStatusTip("View License Agreement")
-        license_action.triggered.connect(self.handlers.view_license)
+        license_action.triggered.connect(self.handlers.show_license_dialog)
         menu.addAction(license_action)
 
         # Session tracking toggle
@@ -166,7 +166,7 @@ class MenuBuilder:
         self._clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)
         self._clear_cache.setStatusTip("Clear Project Cache")
         self._clear_cache.setEnabled(False)
-        self._clear_cache.triggered.connect(self.handlers.clear_cache_action)
+        self._clear_cache.triggered.connect(self.handlers.clear_cache)
         menu.addAction(self._clear_cache)
 
         # Quit action
@@ -283,7 +283,7 @@ class MenuBuilder:
         behavior_search.setShortcut(QtGui.QKeySequence.StandardKey.Find)
         behavior_search.setStatusTip("Search for behaviors")
         behavior_search.setEnabled(False)
-        behavior_search.triggered.connect(self.handlers.search_behaviors)
+        behavior_search.triggered.connect(self.handlers.show_behavior_search_dialog)
         menu.addAction(behavior_search)
 
         return {
