@@ -467,8 +467,6 @@ class MenuHandlers:
             self.window._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
             self.window._identity_overlay_floating.setChecked(True)
 
-        self.window._identity_overlay_bbox.setEnabled(supported)
-
     # ========== Helper Methods ==========
 
     def move_files_to_recycle_bin_with_delete_fallback(self, files: set[Path]) -> None:
