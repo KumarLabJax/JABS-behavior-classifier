@@ -180,7 +180,10 @@ class MenuHandlers:
 
     def show_about_dialog(self) -> None:
         """Show the About dialog."""
-        about_dialog = AboutDialog(self.window._app_name_long, self.window)
+        about_dialog = AboutDialog(
+            f"{self.window._app_name_long} ({self.window._app_name})",
+            self.window,
+        )
         about_dialog.exec()
 
     def open_user_guide(self) -> None:
