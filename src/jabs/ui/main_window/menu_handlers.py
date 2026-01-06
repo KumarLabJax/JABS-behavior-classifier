@@ -139,7 +139,7 @@ class MenuHandlers:
                 self.window.video_list.set_project(self.window._project)
 
                 self.window.display_status_message(
-                    f"Removed {len(files_to_delete)} unlabeled video(s) and pose file(s)",
+                    f"Removed {len(videos_to_prune)} unlabeled video(s) and associated file(s)",
                     duration=5000,
                 )
 
