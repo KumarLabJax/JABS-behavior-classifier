@@ -304,19 +304,20 @@ class CentralWidget(QtWidgets.QWidget):
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path, self._pose_est)
-            self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 self._labels = VideoLabels(path.name, self._pose_est.num_frames)
+
+            self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
 
-            # load video into player
-            self._player_widget.load_video(path, self._pose_est, self._labels)
+            # Set timeline pose after
+            self._stacked_timeline.pose = self._pose_est
 
             # update ui components with properties of new video
             display_identities = [

@@ -71,7 +71,11 @@ class _VideoListWidget(QtWidgets.QListWidget):
 
 
 class VideoListDockWidget(QtWidgets.QDockWidget):
-    """dock for listing video files associated with the project."""
+    """dock for listing video files associated with the project.
+
+    Uses a debounce timer to delay video loading when rapidly switching videos
+    with , and . keys, preventing race conditions from out-of-order signal processing.
+    """
 
     selectionChanged = QtCore.Signal(str)
 
@@ -80,6 +84,13 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self.setWindowTitle("Project Videos")
         self._project = None
         self._suppress_selection_event = False
+        self._pending_selection = None  # Track the pending video selection
+
+        # Debounce timer to delay video loading when rapidly switching videos
+        self._debounce_timer = QtCore.QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(150)  # 150ms delay
+        self._debounce_timer.timeout.connect(self._emit_pending_selection)
 
         self._video_filter_box = QtWidgets.QLineEdit(self)
         self._video_filter_box.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)
@@ -98,14 +109,30 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self._video_filter_box.textChanged.connect(self._filter_list)
 
     def _selection_changed(self, current, _):
-        """Emit signal when the selected video changes."""
+        """Handle video selection change with debouncing.
+
+        When rapidly switching videos, this cancels pending video loads and
+        delays the selectionChanged signal emission to prevent race conditions.
+        """
         if self._suppress_selection_event:
             return
+
+        # Store the pending selection
         if current:
-            video = current.data(QtCore.Qt.ItemDataRole.UserRole)
-            self.selectionChanged.emit(video)
+            self._pending_selection = current.data(QtCore.Qt.ItemDataRole.UserRole)
         else:
-            self.selectionChanged.emit("")
+            self._pending_selection = ""
+
+        # Cancel any pending timer and start a new one
+        # This ensures only the final video in a rapid sequence gets loaded
+        self._debounce_timer.stop()
+        self._debounce_timer.start()
+
+    def _emit_pending_selection(self):
+        """Emit the pending selection signal after the debounce timer expires."""
+        if self._pending_selection is not None:
+            self.selectionChanged.emit(self._pending_selection)
+            self._pending_selection = None
 
     def _filter_list(self, text):
         """Filter the video list based on the text entered in the filter box."""

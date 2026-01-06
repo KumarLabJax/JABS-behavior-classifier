@@ -59,6 +59,16 @@ class VideoReader:
         """return the name of the video file"""
         return self._filename
 
+    def close(self):
+        """Release the video capture resources."""
+        if self.stream is not None:
+            self.stream.release()
+            self.stream = None
+
+    def __del__(self):
+        """Ensure video capture is released when object is garbage collected."""
+        self.close()
+
     def get_frame_time(self, frame_number):
         """return a formatted string of the time of a given frame"""
         return time.strftime("%H:%M:%S", time.gmtime(frame_number * self._duration))
@@ -147,4 +157,6 @@ class VideoReader:
         if not stream.isOpened():
             raise OSError(f"unable to open {path}")
 
-        return int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
+        num_frames = int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
+        stream.release()  # Always release the stream
+        return num_frames
