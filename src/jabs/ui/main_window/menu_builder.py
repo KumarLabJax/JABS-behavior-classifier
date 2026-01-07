@@ -146,6 +146,12 @@ class MenuBuilder:
         user_guide_action.triggered.connect(self.handlers.open_user_guide)
         menu.addAction(user_guide_action)
 
+        # Check for updates action
+        check_updates_action = QtGui.QAction("Check for Update", self.main_window)
+        check_updates_action.setStatusTip("Check PyPI for a newer version of JABS")
+        check_updates_action.triggered.connect(self.handlers.check_for_updates)
+        menu.addAction(check_updates_action)
+
         # License action
         license_action = QtGui.QAction("View License Agreement", self.main_window)
         license_action.setStatusTip("View License Agreement")

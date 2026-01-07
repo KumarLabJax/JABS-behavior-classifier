@@ -1,5 +1,6 @@
 """JABS utilities"""
 
+from .update_checker import check_for_update, is_pypi_install
 from .utilities import get_bool_env_var, hash_file, hide_stderr
 
 # a hard coded random seed used for the final training done with all
@@ -9,7 +10,9 @@ FINAL_TRAIN_SEED = 0xAB3BDB
 
 __all__ = [
     "FINAL_TRAIN_SEED",
+    "check_for_update",
     "get_bool_env_var",
     "hash_file",
     "hide_stderr",
+    "is_pypi_install",
 ]

@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.project import export_training_data
-from jabs.utils import FINAL_TRAIN_SEED
+from jabs.utils import FINAL_TRAIN_SEED, check_for_update
 
 from ..about_dialog import AboutDialog
 from ..archive_behavior_dialog import ArchiveBehaviorDialog
@@ -23,6 +23,7 @@ from ..license_dialog import LicenseAgreementDialog
 from ..player_widget import PlayerWidget
 from ..project_pruning_dialog import ProjectPruningDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
+from ..update_check_dialog import UpdateCheckDialog
 from ..user_guide_dialog import UserGuideDialog
 from ..util import send_file_to_recycle_bin
 from .constants import SESSION_TRACKING_ENABLED_KEY, USE_NATIVE_FILE_DIALOG
@@ -193,6 +194,18 @@ class MenuHandlers:
                 f"{self.window._app_name_long} ({self.window._app_name})", parent=None
             )
         self.window._user_guide_window.show()
+
+    def check_for_updates(self) -> None:
+        """Check PyPI for a newer version of JABS."""
+        has_update, latest, current = check_for_update()
+
+        dialog = UpdateCheckDialog(
+            current_version=current,
+            latest_version=latest,
+            has_update=has_update,
+            parent=self.window,
+        )
+        dialog.exec()
 
     def show_license_dialog(self) -> None:
         """View the license agreement (JABS→View License Agreement menu action)."""
