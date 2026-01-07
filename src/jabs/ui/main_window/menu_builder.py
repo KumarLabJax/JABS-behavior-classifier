@@ -147,7 +147,7 @@ class MenuBuilder:
         menu.addAction(user_guide_action)
 
         # Check for updates action
-        check_updates_action = QtGui.QAction("Check for Update", self.main_window)
+        check_updates_action = QtGui.QAction("Check for Updates", self.main_window)
         check_updates_action.setStatusTip("Check PyPI for a newer version of JABS")
         check_updates_action.triggered.connect(self.handlers.check_for_updates)
         menu.addAction(check_updates_action)
