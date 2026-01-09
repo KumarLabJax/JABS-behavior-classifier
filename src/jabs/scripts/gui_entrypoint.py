@@ -12,7 +12,7 @@ from PySide6.QtGui import QIcon
 
 from jabs.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
 from jabs.resources import ICON_PATH
-from jabs.ui.main_window import MainWindow
+from jabs.ui import MainWindow
 from jabs.version import version_str
 
 
