@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
@@ -30,6 +30,21 @@ from .constants import SESSION_TRACKING_ENABLED_KEY, USE_NATIVE_FILE_DIALOG
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
+
+
+class UpdateCheckThread(QtCore.QThread):
+    """Background thread for checking PyPI for updates.
+
+    Prevents the UI from freezing during network requests.
+    """
+
+    # Signal emitted when check completes: (has_update, latest_version, current_version)
+    check_complete = QtCore.Signal(bool, object, str)  # object allows None or str
+
+    def run(self) -> None:
+        """Execute the update check in background thread."""
+        has_update, latest, current = check_for_update()
+        self.check_complete.emit(has_update, latest, current)
 
 
 class MenuHandlers:
@@ -196,16 +211,44 @@ class MenuHandlers:
         self.window._user_guide_window.show()
 
     def check_for_updates(self) -> None:
-        """Check PyPI for a newer version of JABS."""
-        has_update, latest, current = check_for_update()
+        """Check PyPI for a newer version of JABS.
 
-        dialog = UpdateCheckDialog(
-            current_version=current,
-            latest_version=latest,
-            has_update=has_update,
-            parent=self.window,
+        Runs the check in a background thread to avoid blocking the UI.
+        """
+        progress = QtWidgets.QProgressDialog(
+            "Checking for updates...",
+            "",  # No cancel button (empty string hides it)
+            0,
+            0,  # Indeterminate progress
+            self.window,
         )
-        dialog.exec()
+        progress.setWindowTitle("Update Check")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)  # Show immediately
+        progress.setValue(0)
+        progress.setCancelButton(None)  # Explicitly remove cancel button
+
+        # Create and start background thread
+        update_thread = UpdateCheckThread()
+
+        def on_check_complete(has_update: bool, latest: str | None, current: str) -> None:
+            """Handle update check completion."""
+            progress.close()
+
+            dialog = UpdateCheckDialog(
+                current_version=current,
+                latest_version=latest,
+                has_update=has_update,
+                parent=self.window,
+            )
+            dialog.exec()
+
+            # Clean up thread
+            update_thread.deleteLater()
+
+        update_thread.check_complete.connect(on_check_complete)
+        update_thread.finished.connect(lambda: progress.close())
+        update_thread.start()
 
     def show_license_dialog(self) -> None:
         """View the license agreement (JABS→View License Agreement menu action)."""

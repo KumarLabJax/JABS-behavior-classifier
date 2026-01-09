@@ -30,6 +30,44 @@ from .menu_handlers import MenuHandlers
 logger = logging.getLogger(__name__)
 
 
+class _WarmExecutorThread(QtCore.QThread):
+    """Background thread to warm the application's shared ProcessPoolManager.
+
+    Spawns worker processes off the UI thread so subsequent feature extraction
+    calls avoid process start/import overhead for the pool.
+
+    This thread is spawned when the app starts.
+    """
+
+    # Signal emitted when warming completes with stats message
+    warm_complete = QtCore.Signal(str)
+
+    def __init__(
+        self, pool_manager: ProcessPoolManager, parent: QtCore.QObject | None = None
+    ) -> None:
+        super().__init__(parent)
+        self._pool_manager = pool_manager
+
+    def run(self) -> None:
+        """Thread entry point to warm the pool."""
+        try:
+            # If we've been asked to stop before starting, exit quietly
+            if self.isInterruptionRequested():
+                return
+
+            start_time = time.time()
+            # wait=True ensures processes are fully spawned before we finish
+            self._pool_manager.warm_up(wait=True)
+            elapsed = time.time() - start_time
+
+            # Emit signal with stats (will be handled on main thread)
+            self.warm_complete.emit(
+                f"PPM {self._pool_manager.name} warmed up ({self._pool_manager.max_workers} workers in {elapsed:.2f}s)"
+            )
+        except Exception as e:
+            logger.error(f"[warm_pool] failed: {e}", exc_info=True)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window for the JABS UI.
 
@@ -42,43 +80,6 @@ class MainWindow(QtWidgets.QMainWindow):
         *args: Additional positional arguments for QMainWindow.
         **kwargs: Additional keyword arguments for QMainWindow.
     """
-
-    class _WarmExecutorThread(QtCore.QThread):
-        """Background thread to warm the application's shared ProcessPoolManager.
-
-        Spawns worker processes off the UI thread so subsequent feature extraction
-        calls avoid process start/import overhead for the pool.
-
-        This thread is spawned when the app starts or when a project is loaded.
-        """
-
-        # Signal emitted when warming completes with stats message
-        warm_complete = QtCore.Signal(str)
-
-        def __init__(
-            self, pool_manager: ProcessPoolManager, parent: QtCore.QObject | None = None
-        ) -> None:
-            super().__init__(parent)
-            self._pool_manager = pool_manager
-
-        def run(self) -> None:
-            """Thread entry point to warm the pool."""
-            try:
-                # If we've been asked to stop before starting, exit quietly
-                if self.isInterruptionRequested():
-                    return
-
-                start_time = time.time()
-                # wait=True ensures processes are fully spawned before we finish
-                self._pool_manager.warm_up(wait=True)
-                elapsed = time.time() - start_time
-
-                # Emit signal with stats (will be handled on main thread)
-                self.warm_complete.emit(
-                    f"PPM {self._pool_manager.name} warmed up ({self._pool_manager.max_workers} workers in {elapsed:.2f}s)"
-                )
-            except Exception as e:
-                logger.error(f"[warm_pool] failed: {e}", exc_info=True)
 
     def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -108,7 +109,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Warm the process pool in the background immediately on startup
         try:
-            self._pool_warm_thread = self._WarmExecutorThread(self._process_pool, parent=self)
+            self._pool_warm_thread = _WarmExecutorThread(self._process_pool, parent=self)
 
             # Connect signals (these run on main thread)
             self._pool_warm_thread.warm_complete.connect(self.display_status_message)
