@@ -35,18 +35,15 @@ class UpdateCheckDialog(QDialog):
         self.setWindowTitle("Check for Updates")
         self.setMinimumWidth(400)
 
-        # Main layout
         main_layout = QVBoxLayout()
-
-        # Top section with icon and status
         top_layout = QHBoxLayout()
 
-        # Icon
+        # Use the JABS application icon
         icon_label = QLabel()
         icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
         if icon_path.exists():
             pixmap = QPixmap(str(icon_path))
-            # Scale the icon to a reasonable size
+            # Scale the icon to a reasonable size for display in the dialog
             scaled_pixmap = pixmap.scaled(
                 64,
                 64,
@@ -56,9 +53,7 @@ class UpdateCheckDialog(QDialog):
             icon_label.setPixmap(scaled_pixmap)
         top_layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignTop)
 
-        # Status text layout
         status_layout = QVBoxLayout()
-
         if latest_version is None:
             # Check failed
             title_label = QLabel("Update Check Failed")
@@ -90,7 +85,6 @@ class UpdateCheckDialog(QDialog):
 
         # Version information
         version_info_layout = QVBoxLayout()
-
         current_label = QLabel(f"<b>Current version:</b> {current_version}")
         version_info_layout.addWidget(current_label)
 
@@ -112,10 +106,8 @@ class UpdateCheckDialog(QDialog):
             status_layout.addWidget(instructions_label)
 
         top_layout.addLayout(status_layout)
-
         main_layout.addLayout(top_layout)
 
-        # Bottom buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
