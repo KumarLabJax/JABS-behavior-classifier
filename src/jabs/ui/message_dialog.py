@@ -52,12 +52,15 @@ class MessageDialog(QDialog):
 
         # Set default title based on message type if not provided
         if title is None:
-            title_map = {
-                MessageType.ERROR: "Error",
-                MessageType.WARNING: "Warning",
-                MessageType.INFO: "Information",
-            }
-            title = title_map.get(message_type, "Message")
+            match message_type:
+                case MessageType.ERROR:
+                    title = "Error"
+                case MessageType.WARNING:
+                    title = "Warning"
+                case MessageType.INFO:
+                    title = "Information"
+                case _:
+                    title = "Message"
 
         self.setWindowTitle(title)
         self.setMinimumWidth(500)
