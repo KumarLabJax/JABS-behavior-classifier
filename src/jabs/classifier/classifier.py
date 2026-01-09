@@ -447,11 +447,13 @@ class Classifier:
         features_sorted = features[classifier_columns]
         return features_sorted
 
-    def predict(self, features: dict, frame_indexes: np.ndarray | None = None) -> np.ndarray:
+    def predict(
+        self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
+    ) -> np.ndarray:
         """predict classes for a given set of features
 
         Args:
-            features: dictionary of feature data to classify
+            features: DataFrame of feature data to classify
             frame_indexes: frame indexes to classify (default all)
 
         Returns:
@@ -477,11 +479,13 @@ class Classifier:
 
         return result
 
-    def predict_proba(self, features: dict, frame_indexes: np.ndarray | None = None) -> np.ndarray:
+    def predict_proba(
+        self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
+    ) -> np.ndarray:
         """predict probabilities for a given set of features.
 
         Args:
-            features: dictionary of feature data to classify
+            features: DataFrame of feature data to classify
             frame_indexes: frame indexes to classify (default all)
 
         Returns:
