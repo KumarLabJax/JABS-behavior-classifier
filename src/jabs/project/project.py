@@ -42,10 +42,9 @@ class Project:
 
     Executor pool:
         The Project can optionally use a shared application-level `ProcessPoolManager` for CPU-bound
-        feature extraction (parallelized per video). If provided, the pool is shared across all
-        projects in the application. If not provided (None), operations run single-threaded.
+        feature extraction (parallelized per video). If not provided (None), operations run single-threaded.
 
-        - When pool is provided, it's managed at the application level and never shut down by individual projects
+        - When pool is provided, it's managed at the application level
         - Submissions are thread-safe; the pool can be used from worker/QThreads
         - The GUI passes a shared pool; CLI scripts typically run single-threaded (pool=None)
 
