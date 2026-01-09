@@ -190,10 +190,9 @@ class MessageDialog(QDialog):
 
         # Map message types to (icon_file, tooltip) tuples
         # tooltip is optional - use None if no tooltip desired
+        # Note: currently WARNING and INFO use fallback emoji, so no image icon specified
         icon_map = {
             MessageType.ERROR: ("fail_whale.png", "Fail Whale"),
-            # MessageType.WARNING: ("icon.png", "Warning message"),
-            # MessageType.INFO: ("icon.png", None),  # No tooltip example
         }
 
         icon_info = icon_map.get(self._message_type)
