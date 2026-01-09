@@ -178,67 +178,6 @@ def _build_file_menu(self, menu: QtWidgets.QMenu) -> dict:
     return {"important_action": important_action}  # GOOD
 ```
 
-## Examples
-
-### Example 1: Adding a "Refresh Project" Menu Item
-
-**Step 1:** Add to menu_builder.py:
-```python
-def _build_file_menu(self, menu: QtWidgets.QMenu) -> dict:
-    # ... existing actions ...
-
-    refresh_action = QtGui.QAction("Refresh Project", self.main_window)
-    refresh_action.setShortcut(QtGui.QKeySequence("F5"))
-    refresh_action.setStatusTip("Reload project from disk")
-    refresh_action.setEnabled(False)  # Enabled when project loaded
-    refresh_action.triggered.connect(self.handlers.refresh_project)
-    menu.addAction(refresh_action)
-
-    return {
-        # ... existing returns ...
-        "refresh_action": refresh_action,
-    }
-```
-
-**Step 2:** Add to menu_handlers.py:
-```python
-def refresh_project(self) -> None:
-    """Reload the current project from disk."""
-    if not self.window._project:
-        return
-
-    project_path = self.window._project.project_dir
-    self.window.open_project(project_path)
-    self.window.display_status_message("Project refreshed", duration=3000)
-```
-
-**Step 3:** Update MenuReferences in menu_builder.py:
-```python
-@dataclass
-class MenuReferences:
-    # ... existing fields ...
-    refresh_action: QtGui.QAction
-```
-
-**Step 4:** Enable/disable in main_window.py when project loads:
-```python
-def _on_project_opened(self):
-    # ... existing code ...
-    self._refresh_action.setEnabled(True)
-
-def _on_project_closed(self):
-    # ... existing code ...
-    self._refresh_action.setEnabled(False)
-```
-
-## Testing
-
-When testing menu functionality:
-1. Test handlers independently by calling them directly
-2. Mock `self.window` and its dependencies
-3. Verify correct methods are called with correct parameters
-4. Test that lambdas pass parameters correctly
-
 ## Questions?
 
 If you're unsure where to add functionality:
