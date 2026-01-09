@@ -18,7 +18,7 @@ class BaseFeatureGroup(FeatureGroup):
 
     # build a dictionary that maps a feature name to the class that
     # implements it
-    _features: typing.ClassVar[dict[str, Feature]] = {
+    _features: typing.ClassVar[dict[str, type[Feature]]] = {
         PairwisePointDistances.name(): PairwisePointDistances,
         Angles.name(): Angles,
         AngularVelocity.name(): AngularVelocity,

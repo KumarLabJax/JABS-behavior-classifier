@@ -6,7 +6,7 @@ from typing import cast
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QApplication, QDialog
 from shapely.geometry import Point
 
 import jabs.feature_extraction
@@ -24,6 +24,7 @@ from .main_control_widget import MainControlWidget
 from .player_widget import PlayerWidget
 from .progress_dialog import create_cancelable_progress_dialog
 from .stacked_timeline_widget import StackedTimelineWidget
+from .training_report import TrainingReportDialog
 from .training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -81,6 +82,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(n_jobs=-1)
         self._training_thread: TrainingThread | None = None
         self._classify_thread: ClassifyThread | None = None
+        self._training_report_markdown: str | None = None
+        self._training_report_dialog: TrainingReportDialog | None = None
 
         # information about current predictions
         self._predictions = {}
@@ -141,6 +144,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = None
 
         self._counts = None
+        self._bouts_behavior = 0
+        self._bouts_not_behavior = 0
 
         # set focus policy of all children widgets, needed to keep controls
         # from grabbing focus on Windows (which breaks arrow key video nav)
@@ -266,14 +271,28 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._player_widget.id_overlay_mode = mode
 
+    def get_open_dialogs(self) -> list[tuple[str, QtWidgets.QWidget]]:
+        """Get a list of open dialogs managed by this widget.
+
+        Returns:
+            List of (title, widget) tuples for all visible dialogs.
+        """
+        dialogs = []
+
+        if self._training_report_dialog is not None and self._training_report_dialog.isVisible():
+            dialogs.append(
+                (self._training_report_dialog.windowTitle(), self._training_report_dialog)
+            )
+
+        return dialogs
+
     def set_project(self, project: Project) -> None:
         """set the currently opened project"""
         self._project = project
 
         # This will get set when the first video in the project is loaded, but
         # we need to set it to None so that we don't try to cache the current
-        # labels when we do so (the current labels belong to the previous
-        # project)
+        # labels when we do so (the current labels belong to the previous project)
         self._labels = None
         self._loaded_video = None
 
@@ -304,19 +323,17 @@ class CentralWidget(QtWidgets.QWidget):
             # open poses and any labels that might exist for this video
             self._pose_est = self._project.load_pose_est(path)
             self._labels = self._project.video_manager.load_video_labels(path, self._pose_est)
-            self._stacked_timeline.pose = self._pose_est
 
             # if no saved labels exist, initialize a new VideoLabels object
             if self._labels is None:
                 self._labels = VideoLabels(path.name, self._pose_est.num_frames)
 
+            self._player_widget.load_video(path, self._pose_est, self._labels)
+
             # load saved predictions for this video
             self._predictions, self._probabilities, self._frame_indexes = (
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
-
-            # load video into player
-            self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # update ui components with properties of new video
             display_identities = [
@@ -325,6 +342,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_identities(display_identities)
             self._player_widget.set_active_identity(self._controls.current_identity_index)
 
+            self._stacked_timeline.pose = self._pose_est
             self._stacked_timeline.framerate = self._player_widget.stream_fps
             self._suppress_label_track_update = False
             self._set_label_track()
@@ -675,11 +693,15 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
 
+        # reset training report
+        self._training_report_markdown = None
+
         # setup training thread
         self._training_thread = TrainingThread(
             self._classifier,
             self._project,
             self._controls.current_behavior,
+            (self._bouts_behavior, self._bouts_not_behavior),
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
         )
@@ -687,6 +709,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.error_callback.connect(self._training_thread_error_callback)
         self._training_thread.update_progress.connect(self._update_training_progress)
         self._training_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
+        self._training_thread.training_report.connect(self._on_training_report)
 
         # setup progress dialog
         # adds 2 for final training
@@ -703,6 +726,14 @@ class CentralWidget(QtWidgets.QWidget):
         # start training thread
         self._training_thread.start()
 
+    def _on_training_report(self, markdown_content: str) -> None:
+        """Save the training report markdown for display after training completes.
+
+        Args:
+            markdown_content: Markdown-formatted training report
+        """
+        self._training_report_markdown = markdown_content
+
     def _training_thread_complete(self, elapsed_ms) -> None:
         """enable classify button once the training is complete
 
@@ -715,6 +746,99 @@ class CentralWidget(QtWidgets.QWidget):
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
         self._controls.classify_button_enabled = True
+
+        # Display training report if available
+        if self._training_report_markdown:
+            # Check if any JABS window has focus (main window or any child)
+            jabs_app_has_focus = QApplication.activeWindow() is not None
+
+            # If any JABS window has focus and a dialog exists, close it and create new one
+            # This is the only reliable way to switch focus on macOS
+            if jabs_app_has_focus and self._training_report_dialog is not None:
+                # Save the old position and size before closing
+                old_geometry = self._training_report_dialog.geometry()
+                self._training_report_dialog.close()
+                self._training_report_dialog = None
+
+                # Create new dialog
+                self._training_report_dialog = TrainingReportDialog(
+                    self._training_report_markdown,
+                    title=f"Training Report: {self._controls.current_behavior}",
+                    parent=self,
+                )
+
+                # Connect to cleanup when dialog is closed
+                self._training_report_dialog.finished.connect(
+                    lambda: setattr(self, "_training_report_dialog", None)
+                )
+
+                # Show with aggressive focus-stealing
+                self._training_report_dialog.setWindowFlags(
+                    self._training_report_dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+                )
+                self._training_report_dialog.show()
+                # Restore geometry AFTER show() to preserve position
+                self._training_report_dialog.setGeometry(old_geometry)
+                # Force processing of events to ensure window system updates
+                QtCore.QCoreApplication.processEvents()
+                self._training_report_dialog.raise_()
+                self._training_report_dialog.activateWindow()
+                # Try to force repaint/update
+                self._training_report_dialog.repaint()
+                QtCore.QCoreApplication.processEvents()
+
+                # Remove stay-on-top flag after a brief delay
+                QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
+
+            elif self._training_report_dialog is not None:
+                # JABS doesn't have focus - just update existing dialog quietly
+                self._training_report_dialog.update_content(
+                    self._training_report_markdown,
+                    title=f"Training Report: {self._controls.current_behavior}",
+                )
+                # Ensure dialog is visible (in case it was minimized or hidden)
+                if self._training_report_dialog.isMinimized():
+                    self._training_report_dialog.showNormal()
+                elif not self._training_report_dialog.isVisible():
+                    self._training_report_dialog.show()
+            else:
+                # No existing dialog - create new one
+                self._training_report_dialog = TrainingReportDialog(
+                    self._training_report_markdown,
+                    title=f"Training Report: {self._controls.current_behavior}",
+                    parent=self,
+                )
+                # Connect to cleanup when dialog is closed
+                self._training_report_dialog.finished.connect(
+                    lambda: setattr(self, "_training_report_dialog", None)
+                )
+
+                # Show the dialog
+                self._training_report_dialog.show()
+
+                # Only bring to front and activate if JABS has focus
+                if jabs_app_has_focus:
+                    # Temporarily set stay-on-top to ensure it appears in front
+                    self._training_report_dialog.setWindowFlags(
+                        self._training_report_dialog.windowFlags()
+                        | Qt.WindowType.WindowStaysOnTopHint
+                    )
+                    self._training_report_dialog.show()  # Need to call show() again after changing flags
+                    self._training_report_dialog.raise_()
+                    self._training_report_dialog.activateWindow()
+
+                    # Remove stay-on-top flag after a brief delay so user can manage windows normally
+                    QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
+
+            self._training_report_markdown = None  # Clear after displaying
+
+    def _remove_stay_on_top_flag(self):
+        """Remove WindowStaysOnTopHint from training report dialog."""
+        if self._training_report_dialog is not None:
+            self._training_report_dialog.setWindowFlags(
+                self._training_report_dialog.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint
+            )
+            self._training_report_dialog.show()  # Need to call show() again after changing flags
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
@@ -930,6 +1054,9 @@ class CentralWidget(QtWidgets.QWidget):
             bout_behavior_project,
             bout_not_behavior_project,
         )
+
+        self._bouts_behavior = bout_behavior_project
+        self._bouts_not_behavior = bout_not_behavior_project
 
     def _classifier_changed(self) -> None:
         """handle classifier selection change"""

@@ -64,6 +64,7 @@ class Project:
         enable_video_check: Whether to check for video file validity.
         enable_session_tracker: Whether to enable session tracking for this project.
         executor_workers: Fixed size of the process pool; if None, uses CPU count.
+        validate_project_dir: Whether to validate the project directory structure on creation.
 
     Properties:
         dir: Project directory path.
@@ -86,15 +87,18 @@ class Project:
         enable_video_check=True,
         enable_session_tracker=True,
         executor_workers: int | None = None,
+        validate_project_dir=True,
     ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
-        self._paths.create_directories()
+        self._paths.create_directories(validate=validate_project_dir)
         self._total_project_identities = 0
         self._enabled_extended_features = {}
 
         self._settings_manager = SettingsManager(self._paths)
         self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
-        self._feature_manager = FeatureManager(self._paths, self._video_manager.videos)
+        self._feature_manager = FeatureManager(
+            self._paths, self._video_manager.videos, self._video_manager
+        )
         self._prediction_manager = PredictionManager(self)
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
@@ -119,9 +123,14 @@ class Project:
 
     def shutdown_executor(self) -> None:
         """Shut down the persistent executor (call on app exit)."""
-        if self._executor is not None:
+        # We need to be defensive against partially constructed Project instances where __init__ may have
+        # raised an Exception before self._executor was declared and then shutdown_executor is called by __del__.
+        # In that case, the attribute may not exist, so we can't access the attribute directly here -- use
+        # getattr instead.
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
             with contextlib.suppress(Exception):
-                self._executor.shutdown(cancel_futures=False)
+                executor.shutdown(cancel_futures=False)
             self._executor = None
             self._executor_size = 0
 

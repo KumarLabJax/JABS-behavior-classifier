@@ -112,6 +112,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menu.addMenu("File")
         view_menu = menu.addMenu("View")
         feature_menu = menu.addMenu("Features")
+        self._window_menu = menu.addMenu("Window")
 
         # Setup App Menu
         # about app
@@ -400,6 +401,29 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_segmentation_features_enabled
         )
         feature_menu.addAction(self.enable_segmentation_features)
+
+        # Setup Window Menu
+        # Minimize action
+        minimize_action = QtGui.QAction("Minimize", self)
+        minimize_action.setShortcut(QtGui.QKeySequence("Ctrl+M"))
+        minimize_action.triggered.connect(self.showMinimized)
+        self._window_menu.addAction(minimize_action)
+
+        # Zoom action
+        zoom_action = QtGui.QAction("Zoom", self)
+        zoom_action.triggered.connect(self._toggle_zoom)
+        self._window_menu.addAction(zoom_action)
+
+        # Bring All to Front action
+        bring_all_to_front_action = QtGui.QAction("Bring All to Front", self)
+        bring_all_to_front_action.triggered.connect(self._bring_all_windows_to_front)
+        self._window_menu.addAction(bring_all_to_front_action)
+
+        self._window_menu.addSeparator()
+
+        # Dynamic window list will be added here
+        # Connect aboutToShow to update the window list when menu is opened
+        self._window_menu.aboutToShow.connect(self._update_window_menu)
 
         # select all action
         select_all_action = QtGui.QAction(self)
@@ -1082,3 +1106,67 @@ class MainWindow(QtWidgets.QMainWindow):
         """View the license agreement (JABS->View License Agreement menu action)"""
         dialog = LicenseAgreementDialog(self, view_only=True)
         dialog.exec_()
+
+    def _toggle_zoom(self) -> None:
+        """Toggle between normal and maximized window state."""
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def _bring_all_windows_to_front(self) -> None:
+        """Bring all JABS windows to the front."""
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if widget.isVisible() and not widget.isMinimized():
+                widget.raise_()
+                widget.activateWindow()
+
+    def _update_window_menu(self) -> None:
+        """Update the Window menu with the current list of open windows."""
+        # Remove all dynamic window items (everything after the separator)
+        actions = self._window_menu.actions()
+        separator_found = False
+        items_to_remove = []
+
+        for action in actions:
+            if separator_found:
+                items_to_remove.append(action)
+            elif action.isSeparator():
+                separator_found = True
+
+        for action in items_to_remove:
+            self._window_menu.removeAction(action)
+
+        # Add Main Window
+        main_window_action = QtGui.QAction("Main Window", self)
+        main_window_action.setCheckable(True)
+        main_window_action.setChecked(self.isActiveWindow())
+        main_window_action.triggered.connect(lambda: self._activate_window(self))
+        self._window_menu.addAction(main_window_action)
+
+        # Add User Guide window if open
+        if self._user_guide_window is not None and self._user_guide_window.isVisible():
+            guide_action = QtGui.QAction(self._user_guide_window.windowTitle(), self)
+            guide_action.setCheckable(True)
+            guide_action.setChecked(self._user_guide_window.isActiveWindow())
+            guide_action.triggered.connect(lambda: self._activate_window(self._user_guide_window))
+            self._window_menu.addAction(guide_action)
+
+        # Add any open dialogs from the central widget
+        for title, dialog in self._central_widget.get_open_dialogs():
+            dialog_action = QtGui.QAction(title, self)
+            dialog_action.setCheckable(True)
+            dialog_action.setChecked(dialog.isActiveWindow())
+            dialog_action.triggered.connect(lambda checked, w=dialog: self._activate_window(w))
+            self._window_menu.addAction(dialog_action)
+
+    def _activate_window(self, window: QtWidgets.QWidget) -> None:
+        """Activate and bring a window to the front.
+
+        Args:
+            window: The window to activate
+        """
+        if window.isMinimized():
+            window.showNormal()
+        window.raise_()
+        window.activateWindow()

@@ -334,27 +334,38 @@ class PoseEstimation(ABC):
             self._convex_hull_cache[identity] = convex_hulls
             return convex_hulls
 
-    def compute_bearing(self, points):
+    def compute_bearing(self, points: np.ndarray, use_nose: bool = False):
         """compute the bearing of the animal using base tail and base neck keypoints
 
         Args:
             points (np.ndarray): the points for a single frame (12,2) array
+            use_nose (bool): use nose keypoint instead of base neck, used when
+              we have a reduced keypoint pose that lacks base neck
         """
-        base_tail_xy = points[self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
-        base_neck_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
-        base_neck_offset_xy = base_neck_xy - base_tail_xy
+        # fall back to use nose instead of base neck if base neck is absent from this pose file
+        # (for example, 5 keypoint pose instead of 12)
+        if use_nose:
+            p1_xy = points[self.KeypointIndex.NOSE.value].astype(np.float32)
+        else:
+            p1_xy = points[self.KeypointIndex.BASE_NECK.value].astype(np.float32)
+        p2_xy = points[self.KeypointIndex.BASE_TAIL.value].astype(np.float32)
+        offset_xy = p1_xy - p2_xy
 
-        angle_rad = np.arctan2(base_neck_offset_xy[1], base_neck_offset_xy[0])
+        angle_rad = np.arctan2(offset_xy[1], offset_xy[0])
 
         return np.degrees(angle_rad)
 
     def compute_all_bearings(self, identity):
         """compute the bearing for each frame for a given identity"""
+        use_nose = not self.get_reduced_point_mask()[self.KeypointIndex.BASE_NECK.value]
+        if use_nose:
+            logging.warning("Falling back to using nose keypoint for bearing computation")
+
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
         for i in range(self.num_frames):
             points, mask = self.get_points(i, identity)
             if points is not None:
-                bearings[i] = self.compute_bearing(points)
+                bearings[i] = self.compute_bearing(points, use_nose)
         return bearings
 
     @staticmethod

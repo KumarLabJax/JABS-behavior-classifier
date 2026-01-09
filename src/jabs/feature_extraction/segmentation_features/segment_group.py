@@ -18,7 +18,7 @@ class SegmentationFeatureGroup(FeatureGroup):
     _name = "segmentation"
 
     # build dictionary mapping feature name to class that implements it
-    _features: typing.ClassVar[dict[str, Feature]] = {
+    _features: typing.ClassVar[dict[str, type[Feature]]] = {
         Moments.name(): Moments,
         ShapeDescriptors.name(): ShapeDescriptors,
         HuMoments.name(): HuMoments,
