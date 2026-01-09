@@ -11,6 +11,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _noop() -> None:
+    """No-op function for warming up worker processes.
+
+    Must be at module level to be pickleable by ProcessPoolExecutor.
+    """
+    return None
+
+
 class ProcessPoolManager:
     """
     Manage a shared ProcessPoolExecutor with warm-up and safe shutdown.
@@ -161,9 +169,6 @@ class ProcessPoolManager:
 
         if not wait:
             return
-
-        def _noop() -> None:
-            return None
 
         futures = [executor.submit(_noop) for _ in range(self._max_workers)]
         for f in futures:
