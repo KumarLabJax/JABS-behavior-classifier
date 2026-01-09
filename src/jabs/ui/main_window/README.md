@@ -117,26 +117,6 @@ def my_handler(self, checked: bool, name: str):
        new_action: QtGui.QAction  # Add if MainWindow needs direct access
    ```
 
-### Adding a New Feature Toggle
-
-1. **Add to feature menu in `menu_builder.py`:**
-   ```python
-   enable_my_feature = QtGui.QAction("Enable My Feature", self.main_window)
-   enable_my_feature.setCheckable(True)
-   enable_my_feature.triggered.connect(self.handlers.set_my_feature_enabled)
-   menu.addAction(enable_my_feature)
-   ```
-
-2. **Add handler in `menu_handlers.py`:**
-   ```python
-   def set_my_feature_enabled(self, checked: bool) -> None:
-       """Toggle my feature on/off."""
-       behavior = self.window._central_widget.behavior
-       self.window._project.settings_manager.save_behavior(
-           behavior, {"my_feature": checked}
-       )
-   ```
-
 ### Adding a Keyboard Shortcut
 
 If the shortcut is tied to a menu item, add it in `MenuBuilder`:
