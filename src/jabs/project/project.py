@@ -112,14 +112,6 @@ class Project:
         """No-op: executor is owned by the application, not individual projects."""
         pass
 
-    def warm_executor(self, wait: bool = True) -> None:
-        """No-op: executor is warmed at the application level, not per-project.
-
-        Args:
-            wait: Ignored, kept for API compatibility.
-        """
-        pass
-
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
         err = False
