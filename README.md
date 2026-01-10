@@ -30,12 +30,6 @@ Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J.
 
 JABS requires pose files generated from the Kumar Lab's mouse pose estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
 
-## Requirements
-
-JABS was initially developed on Python 3.10. See the `pyproject.toml` for a list of required Python packages. These packages are available from the Python Package Index (PyPI).
-
-Currently, JABS supports Python 3.10 through 3.14.
-
 ## Installation
 
 This section describes how to install JABS as an end user. Developers should see the [JABS Development](#jabs-development) section below for instructions on setting up a development environment.
@@ -89,6 +83,7 @@ source jabs.venv/bin/activate
 jabs.venv\Scripts\activate.bat
 ```
 
+**JABS supports Python 3.10 through 3.14. Make sure to use a compatible Python version when creating the virtual environment.**
 
 ### Install from PyPI
 

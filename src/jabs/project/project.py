@@ -2,13 +2,13 @@ import contextlib
 import getpass
 import gzip
 import json
-import os
 import shutil
 import sys
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
@@ -28,10 +28,8 @@ from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
-
-def _warm_noop(n: int = 0) -> int:
-    """Trivial picklable function used to force worker process spin-up."""
-    return n
+if TYPE_CHECKING:
+    from jabs.utils.process_pool_manager import ProcessPoolManager
 
 
 class Project:
@@ -43,27 +41,19 @@ class Project:
     and retrieving project settings.
 
     Executor pool:
-        Each Project owns a persistent **non-resizing** `concurrent.futures.ProcessPoolExecutor`
-        used for CPU-bound feature extraction (parallelized per video). The pool size is fixed
-        at construction time via ``executor_workers`` (defaults to ``os.cpu_count()`` if None).
-        The pool is created lazily on first use (e.g., when calling `get_labeled_features`) or
-        can be pre-spawned with `warm_executor(wait=True)` to avoid first-use latency.
+        The Project can optionally use a shared application-level `ProcessPoolManager` for CPU-bound
+        feature extraction (parallelized per video). If not provided (None), operations run single-threaded.
 
-        - The pool **does not auto-resize**. If you need a different size, construct a new
-          `Project` with the desired ``executor_workers`` (a dedicated `resize_executor()` may
-          be added later).
-        - Submitting fewer jobs than workers is fine (extra workers idle). Submitting more jobs
-          than workers is also fine (tasks queue).
-        - Submissions are thread-safe; the pool can be used from worker/QThreads.
-        - Call `shutdown_executor()` on application exit for a clean teardown. A best-effort
-          shutdown is also attempted in `__del__`, but explicit shutdown is preferred.
+        - When pool is provided, it's managed at the application level
+        - Submissions are thread-safe; the pool can be used from worker/QThreads
+        - The GUI passes a shared pool; CLI scripts typically run single-threaded (pool=None)
 
     Args:
         project_path: Path to the project directory.
+        process_pool: Optional shared ProcessPoolManager for feature extraction. If None, runs single-threaded.
         use_cache: Whether to use cached data.
         enable_video_check: Whether to check for video file validity.
         enable_session_tracker: Whether to enable session tracking for this project.
-        executor_workers: Fixed size of the process pool; if None, uses CPU count.
         validate_project_dir: Whether to validate the project directory structure on creation.
 
     Properties:
@@ -83,10 +73,10 @@ class Project:
     def __init__(
         self,
         project_path,
+        process_pool: "ProcessPoolManager | None" = None,
         use_cache=True,
         enable_video_check=True,
         enable_session_tracker=True,
-        executor_workers: int | None = None,
         validate_project_dir=True,
     ):
         self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
@@ -106,52 +96,21 @@ class Project:
         if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
-        # Persistent, non-resizing process pool for feature extraction
-        self._executor: ProcessPoolExecutor | None = None
-        self._executor_size: int = max(1, (executor_workers or (os.cpu_count() or 1)))
+        # Shared application-level process pool for feature extraction
+        self._process_pool = process_pool
 
         # Start a session tracker for this project.
         # Since the session has a reference to the Project, the Project should be fully initialized before starting
         # the session tracker.
         self._session_tracker.start_session()
 
-    def _ensure_executor(self) -> ProcessPoolExecutor:
-        """Create the persistent ProcessPoolExecutor once using the configured size."""
-        if self._executor is None:
-            self._executor = ProcessPoolExecutor(max_workers=self._executor_size)
-        return self._executor
+    def _ensure_executor(self) -> "ProcessPoolManager | None":
+        """Return the shared application-level ProcessPoolManager, or None if running single-threaded."""
+        return self._process_pool
 
     def shutdown_executor(self) -> None:
-        """Shut down the persistent executor (call on app exit)."""
-        # We need to be defensive against partially constructed Project instances where __init__ may have
-        # raised an Exception before self._executor was declared and then shutdown_executor is called by __del__.
-        # In that case, the attribute may not exist, so we can't access the attribute directly here -- use
-        # getattr instead.
-        executor = getattr(self, "_executor", None)
-        if executor is not None:
-            with contextlib.suppress(Exception):
-                executor.shutdown(cancel_futures=False)
-            self._executor = None
-            self._executor_size = 0
-
-    def warm_executor(self, wait: bool = True) -> None:
-        """Warm the project's process pool early (e.g., right after project load).
-
-        The pool size is fixed from `__init__` and does not resize here. See the class
-        docstring for details about the executor's lifecycle and guarantees.
-
-        Args:
-            wait: If True, submit trivial jobs so worker processes fully spawn before return.
-        """
-        executor = self._ensure_executor()
-        if wait:
-            futures = [executor.submit(_warm_noop, i) for i in range(self._executor_size)]
-            for f in futures:
-                f.result()
-
-    def __del__(self):
-        # Best-effort shutdown of persistent executor
-        self.shutdown_executor()
+        """No-op: executor is owned by the application, not individual projects."""
+        pass
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
@@ -658,28 +617,49 @@ class Project:
             jobs.append(job)
 
         executor = self._ensure_executor()
-        # create futures and map to video names
-        future_to_video = {
-            executor.submit(collect_labeled_features, job): job["video"] for job in jobs
-        }
-
         results_by_video: dict[str, dict] = {}
-        for future in as_completed(future_to_video):
-            # check for early exit
-            if should_terminate_callable:
-                should_terminate_callable()
 
-            video_name = future_to_video[future]
-            try:
-                res = future.result()
-            except Exception as e:
-                raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
+        if executor is not None:
+            # Parallel execution using the process pool
+            future_to_video = {
+                executor.submit(collect_labeled_features, job): job["video"] for job in jobs
+            }
 
-            # Stage results by video for deterministic finalization
-            results_by_video[video_name] = res
+            for future in as_completed(future_to_video):
+                # check for early exit
+                if should_terminate_callable:
+                    should_terminate_callable()
 
-            if progress_callable:
-                progress_callable()  # once per video
+                video_name = future_to_video[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
+
+                # Stage results by video for deterministic finalization
+                results_by_video[video_name] = res
+
+                if progress_callable:
+                    progress_callable()  # once per video
+        else:
+            # Single-threaded execution
+            for job in jobs:
+                # check for early exit
+                if should_terminate_callable:
+                    should_terminate_callable()
+
+                try:
+                    res = collect_labeled_features(job)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Feature collection failed for video: {job['video']}"
+                    ) from e
+
+                # Stage results by video for deterministic finalization
+                results_by_video[job["video"]] = res
+
+                if progress_callable:
+                    progress_callable()  # once per video
 
         # Deterministic finalize: append results in original 'videos' order
         for video in videos:
