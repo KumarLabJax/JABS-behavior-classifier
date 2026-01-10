@@ -137,13 +137,14 @@ def classify_pose(
             data = Classifier.combine_data(per_frame_features, window_features)
 
             if data.shape[0] > 0:
-                pred = classifier.predict(data, features["frame_indexes"])
+                # Get probabilities for all classes
                 pred_prob = classifier.predict_proba(data, features["frame_indexes"])
 
+                # Derive predictions by taking argmax (class with highest probability)
+                # This is equivalent to predict() but avoids duplicate computation
+                pred = np.argmax(pred_prob, axis=1).astype(np.int8)
+
                 # Keep the probability for the predicted class only.
-                # The following code uses some
-                # numpy magic to use the pred array as column indexes
-                # for each row of the pred_prob array we just computed.
                 pred_prob = pred_prob[np.arange(len(pred_prob)), pred]
 
                 # Copy results into results matrix

@@ -133,19 +133,17 @@ class ClassifyThread(QThread):
 
                     check_termination_requested()
                     if data.shape[0] > 0:
-                        # make predictions
-                        predictions[identity] = self._classifier.predict(
-                            data, feature_values["frame_indexes"]
-                        )
-
-                        # also get the probabilities
+                        # Get probabilities for all classes
                         prob = self._classifier.predict_proba(
                             data, feature_values["frame_indexes"]
                         )
-                        # Save the probability for the predicted class only.
-                        # The following code uses some
-                        # numpy magic to use the _predictions array as column indexes
-                        # for each row of the 'prob' array we just computed.
+
+                        # Derive predictions by taking argmax (class with highest probability)
+                        # This is equivalent to predict() but avoids duplicate computation
+                        # We could also use np.where with a threshold here if we want to be more conservative about predictions
+                        predictions[identity] = np.argmax(prob, axis=1).astype(np.int8)
+
+                        # Use predictions as column indexes for each row of prob
                         probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
                     else:
                         predictions[identity] = np.array(0)
