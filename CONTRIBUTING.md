@@ -42,7 +42,7 @@ git push origin feature/my-feature
 
 Before submitting a contribution:
 
-1. **Follow the code style guidelines** - JABS uses Ruff for linting and formatting
+1. **Follow the code style guidelines** - JABS uses Ruff for linting and formatting, and follows the Google docstring style.
 2. **Add tests** for new functionality
 3. **Update documentation** as needed (docstrings, user guide, developer guide)
 4. **Run the test suite** to ensure nothing is broken: `pytest`
