@@ -140,7 +140,8 @@ class ClassifyThread(QThread):
 
                         # Derive predictions by taking argmax (class with highest probability)
                         # This is equivalent to predict() but avoids duplicate computation
-                        # We could also use np.where with a threshold here if we want to be more conservative about predictions
+                        # Consider using np.where with a threshold here if we want to be more conservative
+                        # about predictions
                         predictions[identity] = np.argmax(prob, axis=1).astype(np.int8)
 
                         # Use predictions as column indexes for each row of prob
