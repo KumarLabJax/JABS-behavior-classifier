@@ -65,12 +65,6 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 "jabs-project-merge" = "jabs.scripts.merge_projects:main"
 "jabs-cli" = "jabs.scripts.cli:main"
 
-# Poetry-specific config kept for src/ layout and Poetry's own dev group
-[tool.poetry]
-packages = [
-  { include = "jabs", from = "src" },
-]
-
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]
 build-backend = "uv_build"
