@@ -91,9 +91,14 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
 ## Menu
 
 - **JABS→About:** Display About Dialog
+- **JABS→Project Settings:** Display Project Settings Dialog
 - **JABS→User Guide:** Display User Guide
+- **JABS→Check for Updates:** Check PyPI for JABS updates
+- **JABS→View License Agreement:** Display License Agreement
+- **JABS→Enable Session Tracking:** Enable labeling session tracking
 - **JABS→Quit JABS:** Quit Program
 - **File→Open Project:** Select a project directory to open. If a project is already opened, it will be closed and the newly selected project will be opened.
+- **File→Open Recent:** Submenu to open recently opened projects.
 - **File→Export Training Data:** Create a file with the information needed to share a classifier. This exported file is written to the project directory and has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is used as one input for the `jabs-classify` script.
 - **File→Archive Behavior:** Remove behavior and its labels from project. Labels are archived in the `jabs/archive` directory.
 - **File→Prune Project:** Remove videos and pose files that are not labeled.
@@ -119,6 +124,19 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
   - **Window→Zoom:** Toggle between normal and maximized window state
   - **Window→Bring All to Front:** Bring all JABS windows to the front
   - The Window menu also displays a list of all open JABS windows (main window, user guide, training reports, etc.) with a checkmark (✓) next to the currently active window. Click any window in the list to activate and bring it to the front.
+
+## Project Settings Dialog
+
+The **Project Settings Dialog**, available from the JABS menu, allows you to configure project-wide settings. Settings are designed to be easily discoverable; each settings group includes built-in documentation, making it easy to understand the purpose and effect of each option directly within the dialog. Users should explore this dialog and customize project settings as needed.
+
+### Settings Overview
+
+| Setting                        | Description                                                      |
+|-------------------------------|------------------------------------------------------------------|
+| Cross Validation Grouping      | Determines how cross-validation groups are defined. Options are "Individual Animal" (default) or "Video". |
+
+As new settings are added, they will appear in this dialog with inline documentation.
+
 
 ## Overlays
 

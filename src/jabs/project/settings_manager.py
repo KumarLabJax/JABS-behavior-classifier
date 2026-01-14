@@ -2,6 +2,8 @@ import json
 import typing
 
 import jabs.feature_extraction as feature_extraction
+from jabs.constants import SETTINGS_CV_GROUPING
+from jabs.types.cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
 from jabs.version import version_str
 
 if typing.TYPE_CHECKING:
@@ -82,6 +84,21 @@ class SettingsManager:
             Dictionary of project-level metadata, or empty dict if none exists.
         """
         return self._project_info.get("metadata", {})
+
+    @property
+    def cv_grouping_strategy(self) -> CrossValidationGroupingStrategy:
+        """Get the cross-validation grouping strategy for the project.
+
+        Returns:
+            CrossValidationGroupingStrategy: The CV grouping strategy.
+        """
+        grouping_str = self._project_info.get("settings", {}).get(
+            SETTINGS_CV_GROUPING, DEFAULT_CV_GROUPING_STRATEGY.value
+        )
+        try:
+            return CrossValidationGroupingStrategy(grouping_str)
+        except ValueError:
+            return DEFAULT_CV_GROUPING_STRATEGY
 
     def video_metadata(self, video: str) -> dict:
         """Get metadata for a specific video.

@@ -168,8 +168,9 @@ class TrainingThread(QThread):
                     cv_results.append(
                         CrossValidationResult(
                             iteration=i + 1,
-                            test_video=test_info["video"],
-                            test_identity=test_info["identity"],
+                            test_label=f"{test_info['video']} [{test_info['identity']}]"
+                            if "identity" in test_info
+                            else test_info["video"],
                             accuracy=accuracy,
                             precision_behavior=pr[0][1],
                             precision_not_behavior=pr[0][0],
@@ -243,6 +244,7 @@ class TrainingThread(QThread):
                 training_time_ms=elapsed_ms,
                 timestamp=report_timestamp,
                 window_size=behavior_settings["window_size"],
+                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
             )
 
             # Save markdown report

@@ -8,3 +8,6 @@ RECENT_PROJECTS_MAX = 10
 # some defaults for compressing hdf5 output
 COMPRESSION = "gzip"
 COMPRESSION_OPTS_DEFAULT = 6
+
+# settings keys
+SETTINGS_CV_GROUPING = "cv_grouping"

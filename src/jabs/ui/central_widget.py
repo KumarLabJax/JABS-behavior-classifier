@@ -108,7 +108,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.classify_clicked.connect(self._classify_button_clicked)
         self._controls.classifier_changed.connect(self._classifier_changed)
         self._controls.behavior_changed.connect(self._on_behavior_changed)
-        self._controls.kfold_changed.connect(self._set_train_button_enabled_state)
+        self._controls.kfold_changed.connect(self.set_train_button_enabled_state)
         self._controls.window_size_changed.connect(self._on_window_size_changed)
         self._controls.new_window_sizes.connect(self._save_window_sizes)
         self._controls.use_balance_labels_changed.connect(self._on_use_balance_labels_changed)
@@ -509,7 +509,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # display labels and predictions for new behavior
         self._set_label_track()
-        self._set_train_button_enabled_state()
+        self.set_train_button_enabled_state()
 
         self._project.settings_manager.save_project_file({"selected_behavior": self.behavior})
 
@@ -605,7 +605,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.disable_label_buttons()
         self._stacked_timeline.clear_selection()
         self._update_label_counts()
-        self._set_train_button_enabled_state()
+        self.set_train_button_enabled_state()
         self._player_widget.reload_frame()
 
     def _set_identities(self, identities: list[str]) -> None:
@@ -982,7 +982,7 @@ class CentralWidget(QtWidgets.QWidget):
             probability_list.append(prediction_prob)
         return prediction_list, probability_list
 
-    def _set_train_button_enabled_state(self) -> None:
+    def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
 
         Sets enabled state of the train button to True or False depending on
@@ -999,7 +999,11 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        if Classifier.label_threshold_met(self._counts, self._controls.kfold_value):
+        if Classifier.label_threshold_met(
+            self._counts,
+            self._controls.kfold_value,
+            self._project.settings_manager.cv_grouping_strategy,
+        ):
             self._controls.train_button_enabled = True
             self.export_training_status_change.emit(True)
         else:
