@@ -169,7 +169,7 @@ class TrainingThread(QThread):
                         CrossValidationResult(
                             iteration=i + 1,
                             test_label=f"{test_info['video']} [{test_info['identity']}]"
-                            if "identity" in test_info
+                            if test_info["identity"] is not None
                             else test_info["video"],
                             accuracy=accuracy,
                             precision_behavior=pr[0][1],

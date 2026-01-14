@@ -723,8 +723,8 @@ class Project:
                 gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
             }
         else:
-            group_mapping: dict[int, dict[str, str]] = {
-                gid: {"video": v} for v, gid in video_to_gid.items()
+            group_mapping: dict[int, dict[str, str | None]] = {
+                gid: {"video": v, "identity": None} for v, gid in video_to_gid.items()
             }
 
         window_df = pd.concat(all_window, join="inner")

@@ -212,7 +212,6 @@ class TestGenerateMarkdownReport:
     def test_report_contains_cv_table(self, sample_training_data):
         """Test that CV results table is included."""
         report = generate_markdown_report(sample_training_data)
-        print("\n--- Markdown Report ---\n", report, "\n--- End Report ---\n")
 
         # Check for table headers
         assert "Iter" in report
@@ -272,7 +271,6 @@ class TestGenerateMarkdownReport:
         """Test that special characters in video names are escaped."""
         sample_training_data.cv_results[0].test_label = "test_video_with_underscores.mp4 [0]"
         report = generate_markdown_report(sample_training_data)
-        print("\n--- Markdown Report ---\n", report, "\n--- End Report ---\n")
         # Tabulate does not preserve markdown escapes, so check for escaped string
         assert "test\\_video\\_with\\_underscores.mp4 \\[0\\]" in report
 

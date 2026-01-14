@@ -85,14 +85,6 @@ class SettingsDialog(QDialog):
         self.adjustSize()
         self.resize(max(self.width(), 600), max(self.height(), 500))
 
-    def _sync_page_width(self) -> None:
-        """Ensure the inner page uses the full scroll viewport width.
-
-        With setWidgetResizable(True), the scroll area automatically resizes the page widget
-        to match the viewport width. This method is kept for compatibility but is mostly a no-op.
-        """
-        pass
-
     def showEvent(self, e: QShowEvent) -> None:
         """Handle the show event.
 
@@ -102,7 +94,6 @@ class SettingsDialog(QDialog):
             e (QShowEvent): The Qt show event.
         """
         super().showEvent(e)
-        self._sync_page_width()
 
     def resizeEvent(self, e: QResizeEvent) -> None:
         """Handle the resize event.
@@ -113,7 +104,6 @@ class SettingsDialog(QDialog):
             e (QResizeEvent): The Qt resize event.
         """
         super().resizeEvent(e)
-        self._sync_page_width()
 
     def _load_settings(self) -> None:
         """Load current settings from the project into all settings groups."""
