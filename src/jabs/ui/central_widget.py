@@ -784,11 +784,6 @@ class CentralWidget(QtWidgets.QWidget):
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
                 )
-                # Ensure dialog is visible (in case it was minimized or hidden)
-                if self._training_report_dialog.isMinimized():
-                    self._training_report_dialog.showNormal()
-                elif not self._training_report_dialog.isVisible():
-                    self._training_report_dialog.show()
 
             else:
                 # No existing dialog - create new one
