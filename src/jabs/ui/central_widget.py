@@ -764,7 +764,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self,
+                    parent=self.parent(),  # Use main window as parent for correct window behavior
                 )
 
                 # Connect to cleanup when dialog is closed
@@ -806,7 +806,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self,
+                    parent=self.parent(),  # Use main window as parent for correct window behavior
                 )
                 # Connect to cleanup when dialog is closed
                 self._training_report_dialog.finished.connect(

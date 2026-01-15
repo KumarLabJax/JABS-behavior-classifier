@@ -32,6 +32,15 @@ class TrainingReportDialog(QDialog):
         self.setWindowTitle(title)
         self.resize(1200, 700)
 
+        # Ensure the window close button is enabled on all platforms
+        # Set window flags to ensure all standard window controls are present and enabled
+        self.setWindowFlags(
+            self.windowFlags()
+            | QtCore.Qt.WindowCloseButtonHint
+            | QtCore.Qt.WindowMinimizeButtonHint
+            | QtCore.Qt.WindowMaximizeButtonHint
+        )
+
         # Store markdown content for copying to clipboard
         self._markdown_content = markdown_content
 
