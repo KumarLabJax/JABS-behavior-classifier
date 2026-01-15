@@ -789,6 +789,7 @@ class CentralWidget(QtWidgets.QWidget):
                     self._training_report_dialog.showNormal()
                 elif not self._training_report_dialog.isVisible():
                     self._training_report_dialog.show()
+
             else:
                 # No existing dialog - create new one
                 self._training_report_dialog = TrainingReportDialog(
@@ -803,11 +804,6 @@ class CentralWidget(QtWidgets.QWidget):
 
                 # Show the dialog
                 self._training_report_dialog.show()
-
-                # Only bring to front and activate if JABS has focus
-                if jabs_app_has_focus:
-                    self._training_report_dialog.raise_()
-                    self._training_report_dialog.activateWindow()
 
             self._training_report_markdown = None  # Clear after displaying
 
