@@ -753,7 +753,8 @@ class CentralWidget(QtWidgets.QWidget):
             jabs_app_has_focus = QApplication.activeWindow() is not None
 
             # If any JABS window has focus and a dialog exists, close it and create new one
-            # This is the only reliable way to switch focus on macOS
+            # This is the only reliable way to switch focus on macOS to ensure the dialog is
+            # brought to the front
             if jabs_app_has_focus and self._training_report_dialog is not None:
                 # Save the old position and size before closing
                 old_geometry = self._training_report_dialog.geometry()
@@ -764,31 +765,18 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self.parent(),  # Use main window as parent for correct window behavior
+                    parent=self.parent(),
                 )
-
-                # Connect to cleanup when dialog is closed
                 self._training_report_dialog.finished.connect(
                     lambda: setattr(self, "_training_report_dialog", None)
                 )
-
-                # Show with aggressive focus-stealing
-                self._training_report_dialog.setWindowFlags(
-                    self._training_report_dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
-                )
                 self._training_report_dialog.show()
-                # Restore geometry AFTER show() to preserve position
                 self._training_report_dialog.setGeometry(old_geometry)
-                # Force processing of events to ensure window system updates
                 QtCore.QCoreApplication.processEvents()
                 self._training_report_dialog.raise_()
                 self._training_report_dialog.activateWindow()
-                # Try to force repaint/update
                 self._training_report_dialog.repaint()
                 QtCore.QCoreApplication.processEvents()
-
-                # Remove stay-on-top flag after a brief delay
-                QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
 
             elif self._training_report_dialog is not None:
                 # JABS doesn't have focus - just update existing dialog quietly
@@ -806,7 +794,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self.parent(),  # Use main window as parent for correct window behavior
+                    parent=self.parent(),
                 )
                 # Connect to cleanup when dialog is closed
                 self._training_report_dialog.finished.connect(
@@ -818,27 +806,10 @@ class CentralWidget(QtWidgets.QWidget):
 
                 # Only bring to front and activate if JABS has focus
                 if jabs_app_has_focus:
-                    # Temporarily set stay-on-top to ensure it appears in front
-                    self._training_report_dialog.setWindowFlags(
-                        self._training_report_dialog.windowFlags()
-                        | Qt.WindowType.WindowStaysOnTopHint
-                    )
-                    self._training_report_dialog.show()  # Need to call show() again after changing flags
                     self._training_report_dialog.raise_()
                     self._training_report_dialog.activateWindow()
 
-                    # Remove stay-on-top flag after a brief delay so user can manage windows normally
-                    QtCore.QTimer.singleShot(100, lambda: self._remove_stay_on_top_flag())
-
             self._training_report_markdown = None  # Clear after displaying
-
-    def _remove_stay_on_top_flag(self):
-        """Remove WindowStaysOnTopHint from training report dialog."""
-        if self._training_report_dialog is not None:
-            self._training_report_dialog.setWindowFlags(
-                self._training_report_dialog.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint
-            )
-            self._training_report_dialog.show()  # Need to call show() again after changing flags
 
     def _training_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the training thread"""
