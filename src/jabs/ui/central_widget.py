@@ -765,7 +765,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self.parent(),
+                    parent=None,
                 )
                 self._training_report_dialog.finished.connect(
                     lambda: setattr(self, "_training_report_dialog", None)
@@ -790,7 +790,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._training_report_dialog = TrainingReportDialog(
                     self._training_report_markdown,
                     title=f"Training Report: {self._controls.current_behavior}",
-                    parent=self.parent(),
+                    parent=None,
                 )
                 # Connect to cleanup when dialog is closed
                 self._training_report_dialog.finished.connect(

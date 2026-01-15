@@ -4,6 +4,7 @@ from textwrap import dedent
 
 import markdown2
 from PySide6 import QtCore
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -36,9 +37,9 @@ class TrainingReportDialog(QDialog):
         # Set window flags to ensure all standard window controls are present and enabled
         self.setWindowFlags(
             self.windowFlags()
-            | QtCore.Qt.WindowCloseButtonHint
-            | QtCore.Qt.WindowMinimizeButtonHint
-            | QtCore.Qt.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
         )
 
         # Store markdown content for copying to clipboard
