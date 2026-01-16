@@ -33,11 +33,14 @@ class MenuReferences:
     window_menu: QtWidgets.QMenu
     open_recent_menu: QtWidgets.QMenu
 
+    # App menu actions
+    settings_action: QtGui.QAction
+    clear_cache: QtGui.QAction
+
     # File menu actions
     export_training: QtGui.QAction
     archive_behavior: QtGui.QAction
     prune_action: QtGui.QAction
-    clear_cache: QtGui.QAction
 
     # View menu actions
     view_playlist: QtGui.QAction
@@ -107,7 +110,7 @@ class MenuBuilder:
         window_menu = menu_bar.addMenu("Window")
 
         # Build each menu
-        self._build_app_menu(app_menu)
+        app_actions = self._build_app_menu(app_menu)
         file_actions = self._build_file_menu(file_menu)
         view_actions = self._build_view_menu(view_menu)
         feature_actions = self._build_feature_menu(feature_menu)
@@ -121,13 +124,13 @@ class MenuBuilder:
             view_menu=view_menu,
             feature_menu=feature_menu,
             window_menu=window_menu,
-            clear_cache=self._clear_cache,
+            **app_actions,
             **file_actions,
             **view_actions,
             **feature_actions,
         )
 
-    def _build_app_menu(self, menu: QtWidgets.QMenu) -> None:
+    def _build_app_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the application menu (About, User Guide, Quit, etc.).
 
         Args:
@@ -138,6 +141,13 @@ class MenuBuilder:
         about_action.setStatusTip("About this application")
         about_action.triggered.connect(self.handlers.show_about_dialog)
         menu.addAction(about_action)
+
+        # Settings action
+        settings_action = QtGui.QAction(" &Project Settings", self.main_window)
+        settings_action.setStatusTip("Open Project Settings")
+        settings_action.triggered.connect(self.handlers.open_project_settings_dialog)
+        settings_action.setEnabled(False)  # Disabled by default, enabled when project is loaded
+        menu.addAction(settings_action)
 
         # User guide action
         user_guide_action = QtGui.QAction(" &User Guide", self.main_window)
@@ -169,11 +179,11 @@ class MenuBuilder:
         menu.addAction(session_tracking_action)
 
         # Clear cache action (store as instance variable for later reference)
-        self._clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)
-        self._clear_cache.setStatusTip("Clear Project Cache")
-        self._clear_cache.setEnabled(False)
-        self._clear_cache.triggered.connect(self.handlers.clear_cache)
-        menu.addAction(self._clear_cache)
+        clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)
+        clear_cache.setStatusTip("Clear Project Cache")
+        clear_cache.setEnabled(False)
+        clear_cache.triggered.connect(self.handlers.clear_cache)
+        menu.addAction(clear_cache)
 
         # Quit action
         exit_action = QtGui.QAction(f" &Quit {self.app_name}", self.main_window)
@@ -181,6 +191,11 @@ class MenuBuilder:
         exit_action.setStatusTip("Exit application")
         exit_action.triggered.connect(QtCore.QCoreApplication.quit)
         menu.addAction(exit_action)
+
+        return {
+            "clear_cache": clear_cache,
+            "settings_action": settings_action,
+        }
 
     def _build_file_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the File menu.

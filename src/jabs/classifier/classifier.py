@@ -17,10 +17,14 @@ from sklearn.metrics import (
     confusion_matrix,
     precision_recall_fscore_support,
 )
-from sklearn.model_selection import LeaveOneGroupOut, train_test_split
+from sklearn.model_selection import LeaveOneGroupOut
 
 from jabs.project import Project, TrackLabels, load_training_data
-from jabs.types import ClassifierType
+from jabs.types import (
+    DEFAULT_CV_GROUPING_STRATEGY,
+    ClassifierType,
+    CrossValidationGroupingStrategy,
+)
 from jabs.utils import hash_file
 
 _VERSION = 10
@@ -199,38 +203,6 @@ class Classifier:
     def feature_names(self) -> list[str] | None:
         """returns the list of feature names used when training this classifier"""
         return self._feature_names
-
-    @staticmethod
-    def train_test_split(per_frame_features, window_features, label_data):
-        """split features and labels into training and test datasets
-
-        Args:
-            per_frame_features: per frame features as returned from IdentityFeatures object, filtered to only include labeled frames
-            window_features: window features as returned from IdentityFeatures object, filtered to only include labeled frames
-            label_data: labels that correspond to the features
-
-        Returns:
-            dictionary of training and test data and labels:
-
-        {
-            'training_data': list of numpy arrays,
-            'test_data': list of numpy arrays,
-            'training_labels': numpy array,
-            'test_labels': numpy_array,
-            'feature_names': list of feature names
-        }
-        """
-        # split labeled data and labels
-        all_features = pd.concat([per_frame_features, window_features], axis=1)
-        x_train, x_test, y_train, y_test = train_test_split(all_features, label_data)
-
-        return {
-            "training_data": x_train,
-            "training_labels": y_train,
-            "test_data": x_test,
-            "test_labels": y_test,
-            "feature_names": all_features.columns.to_list(),
-        }
 
     @staticmethod
     def get_leave_one_group_out_max(labels, groups):
@@ -674,7 +646,10 @@ class Classifier:
             print(f"{feature:100} {importance:0.2f}")
 
     @staticmethod
-    def count_label_threshold(all_counts: dict):
+    def count_label_threshold(
+        all_counts: dict,
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> int:
         """counts the number of groups that meet label threshold criteria
 
         Args:
@@ -705,23 +680,45 @@ class Classifier:
                 }
             }
 
+            cv_grouping_strategy: cross-validation grouping strategy
+
         Returns:
             number of groups that meet label criteria
 
         Note: uses "fragmented" label counts, since these reflect the counts of labels that are usable for training
         """
         group_count = 0
-        for video in all_counts:
-            for identity_count in all_counts[video].values():
+        if cv_grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
+            for video in all_counts:
+                for identity_count in all_counts[video].values():
+                    if (
+                        identity_count["fragmented_frame_counts"][0] >= Classifier.LABEL_THRESHOLD
+                        and identity_count["fragmented_frame_counts"][1]
+                        >= Classifier.LABEL_THRESHOLD
+                    ):
+                        group_count += 1
+        elif cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+            for video in all_counts:
+                behavior_sum = 0
+                not_behavior_sum = 0
+                for identity_count in all_counts[video].values():
+                    behavior_sum += identity_count["fragmented_frame_counts"][0]
+                    not_behavior_sum += identity_count["fragmented_frame_counts"][1]
                 if (
-                    identity_count["fragmented_frame_counts"][0] >= Classifier.LABEL_THRESHOLD
-                    and identity_count["fragmented_frame_counts"][1] >= Classifier.LABEL_THRESHOLD
+                    behavior_sum >= Classifier.LABEL_THRESHOLD
+                    and not_behavior_sum >= Classifier.LABEL_THRESHOLD
                 ):
                     group_count += 1
+        else:
+            raise ValueError(f"Unknown cv_grouping_strategy: {cv_grouping_strategy}")
         return group_count
 
     @staticmethod
-    def label_threshold_met(all_counts: dict, min_groups: int):
+    def label_threshold_met(
+        all_counts: dict,
+        min_groups: int,
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> bool:
         """determine if the labeling threshold is met
 
         Args:
@@ -730,11 +727,14 @@ class Classifier:
             min_groups: minimum number of groups required (more than one
                 group is always required for the "leave one group out" train/test split,
                 but may be more than 2 for k-fold cross validation if k > 2)
+            cv_grouping_strategy: cross-validation grouping strategy
 
         Returns:
             bool if requested valid groups is > valid group
         """
-        group_count = Classifier.count_label_threshold(all_counts)
+        group_count = Classifier.count_label_threshold(
+            all_counts, cv_grouping_strategy=cv_grouping_strategy
+        )
         return 1 < group_count >= min_groups
 
     @staticmethod

@@ -132,8 +132,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menu_handlers = MenuHandlers(self)
 
         # Build all menus using MenuBuilder
-        menu_builder = MenuBuilder(self, app_name, app_name_long)
-        menu_refs = menu_builder.build_menus()
+        self.menu_builder = MenuBuilder(self, app_name, app_name_long)
+        menu_refs = self.menu_builder.build_menus()
 
         # Store references to menus and actions for later use
         self._window_menu = menu_refs.window_menu
@@ -166,6 +166,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_social_features = menu_refs.enable_social_features
         self.enable_landmark_features = menu_refs.enable_landmark_features
         self.enable_segmentation_features = menu_refs.enable_segmentation_features
+        self._settings_action = menu_refs.settings_action
 
         # Update recent projects menu
         self._update_recent_projects()
@@ -379,6 +380,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update which controls should be available
         self._archive_behavior.setEnabled(True)
         self._prune_action.setEnabled(True)
+        self._settings_action.setEnabled(True)
         self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
         self.enable_social_features.setEnabled(
             self._project.feature_manager.can_use_social_features
@@ -517,3 +519,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # This allows for quick exit without hanging
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
+
+    def on_settings_changed(self):
+        """Slot called when project settings are changed via SettingsDialog.
+
+        Called when settings are changed, in case any UI updates are needed.
+        """
+        # changing the settings can affect training thresholds, so the train button state needs to be updated
+        self._central_widget.set_train_button_enabled_state()

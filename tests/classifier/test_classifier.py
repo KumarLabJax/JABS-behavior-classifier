@@ -8,7 +8,7 @@ import pytest
 
 from jabs.classifier.classifier import Classifier
 from jabs.project import TrackLabels
-from jabs.types import ClassifierType
+from jabs.types import ClassifierType, CrossValidationGroupingStrategy
 
 
 @pytest.fixture
@@ -167,26 +167,6 @@ class TestClassifierProperties:
 
 class TestDataSplitting:
     """Test data splitting methods."""
-
-    def test_train_test_split(self, sample_features, sample_labels):
-        """Test train_test_split creates proper splits."""
-        per_frame = sample_features[["feature_1", "feature_2"]]
-        window = sample_features[["feature_3"]]
-
-        result = Classifier.train_test_split(per_frame, window, sample_labels)
-
-        assert "training_data" in result
-        assert "test_data" in result
-        assert "training_labels" in result
-        assert "test_labels" in result
-        assert "feature_names" in result
-
-        # Check that splits sum to original size
-        assert len(result["training_data"]) + len(result["test_data"]) == len(sample_features)
-        assert len(result["training_labels"]) + len(result["test_labels"]) == len(sample_labels)
-
-        # Check feature names
-        assert result["feature_names"] == ["feature_1", "feature_2", "feature_3"]
 
     def test_leave_one_group_out(self, sample_features, sample_labels, sample_groups):
         """Test leave_one_group_out splitting."""
@@ -706,11 +686,93 @@ class TestStaticMethods:
             }
         }
 
-        # Two groups meet threshold, need at least 2
-        assert Classifier.label_threshold_met(all_counts, min_groups=2)
+        # INDIVIDUAL: Two groups meet threshold, need at least 2
+        assert Classifier.label_threshold_met(
+            all_counts,
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+        # INDIVIDUAL: Two groups meet threshold, but need at least 3
+        assert not Classifier.label_threshold_met(
+            all_counts,
+            min_groups=3,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
 
-        # Two groups meet threshold, but need at least 3
-        assert not Classifier.label_threshold_met(all_counts, min_groups=3)
+        # VIDEO: Only one video, should fail for min_groups=1 because we can't split into a train and test set
+        assert not Classifier.label_threshold_met(
+            all_counts, min_groups=1, cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO
+        )
+
+        # Add a second video for VIDEO grouping strategy
+        multi_video_counts = {
+            "video1.avi": {
+                0: {
+                    "fragmented_frame_counts": (25, 25),
+                    "fragmented_bout_counts": (5, 5),
+                    "unfragmented_frame_counts": (25, 25),
+                    "unfragmented_bout_counts": (5, 5),
+                }
+            },
+            "video2.avi": {
+                0: {
+                    "fragmented_frame_counts": (30, 30),
+                    "fragmented_bout_counts": (6, 6),
+                    "unfragmented_frame_counts": (30, 30),
+                    "unfragmented_bout_counts": (6, 6),
+                }
+            },
+        }
+        # VIDEO: Two videos, both meet threshold, min_groups=2 should pass
+        assert Classifier.label_threshold_met(
+            multi_video_counts,
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+        # VIDEO: Two videos, min_groups=3 should fail
+        assert not Classifier.label_threshold_met(
+            multi_video_counts,
+            min_groups=3,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+        # VIDEO: One video below threshold, one above
+        multi_video_counts_below = {
+            "video1.avi": {
+                0: {
+                    "fragmented_frame_counts": (10, 10),
+                    "fragmented_bout_counts": (2, 2),
+                    "unfragmented_frame_counts": (10, 10),
+                    "unfragmented_bout_counts": (2, 2),
+                }
+            },
+            "video2.avi": {
+                0: {
+                    "fragmented_frame_counts": (30, 30),
+                    "fragmented_bout_counts": (6, 6),
+                    "unfragmented_frame_counts": (30, 30),
+                    "unfragmented_bout_counts": (6, 6),
+                }
+            },
+            "video3.avi": {
+                0: {
+                    "fragmented_frame_counts": (30, 30),
+                    "fragmented_bout_counts": (6, 6),
+                    "unfragmented_frame_counts": (30, 30),
+                    "unfragmented_bout_counts": (6, 6),
+                }
+            },
+        }
+        # video2.avi and video3 meet threshold, min_groups=2 should pass
+        assert Classifier.label_threshold_met(
+            multi_video_counts_below,
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+        assert not Classifier.label_threshold_met(
+            multi_video_counts_below,
+            min_groups=3,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
 
 
 class TestFromTrainingFile:

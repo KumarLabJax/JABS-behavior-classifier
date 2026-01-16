@@ -16,7 +16,7 @@ import pandas as pd
 
 import jabs.feature_extraction as fe
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
-from jabs.types import ProjectDistanceUnit
+from jabs.types import CrossValidationGroupingStrategy, ProjectDistanceUnit
 
 from .feature_manager import FeatureManager
 from .parallel_workers import FeatureLoadJobSpec, collect_labeled_features
@@ -590,6 +590,9 @@ class Project:
         behavior_settings = self._settings_manager.get_behavior(behavior)
         videos = list(self._video_manager.videos)
 
+        # get the cross validation grouping strategy from project settings
+        grouping_strategy = self.settings_manager.cv_grouping_strategy
+
         # Early exit if no videos
         if not videos:
             return {
@@ -680,19 +683,32 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        # Build stable group ids: original video order, then identity order as observed
+        # Build stable group ids based on grouping strategy
         key_to_gid: dict[tuple[str, int], int] = {}
+        video_to_gid: dict[str, int] = {}
         gid = 0
-        for v in videos:
-            seen: list[int] = []
-            for video_name, ident in all_group_keys:
-                if video_name == v and ident not in seen:
-                    seen.append(ident)
-            for ident in seen:
-                key = (v, ident)
-                if key not in key_to_gid:
-                    key_to_gid[key] = gid
+        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
+            for v in videos:
+                seen: list[int] = []
+                for video_name, ident in all_group_keys:
+                    if video_name == v and ident not in seen:
+                        seen.append(ident)
+                for ident in seen:
+                    key = (v, ident)
+                    if key not in key_to_gid:
+                        key_to_gid[key] = gid
+                        gid += 1
+        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+            for v in videos:
+                if v not in video_to_gid:
+                    video_to_gid[v] = gid
                     gid += 1
+                for video_name, ident in all_group_keys:
+                    if video_name == v:
+                        key = (v, ident)
+                        key_to_gid[key] = video_to_gid[v]
+        else:
+            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
 
         # groups vector aligned with all_per_frame entries
         groups_list: list[np.ndarray] = [
@@ -701,9 +717,15 @@ class Project:
         ]
         groups = np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
 
-        group_mapping: dict[int, dict[str, int | str]] = {
-            gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
-        }
+        # group_mapping: for INDIVIDUAL, maps gid to (video, identity); for VIDEO, maps gid to video only
+        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
+            group_mapping: dict[int, dict[str, int | str]] = {
+                gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
+            }
+        else:
+            group_mapping: dict[int, dict[str, str | None]] = {
+                gid: {"video": v, "identity": None} for v, gid in video_to_gid.items()
+            }
 
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")

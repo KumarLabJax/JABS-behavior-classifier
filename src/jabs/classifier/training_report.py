@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 from tabulate import tabulate
 
+from jabs.types import CrossValidationGroupingStrategy
+
 
 @dataclass
 class CrossValidationResult:
@@ -14,8 +16,7 @@ class CrossValidationResult:
 
     Attributes:
         iteration: The iteration number (1-indexed)
-        test_video: Name of the video used for testing
-        test_identity: Identity label used for testing
+        test_label: Label of the test grouping (e.g., video filename and possibly identity index)
         accuracy: Classification accuracy (0.0 to 1.0)
         precision_behavior: Precision for behavior class
         precision_not_behavior: Precision for not-behavior class
@@ -29,8 +30,7 @@ class CrossValidationResult:
     """
 
     iteration: int
-    test_video: str
-    test_identity: str
+    test_label: str
     accuracy: float
     precision_behavior: float
     precision_not_behavior: float
@@ -62,6 +62,7 @@ class TrainingReportData:
         bouts_not_behavior: Total number of not-behavior bouts labeled
         training_time_ms: Total training time in milliseconds
         timestamp: Datetime when training was completed
+        cv_grouping_strategy: Strategy used for cross-validation grouping
     """
 
     behavior_name: str
@@ -78,6 +79,7 @@ class TrainingReportData:
     bouts_not_behavior: int
     training_time_ms: int
     timestamp: datetime
+    cv_grouping_strategy: CrossValidationGroupingStrategy
 
 
 def _escape_markdown(text: str) -> str:
@@ -156,12 +158,13 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
         # Detailed results table
         lines.append("### Iteration Details")
+        lines.append(f"CV Grouping Strategy: {data.cv_grouping_strategy.value}")
         lines.append("")
 
         table_data = []
         for result in data.cv_results:
             # Escape markdown special characters in video
-            escaped_video = _escape_markdown(result.test_video)
+            escaped_video = _escape_markdown(result.test_label)
 
             table_data.append(
                 [
@@ -172,7 +175,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
                     f"{result.recall_not_behavior:.4f}",
                     f"{result.recall_behavior:.4f}",
                     f"{result.f1_behavior:.4f}",
-                    f"{escaped_video} [{result.test_identity}]",
+                    f"{escaped_video}",
                 ]
             )
 
@@ -184,7 +187,7 @@ def generate_markdown_report(data: TrainingReportData) -> str:
             "Recall (Not Behavior)",
             "Recall (Behavior)",
             "F1 Score",
-            "Test Group (Video [Identity])",
+            "Test Group",
         ]
 
         table_markdown = tabulate(table_data, headers=headers, tablefmt="github")

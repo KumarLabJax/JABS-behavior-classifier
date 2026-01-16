@@ -22,6 +22,7 @@ from ..behavior_search_dialog import BehaviorSearchDialog
 from ..license_dialog import LicenseAgreementDialog
 from ..player_widget import PlayerWidget
 from ..project_pruning_dialog import ProjectPruningDialog
+from ..settings_dialog import SettingsDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..update_check_dialog import UpdateCheckDialog
 from ..user_guide_dialog import UserGuideDialog
@@ -201,6 +202,12 @@ class MenuHandlers:
             self.window,
         )
         about_dialog.exec()
+
+    def open_project_settings_dialog(self) -> None:
+        """Open the project settings dialog."""
+        settings_dialog = SettingsDialog(self.window._project.settings_manager, self.window)
+        settings_dialog.settings_changed.connect(self.window.on_settings_changed)
+        settings_dialog.exec()
 
     def open_user_guide(self) -> None:
         """Show the user guide document in a separate window."""
