@@ -48,11 +48,11 @@ class CrossValidationSettingsGroup(SettingsGroup):
             <ul>
               <li><b>Individual Animal:</b> Each group represents a single animal identity 
               within a single video. During cross-validation, all labeled data for one 
-              animal from one video is held out for testing while the remaining animals' 
+              animal from one video is held out for validation while the remaining animals' 
               data is used for training.</li>
               
               <li><b>Video:</b> Each group represents a single video recording. During 
-              cross-validation, all labeled data from one video is held out for testing 
+              cross-validation, all labeled data from one video is held out for validation 
               while data from other videos is used for training.</li>
             </ul>
             
