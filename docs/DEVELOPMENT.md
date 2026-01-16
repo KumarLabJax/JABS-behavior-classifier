@@ -698,6 +698,126 @@ Classifiers wrap scikit-learn or XGBoost models:
 
 The GUI uses Qt's signal/slot mechanism for communication between components.
 
+##### MessageDialog - Custom Error/Warning/Info Dialogs
+
+JABS provides a custom `MessageDialog` class for displaying errors, warnings, and informational messages throughout the application. This dialog should be **preferred over PySide6's default dialogs** (`QMessageBox`) for consistency and enhanced functionality.
+
+**Location:** `src/jabs/ui/message_dialog.py`
+
+**Why use MessageDialog instead of QMessageBox?**
+
+1. **Consistent branding**: Matches JABS visual design and theming
+2. **Expandable details**: Supports collapsible stack traces and debug information
+3. **Rich text support**: Messages can include HTML formatting
+4. **Custom icons**: Can display JABS-specific icons with tooltips
+
+**Qt-Style API:**
+
+The MessageDialog follows Qt's classmethod pattern (like `QMessageBox.critical()`):
+
+```python
+from jabs.ui import MessageDialog
+
+# Error dialog
+MessageDialog.error(
+    self,  # parent widget
+    title="Load Error",
+    message="Failed to load the project file.",
+)
+
+# Error with expandable stack trace
+import traceback
+try:
+    load_project(path)
+except Exception as e:
+    MessageDialog.error(
+        self,
+        title="Project Load Error",
+        message=f"An error occurred: {str(e)}",
+        details=traceback.format_exc(),  # Expandable section
+    )
+
+# Warning dialog
+MessageDialog.warning(
+    self,
+    title="Feature Recomputation Required",
+    message="The selected window size has not been used before. Features will be computed during training.",
+)
+
+# Info dialog
+MessageDialog.information(
+    self,
+    title="Success",
+    message="Project loaded successfully!",
+)
+```
+
+**When to use each type:**
+
+- **`MessageDialog.error()`**: Critical errors that prevent operation (file not found, invalid data, exceptions)
+- **`MessageDialog.warning()`**: Non-critical issues that the user should be aware of (performance impacts, missing optional data)
+- **`MessageDialog.information()`**: Successful operations, status updates, helpful tips
+
+**Features:**
+
+1. **Automatic title defaults**: If no title is provided, defaults based on message type ("Error", "Warning", "Information")
+
+2. **Expandable details section**: 
+   - Initially collapsed to keep dialog compact
+   - Toggle button: "▶ Show Details" / "▼ Hide Details"
+   - Monospace font suitable for stack traces and logs
+   - Scrollable if content is long
+
+3. **Rich text messages**:
+   ```python
+   MessageDialog.warning(
+       self,
+       message="Window size <b>60 frames</b> has not been used.<br><br>First training may be slow."
+   )
+   ```
+
+4. **Custom icons with tooltips**:
+   - Icons can display tooltips on hover
+   - Configured in `_get_icon_path()` method
+
+**Migration from QMessageBox:**
+
+**Before:**
+```python
+QMessageBox.critical(self, "Error", "Something went wrong")
+QMessageBox.warning(self, "Warning", "Be careful")
+QMessageBox.information(self, "Info", "Success!")
+```
+
+**After:**
+```python
+MessageDialog.error(self, title="Error", message="Something went wrong")
+MessageDialog.warning(self, title="Warning", message="Be careful")
+MessageDialog.information(self, title="Info", message="Success!")
+```
+
+**Best Practices:**
+
+1. **Always include parent widget**: Pass `self` as first parameter for proper dialog centering and modality
+
+2. **Use details for technical info**: Put user-friendly messages in `message`, technical details (stack traces, debug info) in `details`
+
+3. **Be concise in messages**: Keep main message short and actionable; use `details` for verbose information
+
+4. **Provide context in titles**: Use specific titles like "Project Load Error" instead of just "Error"
+
+5. **Include actionable information**: Tell users what went wrong AND what they can do about it
+
+**Testing MessageDialog:**
+
+A test/demo script is available:
+
+```bash
+python -m jabs.ui.message_dialog
+```
+
+This opens a window with buttons to demonstrate all dialog types.
+
 ### Data Flow
 
 1. **Input**: Video files + Pose estimation HDF5 files
