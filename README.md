@@ -36,15 +36,19 @@ This section describes how to install JABS as an end user. Developers should see
 
 **Note:** The first time you run JABS, it may take a few minutes to initialize. Startup time for subsequent runs will be substantially faster.
 
-### Install with pipx (Recommended)
+### Install with pipx or uv (Recommended)
 
-The easiest way to install JABS is using [pipx](https://pipx.pypa.io/), which installs Python applications in isolated environments:
+The easiest way to install JABS is using [pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/), which install Python applications in isolated environments:
 
 ```bash
+# Using pipx
 pipx install jabs-behavior-classifier
+
+# OR using uv
+uv tool install jabs-behavior-classifier
 ```
 
-This automatically creates a virtual environment and makes the JABS commands available system-wide. After installing with pipx, you can run JABS from any terminal.
+Both commands automatically create a virtual environment and make the JABS commands available system-wide. After installation, you can run JABS from any terminal.
 
 ```bash
 # launch the JABS GUI
@@ -54,9 +58,9 @@ jabs
 jabs-init --help
 ```
 
-### Install with uvx
+### Run with uvx (No Installation Required)
 
-Alternatively, you can use `uvx` to run JABS without installation:
+Alternatively, you can use `uvx` to run JABS without permanently installing it:
 
 ```bash
 uvx --from jabs-behavior-classifier jabs
