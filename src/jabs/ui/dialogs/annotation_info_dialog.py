@@ -14,11 +14,12 @@ from PySide6.QtWidgets import (
 )
 from qt_material_icons import MaterialIcon
 
-from jabs.ui.annotation_edit_dialog import AnnotationEditDialog
 from jabs.ui.util import find_central_widget
 
+from .annotation_edit_dialog import AnnotationEditDialog
+
 if TYPE_CHECKING:
-    from jabs.ui.central_widget import CentralWidget
+    from ..main_window.central_widget import CentralWidget
 
 # Swatch size constant for color display
 SWATCH_SIZE = 20

@@ -7,14 +7,19 @@ This package contains the refactored MainWindow implementation, split into focus
 ```
 main_window/
 ├── __init__.py              # Package interface, re-exports MainWindow
+├── central_widget.py        # Widget managing the main content area of JABS, set as MainWindow's central widget
 ├── constants.py             # Configuration constants and settings keys
 ├── menu_builder.py          # Menu construction logic
 ├── menu_handlers.py         # Menu action callbacks
 ├── main_window.py           # Core MainWindow class
-└── README.md               # This file
+├── README.md                # This file
+└── video_list_widget.py     # Video List Widget, implemented as a dockable widget that can be attached to MainWindow
 ```
 
 ## Module Responsibilities
+
+### `central_widget.py`
+- `CentralWidget` class: Manages the main content area of the JABS Window
 
 ### `constants.py`
 - Application settings keys (e.g., `RECENT_PROJECTS_KEY`, `SESSION_TRACKING_ENABLED_KEY`)
@@ -47,6 +52,9 @@ main_window/
 - Methods that can't be in MenuHandlers (e.g., keyboard shortcuts, Qt sender() limitations)
 
 **When to add here:** Core window functionality, widget initialization, keyboard shortcuts, or methods that need access to Qt's object model.
+
+### `video_list_widget.py`
+- `VideoListWidget` class: Dockable widget for displaying the list of videos in the project. By default, it is docked to the left side of MainWindow. It can dragged to the top or right sides, or floated as a separate window. It can be shown/hidden via the View menu.
 
 ## Design Principles
 

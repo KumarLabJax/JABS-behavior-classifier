@@ -15,17 +15,16 @@ from jabs.classifier import Classifier
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from jabs.types import ClassifierType
-from jabs.ui.search_bar_widget import SearchBarWidget
 
-from .annotation_edit_dialog import AnnotationEditDialog
-from .classification_thread import ClassifyThread
-from .exceptions import ThreadTerminatedError
-from .main_control_widget import MainControlWidget
-from .player_widget import PlayerWidget
-from .progress_dialog import create_cancelable_progress_dialog
-from .stacked_timeline_widget import StackedTimelineWidget
-from .training_report import TrainingReportDialog
-from .training_thread import TrainingThread
+from ..classification_thread import ClassifyThread
+from ..dialogs import AnnotationEditDialog, TrainingReportDialog
+from ..dialogs.progress_dialog import create_cancelable_progress_dialog
+from ..exceptions import ThreadTerminatedError
+from ..main_control_widget import MainControlWidget
+from ..player_widget import PlayerWidget
+from ..search_bar_widget import SearchBarWidget
+from ..stacked_timeline_widget import StackedTimelineWidget
+from ..training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
