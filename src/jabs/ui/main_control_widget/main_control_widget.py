@@ -17,9 +17,7 @@ from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
 from jabs.types import ClassifierType
-from jabs.ui.ear_tag_icons import EarTagIconManager
-
-from .colors import (
+from jabs.ui.colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,
     BEHAVIOR_BUTTON_DISABLED_COLOR,
     BEHAVIOR_COLOR,
@@ -27,6 +25,8 @@ from .colors import (
     NOT_BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR_BRIGHT,
 )
+from jabs.ui.ear_tag_icons import EarTagIconManager
+
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
 

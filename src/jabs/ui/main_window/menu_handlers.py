@@ -16,16 +16,18 @@ from PySide6.QtGui import QAction
 from jabs.project import export_training_data
 from jabs.utils import FINAL_TRAIN_SEED, check_for_update
 
-from ..about_dialog import AboutDialog
-from ..archive_behavior_dialog import ArchiveBehaviorDialog
-from ..behavior_search_dialog import BehaviorSearchDialog
-from ..license_dialog import LicenseAgreementDialog
+from ..dialogs import (
+    AboutDialog,
+    ArchiveBehaviorDialog,
+    BehaviorSearchDialog,
+    LicenseAgreementDialog,
+    ProjectPruningDialog,
+    UpdateCheckDialog,
+    UserGuideDialog,
+)
 from ..player_widget import PlayerWidget
-from ..project_pruning_dialog import ProjectPruningDialog
 from ..settings_dialog import SettingsDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
-from ..update_check_dialog import UpdateCheckDialog
-from ..user_guide_dialog import UserGuideDialog
 from ..util import send_file_to_recycle_bin
 from .constants import SESSION_TRACKING_ENABLED_KEY, USE_NATIVE_FILE_DIALOG
 

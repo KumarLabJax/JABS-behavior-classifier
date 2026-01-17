@@ -9,9 +9,10 @@ import pytest
 try:
     from PySide6.QtWidgets import QApplication
 
-    from jabs.ui.training_report import TrainingReportDialog
+    from jabs.ui.dialogs import TrainingReportDialog
 
     SKIP_UI_TESTS = False
+    SKIP_REASON = None
 except ImportError as e:
     # Qt/PySide6 not available (likely headless environment)
     SKIP_UI_TESTS = True
