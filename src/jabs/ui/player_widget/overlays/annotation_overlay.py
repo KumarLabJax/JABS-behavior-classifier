@@ -3,8 +3,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.ui.dialogs import AnnotationInfoDialog
-
+from ...dialogs import AnnotationInfoDialog
 from .overlay import Overlay
 
 if TYPE_CHECKING:
