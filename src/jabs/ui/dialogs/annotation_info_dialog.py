@@ -19,7 +19,7 @@ from jabs.ui.util import find_central_widget
 from .annotation_edit_dialog import AnnotationEditDialog
 
 if TYPE_CHECKING:
-    from jabs.ui.main_window.central_widget import CentralWidget
+    from ..main_window.central_widget import CentralWidget
 
 # Swatch size constant for color display
 SWATCH_SIZE = 20
