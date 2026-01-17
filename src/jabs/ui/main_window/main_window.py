@@ -6,11 +6,11 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
 
 from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
-from jabs.ui.dialogs.progress_dialog import create_progress_dialog
 from jabs.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
-from ..dialogs.license_dialog import LicenseAgreementDialog
+from ..dialogs import LicenseAgreementDialog
+from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget
 from ..project_loader_thread import ProjectLoaderThread
 from .central_widget import CentralWidget
