@@ -9,12 +9,11 @@ from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
 from jabs.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
-from ..central_widget import CentralWidget
-from ..license_dialog import LicenseAgreementDialog
+from ..dialogs import LicenseAgreementDialog
+from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget
-from ..progress_dialog import create_progress_dialog
 from ..project_loader_thread import ProjectLoaderThread
-from ..video_list_widget import VideoListDockWidget
+from .central_widget import CentralWidget
 from .constants import (
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_WINDOW_WIDTH,
@@ -26,6 +25,7 @@ from .constants import (
 )
 from .menu_builder import MenuBuilder
 from .menu_handlers import MenuHandlers
+from .video_list_widget import VideoListDockWidget
 
 logger = logging.getLogger(__name__)
 

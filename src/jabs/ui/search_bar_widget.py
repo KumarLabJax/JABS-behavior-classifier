@@ -73,7 +73,7 @@ class SearchBarWidget(QtWidgets.QWidget):
 
         layout.addWidget(self.done_button)
 
-        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("SearchBarWidget")
         self.setStyleSheet("""
             #SearchBarWidget {
