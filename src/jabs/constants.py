@@ -15,7 +15,6 @@ COMPRESSION_OPTS_DEFAULT = 6
 CV_GROUPING_KEY = "cv_grouping"
 
 # these are settings keys stored in QSettings for the JABS GUI
-HUGGINGFACE_TOKEN_KEY = "huggingface_token"
 LICENSE_ACCEPTED_KEY = "license_accepted"
 LICENSE_VERSION_KEY = "license_version"
 RECENT_PROJECTS_KEY = "recent_projects"

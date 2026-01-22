@@ -60,7 +60,6 @@ class SettingsGroup(QGroupBox):
         super().__init__(title, parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        # Main vertical layout for the group
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(12, 12, 12, 12)
         self._main_layout.setSpacing(8)
@@ -80,7 +79,7 @@ class SettingsGroup(QGroupBox):
         # Track current row for adding controls
         self._current_row = 0
 
-        # Create controls (subclasses override this)
+        # Create controls (subclasses override this to actually add controls)
         self._create_controls()
 
         # Add horizontal spacer in column 2 for all rows
@@ -96,16 +95,14 @@ class SettingsGroup(QGroupBox):
         # Create optional documentation section
         doc_widget = self._create_documentation()
         if doc_widget is not None:
-            self._help_section = CollapsibleSection("What do these do?", doc_widget, self)
+            self._help_section = CollapsibleSection("More info", doc_widget, self)
             self._help_section.setSizePolicy(
                 QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
             )
             doc_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
-            # Connect size change signal for reflow
+            # connect signals to handle resizing and toggling
             self._help_section.sizeChanged.connect(self._on_help_section_resized)
-
-            # Connect toggle signal to scroll to section when expanded
             self._help_section.toggled.connect(self._on_help_toggled)
 
             self._main_layout.addWidget(self._help_section)

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.constants import SESSION_TRACKING_ENABLED_KEY
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 
 from ..player_widget import PlayerWidget
@@ -142,7 +141,13 @@ class MenuBuilder:
         about_action.triggered.connect(self.handlers.show_about_dialog)
         menu.addAction(about_action)
 
-        # Settings action
+        # JABS APP settings actions
+        settings_action = QtGui.QAction(" JABS Preferences", self.main_window)
+        settings_action.setStatusTip("Open JABS App Preferences Dialog")
+        settings_action.triggered.connect(self.handlers.open_app_settings_dialog)
+        menu.addAction(settings_action)
+
+        # Project settings action
         settings_action = QtGui.QAction(" &Project Settings", self.main_window)
         settings_action.setStatusTip("Open Project Settings")
         settings_action.triggered.connect(self.handlers.open_project_settings_dialog)
@@ -167,16 +172,6 @@ class MenuBuilder:
         license_action.setStatusTip("View License Agreement")
         license_action.triggered.connect(self.handlers.show_license_dialog)
         menu.addAction(license_action)
-
-        # Session tracking toggle
-        session_tracking_action = QtGui.QAction("Enable Session Tracking", self.main_window)
-        session_tracking_action.setStatusTip("Enable or disable session tracking")
-        session_tracking_action.setCheckable(True)
-        session_tracking_action.triggered.connect(self.handlers.on_session_tracking_triggered)
-        session_tracking_action.setChecked(
-            self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
-        )
-        menu.addAction(session_tracking_action)
 
         # Clear cache action (store as instance variable for later reference)
         clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)

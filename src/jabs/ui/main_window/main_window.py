@@ -16,7 +16,7 @@ from jabs.constants import (
 from jabs.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
-from ..dialogs import LicenseAgreementDialog
+from ..dialogs import LicenseAgreementDialog, MessageDialog
 from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget
 from ..project_loader_thread import ProjectLoaderThread
@@ -526,3 +526,27 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         # changing the settings can affect training thresholds, so the train button state needs to be updated
         self._central_widget.set_train_button_enabled_state()
+
+    def on_app_settings_changed(self) -> None:
+        """Slot called when application settings are changed via JabsSettingsDialog.
+
+        Called when settings are saved, in case any UI updates are needed.
+        """
+        if self._project is not None:
+            # check to see if the session tracking setting has changed
+            session_tracking_enabled = bool(
+                self._settings.value(SESSION_TRACKING_ENABLED_KEY, False, type=bool)
+            )
+            if self._project.session_tracker.enabled != session_tracking_enabled:
+                if session_tracking_enabled:
+                    # if a project is already loaded and user is enabling session tracking,
+                    # they need to open the project again to enable session tracking.
+                    MessageDialog.warning(
+                        self,
+                        "Session Tracking Enabled",
+                        "Session Tracking Enabled: Please reopen the project to start tracking for the current project.",
+                    )
+                else:
+                    # if session tracking was just disabled, we stop logging new events
+                    # unlike starting session tracking, we can just disable it on the fly
+                    self._project.session_tracker.enabled = False

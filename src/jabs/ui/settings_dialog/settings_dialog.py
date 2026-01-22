@@ -17,6 +17,7 @@ from jabs.constants import APP_NAME, ORG_NAME
 from jabs.project.settings_manager import SettingsManager
 
 from .cross_validation_settings_group import CrossValidationSettingsGroup
+from .session_tracking_group import SessionTrackingSettingsGroup
 
 
 class BaseSettingsDialog(QDialog):
@@ -99,7 +100,7 @@ class BaseSettingsDialog(QDialog):
         self.adjustSize()
         self.resize(max(self.width(), 600), max(self.height(), 500))
 
-    def _create_settings_groups(self, page: QWidget, page_layout: QVBoxLayout) -> None:
+    def _create_settings_groups(self, parent: QWidget, layout: QVBoxLayout) -> None:
         """Create and add settings groups to the page.
 
         Subclasses must override this method and append created groups to `self._settings_groups`.
@@ -119,26 +120,26 @@ class BaseSettingsDialog(QDialog):
         except Exception:
             pass
 
-    def showEvent(self, e: QShowEvent) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         """Handle the show event.
 
         Ensures the settings page width is synchronized with the viewport when the dialog is first shown.
 
         Args:
-            e (QShowEvent): The Qt show event.
+            event (QShowEvent): The Qt show event.
         """
-        super().showEvent(e)
+        super().showEvent(event)
         self._sync_page_width()
 
-    def resizeEvent(self, e: QResizeEvent) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """Handle the resize event.
 
         Ensures the settings page width matches the viewport width when the dialog is resized.
 
         Args:
-            e (QResizeEvent): The Qt resize event.
+            event (QResizeEvent): The Qt resize event.
         """
-        super().resizeEvent(e)
+        super().resizeEvent(event)
         self._sync_page_width()
 
     def _load_settings(self) -> None:
@@ -187,12 +188,12 @@ class ProjectSettingsDialog(BaseSettingsDialog):
             settings_manager=settings_manager, title="Project Settings", parent=parent
         )
 
-    def _create_settings_groups(self, page: QWidget, page_layout: QVBoxLayout) -> None:
+    def _create_settings_groups(self, parent: QWidget, layout: QVBoxLayout) -> None:
         # Add settings groups here
-        cv_group = CrossValidationSettingsGroup(page)
+        cv_group = CrossValidationSettingsGroup(parent)
         self._settings_groups.append(cv_group)
-        page_layout.addWidget(cv_group)
-        page_layout.setAlignment(cv_group, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(cv_group)
+        layout.setAlignment(cv_group, Qt.AlignmentFlag.AlignTop)
 
 
 class JabsSettingsDialog(BaseSettingsDialog):
@@ -202,12 +203,17 @@ class JabsSettingsDialog(BaseSettingsDialog):
         self._settings = QtCore.QSettings(ORG_NAME, APP_NAME)
         super().__init__(settings_manager=None, title="JABS Settings", parent=parent)
 
-    def _create_settings_groups(self, page: QWidget, page_layout: QVBoxLayout) -> None:
+    def _create_settings_groups(self, parent: QWidget, layout: QVBoxLayout) -> None:
         """Create the settings groups for the dialog.
 
-        Currently, this is a placeholder since we don't have any app settings yet
+        Args:
+            parent (QWidget): Parent widget for the settings groups.
+            layout (QVBoxLayout): Layout to add the settings groups to.
         """
-        pass
+        session_tracking_settings = SessionTrackingSettingsGroup(parent)
+        self._settings_groups.append(session_tracking_settings)
+        layout.addWidget(session_tracking_settings)
+        layout.setAlignment(session_tracking_settings, Qt.AlignmentFlag.AlignTop)
 
     def _load_settings(self) -> None:
         """Load current settings from QSettings into all settings groups."""

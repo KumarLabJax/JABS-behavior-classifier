@@ -13,7 +13,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
-from jabs.constants import FINAL_TRAIN_SEED, SESSION_TRACKING_ENABLED_KEY
+from jabs.constants import FINAL_TRAIN_SEED
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
@@ -22,12 +22,14 @@ from ..dialogs import (
     ArchiveBehaviorDialog,
     BehaviorSearchDialog,
     LicenseAgreementDialog,
+    MessageDialog,
     ProjectPruningDialog,
     UpdateCheckDialog,
     UserGuideDialog,
 )
 from ..player_widget import PlayerWidget
 from ..settings_dialog import ProjectSettingsDialog
+from ..settings_dialog.settings_dialog import JabsSettingsDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
@@ -91,7 +93,7 @@ class MenuHandlers:
         """Export training data for the current classifier."""
         if not self.window._central_widget.classify_button_enabled:
             # Classify button disabled, don't allow exporting training data
-            QtWidgets.QMessageBox.warning(
+            MessageDialog.warning(
                 self.window,
                 "Unable to export training data",
                 "Classifier has not been trained, or classifier parameters "
@@ -136,7 +138,7 @@ class MenuHandlers:
 
             # Don't let the user remove all videos from the project
             if len(videos_to_prune) == len(self.window._project.video_manager.videos):
-                QtWidgets.QMessageBox.critical(
+                MessageDialog.error(
                     self.window,
                     "All Videos Selected",
                     "ERROR: This action would remove all videos from the project.",
@@ -212,6 +214,15 @@ class MenuHandlers:
         settings_dialog.settings_changed.connect(self.window.on_project_settings_changed)
         settings_dialog.exec()
 
+    def open_app_settings_dialog(self) -> None:
+        """Open the application settings dialog.
+
+        Unlike project settings, these persist across projects and pertain to the behavior of the application itself.
+        """
+        settings_dialog = JabsSettingsDialog(self.window)
+        settings_dialog.settings_changed.connect(self.window.on_app_settings_changed)
+        settings_dialog.exec()
+
     def open_user_guide(self) -> None:
         """Show the user guide document in a separate window."""
         if self.window._user_guide_window is None:
@@ -264,26 +275,6 @@ class MenuHandlers:
         """View the license agreement (JABS→View License Agreement menu action)."""
         dialog = LicenseAgreementDialog(self.window, view_only=True)
         dialog.exec_()
-
-    def on_session_tracking_triggered(self, checked: bool) -> None:
-        """Handle session tracking toggle.
-
-        Args:
-            checked: Whether session tracking is enabled
-        """
-        self.window._settings.setValue(SESSION_TRACKING_ENABLED_KEY, checked)
-        if self.window._project:
-            if checked:
-                # if a project is already loaded and user is enabling session tracking,
-                # they need to open the project again to enable session tracking.
-                QtWidgets.QMessageBox.warning(
-                    self.window,
-                    "Session Tracking Enabled",
-                    "Session Tracking Enabled: Please reopen the project to start tracking.",
-                )
-            else:
-                # if session tracking was just disabled, we stop logging new events
-                self.window._project.session_tracker.enabled = False
 
     # ========== View Menu Handlers ==========
 
