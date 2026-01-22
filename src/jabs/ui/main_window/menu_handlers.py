@@ -28,8 +28,7 @@ from ..dialogs import (
     UserGuideDialog,
 )
 from ..player_widget import PlayerWidget
-from ..settings_dialog import ProjectSettingsDialog
-from ..settings_dialog.settings_dialog import JabsSettingsDialog
+from ..settings_dialog import JabsSettingsDialog, ProjectSettingsDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
