@@ -13,8 +13,9 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
+from jabs.constants import FINAL_TRAIN_SEED, SESSION_TRACKING_ENABLED_KEY
 from jabs.project import export_training_data
-from jabs.utils import FINAL_TRAIN_SEED, check_for_update
+from jabs.utils import check_for_update
 
 from ..dialogs import (
     AboutDialog,
@@ -26,10 +27,10 @@ from ..dialogs import (
     UserGuideDialog,
 )
 from ..player_widget import PlayerWidget
-from ..settings_dialog import SettingsDialog
+from ..settings_dialog import ProjectSettingsDialog
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
-from .constants import SESSION_TRACKING_ENABLED_KEY, USE_NATIVE_FILE_DIALOG
+from .constants import USE_NATIVE_FILE_DIALOG
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -207,8 +208,8 @@ class MenuHandlers:
 
     def open_project_settings_dialog(self) -> None:
         """Open the project settings dialog."""
-        settings_dialog = SettingsDialog(self.window._project.settings_manager, self.window)
-        settings_dialog.settings_changed.connect(self.window.on_settings_changed)
+        settings_dialog = ProjectSettingsDialog(self.window._project.settings_manager, self.window)
+        settings_dialog.settings_changed.connect(self.window.on_project_settings_changed)
         settings_dialog.exec()
 
     def open_user_guide(self) -> None:

@@ -2,7 +2,7 @@ import json
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.constants import SETTINGS_CV_GROUPING
+from jabs.constants import CV_GROUPING_KEY
 from jabs.types.cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
 from jabs.version import version_str
 
@@ -93,7 +93,7 @@ class SettingsManager:
             CrossValidationGroupingStrategy: The CV grouping strategy.
         """
         grouping_str = self._project_info.get("settings", {}).get(
-            SETTINGS_CV_GROUPING, DEFAULT_CV_GROUPING_STRATEGY.value
+            CV_GROUPING_KEY, DEFAULT_CV_GROUPING_STRATEGY.value
         )
         try:
             return CrossValidationGroupingStrategy(grouping_str)

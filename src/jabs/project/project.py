@@ -104,14 +104,6 @@ class Project:
         # the session tracker.
         self._session_tracker.start_session()
 
-    def _ensure_executor(self) -> "ProcessPoolManager | None":
-        """Return the shared application-level ProcessPoolManager, or None if running single-threaded."""
-        return self._process_pool
-
-    def shutdown_executor(self) -> None:
-        """No-op: executor is owned by the application, not individual projects."""
-        pass
-
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
         err = False
@@ -619,7 +611,7 @@ class Project:
             }
             jobs.append(job)
 
-        executor = self._ensure_executor()
+        executor = self._process_pool
         results_by_video: dict[str, dict] = {}
 
         if executor is not None:

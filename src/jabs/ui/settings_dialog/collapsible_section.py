@@ -7,6 +7,7 @@ class CollapsibleSection(QWidget):
     """A collapsible section with a header ToolButton and a content area.
 
     This widget is used by SettingsGroup to provide inline documentation that is collapsed (hidden) by default.
+    The parent dialog's scroll area will handle scrolling when expanded.
     """
 
     sizeChanged = Signal()
@@ -28,10 +29,11 @@ class CollapsibleSection(QWidget):
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
 
-        self._content.setVisible(False)
-        # Ensure the collapsible widget and its content expand to fit content
+        # Set size policies to allow vertical expansion
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self._content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+        self._content.setVisible(False)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)

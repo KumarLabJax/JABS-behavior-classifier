@@ -1,29 +1,37 @@
 # Settings Dialog Package
 
-This package contains the JABS project settings dialog and related components.
+This package contains the JABS project settings dialogs and related components.
 
 ## Overview
 
-The settings dialog is built using a modular architecture where different groups of related settings can be added as separate `SettingsGroup` subclasses. Each group has:
+The settings dialogs are built using a modular architecture where different groups of related settings can be added as separate `SettingsGroup` subclasses. Each dialog type is specialized for a particular context:
+
+- **`BaseSettingsDialog`**: Abstract base class for settings dialogs.
+- **`ProjectSettingsDialog`**: Dialog for editing project-specific settings.
+- **`JabsSettingsDialog`**: Dialog for editing global JABS application settings.
+
+Each settings dialog can host multiple settings groups, and each group has:
 
 - A form-style grid layout for controls
 - An optional collapsible documentation section
-- Methods to get/set values from the project settings
+- Methods to get/set values from the relevant settings manager
 
 ## Architecture
 
 ### Key Components
 
-- **`SettingsDialog`** - Main dialog that hosts all settings groups in a scrollable area
+- **`BaseSettingsDialog`** - Abstract base dialog that provides the common structure for settings dialogs
+- **`ProjectSettingsDialog`** - Dialog for project-level settings
+- **`JabsSettingsDialog`** - Dialog for global JABS settings
 - **`SettingsGroup`** - Base class for creating settings groups with controls and documentation
 - **`CollapsibleSection`** - Reusable widget for collapsible help/documentation sections
 
 ### How It Works
 
-1. The `SettingsDialog` creates a scrollable page that hosts multiple `SettingsGroup` instances
+1. The settings dialog creates a scrollable page that hosts multiple `SettingsGroup` instances
 2. Each `SettingsGroup` manages its own controls and documentation
-3. When the dialog opens, it loads current values from the project's `SettingsManager`
-4. When the user clicks "Save", all groups' values are collected and saved to the project
+3. When the dialog opens, it loads current values from the appropriate settings manager (project or global)
+4. When the user clicks "Save", all groups' values are collected and saved
 
 ## Creating a New Settings Group
 
@@ -35,7 +43,6 @@ To add a new group of settings:
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QSpinBox, QSizePolicy
 from .settings_group import SettingsGroup
-
 
 class MySettingsGroup(SettingsGroup):
     """Settings group for my feature."""
@@ -122,14 +129,14 @@ def set_values(self, values: dict) -> None:
     self._iterations.setValue(values.get("my_iterations", 10))
 ```
 
-### 5. Add your group to the SettingsDialog
+### 5. Add your group to the appropriate settings dialog
 
-Edit `settings_dialog.py`:
+Edit `project_settings_dialog.py` or `jabs_settings_dialog.py` as appropriate:
 
 ```python
 from .my_settings_group import MySettingsGroup
 
-class SettingsDialog(QDialog):
+class ProjectSettingsDialog(BaseSettingsDialog):
     def __init__(self, settings_manager: SettingsManager, parent: QWidget | None = None):
         # ... existing code ...
         
@@ -160,5 +167,4 @@ settings_dialog/
 └── README.md                      # This file
 ```
 
-Add new settings groups as separate files in this directory, then import and instantiate them in `settings_dialog.py`.
-
+Add new settings groups as separate files in this directory, then import and instantiate them in the appropriate settings dialog.

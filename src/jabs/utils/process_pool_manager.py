@@ -10,6 +10,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+MAX_POOL_WORKERS = 6
+
 
 def _noop() -> None:
     """No-op function for warming up worker processes.
@@ -54,7 +56,8 @@ class ProcessPoolManager:
         name: str = "ProcessPoolManager",
     ) -> None:
         logger.debug(f"PPM __init__ name={name} id={id(self)}")
-        self._max_workers: int = max(1, (max_workers or (os.cpu_count() or 1)))
+        requested_workers = max_workers or (os.cpu_count() or 1)
+        self._max_workers: int = max(1, min(requested_workers, MAX_POOL_WORKERS))
         self._initializer = initializer
         self._initargs = initargs
         self._name = name

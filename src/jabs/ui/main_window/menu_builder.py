@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from jabs.constants import SESSION_TRACKING_ENABLED_KEY
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 
 from ..player_widget import PlayerWidget
-from .constants import SESSION_TRACKING_ENABLED_KEY
 
 if TYPE_CHECKING:
     from .main_window import MainWindow

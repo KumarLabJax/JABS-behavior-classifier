@@ -5,7 +5,14 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
 
-from jabs.constants import ORG_NAME, RECENT_PROJECTS_MAX
+from jabs.constants import (
+    LICENSE_ACCEPTED_KEY,
+    LICENSE_VERSION_KEY,
+    ORG_NAME,
+    RECENT_PROJECTS_KEY,
+    SESSION_TRACKING_ENABLED_KEY,
+    WINDOW_SIZE_KEY,
+)
 from jabs.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
@@ -14,15 +21,7 @@ from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget
 from ..project_loader_thread import ProjectLoaderThread
 from .central_widget import CentralWidget
-from .constants import (
-    DEFAULT_WINDOW_HEIGHT,
-    DEFAULT_WINDOW_WIDTH,
-    LICENSE_ACCEPTED_KEY,
-    LICENSE_VERSION_KEY,
-    RECENT_PROJECTS_KEY,
-    SESSION_TRACKING_ENABLED_KEY,
-    WINDOW_SIZE_KEY,
-)
+from .constants import DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, RECENT_PROJECTS_MAX
 from .menu_builder import MenuBuilder
 from .menu_handlers import MenuHandlers
 from .video_list_widget import VideoListDockWidget
@@ -83,6 +82,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._settings = QtCore.QSettings(ORG_NAME, app_name)
+        self._set_hf_token()
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget(self)
@@ -100,7 +101,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog = None
         self._pool_warm_thread = None
         self._user_guide_window = None
-        self._settings = QtCore.QSettings(ORG_NAME, app_name)
         self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
 
         # Create application-level process pool that will be shared across all projects
@@ -520,8 +520,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
 
-    def on_settings_changed(self):
-        """Slot called when project settings are changed via SettingsDialog.
+    def on_project_settings_changed(self) -> None:
+        """Slot called when project settings are changed via ProjectSettingsDialog.
 
         Called when settings are changed, in case any UI updates are needed.
         """

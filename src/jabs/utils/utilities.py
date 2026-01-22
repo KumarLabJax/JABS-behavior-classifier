@@ -2,14 +2,16 @@ import hashlib
 import math
 import os
 import sys
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 
 @contextmanager
-def hide_stderr() -> int:
+def hide_stderr() -> Generator[int, Any, None]:
     """Context manager to temporarily suppress output to standard error (stderr).
 
     Redirects all output sent to stderr to os.devnull while the context is active,

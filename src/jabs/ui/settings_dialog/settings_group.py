@@ -180,16 +180,46 @@ class SettingsGroup(QGroupBox):
     def _on_help_section_resized(self) -> None:
         """Handle help section size changes to trigger parent layout updates.
 
-        With the scroll area's setWidgetResizable(True), the layout system
-        automatically handles size changes without needing explicit adjustSize calls.
-        We just need to activate the layout to reflow content.
+        Recomputes sizes so the group grows to fit all help content;
+        scrolling is handled by the parent dialog.
         """
-        # Just activate layouts without calling adjustSize to avoid shrinking
+        if self._help_section is None:
+            return
+
+        # Get the help section's content widget
+        help_content = self._help_section._content
+        if help_content is not None:
+            help_content.adjustSize()
+
+        # Adjust sizes up the hierarchy
+        self._help_section.adjustSize()
+        self.adjustSize()
+
+        # Find and adjust the page widget
         parent = self.parentWidget()
         if parent is not None:
+            parent.adjustSize()
             parent_layout = parent.layout()
             if parent_layout is not None:
                 parent_layout.activate()
+            parent.adjustSize()
+
+            # Sync page width if we can find the dialog
+            # Defer this slightly to ensure scrollbar has appeared/disappeared before syncing width
+            dialog = self._find_parent_dialog()
+            if dialog is not None and hasattr(dialog, "_sync_page_width"):
+                QTimer.singleShot(0, dialog._sync_page_width)
+
+    def _find_parent_dialog(self):
+        """Find the parent BaseSettingsDialog if one exists."""
+        from .settings_dialog import BaseSettingsDialog
+
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, BaseSettingsDialog):
+                return parent
+            parent = parent.parentWidget()
+        return None
 
     def _on_help_toggled(self, checked: bool) -> None:
         """
