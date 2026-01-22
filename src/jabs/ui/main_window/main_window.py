@@ -83,7 +83,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, app_name: str, app_name_long: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._settings = QtCore.QSettings(ORG_NAME, app_name)
-        self._set_hf_token()
 
         self.setWindowTitle(f"{app_name_long} {version_str()}")
         self._central_widget = CentralWidget(self)
