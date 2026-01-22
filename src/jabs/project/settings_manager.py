@@ -3,7 +3,7 @@ import typing
 
 import jabs.feature_extraction as feature_extraction
 from jabs.constants import CV_GROUPING_KEY
-from jabs.types.cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
+from jabs.enums.cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
 from jabs.version import version_str
 
 if typing.TYPE_CHECKING:

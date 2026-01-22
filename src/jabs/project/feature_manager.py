@@ -1,4 +1,5 @@
 import jabs.feature_extraction as feature_extraction
+from jabs.enums import ProjectDistanceUnit
 from jabs.pose_estimation import (
     PoseEstimation,
     get_points_per_lixit,
@@ -6,7 +7,6 @@ from jabs.pose_estimation import (
     get_pose_path,
     get_static_objects_in_file,
 )
-from jabs.types import ProjectDistanceUnit
 
 from .project_paths import ProjectPaths
 from .video_manager import VideoManager

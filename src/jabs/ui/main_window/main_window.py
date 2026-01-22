@@ -5,17 +5,17 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
 
-from jabs.constants import (
+from jabs.constants import ORG_NAME
+from jabs.utils.process_pool_manager import ProcessPoolManager
+from jabs.version import version_str
+
+from ..constants import (
     LICENSE_ACCEPTED_KEY,
     LICENSE_VERSION_KEY,
-    ORG_NAME,
     RECENT_PROJECTS_KEY,
     SESSION_TRACKING_ENABLED_KEY,
     WINDOW_SIZE_KEY,
 )
-from jabs.utils.process_pool_manager import ProcessPoolManager
-from jabs.version import version_str
-
 from ..dialogs import LicenseAgreementDialog, MessageDialog
 from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget

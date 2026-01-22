@@ -14,8 +14,8 @@ from jabs.project.project_utils import to_safe_name
 # TYPE_CHECKING is always false at runtime, so this gets around that
 # also requires enclosing Project and Classifier type hints in quotes
 if TYPE_CHECKING:
+    from jabs.enums import ClassifierType
     from jabs.project import Project
-    from jabs.types import ClassifierType
 
 
 def export_training_data(

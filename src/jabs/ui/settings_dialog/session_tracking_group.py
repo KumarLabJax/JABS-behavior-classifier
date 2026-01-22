@@ -1,8 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QLabel, QSizePolicy
 
-from jabs.constants import SESSION_TRACKING_ENABLED_KEY
-
+from ..constants import SESSION_TRACKING_ENABLED_KEY
 from .settings_group import SettingsGroup
 
 

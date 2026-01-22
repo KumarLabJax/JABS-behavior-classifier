@@ -13,8 +13,8 @@ import click
 from rich.console import Console
 
 from jabs.classifier import Classifier
+from jabs.enums import ClassifierType
 from jabs.project import Project, export_training_data, get_videos_to_prune
-from jabs.types import ClassifierType
 
 # find out which classifiers are supported in this environment
 CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()

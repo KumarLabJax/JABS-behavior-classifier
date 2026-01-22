@@ -13,10 +13,3 @@ COMPRESSION_OPTS_DEFAULT = 6
 
 # settings keys for project settings stored in the project.json file
 CV_GROUPING_KEY = "cv_grouping"
-
-# these are settings keys stored in QSettings for the JABS GUI
-LICENSE_ACCEPTED_KEY = "license_accepted"
-LICENSE_VERSION_KEY = "license_version"
-RECENT_PROJECTS_KEY = "recent_projects"
-SESSION_TRACKING_ENABLED_KEY = "session_tracking_enabled"
-WINDOW_SIZE_KEY = "main_window_size"
