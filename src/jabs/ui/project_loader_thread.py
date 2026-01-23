@@ -1,7 +1,7 @@
 from PySide6.QtCore import QThread, Signal, SignalInstance
 
-from jabs.project import Project
 from jabs.core.utils.process_pool_manager import ProcessPoolManager
+from jabs.project import Project
 
 
 class ProjectLoaderThread(QThread):

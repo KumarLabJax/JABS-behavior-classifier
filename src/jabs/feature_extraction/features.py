@@ -7,7 +7,7 @@ import pandas as pd
 
 import jabs.project.track_labels
 from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
-from jabs.core.exceptions import FeatureVersionException, DistanceScaleException
+from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup

@@ -6,8 +6,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.version import version_str
 from jabs.core.exceptions import MissingBehaviorError
+from jabs.version import version_str
 
 from .project_utils import to_safe_name
 

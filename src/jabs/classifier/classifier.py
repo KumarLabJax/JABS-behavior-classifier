@@ -24,8 +24,8 @@ from jabs.core.enums import (
     ClassifierType,
     CrossValidationGroupingStrategy,
 )
-from jabs.project import Project, TrackLabels, load_training_data
 from jabs.core.utils import hash_file
+from jabs.project import Project, TrackLabels, load_training_data
 
 _VERSION = 10
 

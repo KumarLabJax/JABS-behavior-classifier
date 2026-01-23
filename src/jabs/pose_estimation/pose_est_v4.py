@@ -3,11 +3,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
-from jabs.core.exceptions import PoseIdEmbeddingException
-
-from jabs.core.abstract.pose_est import PoseEstimation, MINIMUM_CONFIDENCE
-from jabs.core.exceptions import PoseHashException
+from jabs.core.exceptions import PoseHashException, PoseIdEmbeddingException
 
 
 class _CacheFileVersion(Exception):

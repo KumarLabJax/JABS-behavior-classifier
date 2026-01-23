@@ -3,9 +3,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PySide6 import QtCore, QtGui
 
+from jabs.core.utils.pose_util import gen_line_fragments
 from jabs.pose_estimation import PoseEstimation
 from jabs.ui.colors import KEYPOINT_COLOR_MAP
-from jabs.core.utils.pose_util import gen_line_fragments
 
 from .overlay import Overlay
 
