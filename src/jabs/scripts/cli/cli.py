@@ -287,6 +287,12 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     type=click.Choice([c.name for c in CLASSIFIER_CHOICES], case_sensitive=False),
     help="Default classifier set in the training file. Default is 'xgboost'.",
 )
+@click.option(
+    "--report-file",
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+    default=None,
+    help="Optional path to write the cross-validation markdown report. If not provided, a default filename will be used.",
+)
 @click.pass_context
 def cross_validation(
     ctx: click.Context,
@@ -295,6 +301,7 @@ def cross_validation(
     k: int,
     grouping_strategy: str | None,
     classifier: str,
+    report_file: Path | None,
 ):
     """Run leave-one-group-out cross-validation for a JABS project."""
     if grouping_strategy and grouping_strategy.lower() == "video":
@@ -306,7 +313,7 @@ def cross_validation(
 
     try:
         classifier_type = ClassifierType[classifier.upper()]
-        run_cross_validation(directory, behavior, classifier_type, cv_grouping, k)
+        run_cross_validation(directory, behavior, classifier_type, cv_grouping, k, report_file)
     except Exception as e:
         raise click.ClickException(str(e)) from e
 

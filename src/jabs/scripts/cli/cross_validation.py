@@ -26,6 +26,7 @@ def run_cross_validation(
     classifier_type: ClassifierType,
     grouping_strategy: CrossValidationGroupingStrategy | None,
     k: int,
+    report_file: Path | None = None,
 ) -> None:
     """Run cross-validation for a JABS project from the command line.
 
@@ -38,6 +39,7 @@ def run_cross_validation(
         grouping_strategy (CrossValidationGroupingStrategy): Grouping strategy for cross-validation.
          If None, uses project settings.
         k (int): Number of cross-validation splits. Use 0 for max splits.
+        report_file (Path | None): Path to save the training report markdown file.
     """
     if k < 0:
         raise ValueError("The number of cross-validation splits 'k' must be non-negative.")
@@ -194,7 +196,9 @@ def run_cross_validation(
     )
 
     # Save markdown report
-    timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
-    report_filename = Path(f"{behavior}_{timestamp_str}_training_report.md")
-    save_training_report(training_data, report_filename)
-    console.print(f"\nTraining report saved to: {report_filename}", style="bold green")
+    if report_file is None:
+        timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
+        report_file = Path(f"{behavior}_{timestamp_str}_training_report.md")
+
+    save_training_report(training_data, report_file)
+    console.print(f"\nTraining report saved to: {report_file}", style="bold green")
