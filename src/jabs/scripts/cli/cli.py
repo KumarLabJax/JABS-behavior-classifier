@@ -13,8 +13,10 @@ import click
 from rich.console import Console
 
 from jabs.classifier import Classifier
-from jabs.enums import ClassifierType
+from jabs.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import Project, export_training_data, get_videos_to_prune
+
+from .cross_validation import run_cross_validation
 
 # find out which classifiers are supported in this environment
 CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
@@ -23,7 +25,7 @@ CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
 @click.group(context_settings={"max_content_width": 120})
 @click.option("--verbose", is_flag=True, help="Enable verbose output.")
 @click.pass_context
-def cli(ctx, verbose):
+def cli(ctx: click.Context, verbose):
     """JABS CLI."""
     ctx.ensure_object(dict)
     ctx.obj["VERBOSE"] = verbose
@@ -48,7 +50,9 @@ def cli(ctx, verbose):
 @click.option(
     "--classifier",
     "classifier",
-    default="xgboost",
+    default="xgboost"
+    if ClassifierType.XGBOOST in CLASSIFIER_CHOICES
+    else ClassifierType.RANDOM_FOREST.name.lower(),
     type=click.Choice([c.name for c in CLASSIFIER_CHOICES], case_sensitive=False),
     help="Default classifier set in the training file. Default is 'xgboost'.",
 )
@@ -62,7 +66,9 @@ def cli(ctx, verbose):
     ),
 )
 @click.pass_context
-def export_training(ctx, directory: Path, behavior: str, classifier: str, outfile: Path | None):
+def export_training(
+    ctx: click.Context, directory: Path, behavior: str, classifier: str, outfile: Path | None
+):
     """Export training data for a specified behavior and JABS project directory."""
     #    ctx: Click context.
     #    directory (Path): Path to the JABS project directory.
@@ -119,7 +125,7 @@ def export_training(ctx, directory: Path, behavior: str, classifier: str, outfil
     type=str,
 )
 @click.pass_context
-def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
+def rename_behavior(ctx: click.Context, directory: Path, old_name: str, new_name: str) -> None:
     """Rename a behavior in a JABS project."""
     # Args:
     #    ctx: Click context.
@@ -173,7 +179,7 @@ def rename_behavior(ctx, directory: Path, old_name: str, new_name: str) -> None:
     help="Filter by behavior name. If provided, only videos labeled for this behavior will be retained; otherwise, all videos with any labeled behavior are kept.",
 )
 @click.pass_context
-def prune(ctx, directory: Path, behavior: str | None):
+def prune(ctx: click.Context, directory: Path, behavior: str | None):
     """Prune unused videos from a JABS project directory."""
     if not Project.is_valid_project_directory(directory):
         raise click.ClickException(f"Invalid JABS project directory: {directory}")
@@ -240,6 +246,69 @@ def prune(ctx, directory: Path, behavior: str | None):
             video_paths.video_path.name, sync=False
         )
     project.settings_manager.save_project_file()
+
+
+@cli.command(name="cross-validation")
+@click.argument(
+    "directory",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.option(
+    "-k",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Number of cross-validation splits (0 for all splits).",
+)
+@click.option(
+    "--behavior",
+    type=str,
+    required=True,
+    help="Behavior to perform cross-validation on (required). Can be quoted if it contains spaces. "
+    "Must match an existing behavior in the project.",
+)
+@click.option(
+    "--grouping-strategy",
+    type=click.Choice(["video", "individual"], case_sensitive=False),
+    default=None,
+    help=("Cross validation grouping strategy. If not provided, use the project setting."),
+)
+@click.option(
+    "--classifier",
+    "classifier",
+    default="xgboost"
+    if ClassifierType.XGBOOST in CLASSIFIER_CHOICES
+    else ClassifierType.RANDOM_FOREST.name.lower(),
+    type=click.Choice([c.name for c in CLASSIFIER_CHOICES], case_sensitive=False),
+    help="Default classifier set in the training file. Default is 'xgboost'.",
+)
+@click.pass_context
+def cross_validation(
+    ctx: click.Context,
+    directory: Path,
+    behavior: str,
+    k: int,
+    grouping_strategy: str | None,
+    classifier: str,
+):
+    """Run leave-one-group-out cross-validation for a JABS project."""
+    if grouping_strategy and grouping_strategy.lower() == "video":
+        cv_grouping = CrossValidationGroupingStrategy.VIDEO
+    elif grouping_strategy and grouping_strategy.lower() == "individual":
+        cv_grouping = CrossValidationGroupingStrategy.INDIVIDUAL
+    else:
+        cv_grouping = None
+
+    try:
+        classifier_type = ClassifierType[classifier.upper()]
+        run_cross_validation(directory, behavior, classifier_type, cv_grouping, k)
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
 
 
 def main():
