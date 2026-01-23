@@ -3,10 +3,12 @@ class PoseHashException(Exception):
 
     pass
 
+
 class PoseIdEmbeddingException(Exception):
     """Exception raised for invalid instance_embed_id values in pose file."""
 
     pass
+
 
 class MissingBehaviorError(Exception):
     """Exception raised when a behavior is not found in the prediction file."""
