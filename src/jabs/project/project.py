@@ -538,6 +538,7 @@ class Project:
         behavior: str | None = None,
         progress_callable: Callable[[], None] | None = None,
         should_terminate_callable: Callable[[], None] | None = None,
+        grouping_strategy: CrossValidationGroupingStrategy | None = None,
     ) -> tuple[dict, dict]:
         """Get labeled features for training (parallel per-video).
 
@@ -556,6 +557,7 @@ class Project:
             should_terminate_callable: If provided, it may be called between job submissions
                 and as results complete; it should raise a `ThreadTerminatedError` if the user
                 has requested early termination.
+            grouping_strategy: Optional override for cross-validation grouping strategy. If None, uses project settings.
 
         Returns:
             tuple[dict, dict]: A tuple of (features, group_mapping).
@@ -583,7 +585,8 @@ class Project:
         videos = list(self._video_manager.videos)
 
         # get the cross validation grouping strategy from project settings
-        grouping_strategy = self.settings_manager.cv_grouping_strategy
+        if grouping_strategy is None:
+            grouping_strategy = self.settings_manager.cv_grouping_strategy
 
         # Early exit if no videos
         if not videos:

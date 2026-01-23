@@ -148,7 +148,6 @@ After installation, the following commands are available in your environment:
 - `jabs` — launch the JABS GUI  
 - `jabs-init` — initialize a new JABS project directory or recompute features in an existing project 
 - `jabs-classify` — run a trained classifier  
-- `jabs-stats` — print accuracy statistics for a classifier  
 - `jabs-export-training` — export training data from an existing JABS project
 - `jabs-cli` - collection of smaller command line utilities
 

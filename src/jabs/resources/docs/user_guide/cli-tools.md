@@ -94,8 +94,52 @@ options:
 
 ## jabs-cli
 
-`jabs-cli` is a command line interface that provides access to JABS utilities that did not warrant a full command line tool. To get a listing of current commands, run:
+`jabs-cli` is a command line interface that provides access to multiple JABS command line tools. To get a listing of current commands, run:
 
 ```bash
 jabs-cli --help
 ```
+
+```bash
+Usage: jabs-cli [OPTIONS] COMMAND [ARGS]...
+
+  JABS CLI.
+
+Options:
+  --verbose  Enable verbose output.
+  --help     Show this message and exit.
+
+Commands:
+  cross-validation  Run leave-one-group-out cross-validation for a JABS project.
+  export-training   Export training data for a specified behavior and JABS project directory.
+  prune             Prune unused videos from a JABS project directory.
+  rename-behavior   Rename a behavior in a JABS project.
+```
+To get help for a specific command, run:
+
+```bash
+jabs-cli <command> --help
+```
+
+## jabs-init
+
+The `jabs-init` command initializes a JABS project directory and computes features for all videos in parallel. This is much faster than computing features through the GUI during training. It also validates the project directory and can accept a metadata file describing the project and videos.
+
+**Usage:**
+
+```bash
+jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--parallel <N>]
+```
+
+- `<project_dir>`: Path to the JABS project directory containing video and pose files.
+- `--metadata <metadata.json>`: Optional path to a JSON metadata file describing the project and videos.
+- `--force`: Overwrite existing features and settings if present.
+- `--parallel <N>`: Number of parallel workers to use for feature computation (default: number of CPUs).
+
+**Example:**
+
+```bash
+jabs-init /path/to/project --metadata project_metadata.json --parallel 8
+```
+
+See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview.

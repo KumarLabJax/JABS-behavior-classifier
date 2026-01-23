@@ -28,44 +28,13 @@ jabs/
 
 The first time you open a project directory with JABS it will create the `jabs` subdirectory. Features will be computed the first time the "Train" button is clicked. This can be time-consuming depending on the number and length of videos in the project directory.
 
-The `jabs-init` script can also be used to initialize a project directory before it is opened in the JABS GUI. This script checks to make sure that a pose file exists for each video in the directory, and that the pose file and video have the same number of frames. Then, after these basic checks, the script will compute features for all the videos in the project. Since `jabs-init` can compute features for multiple videos in parallel, it is significantly faster than doing so through the GUI during the training process.
+The `jabs-init` script can also be used to initialize a project directory before it is opened in the JABS GUI. This command validates the project directory and can compute features for all videos in parallel, which is significantly faster than doing so through the GUI during training.
 
-### jabs-init Usage:
-
-```text
-usage: jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW_SIZE] [--force-pixel-distances] [--metadata METADATA]
-                 [--skip-feature-generation]
-                 project_dir
-
-positional arguments:
-  project_dir
-
-options:
-  -h, --help            show this help message and exit
-  -f, --force           recompute features even if file already exists, replace existing project metadata
-  -p PROCESSES, --processes PROCESSES
-                        number of multiprocessing workers
-  -w WINDOW_SIZE        Specify window sizes to use for computing window features. Argument can be repeated to specify
-                        multiple sizes (e.g. -w 2 -w 5). Size is number of frames before and after the current frame to
-                        include in the window. For example, '-w 2' results in a window size of 5 (2 frames before, 2
-                        frames after, plus the current frame). If no window size is specified, a default of 5 will be
-                        used.
-  --force-pixel-distances
-                        use pixel distances when computing features even if project supports cm
-  --metadata METADATA   path to a JSON file containing project metadata to be validated and injected into the project
-  --skip-feature-generation
-                        Skip feature calculation and only initialize/validate the project
-```
-
-### Example jabs-init Command
-
-The following command runs the `jabs-init` script to compute features using window sizes of 2, 5, and 10. The script will use up to 8 processes for computing features (-p8). If no -p argument is passed, `jabs-init` will use up to 4 processes.
-
-`jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>`
+For full usage details and options, see the [JABS CLI Tools Guide](cli-tools.md#jabs-init).
 
 ### Project Metadata
 
-The --metadata argument can be used to pass a JSON file containing project metadata. This file has the following schema:
+The --metadata argument can be used to pass a JSON file containing project metadata to `jabs-init`. Metadata can be applied to the JABS project or individual videos. Metadata with the field name "nwb" will be validated against a schema. Additional arbitrary metadata fields are allowed to allow for more flexibility than nwb format. This file has the following schema:
 
 ```json
 {
@@ -206,4 +175,3 @@ This directory contains one HDF5 prediction file per video (e.g., `VIDEO_1.h5`).
 ### jabs/training_logs
 
 This directory contains training reports generated each time a classifier is trained. Reports are saved as Markdown files with filenames in the format `<BehaviorName>_<timestamp>_training_report.md`. Each report includes training performance metrics, cross-validation results, and feature importance rankings. These reports provide a permanent record of training sessions for documentation and comparison purposes.
-
