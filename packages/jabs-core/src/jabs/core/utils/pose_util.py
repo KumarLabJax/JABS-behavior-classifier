@@ -2,7 +2,7 @@ from collections.abc import Generator, Iterable
 
 import numpy as np
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.core.abstract import PoseEstimation
 
 
 def gen_line_fragments(

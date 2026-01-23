@@ -1,0 +1,41 @@
+[project]
+name = "jabs-io"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12.8"
+dependencies = [
+    "jabs-core"
+]
+
+[tool.uv.sources]
+jabs-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+  {include-group = "lint"},
+  {include-group = "test"},
+  {include-group = "docs"},
+  "pre-commit>=4.2.0,<5.0.0",
+  "matplotlib>=3.9.3,<4.0.0",
+]
+test = [
+  "pytest>=8.3.4,<9.0.0",
+]
+lint = [
+  "ruff>=0.11.5,<0.12.0",
+]
+docs = [
+    "mkdocs>=1.6.1",
+]
+
+[project.urls]
+Repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
+Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "jabs.io"
