@@ -711,13 +711,17 @@ class CentralWidget(QtWidgets.QWidget):
         self._training_thread.training_report.connect(self._on_training_report)
 
         # setup progress dialog
-        # adds 2 for final training
-        total_steps = self._project.video_manager.num_videos + 2
+        # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
+        total_steps = self._project.video_manager.num_videos + 1
         if self._controls.all_kfold:
             project_counts = self._project.counts(self._controls.current_behavior)
-            total_steps += self._classifier.count_label_threshold(project_counts)
+            total_steps += self._classifier.count_label_threshold(
+                project_counts,
+                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+            )
         else:
             total_steps += self._controls.kfold_value
+
         self._progress_dialog = create_cancelable_progress_dialog(self, "Training", total_steps)
         self._progress_dialog.show()
         self._progress_dialog.canceled.connect(self._training_thread.request_termination)
