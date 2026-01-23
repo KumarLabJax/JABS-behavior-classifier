@@ -11,9 +11,9 @@ from jabs.classifier import (
     generate_markdown_report,
     save_training_report,
 )
+from jabs.classifier.cross_validation import run_leave_one_group_out_cv
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ProjectDistanceUnit
-from jabs.classifier.cross_validation import run_leave_one_group_out_cv
 from jabs.project import Project
 
 from .exceptions import ThreadTerminatedError
