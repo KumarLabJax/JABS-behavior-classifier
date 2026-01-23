@@ -2,9 +2,6 @@ ORG_NAME = "JAX"
 APP_NAME = "JABS"
 APP_NAME_LONG = f"{ORG_NAME} Animal Behavior System"
 
-# maximum number of recent projects to show in the File->Recent Projects menu
-RECENT_PROJECTS_MAX = 10
-
 # a hard coded random seed used for the final training
 # This is not used during cross-validation, but to ensure that final classifier is reproducible
 # we use this fixed seed when training the final model after cross validation.

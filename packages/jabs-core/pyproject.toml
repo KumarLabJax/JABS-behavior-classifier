@@ -3,7 +3,7 @@ name = "jabs-core"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12.8"
+requires-python = ">=3.10,<3.15"
 dependencies = [
   "packaging>=24.0",
   "toml>=0.10.2,<0.11.0",
@@ -32,7 +32,7 @@ docs = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Kumarx LabJax/JABS-behavior-classifier"
+Repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"
 
 [build-system]
