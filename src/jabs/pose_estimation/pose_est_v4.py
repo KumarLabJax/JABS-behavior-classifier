@@ -3,18 +3,14 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+from jabs.core.exceptions import PoseIdEmbeddingException
 
-from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation, PoseHashException
+from jabs.core.abstract.pose_est import PoseEstimation, MINIMUM_CONFIDENCE
+from jabs.core.exceptions import PoseHashException
 
 
 class _CacheFileVersion(Exception):
-    pass
-
-
-class PoseIdEmbeddingException(Exception):
-    """Exception raised for invalid instance_embed_id values in pose file."""
-
     pass
 
 

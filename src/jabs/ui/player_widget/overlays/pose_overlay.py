@@ -5,7 +5,7 @@ from PySide6 import QtCore, QtGui
 
 from jabs.pose_estimation import PoseEstimation
 from jabs.ui.colors import KEYPOINT_COLOR_MAP
-from jabs.utils.pose_util import gen_line_fragments
+from jabs.core.utils.pose_util import gen_line_fragments
 
 from .overlay import Overlay
 

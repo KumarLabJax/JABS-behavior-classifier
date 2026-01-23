@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from jabs.classifier.classifier import Classifier
-from jabs.enums import ClassifierType, CrossValidationGroupingStrategy
+from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import TrackLabels
 
 

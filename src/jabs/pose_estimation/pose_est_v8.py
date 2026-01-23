@@ -3,7 +3,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 
 from .pose_est_v7 import PoseEstimationV7
 

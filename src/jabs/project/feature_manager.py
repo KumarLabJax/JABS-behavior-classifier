@@ -1,5 +1,5 @@
 import jabs.feature_extraction as feature_extraction
-from jabs.enums import ProjectDistanceUnit
+from jabs.core.enums import ProjectDistanceUnit
 from jabs.pose_estimation import (
     PoseEstimation,
     get_points_per_lixit,

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jabs.constants import APP_NAME, ORG_NAME
+from jabs.core.constants import APP_NAME, ORG_NAME
 from jabs.project.settings_manager import SettingsManager
 
 from .cross_validation_settings_group import CrossValidationSettingsGroup

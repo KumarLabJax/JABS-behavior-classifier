@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from jabs.constants import APP_NAME, APP_NAME_LONG
+from jabs.core.constants import APP_NAME, APP_NAME_LONG
 
 
 def _read_license_text() -> str:

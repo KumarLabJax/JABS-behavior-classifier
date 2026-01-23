@@ -5,7 +5,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from jabs.enums import ClassifierType, ProjectDistanceUnit
+from jabs.core.enums import ClassifierType, ProjectDistanceUnit
 
 
 def read_project_settings(h5_file: h5py.Group) -> dict:

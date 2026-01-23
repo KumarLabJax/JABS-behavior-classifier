@@ -3,8 +3,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
-from jabs.constants import CV_GROUPING_KEY
-from jabs.enums import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
+from jabs.core.constants import CV_GROUPING_KEY
+from jabs.core.enums import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
 
 from .settings_group import SettingsGroup
 

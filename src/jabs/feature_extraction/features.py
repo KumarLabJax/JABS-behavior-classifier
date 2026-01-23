@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 
 import jabs.project.track_labels
-from jabs.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
+from jabs.core.exceptions import FeatureVersionException, DistanceScaleException
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup
@@ -34,18 +35,6 @@ _WINDOW_FILTERS = {
     # note that fft_band features will contain a suffix for the band
     "fft": list(Feature._signal_operations.keys()),
 }
-
-
-class FeatureVersionException(Exception):
-    """exception raised when the version of the features in the h5 file is not compatible with the current version of JABS"""
-
-    pass
-
-
-class DistanceScaleException(Exception):
-    """exception raised when the distance scale factor in the h5 file don't match what the classifier expects"""
-
-    pass
 
 
 class IdentityFeatures:

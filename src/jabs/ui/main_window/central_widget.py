@@ -12,7 +12,7 @@ from shapely.geometry import Point
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.enums import ClassifierType
+from jabs.core.enums import ClassifierType
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from jabs.project import Project, VideoLabels
-from jabs.utils import hide_stderr
+from jabs.core.utils import hide_stderr
 
 
 @pytest.fixture(autouse=True, scope="session")

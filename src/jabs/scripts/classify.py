@@ -16,7 +16,7 @@ import pandas as pd
 from rich.progress import BarColumn, Progress, TextColumn
 
 from jabs.classifier import Classifier
-from jabs.constants import APP_NAME
+from jabs.core.constants import APP_NAME
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import PredictionManager

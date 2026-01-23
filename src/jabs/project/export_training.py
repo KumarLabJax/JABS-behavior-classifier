@@ -7,14 +7,14 @@ import numpy as np
 
 import jabs.feature_extraction
 import jabs.version
-from jabs.constants import FINAL_TRAIN_SEED
+from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.project.project_utils import to_safe_name
 
 # these are used for type hints, but cause circular imports
 # TYPE_CHECKING is always false at runtime, so this gets around that
 # also requires enclosing Project and Classifier type hints in quotes
 if TYPE_CHECKING:
-    from jabs.enums import ClassifierType
+    from jabs.core.enums import ClassifierType
     from jabs.project import Project
 
 

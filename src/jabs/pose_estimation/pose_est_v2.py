@@ -3,7 +3,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .pose_est import MINIMUM_CONFIDENCE, PoseEstimation
+from jabs.core.abstract.pose_est import PoseEstimation, MINIMUM_CONFIDENCE
 
 
 class PoseEstimationV2(PoseEstimation):

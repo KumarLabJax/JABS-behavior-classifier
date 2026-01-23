@@ -11,7 +11,7 @@ from jabs.classifier.training_report import (
     generate_markdown_report,
     save_training_report,
 )
-from jabs.enums import CrossValidationGroupingStrategy
+from jabs.core.enums import CrossValidationGroupingStrategy
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ import numpy as np
 from tabulate import tabulate
 
 from jabs.classifier import Classifier
-from jabs.enums import ProjectDistanceUnit
+from jabs.core.enums import ProjectDistanceUnit
 from jabs.project import load_training_data
 from jabs.scripts.classify import train
 
