@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
-from jabs.types import ClassifierType
+from jabs.enums import ClassifierType
 
 from ..colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,
@@ -154,16 +154,7 @@ class MainControlWidget(QtWidgets.QWidget):
         #  drop down to select type of classifier to use
         self._classifier_selection = QtWidgets.QComboBox()
         self._classifier_selection.currentIndexChanged.connect(self.classifier_changed)
-
-        classifier_types = Classifier().classifier_choices()
-        for classifier, name in classifier_types.items():
-            self._classifier_selection.addItem(name, userData=classifier)
-
-        # Set default classifier as the initial selection
-        for i in range(self._classifier_selection.count()):
-            if self._classifier_selection.itemData(i) == DEFAULT_CLASSIFIER:
-                self._classifier_selection.setCurrentIndex(i)
-                break
+        self.initialize_classifier_choices()
 
         #  slider to set number of times to train/test
         self._kslider = KFoldSliderWidget()
@@ -544,6 +535,25 @@ class MainControlWidget(QtWidgets.QWidget):
         if self._window_size.findData(size) == -1:
             self._add_window_size(size)
         self._window_size.setCurrentText(str(size))
+
+    def initialize_classifier_choices(self) -> None:
+        """populate the classifier selection combobox with available classifiers"""
+        # first, save the current selection so we can restore it after repopulating
+        current_classifier = self.classifier_type if self.classifier_type else DEFAULT_CLASSIFIER
+
+        # clear and repopulate the classifier selection combobox
+        self._classifier_selection.blockSignals(True)
+        self._classifier_selection.clear()
+        classifier_types = Classifier().classifier_choices()
+        for classifier, name in classifier_types.items():
+            self._classifier_selection.addItem(name, userData=classifier)
+
+        # now restore the previous selection if possible
+        for i in range(self._classifier_selection.count()):
+            if self._classifier_selection.itemData(i) == current_classifier:
+                self._classifier_selection.setCurrentIndex(i)
+                break
+        self._classifier_selection.blockSignals(False)
 
     def remove_behavior(self, behavior: str):
         """remove a behavior from the behavior selection box"""

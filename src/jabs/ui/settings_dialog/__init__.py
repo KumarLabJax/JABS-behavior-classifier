@@ -1,5 +1,5 @@
 """Settings dialog UI module."""
 
-from .settings_dialog import SettingsDialog
+from .settings_dialog import JabsSettingsDialog, ProjectSettingsDialog
 
-__all__ = ["SettingsDialog"]
+__all__ = ["JabsSettingsDialog", "ProjectSettingsDialog"]

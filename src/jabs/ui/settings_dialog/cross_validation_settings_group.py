@@ -3,8 +3,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
-from jabs.constants import SETTINGS_CV_GROUPING
-from jabs.types import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
+from jabs.constants import CV_GROUPING_KEY
+from jabs.enums import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
 
 from .settings_group import SettingsGroup
 
@@ -75,7 +75,7 @@ class CrossValidationSettingsGroup(SettingsGroup):
         """
         # Return the enum, not just the string
         return {
-            SETTINGS_CV_GROUPING: self._cv_grouping_combo.currentData(),
+            CV_GROUPING_KEY: self._cv_grouping_combo.currentData(),
         }
 
     def set_values(self, values: dict) -> None:
@@ -85,7 +85,7 @@ class CrossValidationSettingsGroup(SettingsGroup):
         Args:
             values: Dictionary with setting names and values to apply.
         """
-        cv_grouping = values.get(SETTINGS_CV_GROUPING, CrossValidationGroupingStrategy.INDIVIDUAL)
+        cv_grouping = values.get(CV_GROUPING_KEY, CrossValidationGroupingStrategy.INDIVIDUAL)
 
         # The grouping setting is saved as the string value, try to convert string from settings dict back to enum
         try:

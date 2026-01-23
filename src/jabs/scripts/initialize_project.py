@@ -18,9 +18,9 @@ from rich.progress import Progress
 import jabs.feature_extraction
 import jabs.pose_estimation
 import jabs.project
+from jabs.enums import ProjectDistanceUnit
 from jabs.project.video_manager import VideoManager
 from jabs.schema.metadata import validate_metadata
-from jabs.types import ProjectDistanceUnit
 from jabs.video_reader import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5

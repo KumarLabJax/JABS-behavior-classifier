@@ -1,1 +1,1 @@
-"""JABS Behavior Classifier"""
+"""JABS Behavior classifier"""

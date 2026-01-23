@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from tabulate import tabulate
 
-from jabs.types import CrossValidationGroupingStrategy
+from jabs.enums import CrossValidationGroupingStrategy
 
 
 @dataclass

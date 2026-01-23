@@ -91,11 +91,11 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
 ## Menu
 
 - **JABS→About:** Display About Dialog
-- **JABS→Project Settings:** Display Project Settings Dialog
-- **JABS→User Guide:** Display User Guide
+- **JABS→JABS Preferences:** Open JABS Preferences Dialog
+- **JABS→Project Settings:** Open Project Settings Dialog
+- **JABS→User Guide:** Open User Guide
 - **JABS→Check for Updates:** Check PyPI for JABS updates
 - **JABS→View License Agreement:** Display License Agreement
-- **JABS→Enable Session Tracking:** Enable labeling session tracking
 - **JABS→Quit JABS:** Quit Program
 - **File→Open Project:** Select a project directory to open. If a project is already opened, it will be closed and the newly selected project will be opened.
 - **File→Open Recent:** Submenu to open recently opened projects.
@@ -125,9 +125,17 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
   - **Window→Bring All to Front:** Bring all JABS windows to the front
   - The Window menu also displays a list of all open JABS windows (main window, user guide, training reports, etc.) with a checkmark (✓) next to the currently active window. Click any window in the list to activate and bring it to the front.
 
+## JABS Preferences Dialog
+The **JABS Preferences Dialog**, available from the JABS menu, allows you to configure application-wide settings. These settings affect behavior of the JABS application and are not specific to any single project. These preferences are saved across application restarts, and apply regardless of which project is opened.
+
+Preferences are designed to be easily discoverable; preferences are grouped into logical sections, and each section includes built-in documentation, making it easy to understand the purpose and effect of each option directly within the dialog. Users should explore this dialog and customize preferences as needed.
+
+
 ## Project Settings Dialog
 
 The **Project Settings Dialog**, available from the JABS menu, allows you to configure project-wide settings. Settings are designed to be easily discoverable; each settings group includes built-in documentation, making it easy to understand the purpose and effect of each option directly within the dialog. Users should explore this dialog and customize project settings as needed.
+
+Project settings are saved within the project directory and apply only to the currently opened project.
 
 ### Settings Overview
 

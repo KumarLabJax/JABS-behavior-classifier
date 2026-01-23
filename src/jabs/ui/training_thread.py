@@ -12,9 +12,9 @@ from jabs.classifier import (
     generate_markdown_report,
     save_training_report,
 )
+from jabs.constants import FINAL_TRAIN_SEED
+from jabs.enums import ProjectDistanceUnit
 from jabs.project import Project
-from jabs.types import ProjectDistanceUnit
-from jabs.utils import FINAL_TRAIN_SEED
 
 from .exceptions import ThreadTerminatedError
 
