@@ -2,14 +2,19 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
     paths:
-      - 'pyproject.toml'
+      - "pyproject.toml"
+      - "packages/*/pyproject.toml"
 
 permissions:
   contents: write
   id-token: write
   packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   format-lint:
@@ -21,114 +26,223 @@ jobs:
     needs: format-lint
     uses: ./.github/workflows/_run-tests-action.yml
 
-  check-version-changed:
-    name: "Check if version changed"
+  detect-changes:
+    name: "Detect Package Changes"
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      version-changed: ${{ steps.check.outputs.changed }}
-      is-prerelease: ${{ steps.version.outputs.is-prerelease }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has-changes: ${{ steps.set-matrix.outputs.has-changes }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
-      
-      - name: Get current version
-        id: version
-        run: |
-          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          # Check if version contains letters (indicating pre-release)
-          if echo "$VERSION" | grep -q '[a-zA-Z]'; then
-            echo "is-prerelease=true" >> $GITHUB_OUTPUT
-            echo "Detected pre-release version: $VERSION"
-          else
-            echo "is-prerelease=false" >> $GITHUB_OUTPUT
-            echo "Detected stable release version: $VERSION"
-          fi
-      
-      - name: Check if version changed
-        id: check
-        run: |
-          if git diff HEAD~1 HEAD --name-only | grep -q pyproject.toml; then
-            if git diff HEAD~1 HEAD pyproject.toml | grep -q '^+version = '; then
-              echo "changed=true" >> $GITHUB_OUTPUT
-              echo "Version changed in pyproject.toml"
-            else
-              echo "changed=false" >> $GITHUB_OUTPUT
-              echo "pyproject.toml changed but version did not change"
-            fi
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "pyproject.toml was not changed"
-          fi
+          fetch-depth: 0
 
-  build-package:
-    name: "Build Python Package"
+      - name: Detect version changes
+        id: set-matrix
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          
+          PACKAGES_JSON="[]"
+          HAS_CHANGES="false"
+
+          # --- CHANGE #1: robust base selection (before SHA -> HEAD~1 -> empty tree) ---
+          EMPTY_TREE="$(git hash-object -t tree /dev/null)"
+          if [ -n "${BEFORE_SHA:-}" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            : # valid BEFORE_SHA from event
+          elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+            BEFORE_SHA="$(git rev-parse HEAD~1)"
+          else
+            BEFORE_SHA="$EMPTY_TREE"
+          fi
+          
+          check_version_change() {
+            local pyproject_path="$1"
+            local pkg_name="$2"
+            local pkg_dir="$3"
+            
+            # Normalize directory path (remove trailing slash, use "." for root)
+            pkg_dir="${pkg_dir%/}"
+            [ -z "$pkg_dir" ] && pkg_dir="."
+            
+            if git diff "$BEFORE_SHA" HEAD --name-only | grep -q "^${pyproject_path}$"; then
+              # --- CHANGE #2: tolerant version line detection (spaces + quote styles) ---
+              if git diff "$BEFORE_SHA" HEAD -- "$pyproject_path" | grep -qE '^\+version\s*=\s*["'\'']'; then
+                local version
+                version=$(grep -E '^[[:space:]]*version[[:space:]]*=' "$pyproject_path" | head -n1 | sed -E 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*["'\'']([^"'\'']+)["'\''].*/\1/')
+                
+                # --- CHANGE #3: tighter prerelease heuristic ---
+                local is_prerelease="false"
+                if echo "$version" | grep -qE '([.-]?(a|b|rc|dev|pre|preview))[0-9]*'; then
+                  is_prerelease="true"
+                fi
+                
+                echo "Version change detected in $pkg_name: $version (prerelease: $is_prerelease)" >&2
+                echo "$pkg_name|$version|$pkg_dir|$is_prerelease"
+              fi
+            fi
+          }
+          
+          add_to_matrix() {
+            local name="$1"
+            local version="$2"
+            local dir="$3"
+            local prerelease="$4"
+            
+            PACKAGES_JSON=$(echo "$PACKAGES_JSON" | jq -c \
+              --arg n "$name" \
+              --arg v "$version" \
+              --arg d "$dir" \
+              --argjson p "$prerelease" \
+              '. + [{name: $n, version: $v, dir: $d, prerelease: $p}]')
+          }
+          
+          # Check root package
+          if [ -f "pyproject.toml" ]; then
+            ROOT_CHANGE=$(check_version_change "pyproject.toml" "jabs" "." || true)
+            if [ -n "$ROOT_CHANGE" ]; then
+              HAS_CHANGES="true"
+              IFS='|' read -r name version dir prerelease <<< "$ROOT_CHANGE"
+              add_to_matrix "$name" "$version" "$dir" "$prerelease"
+            fi
+          fi
+          
+          # Check workspace packages
+          for pkg_path in packages/*/pyproject.toml; do
+            if [ -f "$pkg_path" ]; then
+              pkg_dir=$(dirname "$pkg_path")
+              pkg_name=$(basename "$pkg_dir")
+              CHANGE=$(check_version_change "$pkg_path" "$pkg_name" "$pkg_dir" || true)
+              if [ -n "$CHANGE" ]; then
+                HAS_CHANGES="true"
+                IFS='|' read -r name version dir prerelease <<< "$CHANGE"
+                add_to_matrix "$name" "$version" "$dir" "$prerelease"
+              fi
+            fi
+          done
+          
+          echo "matrix={\"package\": $PACKAGES_JSON}" >> $GITHUB_OUTPUT
+          echo "has-changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+          echo "Packages to release: $PACKAGES_JSON"
+
+  check-tags:
+    name: "Check Existing Tags"
     runs-on: ubuntu-latest
-    needs: [check-version-changed]
-    if: needs.check-version-changed.outputs.version-changed == 'true'
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    outputs:
+      matrix: ${{ steps.filter-tags.outputs.matrix }}
+      has-releases: ${{ steps.filter-tags.outputs.has-releases }}
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
+      - name: Filter out existing tags
+        id: filter-tags
+        env:
+          INPUT_MATRIX: ${{ needs.detect-changes.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          
+          PACKAGES=$(echo "$INPUT_MATRIX" | jq -c '.package')
+          FILTERED="[]"
+          
+          while IFS= read -r pkg; do
+            name=$(echo "$pkg" | jq -r '.name')
+            version=$(echo "$pkg" | jq -r '.version')
+            tag="${name}-v${version}"
+            
+            if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "::warning::Tag $tag already exists, skipping release for $name"
+            else
+              echo "Tag $tag does not exist, will release $name@$version"
+              FILTERED=$(echo "$FILTERED" | jq -c --argjson p "$pkg" '. + [$p]')
+            fi
+          done < <(echo "$PACKAGES" | jq -c '.[]')
+          
+          HAS_RELEASES="false"
+          if [ "$(echo "$FILTERED" | jq 'length')" -gt 0 ]; then
+            HAS_RELEASES="true"
+          fi
+          
+          echo "matrix={\"package\": $FILTERED}" >> $GITHUB_OUTPUT
+          echo "has-releases=$HAS_RELEASES" >> $GITHUB_OUTPUT
+          echo "Packages to release after tag check: $FILTERED"
+
+  build-and-publish:
+    name: "Build & Publish ${{ matrix.package.name }}"
+    runs-on: ubuntu-latest
+    needs: [test, detect-changes, check-tags]
+    if: needs.check-tags.outputs.has-releases == 'true'
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.check-tags.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
-      
+
       - name: Set up Python
-        run: uv python install 3.10
-      
+        run: uv python install 3.10.14
+
       - name: Build package
-        run: uv build
-      
+        id: build
+        run: |
+          uv build
+          echo "Built artifacts:"
+          ls -la dist/
+        working-directory: ${{ matrix.package.dir }}
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/
+          name: dist-${{ matrix.package.name }}-${{ matrix.package.version }}
+          path: ${{ matrix.package.dir }}/dist/
 
-  publish-pypi:
-    name: "Publish to PyPI"
-    runs-on: ubuntu-latest
-    needs: [build-package, check-version-changed]
-    if: needs.check-version-changed.outputs.version-changed == 'true'
-    environment: release
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-      
       - name: Publish to PyPI
+        id: publish
         run: uv publish --token ${{ secrets.PYPI_API_TOKEN }}
-        working-directory: .
+        working-directory: ${{ matrix.package.dir }}
 
-  create-release:
-    name: "Create GitHub Release"
-    runs-on: ubuntu-latest
-    needs: [publish-pypi, check-version-changed]
-    if: needs.check-version-changed.outputs.version-changed == 'true'
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      
-      - name: Create Release
+      - name: Create GitHub Release
+        if: steps.publish.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.check-version-changed.outputs.version }}
-          name: Release v${{ needs.check-version-changed.outputs.version }}
+          tag_name: ${{ matrix.package.name }}-v${{ matrix.package.version }}
+          name: "${{ matrix.package.name }} v${{ matrix.package.version }}"
           draft: false
-          prerelease: ${{ needs.check-version-changed.outputs.is-prerelease == 'true' }}
+          prerelease: ${{ matrix.package.prerelease }}
           generate_release_notes: true
-          files: dist/*
+          files: ${{ matrix.package.dir }}/dist/*
+
+  release-status:
+    name: "Release Status"
+    runs-on: ubuntu-latest
+    needs: [test, detect-changes, check-tags, build-and-publish]
+    if: always()
+    steps:
+      - name: Check release status
+        run: |
+          echo "=== Release Summary ==="
+          echo "Tests: ${{ needs.test.result }}"
+          echo "Changes detected: ${{ needs.detect-changes.outputs.has-changes }}"
+          echo "Releases to publish: ${{ needs.check-tags.outputs.has-releases }}"
+          echo "Build and publish: ${{ needs.build-and-publish.result }}"
+          
+          if [[ "${{ needs.test.result }}" == "failure" ]]; then
+            echo "::error::Tests failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.build-and-publish.result }}" == "failure" ]]; then
+            echo "::error::Build and publish failed"
+            exit 1
+          fi
+          
+          echo "✅ Release workflow completed successfully"
