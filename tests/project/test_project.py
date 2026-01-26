@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from jabs.project import Project, VideoLabels
 from jabs.core.utils import hide_stderr
+from jabs.project import Project, VideoLabels
 
 
 @pytest.fixture(autouse=True, scope="session")
