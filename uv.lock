@@ -585,7 +585,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/50/fb/396d568039d213446
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.41.0a0"
+version = "0.41.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
@@ -675,7 +675,7 @@ test = [
 
 [[package]]
 name = "jabs-core"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "packages/jabs-core" }
 dependencies = [
     { name = "h5py" },
@@ -735,7 +735,7 @@ test = [
 
 [[package]]
 name = "jabs-io"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "jabs-core" },

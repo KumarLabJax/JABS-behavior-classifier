@@ -67,12 +67,10 @@ jobs:
             [ -z "$pkg_dir" ] && pkg_dir="."
             
             if git diff "$BEFORE_SHA" HEAD --name-only | grep -q "^${pyproject_path}$"; then
-              # --- CHANGE #2: tolerant version line detection (spaces + quote styles) ---
               if git diff "$BEFORE_SHA" HEAD -- "$pyproject_path" | grep -qE '^\+version\s*=\s*["'\'']'; then
                 local version
                 version=$(grep -E '^[[:space:]]*version[[:space:]]*=' "$pyproject_path" | head -n1 | sed -E 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*["'\'']([^"'\'']+)["'\''].*/\1/')
                 
-                # --- CHANGE #3: tighter prerelease heuristic ---
                 local is_prerelease="false"
                 if echo "$version" | grep -qE '([.-]?(a|b|rc|dev|pre|preview))[0-9]*'; then
                   is_prerelease="true"
@@ -194,21 +192,29 @@ jobs:
       - name: Build package
         id: build
         run: |
-          uv build
+          set -euo pipefail
+          rm -rf "${{ matrix.package.dir }}/dist"
+          mkdir -p "${{ matrix.package.dir }}/dist"
+
+          # Build the package located at matrix.package.dir
+          # and force output into that package's dist directory.
+          uv build --out-dir "${{ matrix.package.dir }}/dist" "${{ matrix.package.dir }}"
+
           echo "Built artifacts:"
-          ls -la dist/
-        working-directory: ${{ matrix.package.dir }}
+          ls -la "${{ matrix.package.dir }}/dist"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.package.name }}-${{ matrix.package.version }}
           path: ${{ matrix.package.dir }}/dist/
+          retention-days: 120
 
       - name: Publish to PyPI
         id: publish
-        run: uv publish --token ${{ secrets.PYPI_API_TOKEN }}
-        working-directory: ${{ matrix.package.dir }}
+        run: |
+          set -euo pipefail
+          uv publish --token "${{ secrets.PYPI_API_TOKEN }}" "${{ matrix.package.dir }}/dist"/*
 
       - name: Create GitHub Release
         if: steps.publish.outcome == 'success'
