@@ -1,6 +1,6 @@
 """Constants for the MainWindow module."""
 
-from jabs.utils import get_bool_env_var
+from jabs.core.utils import get_bool_env_var
 
 # maximum number of recent projects to show in the File->Recent Projects menu
 RECENT_PROJECTS_MAX = 10

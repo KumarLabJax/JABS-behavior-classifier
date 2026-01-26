@@ -10,7 +10,7 @@ os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
 from PySide6 import QtWidgets
 from PySide6.QtGui import QIcon
 
-from jabs.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
+from jabs.core.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
 from jabs.resources import ICON_PATH
 from jabs.ui import MainWindow
 from jabs.version import version_str

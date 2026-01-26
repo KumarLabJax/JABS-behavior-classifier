@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
-from jabs.enums import ClassifierType
+from jabs.core.enums import ClassifierType
 
 from ..colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,

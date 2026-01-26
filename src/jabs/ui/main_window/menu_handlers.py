@@ -13,7 +13,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
-from jabs.constants import FINAL_TRAIN_SEED
+from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 

@@ -13,7 +13,7 @@ import click
 from rich.console import Console
 
 from jabs.classifier import Classifier
-from jabs.enums import ClassifierType, CrossValidationGroupingStrategy
+from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import Project, export_training_data, get_videos_to_prune
 
 from .cross_validation import run_cross_validation

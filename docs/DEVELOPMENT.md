@@ -248,7 +248,9 @@ pre-commit install
 
 ## Project Structure
 
-JABS follows a modern Python project structure with source code in the `src/` directory (not all subdirectories shown):
+JABS is currently transitioning from a monolithic structure to a monorepo with multiple
+sub-packages. Production code is split between `src/jabs/` (the main application)
+and `packages/` (reusable library components).
 
 ```
 JABS-behavior-classifier/
@@ -266,19 +268,33 @@ JABS-behavior-classifier/
 │   ├── resources/          # Static resources (icons, docs, etc.)
 │   ├── schema/             # JSON schemas for validation
 │   ├── scripts/            # Command-line interface scripts
-│   ├── types/              # Type definitions and data models
 │   ├── ui/                 # PySide6-based GUI components
 │   ├── utils/              # Utility functions and helpers
 │   ├── version/            # Version information
 │   └── video_reader/       # Video file reading and processing
-├── tests/                  # Test suite
+├── packages/               # Sub-packages
+│   ├── jabs-core/          # Infrastructure & Utilities
+│   ├── jabs-io/            # Canonical Models & File I/O
+│   └── jabs-vision/        # DL Inference & Identity Tracking
+├── tests/                  # Root project tests
 ├── dev/                    # Development utilities and scripts
 ├── build/                  # Build artifacts (generated)
-├── pyproject.toml          # Project configuration and dependencies
+├── pyproject.toml          # Workspace configuration
 ├── uv.lock                 # Lock file for exact dependency versions
 ├── ruff.toml               # Ruff linter/formatter configuration
 └── .pre-commit-config.yaml # Pre-commit hooks configuration
 ```
+
+### The Monorepo Transition
+
+We are in the process of refactoring the original monolithic codebase by migrating core
+logic into independent, headless-capable packages in the `packages/` directory.
+
+- **`jabs-core`**: Minimal shared infrastructure (Registries, Constants).
+- **`jabs-io`**: Defines the canonical data models (`PoseData`, `FeatureData`) and handles all HDF5/JSON reading/writing.
+- **`jabs-vision`**: Handles heavy ML tasks (Pose estimation inference, Tracking).
+
+**Developers should prefer adding new reusable logic to the appropriate sub-package rather than the root `src/` tree.** 
 
 ### Key Directories Explained
 
@@ -301,6 +317,8 @@ JABS-behavior-classifier/
 - **`dev/`**: Development utilities. These are not installed as part of the package, but might be useful for developers.
 
 ## Software Architecture
+
+> **⚠️ Transition Note**: JABS is currently being refactored into a library-based architecture. While the descriptions below accurately reflect the current `src/jabs` structure, core logic (like Feature Extraction and Classifiers) is gradually moving to the `packages/` directory.
 
 ### Core Design Principles
 

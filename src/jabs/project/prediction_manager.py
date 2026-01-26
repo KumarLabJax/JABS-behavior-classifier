@@ -6,6 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.core.exceptions import MissingBehaviorError
 from jabs.version import version_str
 
 from .project_utils import to_safe_name
@@ -15,12 +16,6 @@ if typing.TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
     from .project import Project
-
-
-class MissingBehaviorError(Exception):
-    """Exception raised when a behavior is not found in the prediction file."""
-
-    pass
 
 
 class PredictionManager:

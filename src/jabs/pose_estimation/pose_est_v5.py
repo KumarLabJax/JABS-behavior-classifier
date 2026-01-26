@@ -3,7 +3,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .pose_est import PoseEstimation
+from jabs.core.abstract.pose_est import PoseEstimation
+
 from .pose_est_v4 import PoseEstimationV4
 
 OBJECTS_STORED_YX = [

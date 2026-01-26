@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 
 from .feature_manager import FeatureManager
@@ -29,7 +29,7 @@ from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
 if TYPE_CHECKING:
-    from jabs.utils.process_pool_manager import ProcessPoolManager
+    from jabs.core.utils.process_pool_manager import ProcessPoolManager
 
 
 class Project:

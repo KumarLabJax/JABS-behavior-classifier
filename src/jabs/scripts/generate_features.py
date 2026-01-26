@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from jabs.enums import ProjectDistanceUnit
+from jabs.core.enums import ProjectDistanceUnit
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project import Project

@@ -19,13 +19,13 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import LeaveOneGroupOut
 
-from jabs.enums import (
+from jabs.core.enums import (
     DEFAULT_CV_GROUPING_STRATEGY,
     ClassifierType,
     CrossValidationGroupingStrategy,
 )
+from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
-from jabs.utils import hash_file
 
 _VERSION = 10
 

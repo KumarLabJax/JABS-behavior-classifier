@@ -8,15 +8,9 @@ import joblib
 import numpy as np
 from shapely.geometry import MultiPoint
 
-from jabs.utils import hash_file
+from jabs.core.utils import hash_file
 
 MINIMUM_CONFIDENCE = 0.3
-
-
-class PoseHashException(Exception):
-    """Exception raised when the hash of a pose file does not match the expected value."""
-
-    pass
 
 
 class PoseEstimation(ABC):

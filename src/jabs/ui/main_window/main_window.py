@@ -5,8 +5,8 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
 
-from jabs.constants import ORG_NAME
-from jabs.utils.process_pool_manager import ProcessPoolManager
+from jabs.core.constants import ORG_NAME
+from jabs.core.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
 from ..constants import (
