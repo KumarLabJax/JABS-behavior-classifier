@@ -191,6 +191,7 @@ class UserGuideDialog(QDialog):
                 "Identity Gaps": "labeling.md#identity-gaps",
                 "Keyboard Shortcuts": "labeling.md#keyboard-shortcuts",
             },
+            "Search": "behavior-search.md",
             "Command Line Tools": {
                 "_file": "cli-tools.md",
                 "jabs-classify": "cli-tools.md#jabs-classify",
