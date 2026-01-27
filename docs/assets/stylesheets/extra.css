@@ -1,0 +1,40 @@
+[data-md-color-scheme="kumarlab"] {
+  --md-primary-fg-color:        #f0ece6;  /* Header background */
+  --md-primary-fg-color--light: #ECB7B7;
+  --md-primary-fg-color--dark:  #90030C;
+  --md-primary-bg-color:        #DA3832;  /* Header text color */
+  --md-typeset-a-color:         #DA3832;  /* Link color */
+  --md-accent-fg-color:         #DA3832;  /* Accent color (hover states, etc.) */
+}
+
+/* Search box styling - light by default, darken on hover */
+[data-md-color-scheme="kumarlab"] .md-search__form {
+    background-color: rgba(255, 255, 255, 0.7);  /* Light background by default */
+}
+
+[data-md-color-scheme="kumarlab"] .md-search__form:hover {
+    background-color: rgba(0, 0, 0, 0.1);  /* Lighter on hover */
+}
+
+[data-md-color-scheme="kumarlab"] .md-search__input {
+  background-color: transparent;
+  color: #DA3832;  /* Red text */
+}
+
+[data-md-color-scheme="kumarlab"] .md-search__input::placeholder {
+  color: rgba(218, 56, 50, 0.6);  /* Lighter red for placeholder */
+}
+
+[data-md-color-scheme="kumarlab"] .md-search__icon {
+  color: #DA3832;  /* Red icon */
+}
+
+/* Hide dark mode images in light mode (custom kumarlab scheme) */
+[data-md-color-scheme="kumarlab"] img[src$="#only-dark"] {
+  display: none;
+}
+
+/* Hide light mode images in dark mode (slate scheme) */
+[data-md-color-scheme="slate"] img[src$="#only-light"] {
+  display: none;
+}
