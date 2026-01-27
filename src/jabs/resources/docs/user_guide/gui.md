@@ -102,6 +102,7 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
 - **File→Export Training Data:** Create a file with the information needed to share a classifier. This exported file is written to the project directory and has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is used as one input for the `jabs-classify` script.
 - **File→Archive Behavior:** Remove behavior and its labels from project. Labels are archived in the `jabs/archive` directory.
 - **File→Prune Project:** Remove videos and pose files that are not labeled.
+- **Tools→Search Behaviors:** Open Behavior Search dialog.
 - **View:** Menu to control various display options.
   - **View→View Playlist:** can be used to hide/show video playlist
   - **View→Timeline:** Menu to control the timeline display.

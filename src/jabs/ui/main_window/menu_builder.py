@@ -27,6 +27,7 @@ class MenuReferences:
     # Menus
     app_menu: QtWidgets.QMenu
     file_menu: QtWidgets.QMenu
+    tool_menu: QtWidgets.QMenu
     view_menu: QtWidgets.QMenu
     feature_menu: QtWidgets.QMenu
     window_menu: QtWidgets.QMenu
@@ -41,13 +42,15 @@ class MenuReferences:
     archive_behavior: QtGui.QAction
     prune_action: QtGui.QAction
 
+    # Tool menu actions
+    behavior_search: QtGui.QAction
+
     # View menu actions
     view_playlist: QtGui.QAction
     show_track: QtGui.QAction
     overlay_pose: QtGui.QAction
     overlay_landmark: QtGui.QAction
     overlay_segmentation: QtGui.QAction
-    behavior_search: QtGui.QAction
 
     # Timeline actions
     timeline_labels_preds: QtGui.QAction
@@ -104,6 +107,7 @@ class MenuBuilder:
 
         app_menu = menu_bar.addMenu(self.app_name)
         file_menu = menu_bar.addMenu("File")
+        tool_menu = menu_bar.addMenu("Tools")
         view_menu = menu_bar.addMenu("View")
         feature_menu = menu_bar.addMenu("Features")
         window_menu = menu_bar.addMenu("Window")
@@ -111,6 +115,7 @@ class MenuBuilder:
         # Build each menu
         app_actions = self._build_app_menu(app_menu)
         file_actions = self._build_file_menu(file_menu)
+        tool_actions = self._build_tool_menu(tool_menu)
         view_actions = self._build_view_menu(view_menu)
         feature_actions = self._build_feature_menu(feature_menu)
         self._build_window_menu(window_menu)
@@ -120,11 +125,13 @@ class MenuBuilder:
         return MenuReferences(
             app_menu=app_menu,
             file_menu=file_menu,
+            tool_menu=tool_menu,
             view_menu=view_menu,
             feature_menu=feature_menu,
             window_menu=window_menu,
             **app_actions,
             **file_actions,
+            **tool_actions,
             **view_actions,
             **feature_actions,
         )
@@ -241,6 +248,27 @@ class MenuBuilder:
             "prune_action": prune_action,
         }
 
+    def _build_tool_menu(self, menu: QtWidgets.QMenu) -> dict:
+        """Build the Tool menu.
+
+        Args:
+            menu: The tool menu to populate
+
+        Returns:
+            Dictionary of tool menu action references
+        """
+        # Behavior search action
+        behavior_search = QtGui.QAction("Search Behaviors", self.main_window)
+        behavior_search.setShortcut(QtGui.QKeySequence.StandardKey.Find)
+        behavior_search.setStatusTip("Search for behaviors")
+        behavior_search.setEnabled(False)
+        behavior_search.triggered.connect(self.handlers.show_behavior_search_dialog)
+        menu.addAction(behavior_search)
+
+        return {
+            "behavior_search": behavior_search,
+        }
+
     def _build_view_menu(self, menu: QtWidgets.QMenu) -> dict:
         """Build the View menu.
 
@@ -294,21 +322,12 @@ class MenuBuilder:
         overlay_segmentation.triggered.connect(self.handlers.set_segmentation_overlay_visibility)
         menu.addAction(overlay_segmentation)
 
-        # Behavior search action
-        behavior_search = QtGui.QAction("Search Behaviors", self.main_window)
-        behavior_search.setShortcut(QtGui.QKeySequence.StandardKey.Find)
-        behavior_search.setStatusTip("Search for behaviors")
-        behavior_search.setEnabled(False)
-        behavior_search.triggered.connect(self.handlers.show_behavior_search_dialog)
-        menu.addAction(behavior_search)
-
         return {
             "view_playlist": view_playlist,
             "show_track": show_track,
             "overlay_pose": overlay_pose,
             "overlay_landmark": overlay_landmark,
             "overlay_segmentation": overlay_segmentation,
-            "behavior_search": behavior_search,
             **timeline_actions,
             **label_overlay_actions,
             **identity_overlay_actions,
