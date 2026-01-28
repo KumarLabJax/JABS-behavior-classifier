@@ -29,7 +29,6 @@ Copyright &copy; 2026 The Jackson Laboratory
             { "Command Line Tools" = "user-guide/cli-tools.md" },
             { "File Formats" = "user-guide/file-formats.md" },
             { "Keyboard Shortcuts" = "user-guide/keyboard-shortcuts.md" },
-            { "Advanced Usage" = "user-guide/advanced-usage.md" },
      ]},
      { "Development" = [
          "development/development.md",
@@ -265,6 +264,7 @@ name = "Kumar Lab Site"
 [project.extra]
 generator = false
 
+[project.markdown_extensions.md_in_html]
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.pymdownx.superfences]
 [project.markdown_extensions.pymdownx.tabbed]
