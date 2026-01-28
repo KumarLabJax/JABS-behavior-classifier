@@ -13,8 +13,8 @@ from jabs.classifier import (
     run_leave_one_group_out_cv,
     save_training_report,
 )
-from jabs.constants import FINAL_TRAIN_SEED
-from jabs.enums import ClassifierType, CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.constants import FINAL_TRAIN_SEED
+from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.project import Project
 
 N_JOBS = 4
