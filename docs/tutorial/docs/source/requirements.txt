@@ -1,0 +1,4 @@
+nbsphinx
+ipykernel
+sphinx>=8.1
+sphinx-rtd-theme>=3.0
