@@ -20,6 +20,10 @@ lint.ignore = [
     "D415",  # ignore doc punctuation
 ]
 
+exclude = [
+    "docs",
+]
+
 target-version = "py310"
 line-length = 99
 
