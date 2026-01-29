@@ -1,17 +1,17 @@
 [project]
 site_name = "JABS Documentation"
 site_description = "End-user and developer documentation for JABS (Jax Animal Behavior System)."
-site_author = "Alexander Berger-Liedtka, Glen Beane, Keith Sheppard"
+site_author = "Glen Beane, Alexander Berger-Liedtka, Keith Sheppard"
 repo_name = "JABS-behavior-classifier"
 repo_url = "https://github.com/KumarLabJax/JABS-behavior-classifier"
 copyright = """
-Copyright &copy; 2026 The Jackson Laboratory
+Copyright &copy; 2026 The Kumar Lab & The Jackson Laboratory
 """
 
 # The site_url is the canonical URL for your site. When building online
 # documentation you should set this.
 # Read more: https://zensical.org/docs/setup/basics/#site_url
-#site_url = "https://www.example.com/"
+site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
 
 # Read more: https://zensical.org/docs/setup/navigation/
  nav = [
