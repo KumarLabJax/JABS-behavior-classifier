@@ -37,25 +37,18 @@ jobs:
       # Run tests - discovers all test directories automatically
       - name: Test with pytest
         run: |
-          # Collect all test directories
-          TEST_DIRS=""
-          
-          # Root tests directory
+          set -euo pipefail
+
+          # Root tests
           if [ -d "tests" ]; then
-            TEST_DIRS="tests"
+            echo "Running root tests"
+            uv run pytest tests
           fi
-          
-          # Package-level test directories
-          for pkg_tests in packages/*/tests; do
-            if [ -d "$pkg_tests" ]; then
-              TEST_DIRS="$TEST_DIRS $pkg_tests"
+
+          # Package tests: run each with that package as a root on sys.path
+          for pkg in packages/*; do
+            if [ -d "$pkg/tests" ]; then
+              echo "Running tests in $pkg/tests"
+              uv run pytest "$pkg/tests"
             fi
           done
-          
-          if [ -n "$TEST_DIRS" ]; then
-            echo "Running tests in: $TEST_DIRS"
-            uv run pytest $TEST_DIRS
-          else
-            echo "No test directories found"
-            exit 1
-          fi
