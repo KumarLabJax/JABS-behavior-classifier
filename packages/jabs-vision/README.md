@@ -12,7 +12,7 @@ It houses the heavy machine learning frameworks and GPU-accelerated code.
 - **Pose Estimation Inference**: Running deep learning models (PyTorch) on video frames
   to detect keypoints.
 - **Static Object Detection**
-- **Sementation Masking**
+- **Segmentation Masking**
 - **Identity Matching**: Tracking individual animals across frames using vectorized
   features.
 - **Video Processing**: Handling frame extraction and normalization for input to vision
