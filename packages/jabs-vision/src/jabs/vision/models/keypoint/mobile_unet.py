@@ -132,7 +132,7 @@ def build_mobilenet_unet(
     input_size: int | tuple[int, int] = 800,
     **kwargs,
 ) -> MobileNetUNet:
-    """Factory function for Hydra instantiation."""
+    """Factory function for instantiation."""
     cfg = MobileNetUNetConfig(
         backbone=backbone,
         pretrained=pretrained,
