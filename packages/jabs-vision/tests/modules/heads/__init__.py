@@ -1,1 +1,1 @@
-"""Tests for jab.vision.modules.heads"""
+"""Tests for jabs.vision.modules.heads"""
