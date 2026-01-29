@@ -49,6 +49,6 @@ jobs:
           for pkg in packages/*; do
             if [ -d "$pkg/tests" ]; then
               echo "Running tests in $pkg/tests"
-                uv run pytest "$pkg/tests"
+              uv run pytest "$pkg/tests"
             fi
           done
