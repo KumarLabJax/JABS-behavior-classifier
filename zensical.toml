@@ -45,6 +45,11 @@ site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
          {"JABS IO" = [
              "api-reference/jabs-io/index.md"
          ]},
+         {"JABS Vision" = [
+             "api-reference/jabs-vision/index.md",
+             {"Backbones" = "api-reference/jabs-vision/backbones.md"},
+             {"Modules" = "api-reference/jabs-vision/modules.md"},
+         ]}
      ]},
  ]
 
@@ -264,6 +269,12 @@ name = "Kumar Lab Site"
 [project.extra]
 generator = false
 
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
 [project.markdown_extensions.md_in_html]
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.pymdownx.superfences]
@@ -278,3 +289,4 @@ paths = ["src", "packages/jabs-vision/src", "packages/jabs-io/src", "packages/ja
 docstring_style = "google"
 inherited_members = true
 show_source = false
+show_docstring_examples = true
