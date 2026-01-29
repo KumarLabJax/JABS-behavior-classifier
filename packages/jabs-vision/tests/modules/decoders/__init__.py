@@ -1,1 +1,1 @@
-"""Tests for jab.vision.modules.decoders"""
+"""Tests for jabs.vision.modules.decoders"""

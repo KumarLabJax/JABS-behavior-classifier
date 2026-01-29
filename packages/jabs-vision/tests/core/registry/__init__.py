@@ -1,1 +1,1 @@
-"""Tests for jab.vision.registry"""
+"""Tests for jabs.vision.registry"""

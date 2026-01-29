@@ -49,7 +49,6 @@ jobs:
           for pkg in packages/*; do
             if [ -d "$pkg/tests" ]; then
               echo "Running tests in $pkg/tests"
-              PYTHONPATH="$GITHUB_WORKSPACE/$pkg${PYTHONPATH:+:$PYTHONPATH}" \
                 uv run pytest "$pkg/tests"
             fi
           done

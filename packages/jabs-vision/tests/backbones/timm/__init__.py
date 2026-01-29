@@ -1,1 +1,1 @@
-"""Tests for jab.vision.backbones.timm"""
+"""Tests for jabs.vision.backbones.timm"""
