@@ -439,7 +439,7 @@ class Classifier:
         Returns:
             predicted class vector
         """
-        cleaned_features = self._clean_features(features)
+        cleaned_features = self.get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             result = self._classifier.predict(cleaned_features)
@@ -464,7 +464,7 @@ class Classifier:
         Returns:
             prediction probability matrix
         """
-        cleaned_features = self._clean_features(features)
+        cleaned_features = self.get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             result = self._classifier.predict_proba(cleaned_features)
