@@ -249,7 +249,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
         # Assume naive datetime is local time; convert to UTC
         timestamp_utc = data.timestamp.astimezone(timezone.utc)
     else:
-        timestamp_utc = data.timestamp.astimezone(datetime.timezone.utc)
+        timestamp_utc = data.timestamp.astimezone(timezone.utc)
     timestamp_str = timestamp_utc.replace(tzinfo=None).isoformat() + "Z"
 
     report = {
