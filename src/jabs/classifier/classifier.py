@@ -3,14 +3,11 @@ import random
 import re
 import typing
 import warnings
-from importlib import import_module
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-from catboost import CatBoostClassifier
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.metrics import (
     accuracy_score,
@@ -27,57 +24,33 @@ from jabs.core.enums import (
 from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
 
-_VERSION = 10
+from .factories import make_catboost, make_random_forest, make_xgboost
 
-try:
-    _xgboost = import_module("xgboost")
-except ImportError:
-    # we were unable to import the xgboost module. It's either not
-    # installed (it should be if the user installed JABS as a package)
-    # or it may have been unable to be imported due to a missing
-    # libomp. Either way, we won't add it to the available choices so
-    # we can otherwise ignore this exception
-    _xgboost = None
-    logging.warning(
-        "Unable to import xgboost. XGBoost support will be unavailable. "
-        "You may need to install xgboost and/or libomp."
-    )
-
-
-# Classifier factory helpers and mapping
-def _make_random_forest(n_jobs: int, random_seed: int | None):
-    """Factory function to construct a RandomForest classifier."""
-    return RandomForestClassifier(n_jobs=n_jobs, random_state=random_seed)
-
-
-def _make_catboost(n_jobs: int, random_seed: int | None):
-    """Factory function to construct a CatBoost classifier."""
-    return CatBoostClassifier(
-        thread_count=n_jobs,
-        random_state=random_seed,
-        verbose=False,  # Suppress training output
-        allow_writing_files=False,  # Don't write intermediate files
-    )
-
-
-def _make_xgboost(n_jobs: int, random_seed: int | None):
-    """Factory function to construct an XGBoost classifier."""
-    if _xgboost is None:
-        raise RuntimeError(
-            "XGBoost classifier requested but 'xgboost' is not available in this environment."
-        )
-    return _xgboost.XGBClassifier(n_jobs=n_jobs, random_state=random_seed)
-
+_VERSION = 11
 
 # _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
 # supported by the current JABS environment, in addition to the mapping of ClassifierTypes
 # to factory functions that produce instantiated classifiers for that type
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
-    ClassifierType.RANDOM_FOREST: _make_random_forest,
-    ClassifierType.CATBOOST: _make_catboost,
+    ClassifierType.RANDOM_FOREST: make_random_forest,
+    ClassifierType.CATBOOST: make_catboost,
 }
-if _xgboost is not None:
-    _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = _make_xgboost
+
+# Attempt to register XGBoost if available. While it will be installed, because it is a
+# package dependency, it might not be usable on macOS due to missing libomp. In this case
+# xgboost will raise an ImportError, so we try importing and catch ImportError to see if it
+# is usable in the current environment.
+# Users will be warned if XGBoost support is unavailable. This can be resolved by installing
+# libomp using homebrew.
+try:
+    import xgboost  # noqa F401
+except ImportError:
+    logging.warning(
+        "Unable to import xgboost. XGBoost support will be unavailable. "
+        "You may need to install xgboost and/or libomp."
+    )
+else:
+    _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
 
 
 class Classifier:
@@ -428,21 +401,9 @@ class Classifier:
             features, labels = self.downsample_balance(features, labels, random_seed)
 
         classifier = self._create_classifier(random_seed=random_seed)
-
-        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=FutureWarning)
-                # XGBoost and CatBoost natively support NaN as a marker for missing values and handle them
-                # during tree construction. For these classifiers we therefore convert infinite values to NaN
-                # and leave them as missing, instead of imputing them with 0. This differs from the
-                # Random Forest path below, where both infinities and NaN are
-                # replaced with 0.
-                cleaned_features = features.replace([np.inf, -np.inf], np.nan)
-                self._classifier = classifier.fit(cleaned_features, labels)
-        else:
-            # RandomForestClassifier (and most other sklearn estimators) do not natively support NaN
-            # values, so here we replace infinite values and NaNs with 0 before fitting.
-            cleaned_features = features.replace([np.inf, -np.inf], 0).fillna(0)
+        cleaned_features = self._clean_features(features)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = classifier.fit(cleaned_features, labels)
 
         # Classifier may have been re-used from a prior training, blank the logging attributes
@@ -450,17 +411,21 @@ class Classifier:
         self._classifier_hash = None
         self._classifier_source = None
 
-    def sort_features_to_classify(self, features):
-        """sorts features to match the current classifier"""
-        if self._classifier_type == ClassifierType.XGBOOST:
+    def get_features_to_classify(self, features: pd.DataFrame) -> pd.DataFrame:
+        """gets features for classification, handling classifier-specific quirks."""
+        if self.classifier_type == ClassifierType.XGBOOST:
+            # XGBoost feature names are obtained from the booster
             classifier_columns = self._classifier.get_booster().feature_names
-        elif self._classifier_type == ClassifierType.CATBOOST:
-            classifier_columns = self._classifier.feature_names_
         else:
-            # sklearn places feature names in feature_names_in_
-            classifier_columns = self._classifier.feature_names_in_
-        features_sorted = features[classifier_columns]
-        return features_sorted
+            # For other classifiers, use the feature names from the underlying model
+            if hasattr(self._classifier, "feature_names_in_"):
+                classifier_columns = list(self._classifier.feature_names_in_)
+            elif hasattr(self._classifier, "feature_names_"):
+                classifier_columns = list(self._classifier.feature_names_)
+            else:
+                raise RuntimeError("Error obtaining feature names from classifier.")
+
+        return features[classifier_columns]
 
     def predict(
         self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
@@ -474,18 +439,11 @@ class Classifier:
         Returns:
             predicted class vector
         """
-        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=FutureWarning)
-                # XGBoost and CatBoost can handle NaN, just replace infinities
-                result = self._classifier.predict(
-                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], np.nan))
-                )
-        else:
-            # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
-            result = self._classifier.predict(
-                self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
-            )
+        cleaned_features = self._clean_features(features)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            # XGBoost and CatBoost can handle NaN, just replace infinities
+            result = self._classifier.predict(cleaned_features)
 
         # Insert -1s into class prediction when no prediction is made
         if frame_indexes is not None:
@@ -507,18 +465,10 @@ class Classifier:
         Returns:
             prediction probability matrix
         """
-        if self._classifier_type in (ClassifierType.XGBOOST, ClassifierType.CATBOOST):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=FutureWarning)
-                # XGBoost and CatBoost can handle NaN, just replace infinities
-                result = self._classifier.predict_proba(
-                    self.sort_features_to_classify(features.replace([np.inf, -np.inf], np.nan))
-                )
-        else:
-            # Random forests and gradient boost can't handle NAs & infs, so fill them with 0s
-            result = self._classifier.predict_proba(
-                self.sort_features_to_classify(features.replace([np.inf, -np.inf], 0).fillna(0))
-            )
+        cleaned_features = self._clean_features(features)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            result = self._classifier.predict_proba(cleaned_features)
 
         # Insert 0 probabilities when no prediction is made
         if frame_indexes is not None:
@@ -564,7 +514,7 @@ class Classifier:
 
         if c.version != _VERSION:
             raise ValueError(
-                f"Error deserializing classifier. File version {c.version}, expected {_VERSION}."
+                f"Unable to deserialize pickled classifier. File version {c.version}, expected {_VERSION}."
             )
 
             # make sure the value passed for the classifier parameter is valid
@@ -741,3 +691,22 @@ class Classifier:
     def _supported_classifier_choices() -> set[ClassifierType]:
         """Determine the list of supported classifier types in the current JABS environment."""
         return set(_CLASSIFIER_FACTORIES.keys())
+
+    def _clean_features(self, features: pd.DataFrame) -> pd.DataFrame:
+        """Clean features for prediction, handling missing and infinite values.
+
+        Args:
+            features: DataFrame of feature data to clean.
+
+        Returns:
+            Cleaned DataFrame with missing and infinite values handled.
+        """
+        if self._classifier_type in (
+            ClassifierType.XGBOOST,
+            ClassifierType.CATBOOST,
+        ):
+            # these classifiers can handle NaN, just replace infinities
+            return features.replace([np.inf, -np.inf], np.nan)
+        else:
+            # Random forests can't handle NAs & infs, so fill them with 0s
+            return features.replace([np.inf, -np.inf], 0).fillna(0)
