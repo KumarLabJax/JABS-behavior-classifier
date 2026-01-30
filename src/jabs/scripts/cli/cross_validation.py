@@ -37,9 +37,10 @@ def run_cross_validation(
         behavior (str): Behavior label to perform cross-validation on.
         classifier_type (ClassifierType): Classifier type to use.
         grouping_strategy (CrossValidationGroupingStrategy): Grouping strategy for cross-validation.
-         If None, uses project settings.
+          If None, uses project settings.
         k (int): Number of cross-validation splits. Use 0 for max splits.
-        report_file (Path | None): Path to save the training report markdown file.
+        report_file (Path | None): Path to save the training report file.
+          Format will be determined by the extension (.md for markdown or .json for JSON).
     """
     if k < 0:
         raise ValueError("The number of cross-validation splits 'k' must be non-negative.")
@@ -197,6 +198,7 @@ def run_cross_validation(
 
     # Save markdown report
     if report_file is None:
+        # no filename specified, generate default
         timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
         report_file = Path(f"{behavior}_{timestamp_str}_training_report.md")
 

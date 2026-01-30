@@ -1,7 +1,8 @@
 """Training report generation for classifier cross-validation results."""
 
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -219,13 +220,101 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     return "\n".join(lines)
 
 
-def save_training_report(data: TrainingReportData, output_path: Path) -> None:
-    """Generate and save a training report as markdown.
+def _to_python_type(val):
+    """Recursively convert numpy types to native Python types for JSON serialization."""
+    if isinstance(val, np.generic):
+        return val.item()
+    if isinstance(val, np.ndarray):
+        return [_to_python_type(x) for x in val.tolist()]
+    if isinstance(val, list):
+        return [_to_python_type(x) for x in val]
+    if isinstance(val, dict):
+        return {k: _to_python_type(v) for k, v in val.items()}
+    return val
+
+
+def generate_json_report(data: TrainingReportData) -> dict:
+    """Generate a JSON-serializable training report.
+
+    Ensures all numpy types are converted to native Python types.
 
     Args:
         data: TrainingData object containing all training information
-        output_path: Path where the markdown file should be saved
+
+    Returns:
+        Dictionary suitable for JSON serialization
     """
-    markdown_content = generate_markdown_report(data)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(markdown_content)
+    # Convert timestamp to UTC and use ISO format with 'Z' suffix
+    if data.timestamp.tzinfo is None:
+        # Assume naive datetime is local time; convert to UTC
+        timestamp_utc = data.timestamp.astimezone(timezone.utc)
+    else:
+        timestamp_utc = data.timestamp.astimezone(datetime.timezone.utc)
+    timestamp_str = timestamp_utc.replace(tzinfo=None).isoformat() + "Z"
+
+    report = {
+        "behavior_name": data.behavior_name,
+        "classifier_type": data.classifier_type,
+        "window_size": int(data.window_size),
+        "balance_training_labels": bool(data.balance_training_labels),
+        "symmetric_behavior": bool(data.symmetric_behavior),
+        "distance_unit": data.distance_unit,
+        "training_time_ms": int(data.training_time_ms),
+        "timestamp": timestamp_str,
+        "cv_grouping_strategy": data.cv_grouping_strategy.value,
+        "frames_behavior": int(data.frames_behavior),
+        "frames_not_behavior": int(data.frames_not_behavior),
+        "bouts_behavior": int(data.bouts_behavior),
+        "bouts_not_behavior": int(data.bouts_not_behavior),
+        "cv_results": [],
+        "final_top_features": [
+            {"feature_name": str(name), "importance": float(importance)}
+            for name, importance in data.final_top_features
+        ],
+    }
+
+    for result in data.cv_results:
+        result_dict = {
+            "iteration": int(result.iteration),
+            "test_label": str(result.test_label),
+            "accuracy": float(result.accuracy),
+            "precision_behavior": float(result.precision_behavior),
+            "precision_not_behavior": float(result.precision_not_behavior),
+            "recall_behavior": float(result.recall_behavior),
+            "recall_not_behavior": float(result.recall_not_behavior),
+            "f1_behavior": float(result.f1_behavior),
+            "support_behavior": int(result.support_behavior),
+            "support_not_behavior": int(result.support_not_behavior),
+            "confusion_matrix": _to_python_type(result.confusion_matrix),
+            "top_features": [
+                {"feature_name": str(name), "importance": float(importance)}
+                for name, importance in result.top_features
+            ],
+        }
+        report["cv_results"].append(result_dict)
+
+    return report
+
+
+def save_training_report(data: TrainingReportData, output_path: Path) -> None:
+    """Generate and save a training report.
+
+    The report format is determined by the file extension of output_path.
+    Currently, markdown (.md) and JSON (.json) are supported.
+
+    Args:
+        data: TrainingData object containing all training information
+        output_path: Path where the report file should be saved
+    """
+    if output_path.suffix.lower() == ".md":
+        markdown_content = generate_markdown_report(data)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+    elif output_path.suffix.lower() == ".json":
+        json_content = generate_json_report(data)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(json_content, f, indent=4)
+    else:
+        raise ValueError(
+            "Only markdown (.md) or JSON (.json) output formats are currently supported."
+        )

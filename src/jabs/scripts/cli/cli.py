@@ -20,6 +20,11 @@ from .cross_validation import run_cross_validation
 
 # find out which classifiers are supported in this environment
 CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
+DEFAULT_CLASSIFIER: str = (
+    ClassifierType.XGBOOST.value.lower()
+    if ClassifierType.XGBOOST in CLASSIFIER_CHOICES
+    else ClassifierType.RANDOM_FOREST.value.lower()
+)
 
 
 @click.group(context_settings={"max_content_width": 120})
@@ -281,17 +286,17 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 @click.option(
     "--classifier",
     "classifier",
-    default="xgboost"
-    if ClassifierType.XGBOOST in CLASSIFIER_CHOICES
-    else ClassifierType.RANDOM_FOREST.name.lower(),
+    default=DEFAULT_CLASSIFIER,
     type=click.Choice([c.name for c in CLASSIFIER_CHOICES], case_sensitive=False),
-    help="Default classifier set in the training file. Default is 'xgboost'.",
+    help=f"Default classifier set in the training file. Default is '{DEFAULT_CLASSIFIER}'.",
 )
 @click.option(
     "--report-file",
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
     default=None,
-    help="Optional path to write the cross-validation markdown report. If not provided, a default filename will be used.",
+    help="Optional path to write the cross-validation report. "
+    "Report format will be determined by extension (.md for Markdown, .json for JSON). "
+    "If not provided, a default filename will be used.",
 )
 @click.pass_context
 def cross_validation(
@@ -304,6 +309,11 @@ def cross_validation(
     report_file: Path | None,
 ):
     """Run leave-one-group-out cross-validation for a JABS project."""
+    if report_file is not None and report_file.suffix.lower() not in {".md", ".json"}:
+        raise click.ClickException(
+            "Report file must have a .md (Markdown) or .json (JSON) extension."
+        )
+
     if grouping_strategy and grouping_strategy.lower() == "video":
         cv_grouping = CrossValidationGroupingStrategy.VIDEO
     elif grouping_strategy and grouping_strategy.lower() == "individual":
