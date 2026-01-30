@@ -60,3 +60,40 @@ def make_xgboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
             "XGBoost classifier requested but 'xgboost' is not available in this environment."
         ) from e
     return xgboost.XGBClassifier(n_jobs=n_jobs, random_state=random_seed)
+
+
+def make_lightgbm(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
+    """Factory function to construct a LightGBM classifier.
+
+    LightGBM is optional and not installed by default. We try to import here.
+
+    Args:
+        n_jobs (int): Number of parallel jobs.
+        random_seed (int | None): Random seed for reproducibility.
+
+    Raises:
+        RuntimeError: If LightGBM is not available.
+
+    Note:
+        Currently uses hyperparameters obtained from optimization on a
+        specific dataset. These may not generalize well to other datasets.
+    """
+    params = {
+        "n_estimators": 187,
+        "learning_rate": 0.013940346079873234,
+        "max_depth": 11,
+        "num_leaves": 138,
+        "min_child_samples": 16,
+        "subsample": 0.7475884550556351,
+        "colsample_bytree": 0.5171942605576092,
+        "reg_alpha": 1.527156759251193,
+        "reg_lambda": 2.133142332373004e-06,
+    }
+
+    try:
+        import lightgbm
+    except ImportError as e:
+        raise RuntimeError(
+            "LightGBM classifier requested but 'lightgbm' is not available in this environment."
+        ) from e
+    return lightgbm.LGBMClassifier(n_jobs=n_jobs, random_state=random_seed, verbose=-1, **params)

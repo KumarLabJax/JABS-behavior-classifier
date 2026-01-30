@@ -59,15 +59,34 @@ XGBoost is another gradient boosting algorithm known for winning machine learnin
 
 **Best for:** When you need better accuracy than Random Forest but faster training than CatBoost, or when you're familiar with gradient boosting methods.
 
+## LightGBM
+
+LightGBM is currently supported as an optional package extra. If you with to use LightGBM, please install the `jabs-behavior-classifier[extra-classifiers]` extra.
+
+```commandline
+pip install jabs-behavior-classifier[extra-classifiers]
+```
+
+**Pros:**
+- ✅ **Fast training** - Comparable to Random Forest in speed
+- ✅ **Good accuracy** - Similar performance to XGBoost
+- ✅ **Handles missing data natively** - Works with NaN values
+- ✅ **Low memory usage** - Efficient with system resources
+
+**Cons:**
+- ⚠️ **Less established** - Newer algorithm with less extensive validation
+- ⚠️ **May require tuning** - Performance can depend on hyperparameter settings (not currently supported in JABS)
+- ⚠️ **Optional extra installation** - Requires additional installation step to use in JABS
+
 ## Quick Comparison
 
-| Feature | Random Forest | CatBoost | XGBoost |
-|---------|--------------|----------|---------|
-| **Training Speed** | ⚡⚡⚡ Fast | 🐌 Slow | ⚡⚡ Moderate |
-| **Accuracy** | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Very Good |
-| **Missing Data Handling** | Imputation to 0 | Native support | Native support |
-| **Setup Complexity** | ✅ Simple | ✅ Simple | ⚠️ May need libomp |
-| **Best Use Case** | Quick iterations | Production accuracy | Balanced performance |
+| Feature | Random Forest | CatBoost | XGBoost | LightGBM |
+|---------|--------------|----------|---------|---------|
+| **Training Speed** | ⚡⚡⚡ Fast | 🐌 Slow | ⚡⚡ Moderate | ⚡⚡ Fast |
+| **Accuracy** | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Very Good | ⭐⭐⭐⭐ Very Good |
+| **Missing Data Handling** | Imputation to 0 | Native support | Native support | Native support |
+| **Setup Complexity** | ✅ Simple | ✅ Simple | ⚠️ May need libomp | optional extra install |
+| **Best Use Case** | Quick iterations | Production accuracy | Balanced performance | Balanced performance |
 
 ## Recommendations
 

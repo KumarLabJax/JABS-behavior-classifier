@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 import random
 import re
@@ -24,9 +25,9 @@ from jabs.core.enums import (
 from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
 
-from .factories import make_catboost, make_random_forest, make_xgboost
+from .factories import make_catboost, make_lightgbm, make_random_forest, make_xgboost
 
-_VERSION = 11
+_VERSION = 12
 
 # _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
 # supported by the current JABS environment, in addition to the mapping of ClassifierTypes
@@ -51,6 +52,11 @@ except ImportError:
     )
 else:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
+
+
+# lightgbm is an optional dependency and might not be installed. Check to see if it is available.
+if importlib.util.find_spec("lightgbm") is not None:
+    _CLASSIFIER_FACTORIES[ClassifierType.LIGHT_GBM] = make_lightgbm
 
 
 class Classifier:
@@ -413,7 +419,12 @@ class Classifier:
 
     def get_features_to_classify(self, features: pd.DataFrame) -> pd.DataFrame:
         """gets features for classification, handling classifier-specific quirks."""
-        if self.classifier_type == ClassifierType.XGBOOST:
+        if self.classifier_type == ClassifierType.LIGHT_GBM:
+            # LightGBM replaces whitespace in feature names with underscores
+            features = features.rename(columns=lambda x: x.replace(" ", "_"))
+            # Extract feature names from the underlying LightGBM model
+            classifier_columns = self._classifier.feature_name_
+        elif self.classifier_type == ClassifierType.XGBOOST:
             # XGBoost feature names are obtained from the booster
             classifier_columns = self._classifier.get_booster().feature_names
         else:
@@ -703,6 +714,7 @@ class Classifier:
         if self._classifier_type in (
             ClassifierType.XGBOOST,
             ClassifierType.CATBOOST,
+            ClassifierType.LIGHT_GBM,
         ):
             # these classifiers can handle NaN, just replace infinities
             return features.replace([np.inf, -np.inf], np.nan)

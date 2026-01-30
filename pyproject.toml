@@ -39,6 +39,12 @@ dependencies = [
   "catboost>=1.2.8",
 ]
 
+[project.optional-dependencies]
+extra-classifiers = [
+  "lightgbm>=4.5.0,<5.0.0",
+  # Add additional classifier packages here as needed
+]
+
 [tool.uv.sources]
 jabs-io = { workspace = true }
 jabs-core = { workspace = true }
