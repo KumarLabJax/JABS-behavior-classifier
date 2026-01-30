@@ -442,7 +442,6 @@ class Classifier:
         cleaned_features = self._clean_features(features)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
-            # XGBoost and CatBoost can handle NaN, just replace infinities
             result = self._classifier.predict(cleaned_features)
 
         # Insert -1s into class prediction when no prediction is made
