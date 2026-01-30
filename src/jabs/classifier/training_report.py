@@ -239,7 +239,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
     Ensures all numpy types are converted to native Python types.
 
     Args:
-        data: TrainingData object containing all training information
+        data: TrainingReportData object containing all training information
 
     Returns:
         Dictionary suitable for JSON serialization
