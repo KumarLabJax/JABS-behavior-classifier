@@ -96,8 +96,6 @@ jabs.venv\Scripts\activate.bat
 pip install jabs-behavior-classifier
 ```
 
-**Windows users:** Use the included `setup_windows.bat` and `launch_jabs.bat` scripts for easy setup.
-
 </details>
 
 <details>
