@@ -1,12 +1,12 @@
 # JAX Animal Behavior System (JABS)
 
-![JABS Screen Shot](img/jabs_screenshot.png)
+![JABS Screen Shot](docs/assets/images/jabs_screenshot.png)
 
 ## ReadTheDocs Tutorial and User Guide
 
 https://jabs-tutorial.readthedocs.io/en/latest/index.html
 
-[User Guide (Markdown)](docs/user-guide.md)
+[User Guide (Markdown)](docs/user-guide/overview.md)
 
 ## Copyright
 
@@ -171,6 +171,7 @@ We supply a tested pair of singularity definition files. The [first vm](vm/headl
 ## JABS Project Portability
 
 We have 4 version numbers in our software:
+
 
 * JABS Python package version. This gets bumped every release.
 * Feature version. This gets bumped every time we change feature values or the format used to store calculated features.
