@@ -2,7 +2,7 @@
 
 # JAX Animal Behavior System (JABS)
 
-**A genetics-informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse**
+**An open-source platform for standardized mouse behavioral phenotyping.**
 
 [![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
