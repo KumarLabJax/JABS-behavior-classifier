@@ -206,7 +206,7 @@ JABS was influenced by JAABA (Janelia Automatic Animal Behavior Annotator) devel
 
 <div align="center">
 
-**[The Jackson Laboratory](https://www.jax.org/)** · [Kumar Lab](https://www.jax.org/research-and-faculty/research-labs/the-bhanu-kumar-lab)
+**[The Jackson Laboratory](https://www.jax.org/)** · [Kumar Lab](https://www.kumarlab.org/)
 
 [jabs@jax.org](mailto:jabs@jax.org)
 
