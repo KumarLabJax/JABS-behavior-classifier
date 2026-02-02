@@ -1,218 +1,185 @@
+<div align="center">
+
 # JAX Animal Behavior System (JABS)
 
-![JABS Screen Shot](docs/assets/images/jabs_screenshot.png)
+**A genetics-informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse**
 
-## ReadTheDocs Tutorial and User Guide
+[![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
+[![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-orange.svg)](LICENSE)
+[![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.2-green.svg)](https://doi.org/10.7554/eLife.107259.2)
 
-https://jabs-tutorial.readthedocs.io/en/latest/index.html
+[Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
 
-[User Guide (Markdown)](docs/user-guide/overview.md)
+---
 
-## Copyright
+![JABS Screenshot](docs/assets/images/jabs_screenshot.png)
 
-Copyright 2023 The Jackson Laboratory -- All rights reserved.
+</div>
 
-## Contact
+## ✨ Features
 
-email us at jabs@jax.org
+- **Interactive GUI** for behavior annotation and classifier training
+- **Machine learning-powered** automatic behavior classification
+- **XGBoost support** for high-performance classification
+- **Command-line tools** for batch processing and HPC integration
+- **Singularity containers** for reproducible deployments
 
-## License
+## 🚀 Quick Start
 
-JABS is licensed under a non-commercial use license, see [LICENSE](LICENSE) for more information. Contact us for information about licensing for commercial use.
-
-## Citation
-
-If you use JABS in your research, please cite:
-
-Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J., & Kumar, V. (2025). JAX Animal Behavior System (JABS): A genetics informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse. *eLife*, 14:RP107259. https://doi.org/10.7554/eLife.107259.2
-
-## Pose Files
-
-JABS requires pose files generated from the Kumar Lab's mouse pose estimation neural networks. Single mouse pose files are generated from [this repository](https://github.com/KumarLabJax/deep-hrnet-mouse). Multi-mouse is still under development. Contact us for more information.
-
-## Installation
-
-This section describes how to install JABS as an end user. Developers should see the [JABS Development](#jabs-development) section below for instructions on setting up a development environment.
-
-**Note:** The first time you run JABS, it may take a few minutes to initialize. Startup time for subsequent runs will be substantially faster.
-
-### Install with pipx or uv (Recommended)
-
-The easiest way to install JABS is using [pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/), which install Python applications in isolated environments:
+### Installation (Recommended)
 
 ```bash
-# Using pipx
+# Using pipx (recommended)
 pipx install jabs-behavior-classifier
 
 # OR using uv
 uv tool install jabs-behavior-classifier
 ```
 
-Both commands automatically create a virtual environment and make the JABS commands available system-wide. After installation, you can run JABS from any terminal.
-
-```bash
-# launch the JABS GUI
-jabs
-
-# view help for jabs-init command
-jabs-init --help
-```
-
-### Run with uvx (No Installation Required)
-
-Alternatively, you can use `uvx` to run JABS without permanently installing it:
+### Run Without Installing
 
 ```bash
 uvx --from jabs-behavior-classifier jabs
 ```
 
-This runs JABS in an isolated environment without permanently installing it. You can also use `uvx` to run other JABS commands:
+### Launch JABS
 
 ```bash
-uvx --from jabs-behavior-classifier jabs-init
-uvx --from jabs-behavior-classifier jabs-classify
+jabs              # Launch the GUI
+jabs-init --help  # View project initialization options
 ```
 
-### Create a Virtual Environment
+> **Note:** The first launch may take a few minutes to initialize. Subsequent launches will be much faster.
 
-If not using `pipx` or `uvx`, we recommend installing JABS within a dedicated Python virtual environment to avoid conflicts with other packages. You can create and activate a virtual environment using the following commands:
+## 📦 Installation Options
 
-```bash
-python -m venv jabs.venv
-
-# Linux and macOS
-source jabs.venv/bin/activate
-
-# Windows (cmd)
-jabs.venv\Scripts\activate.bat
-```
-
-**JABS supports Python 3.10 through 3.14. Make sure to use a compatible Python version when creating the virtual environment.**
-
-### Install from PyPI
-
-JABS can be installed directly from the Python Package Index:
+<details>
+<summary><strong>Install from PyPI</strong></summary>
 
 ```bash
 pip install jabs-behavior-classifier
 ```
 
-This will install JABS and all required dependencies automatically.
+</details>
 
-### Install from Source
-
-If you want the latest development version or need to install a specific branch/commit:
-
-#### From GitHub
+<details>
+<summary><strong>Install from Source</strong></summary>
 
 ```bash
+# From GitHub
 pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git
-```
 
-Specify a branch or commit if needed:
-
-```bash
+# Specific branch or commit
 pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@branch-name
-pip install git+https://github.com/KumarLabJax/JABS-behavior-classifier.git@commit-hash
-```
 
-#### From Local Clone
-
-If you’ve cloned the JABS repository:
-
-```bash
+# From local clone
+git clone https://github.com/KumarLabJax/JABS-behavior-classifier.git
+cd JABS-behavior-classifier
 pip install .
 ```
 
-#### Windows Setup Helpers
+</details>
 
-Two batch scripts are included for Windows users working with a local clone:
-
-- **`setup_windows.bat`** — Creates a `jabs.venv` virtual environment and installs JABS.
-- **`launch_jabs.bat`** — Activates the environment and launches the JABS GUI.
-
-Double-click these scripts in Windows Explorer to run them.
-
-### Enabling XGBoost Classifier
-
-The XGBoost Classifier has a dependency on the OpenMP library. This does not ship with macOS. XGBoost should work "out of the box" on other platforms. On macOS, you can install libomp with Homebrew (preferred) with the following command `brew install libomp`. You can also install libomp from source if you can't use Homebrew, but this is beyond the scope of this Readme.
-
-Because libomp is dynamically loaded by XGBoost it can be installed before or after installing jabs-behavior-classifier.
-
----
-
-## Running JABS
-
-After installation, the following commands are available in your environment:
-
-- `jabs` — launch the JABS GUI  
-- `jabs-init` — initialize a new JABS project directory or recompute features in an existing project 
-- `jabs-classify` — run a trained classifier  
-- `jabs-export-training` — export training data from an existing JABS project
-- `jabs-cli` - collection of smaller command line utilities
-
-You can view usage information for any command with:
+<details>
+<summary><strong>Virtual Environment Setup</strong></summary>
 
 ```bash
-<jabs-command> --help
+python -m venv jabs.venv
+
+# Linux/macOS
+source jabs.venv/bin/activate
+
+# Windows
+jabs.venv\Scripts\activate.bat
+
+pip install jabs-behavior-classifier
 ```
 
-## Sample Data
+**Windows users:** Use the included `setup_windows.bat` and `launch_jabs.bat` scripts for easy setup.
 
-We provide sample data for testing and demonstration purposes. You can download the sample data from
-https://doi.org/10.5281/zenodo.16697331
+</details>
+
+<details>
+<summary><strong>macOS: Enable XGBoost</strong></summary>
+
+XGBoost requires the OpenMP library, which doesn't ship with macOS:
+
+```bash
+brew install libomp
+```
+
+</details>
+
+## 🛠️ Command Line Tools
+
+| Command                | Description                                    |
+|------------------------|------------------------------------------------|
+| `jabs`                 | Launch the JABS GUI                            |
+| `jabs-init`            | Initialize a new project or recompute features |
+| `jabs-classify`        | Run a trained classifier                       |
+| `jabs-export-training` | Export training data from a project            |
+| `jabs-cli`             | Collection of utility commands                 |
+
+Run `<command> --help` for detailed usage information.
+
+## 📋 Prerequisites
+
+JABS requires pose files generated from the Kumar Lab's mouse pose estimation neural networks:
+- **Single mouse:** [deep-hrnet-mouse](https://github.com/KumarLabJax/deep-hrnet-mouse)
+- **Multi-mouse:** Under development — [contact us](mailto:jabs@jax.org) for more information
+
+## 🐳 Singularity/Linux
+
+We provide tested Singularity definition files for Linux environments:
+
+| Container                       | Use Case                                  |
+|---------------------------------|-------------------------------------------|
+| [headless.def](vm/headless.def) | Command-line use on compute clusters      |
+| [gui.def](vm/gui.def)           | Interactive GUI in a portable environment |
+
+## 📁 Project Portability
+
+| Artifact                    | Portability              | Best For                          |
+|-----------------------------|--------------------------|-----------------------------------|
+| **Project folders**         | Cross-version compatible | Long-term storage, upgrades       |
+| **Exported training data**  | Same JABS version        | Sharing, archiving, HPC workflows |
+| **Classifier pickle files** | Same machine only        | Large-scale pipeline predictions  |
+
+## 📖 Documentation
+
+- **[ReadTheDocs Tutorial](https://jabs-tutorial.readthedocs.io/)** — Complete user guide and tutorials
+- **[User Guide](docs/user-guide/overview.md)** — Markdown documentation
+- **[Sample Data](https://doi.org/10.5281/zenodo.16697331)** — Test datasets for demonstration
+
+## 🤝 Contributing
+
+Interested in contributing? Check out our:
+- [Contributing Guide](CONTRIBUTING.md)
+- [Development Guide](docs/DEVELOPMENT.md)
+
+## 📜 Citation
+
+If you use JABS in your research, please cite:
+
+> Choudhary, A., Geuther, B. Q., Sproule, T. J., Beane, G., Kohar, V., Trapszo, J., & Kumar, V. (2025). JAX Animal Behavior System (JABS): A genetics informed, end-to-end advanced behavioral phenotyping platform for the laboratory mouse. *eLife*, 14:RP107259. https://doi.org/10.7554/eLife.107259.2
+
+## 📄 License
+
+JABS is licensed under a **non-commercial use license**. See [LICENSE](LICENSE) for details.
+
+For commercial licensing inquiries, [contact us](mailto:jabs@jax.org).
+
+## 🙏 Acknowledgements
+
+JABS was influenced by [JAABA](https://doi.org/10.1038/nmeth.2281) (Janelia Automatic Animal Behavior Annotator) developed by the Branson lab at Janelia Research Campus, HHMI.
 
 ---
 
-## Singularity/Linux
+<div align="center">
 
-We supply a tested pair of singularity definition files. The [first vm](vm/headless.def) is intended for command-line use on compute clusters when scaling inferences. The [second vm](vm/gui.def) is designed for interacting with the GUI in a portable environment. Please inspect the definition files for related linux packages to run the software.
+**[The Jackson Laboratory](https://www.jax.org/)** · [Kumar Lab](https://www.jax.org/research-and-faculty/research-labs/the-bhanu-kumar-lab)
 
-## JABS Project Portability
+📧 [jabs@jax.org](mailto:jabs@jax.org)
 
-We have 4 version numbers in our software:
-
-
-* JABS Python package version. This gets bumped every release.
-* Feature version. This gets bumped every time we change feature values or the format used to store calculated features.
-* Classifier version. This gets bumped every time we change characteristics of classifiers.
-* Prediction version. This gets bumped every time we change how predictions are stored.
-
-### Long Term Support of JABS-based Classifiers
-
-There are multiple JABS Classifier artifacts that have different compatibility and portability characteristics.
-
-* Project folders. These are the most compatible for upgrades. The vast majority of our upgrades to JABS will allow transparent upgrades (e.g. re-generation of features) within the project folder without user interaction. We will provide instructions for changes that are not.
-* Exported training data. These are compatible across computers, but should generally not be considered compatible across JABS package versions. Once we add the appropriate version checks, the error message should be a bit more clear when and why these aren't compatible across versions.
-* Classifier pickle files. These are only compatible within a specific install of the package (e.g. mac will not be compatible with windows). These are the serialized trained classifiers, so load really fast, but should not be considered portable beyond the computer and specific JABS install that created them.
-
-Project folders are big, but are almost always compatible across JABS versions.
-
-Exported classifiers are smaller and easier to move around, but might require the same JABS package version to run. These are good for sharing or archiving specific versions (e.g. a version we use in a paper). A common use case is to export training data from a project folder, transfer it to our HPC cluster, and then train a and run classifier using the `jabs-classify` command from same version of JABS that was used to export the training file.
-
-Pickle files are tiny and efficient, but are not transferable across computers. We use these for large-scale predictions in pipelines (for example, using exported training data to train a classifier saved as a .pickle file, which can then be used to classify many videos as part of a pipeline).
-
-
-## JABS Development
-
-If you're interested in contributing to JABS or setting up a development environment:
-
-- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute, copyright information, and submission guidelines
-- **[Development Guide](docs/DEVELOPMENT.md)** - Detailed technical documentation including:
-  - Setting up a development environment with uv
-  - Code style and standards
-  - Feature extraction architecture
-  - Testing guidelines
-  - Building and distribution
-  - CI/CD and release management
-
----
-
-## Acknowledgements
-
-JABS was influenced by JAABA (Janelia Automatic Animal Behavior Annotator) developed by the Branson lab at Janelia Research Campus of the Howard Hughes Medical Institute. We are grateful for their pioneering work in automated behavior classification.
-
-**Citation:**
-
-Kabra, M., Robie, A., Rivera-Alba, M. et al. JAABA: interactive machine learning for automatic annotation of animal behavior. Nature Methods 10, 64–67 (2013). https://doi.org/10.1038/nmeth.2281
-
+</div>
