@@ -85,6 +85,7 @@ class ClassifyThread(QThread):
         self._tasks_complete = 0
         current_video_predictions = {}
         current_video_probabilities = {}
+        current_video_predictions_postprocessed = {}
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -162,12 +163,15 @@ class ClassifyThread(QThread):
 
                     # apply post-processing to the predictions. first copy to avoid modifying original
                     postprocessed_predictions[identity] = predictions[identity].copy()
-                    postprocessing_pipeline.run(postprocessed_predictions[identity])
+                    postprocessed_predictions[identity] = postprocessing_pipeline.run(
+                        postprocessed_predictions[identity]
+                    )
 
                 if video == self._current_video:
                     # keep predictions for the video currently loaded in the video player
-                    current_video_predictions = predictions.copy()
-                    current_video_probabilities = probabilities.copy()
+                    current_video_predictions = predictions
+                    current_video_probabilities = probabilities
+                    current_video_predictions_postprocessed = postprocessed_predictions
 
                 # save predictions to disk
                 self.current_status.emit("Saving Predictions")
@@ -190,6 +194,7 @@ class ClassifyThread(QThread):
                 {
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
+                    "predictions_postprocessed": current_video_predictions_postprocessed,
                 }
             )
         except Exception as e:
