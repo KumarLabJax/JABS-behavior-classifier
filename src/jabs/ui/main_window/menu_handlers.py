@@ -345,9 +345,9 @@ class MenuHandlers:
 
     def on_timeline_view_mode_changed(self) -> None:
         """Handle timeline view mode change (Labels, Predictions, or Both)."""
-        if self.window._timeline_labels_preds.isChecked():
+        if self.window._menu_refs.timeline_labels_preds.isChecked():
             mode = StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
-        elif self.window._timeline_labels.isChecked():
+        elif self.window._menu_refs.timeline_labels.isChecked():
             mode = StackedTimelineWidget.ViewMode.LABELS
         else:
             mode = StackedTimelineWidget.ViewMode.PREDICTIONS
@@ -356,7 +356,7 @@ class MenuHandlers:
 
     def on_timeline_identity_mode_changed(self) -> None:
         """Handle timeline identity mode change (All Animals or Selected Animal)."""
-        if self.window._timeline_all_animals.isChecked():
+        if self.window._menu_refs.timeline_all_animals.isChecked():
             mode = StackedTimelineWidget.IdentityMode.ALL
         else:
             mode = StackedTimelineWidget.IdentityMode.ACTIVE
@@ -365,9 +365,9 @@ class MenuHandlers:
 
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""
-        if self.window._label_overlay_none.isChecked():
+        if self.window._menu_refs.label_overlay_none.isChecked():
             mode = PlayerWidget.LabelOverlayMode.NONE
-        elif self.window._label_overlay_labels.isChecked():
+        elif self.window._menu_refs.label_overlay_labels.isChecked():
             mode = PlayerWidget.LabelOverlayMode.LABEL
         else:
             mode = PlayerWidget.LabelOverlayMode.PREDICTION
@@ -458,7 +458,7 @@ class MenuHandlers:
     def update_window_menu(self) -> None:
         """Update the Window menu with the current list of open windows."""
         # Remove all dynamic window items (everything after the separator)
-        actions = self.window._window_menu.actions()
+        actions = self.window._menu_refs.window_menu.actions()
         separator_found = False
         items_to_remove = []
 
