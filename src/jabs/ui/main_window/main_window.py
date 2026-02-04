@@ -131,41 +131,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menu_handlers = MenuHandlers(self)
 
         # Build all menus using MenuBuilder
-        self.menu_builder = MenuBuilder(self, app_name, app_name_long)
-        menu_refs = self.menu_builder.build_menus()
-
-        # Store references to menus and actions for later use
-        self._window_menu = menu_refs.window_menu
-        self._open_recent_menu = menu_refs.open_recent_menu
-        self._export_training = menu_refs.export_training
-        self._archive_behavior = menu_refs.archive_behavior
-        self._prune_action = menu_refs.prune_action
-        self._clear_cache = menu_refs.clear_cache
-        self.view_playlist = menu_refs.view_playlist
-        self.show_track = menu_refs.show_track
-        self.overlay_pose = menu_refs.overlay_pose
-        self.overlay_landmark = menu_refs.overlay_landmark
-        self.overlay_segmentation = menu_refs.overlay_segmentation
-        self.behavior_search = menu_refs.behavior_search
-        self._timeline_labels_preds = menu_refs.timeline_labels_preds
-        self._timeline_labels = menu_refs.timeline_labels
-        self._timeline_preds = menu_refs.timeline_preds
-        self._timeline_all_animals = menu_refs.timeline_all_animals
-        self._timeline_selected_animal = menu_refs.timeline_selected_animal
-        self._label_overlay_none = menu_refs.label_overlay_none
-        self._label_overlay_labels = menu_refs.label_overlay_labels
-        self._label_overlay_preds = menu_refs.label_overlay_preds
-        self._identity_overlay_centroid = menu_refs.identity_overlay_centroid
-        self._identity_overlay_floating = menu_refs.identity_overlay_floating
-        self._identity_overlay_minimal = menu_refs.identity_overlay_minimal
-        self._identity_overlay_bbox = menu_refs.identity_overlay_bbox
-        self.enable_cm_units = menu_refs.enable_cm_units
-        self.enable_window_features = menu_refs.enable_window_features
-        self.enable_fft_features = menu_refs.enable_fft_features
-        self.enable_social_features = menu_refs.enable_social_features
-        self.enable_landmark_features = menu_refs.enable_landmark_features
-        self.enable_segmentation_features = menu_refs.enable_segmentation_features
-        self._settings_action = menu_refs.settings_action
+        self._menu_refs = MenuBuilder(self, app_name, app_name_long).build_menus()
 
         # Update recent projects menu
         self._update_recent_projects()
@@ -179,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Connect central widget signals for menu state updates
         self._central_widget.export_training_status_change.connect(
-            self._export_training.setEnabled
+            self._menu_refs.export_training.setEnabled
         )
         self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
         self._central_widget.bbox_overlay_supported.connect(
@@ -199,7 +165,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         # If the playlist visibility changes, make sure the view_playlists check mark is set correctly
-        self.video_list.visibilityChanged.connect(self.view_playlist.setChecked)
+        self.video_list.visibilityChanged.connect(self._menu_refs.view_playlist.setChecked)
 
         # Handle event where user selects a different video in the playlist
         self.video_list.selectionChanged.connect(self._video_list_selection)
@@ -227,11 +193,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         match key:
             case Qt.Key.Key_T:
-                self.show_track.trigger()
+                self._menu_refs.show_track.trigger()
             case Qt.Key.Key_P:
-                self.overlay_pose.trigger()
+                self._menu_refs.overlay_pose.trigger()
             case Qt.Key.Key_L:
-                self.overlay_landmark.trigger()
+                self._menu_refs.overlay_landmark.trigger()
             case Qt.Key.Key_Comma:
                 self.video_list.select_previous_video()
             case Qt.Key.Key_Period:
@@ -319,13 +285,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Populate settings based project data
         behavior_metadata = self._project.settings_manager.get_behavior(new_behavior)
-        self.enable_cm_units.setChecked(behavior_metadata.get("cm_units", False))
-        self.enable_window_features.setChecked(behavior_metadata.get("window", False))
-        self.enable_fft_features.setChecked(behavior_metadata.get("fft", False))
-        self.enable_social_features.setChecked(behavior_metadata.get("social", False))
-        self.enable_segmentation_features.setChecked(behavior_metadata.get("segmentation", False))
+        self._menu_refs.enable_cm_units.setChecked(behavior_metadata.get("cm_units", False))
+        self._menu_refs.enable_window_features.setChecked(behavior_metadata.get("window", False))
+        self._menu_refs.enable_fft_features.setChecked(behavior_metadata.get("fft", False))
+        self._menu_refs.enable_social_features.setChecked(behavior_metadata.get("social", False))
+        self._menu_refs.enable_segmentation_features.setChecked(
+            behavior_metadata.get("segmentation", False)
+        )
         static_settings = behavior_metadata.get("static_objects", {})
-        for static_object, menu_item in self.enable_landmark_features.items():
+        for static_object, menu_item in self._menu_refs.enable_landmark_features.items():
             menu_item.setChecked(static_settings.get(static_object, False))
 
     def behavior_label_add_event(self, behaviors: list[str]) -> None:
@@ -377,29 +345,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.set_project(self._project)
 
         # Update which controls should be available
-        self._archive_behavior.setEnabled(True)
-        self._prune_action.setEnabled(True)
-        self._settings_action.setEnabled(True)
-        self.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
-        self.enable_social_features.setEnabled(
+        self._menu_refs.archive_behavior.setEnabled(True)
+        self._menu_refs.prune_action.setEnabled(True)
+        self._menu_refs.settings_action.setEnabled(True)
+        self._menu_refs.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
+        self._menu_refs.enable_social_features.setEnabled(
             self._project.feature_manager.can_use_social_features
         )
-        self.enable_segmentation_features.setEnabled(
+        self._menu_refs.enable_segmentation_features.setEnabled(
             self._project.feature_manager.can_use_segmentation_features
         )
-        self._clear_cache.setEnabled(True)
+        self._menu_refs.clear_cache.setEnabled(True)
         available_objects = self._project.feature_manager.static_objects
-        for static_object, menu_item in self.enable_landmark_features.items():
+        for static_object, menu_item in self._menu_refs.enable_landmark_features.items():
             if static_object in available_objects:
                 menu_item.setEnabled(True)
             else:
                 menu_item.setEnabled(False)
-        self.behavior_search.setEnabled(True)
+        self._menu_refs.behavior_search.setEnabled(True)
+        self._menu_refs.postprocessing_settings.setEnabled(True)
 
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
-
-        # Note: Process pool is warmed on MainWindow startup, no need to warm here
 
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
@@ -444,12 +411,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_recent_projects(self) -> None:
         """update the contents of the Recent Projects menu"""
-        self._open_recent_menu.clear()
+        self._menu_refs.open_recent_menu.clear()
         recent_projects = self._settings.value(RECENT_PROJECTS_KEY, [], type=list)
 
         # add menu action for each of the recent projects
         for project_path in recent_projects:
-            action = self._open_recent_menu.addAction(project_path)
+            action = self._menu_refs.open_recent_menu.addAction(project_path)
             # Use lambda to pass project_path explicitly instead of using sender()
             action.triggered.connect(
                 lambda checked=False, path=project_path: self.open_project(path)

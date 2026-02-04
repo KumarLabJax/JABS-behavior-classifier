@@ -3,6 +3,7 @@ import pandas as pd
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
+from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
@@ -92,6 +93,14 @@ class ClassifyThread(QThread):
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
+            postprocessing_config = {}
+            for stage in project_settings.get("postprocessing", []):
+                stage_name = stage.get("stage_name")
+                if stage_name:
+                    postprocessing_config[stage_name] = stage.get("config", {})
+
+            postprocessing_pipeline = PostprocessingPipeline(postprocessing_config)
+
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
                 check_termination_requested()
@@ -103,6 +112,7 @@ class ClassifyThread(QThread):
                 # collect predictions, probabilities, and frame indexes for each identity in the video
                 predictions = {}
                 probabilities = {}
+                postprocessed_predictions = {}
 
                 for identity in pose_est.identities:
                     check_termination_requested()
@@ -150,6 +160,10 @@ class ClassifyThread(QThread):
                         predictions[identity] = np.array(0)
                         probabilities[identity] = np.array(0)
 
+                    # apply post-processing to the predictions. first copy to avoid modifying original
+                    postprocessed_predictions[identity] = predictions[identity].copy()
+                    postprocessing_pipeline.run(postprocessed_predictions[identity])
+
                 if video == self._current_video:
                     # keep predictions for the video currently loaded in the video player
                     current_video_predictions = predictions.copy()
@@ -164,6 +178,7 @@ class ClassifyThread(QThread):
                     probabilities,
                     self._behavior,
                     self._classifier,
+                    postprocessed_predictions=postprocessed_predictions,
                 )
 
                 self._tasks_complete += 1

@@ -479,10 +479,6 @@ class MainControlWidget(QtWidgets.QWidget):
 
         Returns:
             None
-
-        Todo:
-         - This is one of the major locations where project settings are owned by this
-           widget, instead of the project class
         """
         # reset list of behaviors, then add any from the project metadata
         self._behaviors = []

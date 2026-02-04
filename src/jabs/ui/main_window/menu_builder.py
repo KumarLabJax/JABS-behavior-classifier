@@ -44,6 +44,7 @@ class MenuReferences:
 
     # Tool menu actions
     behavior_search: QtGui.QAction
+    postprocessing_settings: QtGui.QAction
 
     # View menu actions
     view_playlist: QtGui.QAction
@@ -265,8 +266,16 @@ class MenuBuilder:
         behavior_search.triggered.connect(self.handlers.show_behavior_search_dialog)
         menu.addAction(behavior_search)
 
+        # Postprocessing Dialog action
+        postprocessing_action = QtGui.QAction("Prediction Postprocessing", self.main_window)
+        postprocessing_action.setStatusTip("Open Postprocessing Settings Dialog")
+        postprocessing_action.setEnabled(False)
+        postprocessing_action.triggered.connect(self.handlers.open_postprocessing_dialog)
+        menu.addAction(postprocessing_action)
+
         return {
             "behavior_search": behavior_search,
+            "postprocessing_settings": postprocessing_action,
         }
 
     def _build_view_menu(self, menu: QtWidgets.QMenu) -> dict:

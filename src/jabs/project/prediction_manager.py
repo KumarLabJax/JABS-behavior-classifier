@@ -51,6 +51,7 @@ class PredictionManager:
         probabilities: np.ndarray,
         poses: "PoseEstimation",
         classifier: "Classifier",
+        postprocessed_predictions: np.ndarray | None = None,
     ) -> None:
         """
         Write predicted classes and probabilities for a behavior to an HDF5 file.
@@ -65,6 +66,7 @@ class PredictionManager:
             probabilities (np.ndarray): Array of predicted class probabilities, shape (n_animals, n_frames).
             poses: PoseEstimation object corresponding to the video.
             classifier: Classifier object used to generate predictions.
+            postprocessed_predictions (np.ndarray | None): Optional array of post-processed predictions.
 
         Returns:
             None
@@ -94,10 +96,20 @@ class PredictionManager:
                 "predicted_class", shape=predictions.shape, dtype=predictions.dtype
             )
             h5_predictions[...] = predictions
+
             h5_probabilities = behavior_group.require_dataset(
                 "probabilities", shape=probabilities.shape, dtype=probabilities.dtype
             )
             h5_probabilities[...] = probabilities
+
+            if postprocessed_predictions is not None:
+                h5_postprocessed = behavior_group.require_dataset(
+                    "predicted_class_postprocessed",
+                    shape=postprocessed_predictions.shape,
+                    dtype=postprocessed_predictions.dtype,
+                )
+                h5_postprocessed[...] = postprocessed_predictions
+
             if poses.identity_to_track is not None:
                 h5_ids = behavior_group.require_dataset(
                     "identity_to_track",

@@ -28,7 +28,11 @@ from ..dialogs import (
     UserGuideDialog,
 )
 from ..player_widget import PlayerWidget
-from ..settings_dialog import JabsSettingsDialog, ProjectSettingsDialog
+from ..settings_dialog import (
+    JabsSettingsDialog,
+    PostprocessingSettingsDialog,
+    ProjectSettingsDialog,
+)
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
@@ -275,6 +279,16 @@ class MenuHandlers:
         dialog = LicenseAgreementDialog(self.window, view_only=True)
         dialog.exec_()
 
+    # ========== Tool Menu Handlers ==========
+
+    def open_postprocessing_dialog(self) -> None:
+        """Open the postprocessing settings dialog."""
+        behavior = self.window._central_widget.behavior
+        settings_dialog = PostprocessingSettingsDialog(
+            self.window._project.settings_manager, behavior=behavior, parent=self.window
+        )
+        settings_dialog.exec()
+
     # ========== View Menu Handlers ==========
 
     def set_video_list_visibility(self, checked: bool) -> None:
@@ -508,7 +522,7 @@ class MenuHandlers:
         Args:
             supported: Whether bounding box overlay is supported
         """
-        self.window._identity_overlay_bbox.setEnabled(supported)
+        self.window._menu_refs.identity_overlay_bbox.setEnabled(supported)
         if (
             not supported
             and self.window._central_widget.id_overlay_mode
@@ -516,7 +530,7 @@ class MenuHandlers:
         ):
             # If the user had bbox overlay selected but the new video doesn't support it, switch to floating
             self.window._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
-            self.window._identity_overlay_floating.setChecked(True)
+            self.window._menu_refs.identity_overlay_bbox.setChecked(True)
 
     # ========== Helper Methods ==========
 

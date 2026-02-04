@@ -1,7 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from PySide6 import QtCore, QtWidgets
@@ -1086,7 +1086,7 @@ class CentralWidget(QtWidgets.QWidget):
         """save the window sizes to the project settings"""
         self._project.settings_manager.save_project_file({"window_sizes": window_sizes})
 
-    def update_behavior_settings(self, key: str, val: any) -> None:
+    def update_behavior_settings(self, key: str, val: Any) -> None:
         """propagates an updated setting to the project"""
         # early exit if no behavior selected
         if self.behavior == "":
