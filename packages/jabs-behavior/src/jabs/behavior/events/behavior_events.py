@@ -72,9 +72,19 @@ class BehaviorEvents:
         if len(indices_to_remove) > 0:
             # Delete backwards so that we don't need to shift indices
             for cur_gap in np.sort(indices_to_remove)[::-1]:
-                # Nothing earlier or later to join together, ignore
-                if cur_gap == 0 or cur_gap == len(new_durations) - 1:
-                    pass
+                if cur_gap == 0:
+                    # Remove the first bout, merge with the next (use next bout's class)
+                    new_durations[1] += new_durations[0]
+                    new_starts[1] = new_starts[0]
+                    new_durations = np.delete(new_durations, 0)
+                    new_starts = np.delete(new_starts, 0)
+                    new_states = np.delete(new_states, 0)
+                elif cur_gap == len(new_durations) - 1:
+                    # Remove the last bout, merge with the previous (use previous bout's class)
+                    new_durations[-2] += new_durations[-1]
+                    new_durations = np.delete(new_durations, -1)
+                    new_starts = np.delete(new_starts, -1)
+                    new_states = np.delete(new_states, -1)
                 else:
                     # Delete gaps where the borders match
                     if new_states[cur_gap - 1] == new_states[cur_gap + 1]:
