@@ -129,12 +129,12 @@ class PredictionManager:
 
         Returns:
             tuple of three dicts: (predictions, probabilities,
-            frame_indexes)
+            predictions_postprocessed), where
         each dict has identities present in the video for keys
         """
         predictions = {}
         probabilities = {}
-        frame_indexes = {}
+        postprocessed_predictions = {}
 
         file_base = Path(video).with_suffix("").name + ".h5"
         path = self._project.project_paths.prediction_dir / file_base
@@ -159,22 +159,16 @@ class PredictionManager:
                 _probabilities = behavior_group["probabilities"][:]
                 _classes = behavior_group["predicted_class"][:]
 
+                if "predicted_class_postprocessed" in behavior_group:
+                    _postprocessed = behavior_group["predicted_class_postprocessed"][:]
+                else:
+                    _postprocessed = None
+
                 for i in range(nident):
-                    indexes = np.asarray(range(behavior_group["predicted_class"].shape[1]))
-
-                    # first, exclude any probability of -1 as that indicates
-                    # a user label, not an inferred class
-                    indexes = indexes[_probabilities[i] != -1]
-
-                    # now excludes a class of -1 as that indicates the
-                    # identity isn't present
-                    indexes = indexes[_classes[i, indexes] != -1]
-
-                    # we're left with classes/probabilities for frames that
-                    # were inferred and their frame indexes
                     predictions[i] = _classes[i]
                     probabilities[i] = _probabilities[i]
-                    frame_indexes[i] = indexes
+                    if _postprocessed is not None:
+                        postprocessed_predictions[i] = _postprocessed[i]
 
         except (MissingBehaviorError, FileNotFoundError):
             # no saved predictions for this behavior for this video
@@ -182,4 +176,4 @@ class PredictionManager:
         except (AssertionError, KeyError):
             print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
-        return predictions, probabilities, frame_indexes
+        return predictions, probabilities, postprocessed_predictions
