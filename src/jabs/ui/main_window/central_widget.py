@@ -1117,6 +1117,7 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         behavior_metadata = self._project.settings_manager.get_behavior(self.behavior)
+        self._window_size = behavior_metadata["window_size"]
         self._controls.set_window_size(behavior_metadata["window_size"])
         self._controls.use_balance_labels = behavior_metadata["balance_labels"]
         self._controls.use_symmetric = behavior_metadata["symmetric_behavior"]
