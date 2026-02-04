@@ -91,15 +91,13 @@ def test_load_predictions(prediction_manager, mock_project):
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
         behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
-        video, behavior
-    )
+    # prediction dile doesn't have postprocessed predictions so only get raw predictions and probabilities
+    predictions, probabilities, _ = prediction_manager.load_predictions(video, behavior)
 
     assert 0 in predictions
     assert 1 in predictions
     assert np.array_equal(predictions[0], [1, 0, -1])
     assert np.array_equal(probabilities[0], [0.9, 0.8, -1])
-    assert np.array_equal(frame_indexes[0], [0, 1])
 
 
 def test_load_predictions_missing_behavior(prediction_manager, mock_project):
@@ -113,13 +111,13 @@ def test_load_predictions_missing_behavior(prediction_manager, mock_project):
         h5.attrs["version"] = 2
         h5.create_group("predictions")
 
-    predictions, probabilities, frame_indexes = prediction_manager.load_predictions(
+    predictions, probabilities, predictions_postprocessed = prediction_manager.load_predictions(
         video, behavior
     )
 
     assert predictions == {}
     assert probabilities == {}
-    assert frame_indexes == {}
+    assert predictions_postprocessed == {}
 
 
 def test_load_predictions_invalid_file(prediction_manager, mock_project):
