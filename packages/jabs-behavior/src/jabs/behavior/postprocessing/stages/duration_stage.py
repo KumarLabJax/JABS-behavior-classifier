@@ -24,11 +24,12 @@ class BoutDurationFilterStage(PostprocessingStage):
 
         self._config["min_duration"] = kwargs["min_duration"]
 
-    def apply(self, classes: np.ndarray) -> np.ndarray:
+    def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply the duration filter to the predictions.
 
         Args:
             classes (np.ndarray): The predicted classes.
+            probabilities (np.ndarray): The predicted probabilities. (Not used in this stage.)
 
         Returns:
             np.ndarray: classes after applying the filter.

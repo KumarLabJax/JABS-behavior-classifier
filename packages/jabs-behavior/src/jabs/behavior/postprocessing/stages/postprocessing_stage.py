@@ -36,11 +36,12 @@ class PostprocessingStage(abc.ABC):
         return self._config
 
     @abc.abstractmethod
-    def apply(self, classes: np.ndarray) -> np.ndarray:
+    def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply the stage to the predictions.
 
         Args:
             classes (np.ndarray): The predicted classes.
+            probabilities (np.ndarray): The predicted probabilities.
 
         Returns:
             np.ndarray: Classes after applying the stage transformation.

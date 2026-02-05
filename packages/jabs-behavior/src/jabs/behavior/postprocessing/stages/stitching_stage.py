@@ -24,11 +24,12 @@ class BoutStitchingStage(PostprocessingStage):
 
         self._config["max_stitch_gap"] = kwargs["max_stitch_gap"]
 
-    def apply(self, classes: np.ndarray) -> np.ndarray:
+    def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply stitching to the predictions.
 
         Args:
             classes (np.ndarray): The predicted classes.
+            probabilities (np.ndarray): The predicted probabilities. (Not used in this stage.)
 
         Returns:
             np.ndarray: Classes after applying the stitching.

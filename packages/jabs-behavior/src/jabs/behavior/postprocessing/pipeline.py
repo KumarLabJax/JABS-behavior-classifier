@@ -24,16 +24,17 @@ class PostprocessingPipeline:
             filter_instance = filter_class(**filter_kwargs)
             self._filters.append(filter_instance)
 
-    def run(self, classes: np.ndarray) -> np.ndarray:
+    def run(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Run the post-processing pipeline on the predicted classes.
 
         Args:
             classes (np.ndarray): The predicted classes.
+            probabilities (np.ndarray): The predicted probabilities.
 
         Returns:
             np.ndarray: Classes after applying all filters in the pipeline.
 
         """
         for filter_instance in self._filters:
-            classes = filter_instance.apply(classes)
+            classes = filter_instance.apply(classes, probabilities)
         return classes
