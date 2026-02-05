@@ -158,7 +158,7 @@ class ClassifyThread(QThread):
 
                     # apply post-processing to the predictions.
                     postprocessed_predictions[identity] = postprocessing_pipeline.run(
-                        predictions[identity]
+                        predictions[identity], probabilities[identity]
                     )
 
                 if video == self._current_video:
