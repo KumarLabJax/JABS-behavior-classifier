@@ -45,7 +45,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self,
         app_name: str,
         app_name_long: str,
-        process_pool: ProcessPoolManager = None,
+        process_pool: ProcessPoolManager | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -66,25 +66,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._project = None
         self._project_loader_thread = None
         self._progress_dialog = None
-        self._pool_warm_thread = None
         self._user_guide_window = None
         self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
 
         # Use the pre-created process pool (created before Qt to avoid fork+threads issues)
-        # If no pool provided (e.g., in tests), create one lazily
-        if process_pool is not None:
-            self._process_pool = process_pool
-            logger.debug(
-                f"[MainWindow] Using pre-created ProcessPoolManager id={id(self._process_pool)}"
-            )
-        else:
-            # Fallback for tests or if called without pool
-            logger.warning(
-                "[MainWindow] No process pool provided, creating lazily (not recommended in production)"
-            )
-            self._process_pool = ProcessPoolManager(name="JABS-AppProcessPool")
-
-        self._pool_warm_thread = None
+        self._process_pool = process_pool
 
         # Load window size from settings
         size = self._settings.value(WINDOW_SIZE_KEY, None, type=QtCore.QSize)
@@ -471,8 +457,6 @@ class MainWindow(QtWidgets.QMainWindow):
         Note: The warm-up thread is a daemon, so it won't block exit.
         """
         logger.debug("[MainWindow] closeEvent: shutting down process pool")
-        # Shutdown the process pool with wait=False and cancel_futures=True
-        # The daemon warm-up thread (if still running) will be killed automatically
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
 
