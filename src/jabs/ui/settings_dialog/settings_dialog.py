@@ -296,7 +296,7 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
             group.set_values(all_settings)
 
     def _on_save(self) -> None:
-        """Save postprocesing settings"""
+        """Save postprocessing settings"""
         # Order matters, since it determines the order stages are applied.
         # To preserve order they are saved as a list of dicts, each dict representing a stage with its
         # config so that order will be maintained even though the project.json file is sorted by key.

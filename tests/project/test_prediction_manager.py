@@ -91,7 +91,7 @@ def test_load_predictions(prediction_manager, mock_project):
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
         behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
 
-    # prediction dile doesn't have postprocessed predictions so only get raw predictions and probabilities
+    # prediction file doesn't have postprocessed predictions so only get raw predictions and probabilities
     predictions, probabilities, _ = prediction_manager.load_predictions(video, behavior)
 
     assert 0 in predictions

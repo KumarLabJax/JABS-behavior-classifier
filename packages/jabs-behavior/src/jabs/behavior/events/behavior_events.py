@@ -174,7 +174,7 @@ class BehaviorEvents:
         # Data must be same shape
         if len(self.starts) != len(self.durations) or len(self.durations) != len(self.states):
             raise ValueError(
-                f"All inputs must be of same length. Recieved vectors of shape {len(self.starts)}, {len(self.durations)}, {len(self.states)}."
+                f"All inputs must be of same length. Received vectors of shape {len(self.starts)}, {len(self.durations)}, {len(self.states)}."
             )
 
         # Starts must be sorted
