@@ -14,17 +14,21 @@ The `jabs-classify` script saves inference files in `<out-dir>/<video_name>_beha
 
 ### Contents
 
-The H5 file contains one group, called `predictions`. This group contains one or more behavior prediction groups. Each behavior prediction group contains 3 datasets and 1 new group.
+The H5 file contains one group, called `predictions`. This group contains one or more behavior prediction groups. 
 
 ```text
 predictions/
   behavior_1/
     predicted_class
     probabilities
-    identity_to_track
+    predicted_class_postprocessed #optional
+    identity_to_track   #optional
   behavior_2/
     ...
 ```
+
+predicted_class_postprocessed is only present if postprocessing was applied after prediction (e.g. stitching, minimum bout length filtering, etc).
+identity_to_track is only present for predictions using Pose File Version 3 or earlier.
 
 ### Attributes
 
@@ -50,7 +54,18 @@ This dataset contains the predicted class. Each element contains one of three va
 
 - 0: "not behavior"
 - 1: "behavior"
-- -1: "identity not present in frame".
+- -1: no prediction
+
+### predicted\_class\_postprocessed [optional]
+
+- dtype: 8-bit integer
+- shape: #identities x #frames
+
+This dataset contains the predicted class after applying postprocessing. Each element contains one of three values:
+
+- 0: "not behavior"
+- 1: "behavior"
+- -1: no prediction
 
 ### probabilities
 
@@ -59,12 +74,12 @@ This dataset contains the predicted class. Each element contains one of three va
 
 This dataset contains the probability (0.0-1.0) of each prediction. If there is no prediction (the identity doesn't exist at a given frame) then the prediction probability is 0.0.
 
-### identity_to_track
+### identity\_to\_track [optional]
 
 - dtype: 32-bit integer
 - shape: #identities x #frames
 
-This dataset maps each JABS-assigned identity (Pose version 3) back to the original track ID from the pose file at each frame. -1 indicates the identity does not map to a track for that frame. For Pose File Version 4 and greater, JABS uses the identity assignment contained in the pose file. For pose version 2, there will be exactly one identity (0).
+This dataset is only present when using version 3 of the JABS pose estimation format. It maps each JABS-assigned identity back to the original track ID from the pose file at each frame. -1 indicates the identity does not map to a track for that frame. For Pose File Version 4 and greater, JABS uses the identity assignment contained in the pose file, and identity_to_track is omitted from the prediction file.
 
 ## Feature File
 
