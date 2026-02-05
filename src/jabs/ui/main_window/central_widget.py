@@ -956,6 +956,19 @@ class CentralWidget(QtWidgets.QWidget):
             predictions = self._predictions
 
         for i in range(self._pose_est.num_identities):
+            # if there are no predictions we will pass an array of no-predictions and zero probabilities to
+            # the timeline widget
+            if not predictions:
+                prediction_list.append(
+                    np.full(
+                        self._player_widget.num_frames,
+                        TrackLabels.Label.NONE.value,
+                        dtype=np.byte,
+                    )
+                )
+                probability_list.append(np.zeros(self._player_widget.num_frames, dtype=np.float64))
+                continue
+
             prediction_list.append(predictions[i])
             probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
