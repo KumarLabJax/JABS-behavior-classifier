@@ -52,7 +52,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         expected = np.array([ClassLabels.BEHAVIOR] * 8)
         np.testing.assert_array_equal(result, expected)
@@ -77,7 +78,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
@@ -98,13 +100,15 @@ class TestStitchingStage:
 
         # Gap is 3, filter uses <=, so with max_stitch_gap=3 should stitch
         filter_obj = BoutStitchingStage(max_stitch_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
         expected = np.array([ClassLabels.BEHAVIOR] * 7)
         np.testing.assert_array_equal(result, expected)
 
         # With max_stitch_gap=2, gap (3) > 2, so should NOT stitch
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
         np.testing.assert_array_equal(result, classes)
 
     def test_apply_multiple_gaps(self):
@@ -124,7 +128,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=1)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # All gaps (size 1, 1 <= 1) should be stitched
         expected = np.array([ClassLabels.BEHAVIOR] * 8)
@@ -143,7 +148,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
@@ -162,7 +168,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # NONE labels should not be treated as NOT_BEHAVIOR for stitching
         np.testing.assert_array_equal(result, classes)
@@ -171,7 +178,8 @@ class TestStitchingStage:
         """Test apply with empty array."""
         classes = np.array([])
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         assert len(result) == 0
 
@@ -179,7 +187,8 @@ class TestStitchingStage:
         """Test apply with array of all same state."""
         classes = np.array([ClassLabels.BEHAVIOR] * 10)
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
@@ -198,7 +207,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # All should be stitched together
         expected = np.array([ClassLabels.BEHAVIOR] * 5)
@@ -225,7 +235,8 @@ class TestStitchingStage:
         )
 
         filter_obj = BoutStitchingStage(max_stitch_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # First gap (size 1, 1 <= 2) should be stitched, second gap (size 5, 5 > 2) should not
         expected = np.array(

@@ -69,9 +69,10 @@ class TestConcreteFilterImplementations:
         """Test that BoutDurationFilterStage implements apply method."""
         stage_obj = BoutDurationFilterStage(min_duration=5)
         classes = np.array([0, 1, 0])
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         # Should not raise NotImplementedError
-        result = stage_obj.apply(classes)
+        result = stage_obj.apply(classes, probabilities)
         assert isinstance(result, np.ndarray)
 
     def test_duration_filter_implements_help(self):
@@ -86,9 +87,10 @@ class TestConcreteFilterImplementations:
         """Test that BoutStitchingStage implements apply method."""
         stage_obj = BoutStitchingStage(max_stitch_gap=3)
         classes = np.array([0, 1, 0])
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         # Should not raise NotImplementedError
-        result = stage_obj.apply(classes)
+        result = stage_obj.apply(classes, probabilities)
         assert isinstance(result, np.ndarray)
 
     def test_stitching_stage_implements_help(self):

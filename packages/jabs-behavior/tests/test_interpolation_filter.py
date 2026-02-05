@@ -52,7 +52,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # NONE gap should be filled with surrounding behavior
         expected = np.array([ClassLabels.BEHAVIOR] * 8)
@@ -78,7 +79,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
@@ -99,13 +101,15 @@ class TestInterpolationFilter:
 
         # Gap is 3, filter uses <=, so with interpolate_frames_max=3 should interpolate
         filter_obj = GapInterpolationStage(max_interpolation_gap=3)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
         expected = np.array([ClassLabels.BEHAVIOR] * 7)
         np.testing.assert_array_equal(result, expected)
 
         # With max_interpolation_gap=2, gap (3) > 2, so should NOT interpolate
         filter_obj = GapInterpolationStage(max_interpolation_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
         np.testing.assert_array_equal(result, classes)
 
     def test_apply_multiple_none_gaps(self):
@@ -125,7 +129,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # All NONE gaps (size 1, 1 <= 2) should be interpolated
         expected = np.array([ClassLabels.BEHAVIOR] * 8)
@@ -145,7 +150,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=1)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # NONE (size 1, 1 <= 1) should be split between BEHAVIOR and NOT_BEHAVIOR
         # With odd duration (1), previous gets floor(1/2)=0, next gets ceil(1/2)=1
@@ -174,7 +180,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=5)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged (only NONE is interpolated)
         np.testing.assert_array_equal(result, classes)
@@ -183,7 +190,8 @@ class TestInterpolationFilter:
         """Test apply with empty array."""
         classes = np.array([])
         filter_obj = GapInterpolationStage(max_interpolation_gap=5)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         assert len(result) == 0
 
@@ -191,13 +199,14 @@ class TestInterpolationFilter:
         """Test apply with array of all NONE."""
         classes = np.array([ClassLabels.NONE] * 10)
         filter_obj = GapInterpolationStage(max_interpolation_gap=5)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged (no surrounding bouts to interpolate with)
         np.testing.assert_array_equal(result, classes)
 
     def test_apply_none_at_boundaries(self):
-        """Test that NONE at start/end is not interpolated."""
+        """Test interpolation of NONE at start/end (merges with neighbors)."""
         # Pattern: NONE(2), BEHAVIOR(3), NONE(2)
         classes = np.array(
             [
@@ -212,10 +221,15 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=5)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
-        # Boundary NONE values should not be interpolated
-        np.testing.assert_array_equal(result, classes)
+        # Boundary NONE bouts are interpolated (deleted and merged with neighbors)
+        # First NONE bout (index 0) merges with BEHAVIOR (takes BEHAVIOR state)
+        # Last NONE bout (index 2) merges with BEHAVIOR (takes BEHAVIOR state)
+        # Result: All BEHAVIOR
+        expected = np.array([ClassLabels.BEHAVIOR] * 7)
+        np.testing.assert_array_equal(result, expected)
 
     def test_apply_mixed_gap_sizes(self):
         """Test with mixed gap sizes (some short, some long)."""
@@ -238,7 +252,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=2)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # First gap (size 1, 1 <= 2) should be interpolated, second gap (size 5, 5 > 2) should not
         expected = np.array(
@@ -272,7 +287,8 @@ class TestInterpolationFilter:
         )
 
         filter_obj = GapInterpolationStage(max_interpolation_gap=1)
-        result = filter_obj.apply(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
 
         # All should be behavior (single frame NONE gaps interpolated, 1 <= 1)
         expected = np.array([ClassLabels.BEHAVIOR] * 5)

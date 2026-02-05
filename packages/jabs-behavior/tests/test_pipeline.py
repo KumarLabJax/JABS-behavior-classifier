@@ -62,7 +62,8 @@ class TestPostprocessingPipeline:
             ]
         )
 
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
 
@@ -82,7 +83,8 @@ class TestPostprocessingPipeline:
             ]
         )
 
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
 
         # Short behavior bout should be removed
         expected = np.array([ClassLabels.NOT_BEHAVIOR] * 6)
@@ -112,7 +114,8 @@ class TestPostprocessingPipeline:
             ]
         )
 
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
 
         # First, stitching should combine first two BEHAVIOR bouts -> BEHAVIOR(5)
         # Then, duration filter should keep it (duration >= 5)
@@ -165,28 +168,22 @@ class TestPostprocessingPipeline:
             ]
         )
 
-        result1 = pipeline1.run(classes)
-        result2 = pipeline2.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result1 = pipeline1.run(classes, probabilities)
+        result2 = pipeline2.run(classes, probabilities)
 
         # Pipeline 1: Duration filter removes both short BEHAVIOR bouts first
         # After removal, NOT_BEHAVIOR sections merge
         expected1 = np.array([ClassLabels.NOT_BEHAVIOR] * 9)
 
-        # Pipeline 2: Stitching combines bouts first (gap 1 < 2), resulting in BEHAVIOR(5)
-        # Then duration keeps it (5 >= 4)
-        expected2 = np.array(
-            [
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-            ]
-        )
+        # Pipeline 2: Stitching removes ALL NOT_BEHAVIOR bouts <= 2 (including boundaries!)
+        # Removes indices [0, 2, 4]:
+        #   - Index 4 (last): merges with previous BEHAVIOR
+        #   - Index 2 (middle): merges surrounding BEHAVIORs
+        #   - Index 0 (first): merges with next BEHAVIOR (takes BEHAVIOR state)
+        # Result after stitching: BEHAVIOR(9)
+        # Duration filter: BEHAVIOR(9) >= 4, so nothing removed
+        expected2 = np.array([ClassLabels.BEHAVIOR] * 9)
 
         np.testing.assert_array_equal(result1, expected1)
         np.testing.assert_array_equal(result2, expected2)
@@ -200,7 +197,8 @@ class TestPostprocessingPipeline:
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array([])
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
 
         assert len(result) == 0
 
@@ -213,7 +211,8 @@ class TestPostprocessingPipeline:
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array([ClassLabels.BEHAVIOR] * 10)
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
@@ -251,27 +250,21 @@ class TestPostprocessingPipeline:
             ]
         )
 
-        result = pipeline.run(classes)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
 
-        # After stitching (gap < 2):
-        # - First gap (1 < 2): BEHAVIORs merge to (6)
-        # - Second gap (3 >= 2): NOT stitched
-        # - Third gap (1 < 2): BEHAVIORs merge to (6)
-        # After duration filter (min 4):
-        # - Both bouts are >= 4, so both kept
+        # After stitching (removes ALL NOT_BEHAVIOR bouts <= 2, including boundaries):
+        # Removes indices [0, 2, 6, 8]:
+        #   - Index 8 (last, NOT_BEHAVIOR(2)): merges with previous BEHAVIOR(2) → BEHAVIOR(4)
+        #   - Index 6 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(9)
+        #   - Index 2 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(6)
+        #   - Index 0 (first, NOT_BEHAVIOR(2)): merges with next BEHAVIOR → BEHAVIOR(8)
+        # Result: BEHAVIOR(8), NOT_BEHAVIOR(3), BEHAVIOR(9)
+        # After duration filter (min 4): All bouts >= 4, so nothing removed
         expected = np.array(
             [
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
                 ClassLabels.BEHAVIOR,
                 ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
                 ClassLabels.BEHAVIOR,
                 ClassLabels.BEHAVIOR,
                 ClassLabels.BEHAVIOR,
@@ -280,6 +273,15 @@ class TestPostprocessingPipeline:
                 ClassLabels.BEHAVIOR,
                 ClassLabels.NOT_BEHAVIOR,
                 ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
             ]
         )
         np.testing.assert_array_equal(result, expected)

@@ -174,32 +174,34 @@ class TestBehaviorEvents:
         np.testing.assert_array_equal(events.states, [0, 2])
 
     def test_delete_bouts_first_index(self):
-        """Test delete_bouts at first index (should be ignored)."""
+        """Test delete_bouts at first index (merges with next bout)."""
         starts = np.array([0, 2, 4])
         durations = np.array([2, 2, 2])
-        states = np.array([0, 1, 0])
+        states = np.array([0, 1, 0])  # NOT_BEHAVIOR(2), BEHAVIOR(2), NOT_BEHAVIOR(2)
 
         events = BehaviorEvents(starts, durations, states)
         events.delete_bouts([0])
 
-        # Should remain unchanged
-        np.testing.assert_array_equal(events.starts, [0, 2, 4])
-        np.testing.assert_array_equal(events.durations, [2, 2, 2])
-        np.testing.assert_array_equal(events.states, [0, 1, 0])
+        # First bout deleted and merged with next (takes next bout's state)
+        # Result: BEHAVIOR(4), NOT_BEHAVIOR(2)
+        np.testing.assert_array_equal(events.starts, [0, 4])
+        np.testing.assert_array_equal(events.durations, [4, 2])
+        np.testing.assert_array_equal(events.states, [1, 0])
 
     def test_delete_bouts_last_index(self):
-        """Test delete_bouts at last index (should be ignored)."""
+        """Test delete_bouts at last index (merges with previous bout)."""
         starts = np.array([0, 2, 4])
         durations = np.array([2, 2, 2])
-        states = np.array([0, 1, 0])
+        states = np.array([0, 1, 0])  # NOT_BEHAVIOR(2), BEHAVIOR(2), NOT_BEHAVIOR(2)
 
         events = BehaviorEvents(starts, durations, states)
         events.delete_bouts([2])
 
-        # Should remain unchanged
-        np.testing.assert_array_equal(events.starts, [0, 2, 4])
-        np.testing.assert_array_equal(events.durations, [2, 2, 2])
-        np.testing.assert_array_equal(events.states, [0, 1, 0])
+        # Last bout deleted and merged with previous (takes previous bout's state)
+        # Result: NOT_BEHAVIOR(2), BEHAVIOR(4)
+        np.testing.assert_array_equal(events.starts, [0, 2])
+        np.testing.assert_array_equal(events.durations, [2, 4])
+        np.testing.assert_array_equal(events.states, [0, 1])
 
     def test_delete_bouts_multiple(self):
         """Test delete_bouts with multiple indices."""

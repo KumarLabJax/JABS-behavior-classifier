@@ -57,9 +57,10 @@ class TestDurationFilter:
                 ClassLabels.NOT_BEHAVIOR,
             ]
         )
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         filter_obj = BoutDurationFilterStage(min_duration=3)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         expected = np.array(
             [
@@ -96,15 +97,16 @@ class TestDurationFilter:
                 ClassLabels.NOT_BEHAVIOR,
             ]
         )
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         filter_obj = BoutDurationFilterStage(min_duration=3)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
 
     def test_apply_does_not_affect_not_behavior(self):
-        """Test that apply does not remove short NOT_BEHAVIOR bouts."""
+        """Test that apply only targets BEHAVIOR bouts, not NOT_BEHAVIOR bouts."""
         classes = np.array(
             [
                 ClassLabels.BEHAVIOR,
@@ -116,12 +118,18 @@ class TestDurationFilter:
                 ClassLabels.BEHAVIOR,
             ]
         )
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         filter_obj = BoutDurationFilterStage(min_duration=5)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
-        # Should remain unchanged (filter only affects BEHAVIOR bouts)
-        np.testing.assert_array_equal(result, classes)
+        # Both BEHAVIOR bouts (3 frames each) are removed because they're < 5
+        # When boundary bouts are deleted, they merge with neighbors
+        # First BEHAVIOR bout (index 0) merges with NOT_BEHAVIOR (takes NOT_BEHAVIOR state)
+        # Last BEHAVIOR bout (index 2) merges with NOT_BEHAVIOR (takes NOT_BEHAVIOR state)
+        # Result: All NOT_BEHAVIOR
+        expected = np.array([ClassLabels.NOT_BEHAVIOR] * 7)
+        np.testing.assert_array_equal(result, expected)
 
     def test_apply_handles_none_label(self):
         """Test that apply handles NONE labels correctly."""
@@ -137,9 +145,10 @@ class TestDurationFilter:
                 ClassLabels.NOT_BEHAVIOR,
             ]
         )
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         filter_obj = BoutDurationFilterStage(min_duration=5)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         # Short BEHAVIOR bout (duration 2) should be removed
         # When deleting the BEHAVIOR bout, it gets split between NONE and NOT_BEHAVIOR
@@ -161,16 +170,18 @@ class TestDurationFilter:
     def test_apply_empty_array(self):
         """Test apply with empty array."""
         classes = np.array([])
+        probabilities = np.array([])
         filter_obj = BoutDurationFilterStage(min_duration=5)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         assert len(result) == 0
 
     def test_apply_all_same_state(self):
         """Test apply with array of all same state."""
         classes = np.array([ClassLabels.BEHAVIOR] * 10)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
         filter_obj = BoutDurationFilterStage(min_duration=5)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         # Should remain unchanged (single long bout)
         np.testing.assert_array_equal(result, classes)
@@ -195,9 +206,10 @@ class TestDurationFilter:
                 ClassLabels.NOT_BEHAVIOR,
             ]
         )
+        probabilities = np.full_like(classes, 0.5, dtype=float)
 
         filter_obj = BoutDurationFilterStage(min_duration=4)
-        result = filter_obj.apply(classes)
+        result = filter_obj.apply(classes, probabilities)
 
         # All behavior bouts should be removed
         expected = np.array([ClassLabels.NOT_BEHAVIOR] * len(classes))
