@@ -24,7 +24,7 @@ import sys
 #   2. Workers only read files and do data processing (no Qt usage)
 #   3. Extensive testing shows stability in practice
 #
-# TODO: Test Windows to see if here is benefit to using "fork" there as well.
+# TODO: Test Windows to see if there is benefit to using "fork" there as well.
 if sys.platform == "darwin":
     # try to use 'fork' start method on macOS, suppress RuntimeError if it fails -- we'll fall back to default
     with contextlib.suppress(RuntimeError):
