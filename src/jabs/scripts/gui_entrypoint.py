@@ -1,8 +1,34 @@
 import argparse
+import contextlib
 import logging
 import multiprocessing
 import os
 import sys
+
+# PERFORMANCE FIX: Use fork instead of spawn for faster process creation on macOS
+#
+# Background: Initializing JABS-AppProcessPool on macOS was taking significant time, which
+# got significantly worse (25s)  with macOS Tahoe (maybe Sequoia+ ?)
+# Potential cause: macOS Sequoia+ scans adhoc-signed executables on every spawn,
+# causing significant overhead per worker process. Using fork() avoids this entirely.
+#
+# Why it's faster:
+# - Workers inherit parent's memory (no re-importing modules)
+# - No new executable spawned (no macOS security scans)
+#
+# Safety considerations:
+# - fork() is generally unsafe with multi-threaded programs
+# - Qt uses threads internally, so there's some risk
+# - We mitigate this by:
+#   1. Initialize pool BEFORE Qt initializes (forked from single-threaded state)
+#   2. Workers only read files and do data processing (no Qt usage)
+#   3. Extensive testing shows stability in practice
+#
+# TODO: Test Windows to see if here is benefit to using "fork" there as well.
+if sys.platform == "darwin":
+    # try to use 'fork' start method on macOS, suppress RuntimeError if it fails -- we'll fall back to default
+    with contextlib.suppress(RuntimeError):
+        multiprocessing.set_start_method("fork", force=True)
 
 # suppress some potential harmless warnings from Chromium when user opens UserGuideDialog on some platforms
 # we need to set these before importing PySide6.QtWebEngine, so we do it before all PySide6 and JABS imports
@@ -30,34 +56,14 @@ except AttributeError:
 logging.basicConfig(level=log_level)
 logger = logging.getLogger("jabs.gui_entrypoint")
 
-# PERFORMANCE FIX: Use fork instead of spawn for faster process creation on macOS
-#
-# Background: Initializing JABS-AppProcessPool on macOS was taking significant time, which
-# got significantly worse (25s)  with macOS Tahoe (maybe Sequoia+ ?)
-# Potential cause: macOS Sequoia+ scans adhoc-signed executables on every spawn,
-# causing significant overhead per worker process. Using fork() avoids this entirely.
-#
-# Why it's faster:
-# - Workers inherit parent's memory (no re-importing modules)
-# - No new executable spawned (no macOS security scans)
-#
-# Safety considerations:
-# - fork() is generally unsafe with multi-threaded programs
-# - Qt uses threads internally, so there's some risk
-# - We mitigate this by:
-#   1. Initialize pool BEFORE Qt initializes (forked from single-threaded state)
-#   2. Workers only read files and do data processing (no Qt usage)
-#   3. Extensive testing shows stability in practice
-#
-# TODO: Test Windows to see if here is benefit to using "fork" there as well.
-if sys.platform == "darwin":
-    logger.info("Setting multiprocessing start method to 'fork' on macOS for performance")
-    try:
-        multiprocessing.set_start_method("fork", force=True)
-    except RuntimeError:
-        logger.warning(
-            "multiprocessing.set_start_method() failed, falling back to default start method"
-        )
+
+# logger wasn't setup when we set the multiprocessing start method
+# if we need to log anything related to that, do it here
+if sys.platform == "darwin" and multiprocessing.get_start_method() != "fork":
+    logger.warning(
+        "Failed to set multiprocessing start method to 'fork' on macOS, "
+        "this may lead to slower process pool initialization."
+    )
 
 
 def main():
