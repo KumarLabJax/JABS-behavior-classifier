@@ -149,22 +149,16 @@ class ClassifyThread(QThread):
                             data, feature_values["frame_indexes"]
                         )
 
-                        # Derive predictions by taking argmax (class with highest probability)
-                        # This is equivalent to predict() but avoids duplicate computation
-                        # Consider using np.where with a threshold here if we want to be more conservative
-                        # about predictions
-                        predictions[identity] = np.argmax(prob, axis=1).astype(np.int8)
-
-                        # Use predictions as column indexes for each row of prob
-                        probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
+                        predictions[identity], probabilities[identity] = (
+                            self._classifier.derive_predictions(prob)
+                        )
                     else:
                         predictions[identity] = np.array(0)
                         probabilities[identity] = np.array(0)
 
-                    # apply post-processing to the predictions. first copy to avoid modifying original
-                    postprocessed_predictions[identity] = predictions[identity].copy()
+                    # apply post-processing to the predictions.
                     postprocessed_predictions[identity] = postprocessing_pipeline.run(
-                        postprocessed_predictions[identity]
+                        predictions[identity]
                     )
 
                 if video == self._current_video:
