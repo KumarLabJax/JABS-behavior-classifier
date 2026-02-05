@@ -454,7 +454,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle the close event for the main window.
 
         Ensures proper cleanup of the process pool before the application exits.
-        Note: The warm-up thread is a daemon, so it won't block exit.
+        The pre-initialized process pool is shut down in a non-blocking manner.
         """
         logger.debug("[MainWindow] closeEvent: shutting down process pool")
         self._process_pool.shutdown(wait=False, cancel_futures=True)
