@@ -137,10 +137,10 @@ def classify_pose(
             data = Classifier.combine_data(per_frame_features, window_features)
 
             if data.shape[0] > 0:
-                # Get probabilities for all classes
-                pred_prob = classifier.predict_proba(data, features["frame_indexes"])
-
-                predictions, probabilities = classifier.derive_predictions(pred_prob)
+                # predict probabilities and derive predictions
+                predictions, probabilities = classifier.derive_predictions(
+                    classifier.predict_proba(data, features["frame_indexes"])
+                )
 
                 # Copy results into results matrix
                 prediction_labels[curr_id] = predictions
