@@ -59,6 +59,8 @@ class MenuReferences:
     timeline_preds: QtGui.QAction
     timeline_all_animals: QtGui.QAction
     timeline_selected_animal: QtGui.QAction
+    timeline_raw_predictions: QtGui.QAction
+    timeline_postprocessed_predictions: QtGui.QAction
 
     # Label overlay actions
     label_overlay_none: QtGui.QAction
@@ -389,16 +391,41 @@ class MenuBuilder:
 
         animal_group.addAction(timeline_all_animals)
         animal_group.addAction(timeline_selected_animal)
-
         timeline_menu.addAction(timeline_all_animals)
         timeline_menu.addAction(timeline_selected_animal)
 
         timeline_all_animals.triggered.connect(self.handlers.on_timeline_identity_mode_changed)
         timeline_selected_animal.triggered.connect(self.handlers.on_timeline_identity_mode_changed)
 
+        timeline_menu.addSeparator()
+
+        # Third group: choice to view raw predictions or post-processed predictions
+        predictions_group = QtGui.QActionGroup(self.main_window)
+        predictions_group.setExclusive(True)
+
+        timeline_raw_predictions = QtGui.QAction(
+            "Raw Predictions", self.main_window, checkable=True
+        )
+        timeline_postprocessed_predictions = QtGui.QAction(
+            "Postprocessed Predictions", self.main_window, checkable=True
+        )
+
+        predictions_group.addAction(timeline_raw_predictions)
+        predictions_group.addAction(timeline_postprocessed_predictions)
+        timeline_menu.addAction(timeline_raw_predictions)
+        timeline_menu.addAction(timeline_postprocessed_predictions)
+
+        timeline_raw_predictions.triggered.connect(
+            self.handlers.on_timeline_prediction_type_changed
+        )
+        timeline_postprocessed_predictions.triggered.connect(
+            self.handlers.on_timeline_prediction_type_changed
+        )
+
         # Set defaults
         timeline_labels_preds.setChecked(True)
         timeline_selected_animal.setChecked(True)
+        timeline_raw_predictions.setChecked(True)
 
         return {
             "timeline_labels_preds": timeline_labels_preds,
@@ -406,6 +433,8 @@ class MenuBuilder:
             "timeline_preds": timeline_preds,
             "timeline_all_animals": timeline_all_animals,
             "timeline_selected_animal": timeline_selected_animal,
+            "timeline_raw_predictions": timeline_raw_predictions,
+            "timeline_postprocessed_predictions": timeline_postprocessed_predictions,
         }
 
     def _build_label_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:

@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.core.constants import FINAL_TRAIN_SEED
+from jabs.core.enums import PredictionType
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
@@ -363,6 +364,14 @@ class MenuHandlers:
 
         self.window._central_widget.timeline_identity_mode = mode
 
+    def on_timeline_prediction_type_changed(self) -> None:
+        """Handle change to the prediction type shown in the timeline (raw vs. postprocessed)."""
+        if self.window._menu_refs.timeline_raw_predictions.isChecked():
+            mode = PredictionType.RAW
+        else:
+            mode = PredictionType.POSTPROCESSED
+        self.window._central_widget.prediction_type = mode
+
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""
         if self.window._menu_refs.label_overlay_none.isChecked():
@@ -371,7 +380,6 @@ class MenuHandlers:
             mode = PlayerWidget.LabelOverlayMode.LABEL
         else:
             mode = PlayerWidget.LabelOverlayMode.PREDICTION
-
         self.window._central_widget.label_overlay_mode = mode
 
     # ========== Features Menu Handlers ==========
