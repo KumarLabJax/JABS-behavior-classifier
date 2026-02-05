@@ -477,14 +477,14 @@ class MenuHandlers:
                 separator_found = True
 
         for action in items_to_remove:
-            self.window._window_menu.removeAction(action)
+            self.window._menu_refs.window_menu.removeAction(action)
 
         # Add Main Window
         main_window_action = QAction("Main Window", self.window)
         main_window_action.setCheckable(True)
         main_window_action.setChecked(self.window.isActiveWindow())
         main_window_action.triggered.connect(lambda: self.activate_window(self.window))
-        self.window._window_menu.addAction(main_window_action)
+        self.window._menu_refs.window_menu.addAction(main_window_action)
 
         # Add User Guide window if open
         if (
@@ -497,7 +497,7 @@ class MenuHandlers:
             guide_action.triggered.connect(
                 lambda: self.activate_window(self.window._user_guide_window)
             )
-            self.window._window_menu.addAction(guide_action)
+            self.window._menu_refs.window_menu.addAction(guide_action)
 
         # Add any open dialogs from the central widget
         for title, dialog in self.window._central_widget.get_open_dialogs():
@@ -505,7 +505,7 @@ class MenuHandlers:
             dialog_action.setCheckable(True)
             dialog_action.setChecked(dialog.isActiveWindow())
             dialog_action.triggered.connect(lambda checked, w=dialog: self.activate_window(w))
-            self.window._window_menu.addAction(dialog_action)
+            self.window._menu_refs.window_menu.addAction(dialog_action)
 
     def activate_window(self, window: QtWidgets.QWidget) -> None:
         """Activate and bring a window to the front.
