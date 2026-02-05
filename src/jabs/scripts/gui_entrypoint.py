@@ -49,12 +49,15 @@ logger = logging.getLogger("jabs.gui_entrypoint")
 #   2. Workers only read files and do data processing (no Qt usage)
 #   3. Extensive testing shows stability in practice
 #
+# TODO: Test Windows to see if here is benefit to using "fork" there as well.
 if sys.platform == "darwin":
     logger.info("Setting multiprocessing start method to 'fork' on macOS for performance")
     try:
         multiprocessing.set_start_method("fork", force=True)
     except RuntimeError:
-        logger.warning("multiprocessing.set_start_method, falling back to default start method")
+        logger.warning(
+            "multiprocessing.set_start_method() failed, falling back to default start method"
+        )
 
 
 def main():
