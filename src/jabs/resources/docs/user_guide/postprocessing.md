@@ -4,7 +4,7 @@ JABS has several postprocessing options to refine behavior predictions after cla
 
 To configure postprocessing, see the Tools→Prediction Postprocessing menu in the JABS GUI. The dialog has built-in help text for each option, see the dialog to explore available options.
 
-Postprocessing settings are saved per behavior in the classifier file, so different behaviors can use different postprocessing configurations. By default, no postprocessing is applied.
+Postprocessing settings are saved per behavior in the project settings, so different behaviors can use different postprocessing configurations. By default, no postprocessing is applied.
 
 ## Step Ordering
 
