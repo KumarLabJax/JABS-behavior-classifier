@@ -155,9 +155,9 @@ class ProcessPoolManager:
     def warm_up(self, wait: bool = True) -> None:
         """Eagerly start worker processes and optionally run trivial tasks.
 
-        This is useful if you want the cost of spawning processes and running
-        initializers to happen at a controlled time (e.g., on app startup)
-        instead of on the first real submit().
+        This is useful if you want the cost of spawning processes to happen
+        at a controlled time (e.g., on app startup) instead of on the first
+        real submit().
 
         Args:
             wait (bool): If True, submit and wait for trivial tasks to complete
@@ -173,7 +173,9 @@ class ProcessPoolManager:
         if not wait:
             return
 
-        futures = [executor.submit(_noop) for _ in range(self._max_workers)]
+        # Submit trivial no-op tasks to ensure all workers are started, we use
+        # 2 x max_workers to try to ensure all workers get at least one task since they are fast
+        futures = [executor.submit(_noop) for _ in range(self._max_workers * 2)]
         for f in futures:
             with contextlib.suppress(Exception):
                 f.result()
