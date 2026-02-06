@@ -158,6 +158,9 @@ class StitchingStageSettingsGroup(SettingsGroup):
         """
         filter_values = values.get(BoutStitchingStage.name, {})
         self._stitching_checkbox.setChecked(filter_values.get("enabled", False))
+        self._stitching_max_gap.setValue(
+            filter_values.get("max_stitch_gap", self._stitching_max_gap.value())
+        )
 
 
 class DurationStageSettingsGroup(SettingsGroup):
