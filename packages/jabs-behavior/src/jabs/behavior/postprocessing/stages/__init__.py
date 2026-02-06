@@ -15,9 +15,9 @@ __all__ = [
 
 # map a stage name string to the class type of the stage implementation
 _STAGE_REGISTRY: dict[str, type[PostprocessingStage]] = {
-    BoutDurationFilterStage.name: BoutDurationFilterStage,
-    GapInterpolationStage.name: GapInterpolationStage,
-    BoutStitchingStage.name: BoutStitchingStage,
+    "BoutDurationFilterStage": BoutDurationFilterStage,
+    "GapInterpolationStage": GapInterpolationStage,
+    "BoutStitchingStage": BoutStitchingStage,
 }
 
 

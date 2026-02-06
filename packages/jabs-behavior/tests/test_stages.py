@@ -12,14 +12,13 @@ from jabs.behavior.postprocessing.stages import (
 )
 from jabs.behavior.postprocessing.stages.postprocessing_stage import KwargHelp, StageHelp
 
-"""Tests for the filter infrastructure (registry, base classes, help system).
+"""Tests for the PostprocessingStage infrastructure (registry, base classes, help system).
 
-Individual filter implementations (DurationFilter, StitchingFilter, InterpolationFilter)
-are tested in their own dedicated test files.
+Individual stage implementations are tested in their own dedicated test files.
 """
 
 
-class TestFilterRegistry:
+class TestStageRegistry:
     """Tests for filter_registry function."""
 
     def test_registry_returns_dict(self):
@@ -30,27 +29,27 @@ class TestFilterRegistry:
     def test_registry_contains_duration_stage(self):
         """Test that registry contains duration stage."""
         registry = stage_registry()
-        assert BoutDurationFilterStage.name in registry
-        assert registry[BoutDurationFilterStage.name] == BoutDurationFilterStage
+        assert "BoutDurationFilterStage" in registry
+        assert registry["BoutDurationFilterStage"] == BoutDurationFilterStage
 
     def test_registry_contains_stitching_stage(self):
         """Test that registry contains stitching stage."""
         registry = stage_registry()
-        assert BoutStitchingStage.name in registry
-        assert registry[BoutStitchingStage.name] == BoutStitchingStage
+        assert "BoutStitchingStage" in registry
+        assert registry["BoutStitchingStage"] == BoutStitchingStage
 
     def test_registry_contains_interpolation_stage(self):
         """Test that registry contains interpolation stage."""
         registry = stage_registry()
-        assert GapInterpolationStage.name in registry
-        assert registry[GapInterpolationStage.name] == GapInterpolationStage
+        assert "GapInterpolationStage" in registry
+        assert registry["GapInterpolationStage"] == GapInterpolationStage
 
     def test_registry_keys_match_filter_names(self):
         """Test that all registry keys match stage name attributes."""
         registry = stage_registry()
 
         for key, filter_class in registry.items():
-            assert key == filter_class.name
+            assert key == filter_class.__name__
 
 
 class TestPostprocessingStage:
@@ -62,8 +61,8 @@ class TestPostprocessingStage:
             PostprocessingStage()
 
 
-class TestConcreteFilterImplementations:
-    """Tests to ensure concrete filters properly implement PostprocessingStage."""
+class TestConcreteStageImplementations:
+    """Tests to ensure concrete stages properly implement PostprocessingStage."""
 
     def test_duration_filter_implements_apply(self):
         """Test that BoutDurationFilterStage implements apply method."""

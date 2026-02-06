@@ -302,10 +302,6 @@ class TestInterpolationFilter:
         assert help_info.description is not None
         assert isinstance(help_info.kwargs, dict)
 
-    def test_name_attribute(self):
-        """Test that filter has correct name attribute."""
-        assert GapInterpolationStage.name == "interpolation_stage"
-
     def test_config_property(self):
         """Test that filter has config property."""
         filter_obj = GapInterpolationStage(max_interpolation_gap=7)

@@ -224,10 +224,6 @@ class TestDurationFilter:
         assert "min_duration" in help_info.kwargs
         assert help_info.kwargs["min_duration"].type == "int"
 
-    def test_name_attribute(self):
-        """Test that filter has correct name attribute."""
-        assert BoutDurationFilterStage.name == "duration_filter_stage"
-
     def test_config_property(self):
         """Test that filter has config property."""
         filter_obj = BoutDurationFilterStage(min_duration=10)

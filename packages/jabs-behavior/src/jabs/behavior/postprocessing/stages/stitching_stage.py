@@ -11,13 +11,11 @@ class BoutStitchingStage(PostprocessingStage):
         max_stitch_gap (int): Maximum gap duration (in frames) allowed between bouts to be stitched together.
     """
 
-    name = "bout_stitching_stage"
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         if "max_stitch_gap" not in kwargs:
-            raise ValueError(f"max_stitch_gap must be specified for {self.name}.")
+            raise ValueError("max_stitch_gap must be specified for BoutStitchingStage.")
 
         if not isinstance(kwargs["max_stitch_gap"], int) or kwargs["max_stitch_gap"] <= 0:
             raise ValueError("max_stitch_gap must be a positive integer.")

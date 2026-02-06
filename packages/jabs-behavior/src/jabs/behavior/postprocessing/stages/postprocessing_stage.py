@@ -23,8 +23,6 @@ class StageHelp:
 class PostprocessingStage(abc.ABC):
     """Base class for post-processing stages."""
 
-    name = "postprocessing_stage"
-
     legacy_names: tuple[str, ...] = ()
 
     def __init__(self, **kwargs) -> None:

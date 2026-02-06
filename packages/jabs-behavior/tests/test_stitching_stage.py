@@ -266,10 +266,6 @@ class TestStitchingStage:
         assert "max_stitch_gap" in help_info.kwargs
         assert help_info.kwargs["max_stitch_gap"].type == "int"
 
-    def test_name_attribute(self):
-        """Test that filter has correct name attribute."""
-        assert BoutStitchingStage.name == "bout_stitching_stage"
-
     def test_config_property(self):
         """Test that filter has config property."""
         filter_obj = BoutStitchingStage(max_stitch_gap=5)

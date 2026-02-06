@@ -16,7 +16,7 @@ class TestPostprocessingPipeline:
 
     def test_constructor_single_filter(self):
         """Test constructor with single filter."""
-        config = {"duration_filter_stage": {"min_duration": 5}}
+        config = {"BoutDurationFilterStage": {"min_duration": 5}}
         pipeline = PostprocessingPipeline(config)
 
         assert len(pipeline._filters) == 1
@@ -26,8 +26,8 @@ class TestPostprocessingPipeline:
     def test_constructor_multiple_filters(self):
         """Test constructor with multiple filters."""
         config = {
-            "duration_filter_stage": {"min_duration": 5},
-            "bout_stitching_stage": {"max_stitch_gap": 3},
+            "BoutDurationFilterStage": {"min_duration": 5},
+            "BoutStitchingStage": {"max_stitch_gap": 3},
         }
         pipeline = PostprocessingPipeline(config)
 
@@ -44,7 +44,7 @@ class TestPostprocessingPipeline:
 
     def test_constructor_filter_with_none_kwargs(self):
         """Test constructor when filter config value is None."""
-        config = {"duration_filter_stage": None}
+        config = {"BoutDurationFilterStage": None}
 
         with pytest.raises(ValueError):
             # Should fail because DurationFilter requires min_duration
@@ -69,7 +69,7 @@ class TestPostprocessingPipeline:
 
     def test_run_single_filter(self):
         """Test run with single filter."""
-        config = {"duration_filter_stage": {"min_duration": 3}}
+        config = {"BoutDurationFilterStage": {"min_duration": 3}}
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array(
@@ -93,8 +93,8 @@ class TestPostprocessingPipeline:
     def test_run_multiple_filters_sequential(self):
         """Test that filters are applied sequentially."""
         config = {
-            "bout_stitching_stage": {"max_stitch_gap": 2},
-            "duration_filter_stage": {"min_duration": 5},
+            "BoutStitchingStage": {"max_stitch_gap": 2},
+            "BoutDurationFilterStage": {"min_duration": 5},
         }
         pipeline = PostprocessingPipeline(config)
 
@@ -140,15 +140,15 @@ class TestPostprocessingPipeline:
         """Test that filter order affects results."""
         # Apply duration filter first, then stitching
         config1 = {
-            "duration_filter_stage": {"min_duration": 4},
-            "bout_stitching_stage": {"max_stitch_gap": 2},
+            "BoutDurationFilterStage": {"min_duration": 4},
+            "BoutStitchingStage": {"max_stitch_gap": 2},
         }
         pipeline1 = PostprocessingPipeline(config1)
 
         # Apply stitching first, then duration filter
         config2 = {
-            "bout_stitching_stage": {"max_stitch_gap": 2},
-            "duration_filter_stage": {"min_duration": 4},
+            "BoutStitchingStage": {"max_stitch_gap": 2},
+            "BoutDurationFilterStage": {"min_duration": 4},
         }
         pipeline2 = PostprocessingPipeline(config2)
 
@@ -191,8 +191,8 @@ class TestPostprocessingPipeline:
     def test_run_empty_array(self):
         """Test run with empty array."""
         config = {
-            "duration_filter_stage": {"min_duration": 5},
-            "bout_stitching_stage": {"max_stitch_gap": 3},
+            "BoutDurationFilterStage": {"min_duration": 5},
+            "BoutStitchingStage": {"max_stitch_gap": 3},
         }
         pipeline = PostprocessingPipeline(config)
 
@@ -205,8 +205,8 @@ class TestPostprocessingPipeline:
     def test_run_all_same_state(self):
         """Test run with array of all same state."""
         config = {
-            "duration_filter_stage": {"min_duration": 5},
-            "bout_stitching_stage": {"max_stitch_gap": 3},
+            "BoutDurationFilterStage": {"min_duration": 5},
+            "BoutStitchingStage": {"max_stitch_gap": 3},
         }
         pipeline = PostprocessingPipeline(config)
 
@@ -220,8 +220,8 @@ class TestPostprocessingPipeline:
     def test_run_complex_sequence(self):
         """Test run with complex sequence of behaviors."""
         config = {
-            "bout_stitching_stage": {"max_stitch_gap": 2},
-            "duration_filter_stage": {"min_duration": 4},
+            "BoutStitchingStage": {"max_stitch_gap": 2},
+            "BoutDurationFilterStage": {"min_duration": 4},
         }
         pipeline = PostprocessingPipeline(config)
 
@@ -289,7 +289,7 @@ class TestPostprocessingPipeline:
     def test_constructor_preserves_filter_config(self):
         """Test that filter configurations are properly passed to filters."""
         config = {
-            "duration_filter_stage": {"min_duration": 10},
+            "BoutDurationFilterStage": {"min_duration": 10},
         }
         pipeline = PostprocessingPipeline(config)
 

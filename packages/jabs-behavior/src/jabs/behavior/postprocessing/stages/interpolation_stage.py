@@ -7,13 +7,11 @@ from .postprocessing_stage import PostprocessingStage, StageHelp
 class GapInterpolationStage(PostprocessingStage):
     """Stage that interpolates gaps in predictions."""
 
-    name = "interpolation_stage"
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         if "max_interpolation_gap" not in kwargs:
-            raise ValueError(f"max_interpolation_gap must be specified for {self.name}.")
+            raise ValueError("max_interpolation_gap must be specified for GapInterpolationStage.")
 
         if (
             not isinstance(kwargs["max_interpolation_gap"], int)

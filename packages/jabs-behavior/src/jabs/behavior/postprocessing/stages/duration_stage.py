@@ -11,13 +11,11 @@ class BoutDurationFilterStage(PostprocessingStage):
         min_duration (int): Minimum duration (in frames) for a prediction to be kept.
     """
 
-    name = "duration_filter_stage"
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         if "min_duration" not in kwargs:
-            raise ValueError(f"min_duration must be specified for {self.name}.")
+            raise ValueError("min_duration must be specified for BoutDurationFilterStage.")
 
         if not isinstance(kwargs["min_duration"], int) or kwargs["min_duration"] <= 0:
             raise ValueError("min_duration must be a positive integer.")
