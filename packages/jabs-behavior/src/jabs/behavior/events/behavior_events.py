@@ -14,7 +14,7 @@ class ClassLabels(enum.IntEnum):
 class BehaviorEvents:
     """Structure for interacting with behavioral event data.
 
-    Essentially does a run-length encoding of event data, and provides tools for deleting bouts and interpolation.
+    Creates a run-length encoded representation of event data, and provides tools for deleting bouts and interpolation.
 
     Args:
         starts: starting index of events

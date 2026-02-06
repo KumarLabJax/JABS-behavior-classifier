@@ -49,6 +49,11 @@ site_url = "https://kumarlabjax.github.io/JABS-behavior-classifier/"
              "api-reference/jabs-vision/index.md",
              {"Backbones" = "api-reference/jabs-vision/backbones.md"},
              {"Modules" = "api-reference/jabs-vision/modules.md"},
+         ]},
+         {"JABS Behavior" = [
+             "api-reference/jabs-behavior/index.md",
+             {"Postprocessing" = "api-reference/jabs-behavior/postprocessing.md"},
+             {"Events" = "api-reference/jabs-behavior/events.md"},
          ]}
      ]},
  ]
