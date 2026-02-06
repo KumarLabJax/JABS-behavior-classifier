@@ -1,4 +1,4 @@
-"""Type definitions for JABS datastructures."""
+"""Type definitions for JABS data structures."""
 
 from .inference import AggregationSpec, InferenceSampling
 from .keypoints import FrameKeypoints, FrameKeypointsData, KeypointAnnotation
