@@ -57,7 +57,7 @@ class GapInterpolationStage(PostprocessingStage):
               The Interpolation Stage fills short gaps in predictions (such as when there is missing pose) by
               interpolating the class for the missing frames. The missing frames are interpolated using the
               surrounding classes -- if the class on both sides of the gap is the same, the gap is filled
-              with that class. If the classes differ, the is gap is split between the two classes so that the
+              with that class. If the classes differ, the gap is split between the two classes so that the
               first half matches the previous class and the second half matches the following class.
             """),
             kwargs={
