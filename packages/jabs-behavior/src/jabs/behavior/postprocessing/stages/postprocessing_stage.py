@@ -17,7 +17,8 @@ class StageHelp:
     """Dataclass for stage help information."""
 
     description: str
-    kwargs: dict[str, KwargHelp]
+    description_long: str | None = None
+    kwargs: dict[str, KwargHelp] | None = None
 
 
 class PostprocessingStage(abc.ABC):
@@ -46,8 +47,9 @@ class PostprocessingStage(abc.ABC):
         """
         raise NotImplementedError("Subclasses must implement the apply method.")
 
+    @classmethod
     @abc.abstractmethod
-    def help(self) -> StageHelp:
+    def help(cls) -> StageHelp:
         """Get help information about the stage.
 
         Returns:

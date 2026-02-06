@@ -1,7 +1,9 @@
+import textwrap
+
 import numpy as np
 
 from ...events import BehaviorEvents, ClassLabels
-from .postprocessing_stage import PostprocessingStage, StageHelp
+from .postprocessing_stage import KwargHelp, PostprocessingStage, StageHelp
 
 
 class GapInterpolationStage(PostprocessingStage):
@@ -42,10 +44,26 @@ class GapInterpolationStage(PostprocessingStage):
 
         return rle_data.to_vector()
 
-    def help(self) -> StageHelp:
+    @classmethod
+    def help(cls) -> StageHelp:
         """Get help information about the stage.
 
         Returns:
             FilterHelp: Dataclass with a general description and kwarg descriptions.
         """
-        return StageHelp(description="Interpolates gaps in predictions.", kwargs={})
+        return StageHelp(
+            description="Fill short gaps in predicted behavior bouts by interpolating missing frames.",
+            description_long=textwrap.dedent("""
+              The Interpolation Stage fills short gaps in predictions (such as when there is missing pose) by
+              interpolating the class for the missing frames. The missing frames are interpolated using the
+              surrounding classes -- if the class on both sides of the gap is the same, the gap is filled
+              with that class. If the classes differ, the is gap is split between the two classes so that the
+              first half matches the previous class and the second half matches the following class.
+            """),
+            kwargs={
+                "max_interpolation_gap": KwargHelp(
+                    description="Maximum gap (in frames) that will be filled using interpolation.",
+                    type="int",
+                ),
+            },
+        )

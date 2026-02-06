@@ -44,7 +44,8 @@ class BoutDurationFilterStage(PostprocessingStage):
 
         return rle_data.to_vector()
 
-    def help(self) -> StageHelp:
+    @classmethod
+    def help(cls) -> StageHelp:
         """Get help information about the stage.
 
         Returns:
@@ -52,6 +53,11 @@ class BoutDurationFilterStage(PostprocessingStage):
         """
         return StageHelp(
             description="Removes predictions shorter than a specified duration.",
+            description_long=(
+                "This stage filters out behavior predictions that are shorter than the defined "
+                "minimum duration, helping to eliminate spurious or brief predictions that may "
+                "not represent meaningful behavior."
+            ),
             kwargs={
                 "min_duration": KwargHelp(
                     description="Minimum duration (in frames) for a prediction to be kept.",

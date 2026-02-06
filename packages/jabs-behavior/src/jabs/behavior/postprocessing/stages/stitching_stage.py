@@ -1,3 +1,5 @@
+import textwrap
+
 import numpy as np
 
 from ...events import BehaviorEvents, ClassLabels
@@ -45,7 +47,8 @@ class BoutStitchingStage(PostprocessingStage):
 
         return rle_data.to_vector()
 
-    def help(self) -> StageHelp:
+    @classmethod
+    def help(cls) -> StageHelp:
         """Get help information about the stage.
 
         Returns:
@@ -53,6 +56,9 @@ class BoutStitchingStage(PostprocessingStage):
         """
         return StageHelp(
             description="Combines predictions that are separated by short gaps.",
+            description_long=textwrap.dedent("""
+            The Stitching Stage connects behavior bouts that are separated by short gaps of not-behavior prediction.
+            """),
             kwargs={
                 "max_stitch_gap": KwargHelp(
                     description="Maximum gap duration (in frames) allowed between bouts to be stitched together.",

@@ -19,41 +19,33 @@ class InterpolationStageSettingsGroup(SettingsGroup):
 
     def _create_controls(self) -> None:
         """Create the settings controls."""
+        stage_help = GapInterpolationStage.help()
         self._interpolation_checkbox = QCheckBox("Enable Interpolation Stage")
-        self._interpolation_checkbox.setToolTip(
-            "Fill short gaps in predicted behavior bouts by interpolating missing frames."
-        )
+        self._interpolation_checkbox.setToolTip(stage_help.description)
         self.add_control_row("Enable Interpolation Filter:", self._interpolation_checkbox)
 
         self._interpolation_max_frames_spinbox = QSpinBox()
         self._interpolation_max_frames_spinbox.setRange(1, 100)
         self._interpolation_max_frames_spinbox.setValue(5)
         self._interpolation_max_frames_spinbox.setToolTip(
-            "Maximum number of consecutive frames to interpolate."
+            stage_help.kwargs["max_interpolation_gap"].description
         )
         self.add_control_row("Max Frames to Interpolate:", self._interpolation_max_frames_spinbox)
 
     def _create_documentation(self) -> QLabel:
         """Create help documentation for post-processing settings."""
+        stage_help = GapInterpolationStage.help()
         help_label = QLabel(self)
         help_label.setTextFormat(Qt.TextFormat.RichText)
         help_label.setWordWrap(True)
         help_label.setText(
-            """
+            f"""
             <h3>Interpolation Stage</h3>
 
-            <p>
-              The Interpolation Stage fills short gaps in predictions (such as when there is missing pose) by
-              interpolating the class for the missing frames. The missing frames are interpolated using the
-              surrounding classes -- if the class on both sides of the gap is the same, the gap is filled
-              with that class. If the classes differ, the is gap is split between the two classes so that the
-              first half matches the previous class and the second half matches the following class.
-            </p>
+            <p>{stage_help.description_long}</p>
  
             <ul>
-              <li><b>Enable Interpolation Stage:</b> Check this box to activate the interpolation stage.</li>
-              <li><b>Max Frames to Interpolate:</b> Specify the maximum number of consecutive frames that can be 
-              interpolated. Gaps shorter than or equal to this value will be filled in.</li>
+              <li><b>Max Frames to Interpolate:</b> {stage_help.kwargs["max_interpolation_gap"].description}</li>
             </ul>
             """
         )
@@ -97,38 +89,33 @@ class StitchingStageSettingsGroup(SettingsGroup):
 
     def _create_controls(self) -> None:
         """Create the settings controls."""
+        stage_help = BoutStitchingStage.help()
         self._stitching_checkbox = QCheckBox("Enable Stitching Stage")
-        self._stitching_checkbox.setToolTip(
-            "Stitches together behavior bouts separated by short gaps."
-        )
+        self._stitching_checkbox.setToolTip(stage_help.description)
         self.add_control_row("Enable Stitching Stage:", self._stitching_checkbox)
 
         self._stitching_max_gap = QSpinBox()
         self._stitching_max_gap.setRange(1, 100)
         self._stitching_max_gap.setValue(3)
-        self._stitching_max_gap.setToolTip(
-            "Maximum number of consecutive frames between bouts to stitch."
-        )
+        self._stitching_max_gap.setToolTip(stage_help.kwargs["max_stitch_gap"].description)
         self.add_control_row("Max Stitch Gap:", self._stitching_max_gap)
 
     def _create_documentation(self) -> QLabel:
         """Create help documentation for post-processing settings."""
+        stage_help = BoutStitchingStage.help()
         help_label = QLabel(self)
         help_label.setTextFormat(Qt.TextFormat.RichText)
         help_label.setWordWrap(True)
         help_label.setText(
-            """
+            f"""
             <h3>Stitching Stage</h3>
 
-            <p>The Stitching Stage connects behavior bouts that are separated by short gaps of not-behavior prediction.</p>
+            <p>{stage_help.description_long}</p>
 
             <ul>
-              <li><b>Enable Stitching Stage:</b> Check this box to activate the stitching stage.</li>
-                <li>
-                  <b>Max Stitch Gap:</b> Specify the maximum number of consecutive frames between bouts that 
-                  can be stitched together. Gaps shorter than or equal to this value will be removed by merging
-                  the surrounding bouts.
-                </li>
+              <li>
+                <b>Max Stitch Gap:</b> {stage_help.kwargs["max_stitch_gap"].description}
+              </li>
             </ul>
             """
         )
@@ -172,34 +159,31 @@ class DurationStageSettingsGroup(SettingsGroup):
 
     def _create_controls(self) -> None:
         """Create the settings controls."""
+        stage_help = BoutDurationFilterStage.help()
         self._duration_checkbox = QCheckBox("Enable Duration Stage")
-        self._duration_checkbox.setToolTip(
-            "Removes short behavior bouts below a minimum duration threshold."
-        )
+        self._duration_checkbox.setToolTip(stage_help.description)
         self.add_control_row("Enable Duration Stage:", self._duration_checkbox)
 
         self._duration_min_frames_spinbox = QSpinBox()
         self._duration_min_frames_spinbox.setRange(1, 100)
         self._duration_min_frames_spinbox.setValue(5)
-        self._duration_min_frames_spinbox.setToolTip(
-            "Minimum duration (in frames) for a behavior bout to be kept."
-        )
+        self._duration_min_frames_spinbox.setToolTip(stage_help.kwargs["min_duration"].description)
         self.add_control_row("Minimum Bout Duration:", self._duration_min_frames_spinbox)
 
     def _create_documentation(self) -> QLabel:
         """Create help documentation for post-processing settings."""
+        stage_help = BoutDurationFilterStage.help()
         help_label = QLabel(self)
         help_label.setTextFormat(Qt.TextFormat.RichText)
         help_label.setWordWrap(True)
         help_label.setText(
-            """
+            f"""
             <h3>Duration Stage</h3>
 
-            <p>The Duration Stage removes short bouts of predicted behavior.</p>
+            <p>{stage_help.description_long}</p>
 
             <ul>
-              <li><b>Enable Duration Stage:</b> Check this box to activate the duration stage.</li>
-              <li><b>Minimum Bout Duration:</b> Specify the minimum bout length (in frames). Any bout shorter than this will be removed.</li>
+              <li><b>Minimum Bout Duration:</b> {stage_help.kwargs["min_duration"].description}</li>
             </ul>
             """
         )
