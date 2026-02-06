@@ -110,7 +110,6 @@ class BaseSettingsDialog(QDialog):
 
         # Size to content initially
         self.adjustSize()
-        # self.resize(max(self.width(), 600), max(self.height(), 500))
 
     def _create_settings_groups(self, parent: QWidget) -> None:
         """Create and add settings groups to the page.
