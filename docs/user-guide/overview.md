@@ -34,6 +34,7 @@ New to JABS? Follow these steps to get started:
 4. **[Label examples](labeling.md)** - Select and label frames showing the behavior
 5. **[Train a classifier](gui.md#classifier-controls)** - Train a model with your labeled data
 6. **[Generate predictions](gui.md#classifier-controls)** - Apply the classifier to unlabeled frames
+7. **[Search](behavior-search.md)** - Use Behavior Search to find and review labeled or predicted bouts
 
 ## Documentation Topics
 
@@ -42,6 +43,7 @@ Use the navigation tree on the left to explore different topics:
 - **Project Setup** - Learn how to initialize and organize your JABS projects
 - **GUI** - Understand the graphical user interface and its features
 - **Labeling** - Master the labeling workflow for training classifiers
+- **Searching Behaviors** - Find and review labeled or predicted behavior bouts
 - **Command Line Tools** - Use JABS tools from the command line
 - **File Formats** - Understand the format of JABS output files
 - **Keyboard Shortcuts Reference** - Quick reference for all keyboard shortcuts
