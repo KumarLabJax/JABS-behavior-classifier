@@ -20,5 +20,5 @@ class JsonAdapter(Protocol[T]):
         ...
 
     def from_json(self, json_str: str) -> T:
-        """Deserialize a JSON string to a dataclass i nstance."""
+        """Deserialize a JSON string to a dataclass instance."""
         ...
