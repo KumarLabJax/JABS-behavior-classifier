@@ -13,6 +13,7 @@ authors = [
 ]
 
 dependencies = [
+  "jabs-behavior",
   "jabs-core",
   "jabs-io",
   "h5py>=3.10.0,<4.0.0",
@@ -40,6 +41,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+jabs-behavior = { workspace = true }
 jabs-io = { workspace = true }
 jabs-core = { workspace = true }
 

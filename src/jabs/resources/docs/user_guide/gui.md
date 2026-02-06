@@ -63,7 +63,7 @@ The training report is also saved as a Markdown file in the `jabs/training_logs`
 - **Predicted Class (global view):** Displays a zoomed out view of the predicted classes for the entire video.
 - **Sliding Window Indicator:** highlights the section of the global views that correspond to the frames displayed in the "sliding window" views.
 
-By default, the Timeline shows manual labels and predicted behaviors for the current subject animal. The Timeline can be toggled to show all subjects by selecting View->Timeline->All Animals in the menu bar. The Timeline can also be configured to show only manual labels or only predicted labels. If "All Animals" is selected, the Timeline will show which set of labels and predictions belong to the subject animal by drawing a colored border around them.
+By default, the Timeline shows manual labels and predicted behaviors for the current subject animal. The Timeline can be toggled to show all subjects by selecting View->Timeline->All Animals in the menu bar. The Timeline can also be configured to show only manual labels or only predicted labels. If "All Animals" is selected, the Timeline will show which set of labels and predictions belong to the subject animal by drawing a colored border around them. By default, the timeline shows raw predictions. It can also be configured to show post-processed predictions by selecting View->Timeline->Post-Processed Predictions in the menu bar.
 
 ### Timeline Menu
 
@@ -102,7 +102,9 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
 - **File→Export Training Data:** Create a file with the information needed to share a classifier. This exported file is written to the project directory and has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is used as one input for the `jabs-classify` script.
 - **File→Archive Behavior:** Remove behavior and its labels from project. Labels are archived in the `jabs/archive` directory.
 - **File→Prune Project:** Remove videos and pose files that are not labeled.
-- **Tools→Search Behaviors:** Open Behavior Search dialog.
+- **Tools:**
+  - **Tools→Search Behaviors:** Open Behavior Search dialog.
+  - **Tools→Prediction Postprocessing:** Open dialog to configure prediction postprocessing settings for the current behavior.
 - **View:** Menu to control various display options.
   - **View→View Playlist:** can be used to hide/show video playlist
   - **View→Timeline:** Menu to control the timeline display.

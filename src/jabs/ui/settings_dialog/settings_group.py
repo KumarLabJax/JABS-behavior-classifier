@@ -59,6 +59,7 @@ class SettingsGroup(QGroupBox):
         """
         super().__init__(title, parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setStyleSheet("QGroupBox::title { font-size: 16pt; font-weight: bold; }")
 
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(12, 12, 12, 12)

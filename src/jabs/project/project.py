@@ -29,6 +29,7 @@ from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
 if TYPE_CHECKING:
+    from jabs.classifier import Classifier
     from jabs.core.utils.process_pool_manager import ProcessPoolManager
 
 
@@ -393,7 +394,8 @@ class Project:
         predictions: dict[int, np.ndarray],
         probabilities: dict[int, np.ndarray],
         behavior: str,
-        classifier: object,
+        classifier: "Classifier",
+        postprocessed_predictions: dict[int, np.ndarray] | None = None,
     ) -> None:
         """Save predictions for a video in the project folder.
 
@@ -404,6 +406,9 @@ class Project:
             probabilities: same structure as `predictions` but with floating-point values.
             behavior: string behavior name.
             classifier: Classifier object used to generate the predictions.
+            postprocessed_predictions: dict mapping identity to a 1D numpy array of predicted labels after
+                post-processing has been applied. If provided, these will be saved alongside the
+                raw predictions.
         """
         # set up an output filename based on the video names
         file_base = Path(video_name).with_suffix("").name + ".h5"
@@ -415,10 +420,19 @@ class Project:
         )
         prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
+        if postprocessed_predictions:
+            postprocessed_labels = np.full(
+                (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
+            )
+        else:
+            postprocessed_labels = None
+
         # stack the numpy arrays
         for identity in predictions:
             prediction_labels[identity] = predictions[identity]
             prediction_prob[identity] = probabilities[identity]
+            if postprocessed_predictions:
+                postprocessed_labels[identity] = postprocessed_predictions[identity]
 
         # write to h5 file
         self._prediction_manager.write_predictions(
@@ -428,6 +442,7 @@ class Project:
             prediction_prob,
             pose_est,
             classifier,
+            postprocessed_predictions=postprocessed_labels,
         )
 
         # update app version saved in project metadata if necessary

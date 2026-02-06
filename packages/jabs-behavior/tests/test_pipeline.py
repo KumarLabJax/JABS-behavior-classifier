@@ -1,0 +1,323 @@
+import numpy as np
+import pytest
+
+from jabs.behavior.events import ClassLabels
+from jabs.behavior.postprocessing import PostprocessingPipeline
+from jabs.behavior.postprocessing.stages import BoutDurationFilterStage, BoutStitchingStage
+
+
+class TestPostprocessingPipeline:
+    """Tests for PostprocessingPipeline."""
+
+    def test_constructor_empty_config(self):
+        """Test constructor with empty config."""
+        pipeline = PostprocessingPipeline([])
+        assert len(pipeline._stages) == 0
+
+    def test_constructor_single_stage(self):
+        """Test constructor with single stage."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
+        pipeline = PostprocessingPipeline(config)
+
+        assert len(pipeline._stages) == 1
+        assert isinstance(pipeline._stages[0], BoutDurationFilterStage)
+        assert pipeline._stages[0].config["min_duration"] == 5
+
+    def test_constructor_multiple_stages(self):
+        """Test constructor with multiple stages."""
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
+        pipeline = PostprocessingPipeline(config)
+
+        assert len(pipeline._stages) == 2
+        assert isinstance(pipeline._stages[0], BoutDurationFilterStage)
+        assert isinstance(pipeline._stages[1], BoutStitchingStage)
+
+    def test_constructor_unrecognized_stage(self):
+        """Test that constructor raises error for unrecognized stage."""
+        config = [{"stage_name": "NonExistentStage", "parameters": {}}]
+        with pytest.raises(ValueError, match="Stage 'NonExistentStage' is not recognized"):
+            PostprocessingPipeline(config)
+
+    def test_constructor_stage_with_empty_param_dict(self):
+        """Test constructor when stage config has no parameters (empty dict)."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {}}]
+
+        with pytest.raises(ValueError):
+            # Should fail because DurationFilter requires min_duration
+            PostprocessingPipeline(config)
+
+    def test_constructor_stage_with_none_param(self):
+        """Test constructor when stage config has no parameters (None)."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": None}]
+
+        with pytest.raises(ValueError):
+            # Should fail because DurationFilter requires min_duration
+            PostprocessingPipeline(config)
+
+    def test_run_empty_pipeline(self):
+        """Test run with empty pipeline."""
+        pipeline = PostprocessingPipeline([])
+        classes = np.array(
+            [
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+        # Should remain unchanged
+        np.testing.assert_array_equal(result, classes)
+
+    def test_run_single_stage(self):
+        """Test run with single stage."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
+        pipeline = PostprocessingPipeline(config)
+
+        classes = np.array(
+            [
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,  # Short bout (2)
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+
+        # Short behavior bout should be removed
+        expected = np.array([ClassLabels.NOT_BEHAVIOR] * 6)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_run_multiple_stages_sequential(self):
+        """Test that stages are applied sequentially."""
+        config = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+        ]
+        pipeline = PostprocessingPipeline(config)
+
+        # Pattern: BEHAVIOR(2), NOT_BEHAVIOR(1), BEHAVIOR(2), NOT_BEHAVIOR(5)
+        classes = np.array(
+            [
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+
+        # First, stitching should combine first two BEHAVIOR bouts -> BEHAVIOR(5)
+        # Then, duration filter should keep it (duration >= 5)
+        # Final: BEHAVIOR(5), NOT_BEHAVIOR(5)
+        expected = np.array(
+            [
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+        np.testing.assert_array_equal(result, expected)
+
+    def test_run_order_matters(self):
+        """Test that stage order affects results."""
+        # Apply duration stage first, then stitching
+        config1 = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+        ]
+        pipeline1 = PostprocessingPipeline(config1)
+
+        # Apply stitching first, then duration stage
+        config2 = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+        ]
+        pipeline2 = PostprocessingPipeline(config2)
+
+        # Pattern: NOT_BEHAVIOR(2), BEHAVIOR(2), NOT_BEHAVIOR(1), BEHAVIOR(2), NOT_BEHAVIOR(2)
+        # Short BEHAVIOR bouts are NOT at boundaries so they can be removed
+        classes = np.array(
+            [
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result1 = pipeline1.run(classes, probabilities)
+        result2 = pipeline2.run(classes, probabilities)
+
+        # Pipeline 1: Duration filter removes both short BEHAVIOR bouts first
+        # After removal, NOT_BEHAVIOR sections merge
+        expected1 = np.array([ClassLabels.NOT_BEHAVIOR] * 9)
+
+        # Pipeline 2: Stitching removes ALL NOT_BEHAVIOR bouts <= 2 (including boundaries!)
+        # Removes indices [0, 2, 4]:
+        #   - Index 4 (last): merges with previous BEHAVIOR
+        #   - Index 2 (middle): merges surrounding BEHAVIORs
+        #   - Index 0 (first): merges with next BEHAVIOR (takes BEHAVIOR state)
+        # Result after stitching: BEHAVIOR(9)
+        # Duration filter: BEHAVIOR(9) >= 4, so nothing removed
+        expected2 = np.array([ClassLabels.BEHAVIOR] * 9)
+
+        np.testing.assert_array_equal(result1, expected1)
+        np.testing.assert_array_equal(result2, expected2)
+
+    def test_run_empty_array(self):
+        """Test run with empty array."""
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
+        pipeline = PostprocessingPipeline(config)
+
+        classes = np.array([])
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+
+        assert len(result) == 0
+
+    def test_run_all_same_state(self):
+        """Test run with array of all same state."""
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
+        pipeline = PostprocessingPipeline(config)
+
+        classes = np.array([ClassLabels.BEHAVIOR] * 10)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+
+        # Should remain unchanged
+        np.testing.assert_array_equal(result, classes)
+
+    def test_run_complex_sequence(self):
+        """Test run with complex sequence of behaviors."""
+        config = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+        ]
+        pipeline = PostprocessingPipeline(config)
+
+        # Complex pattern
+        classes = np.array(
+            [
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,  # (3)
+                ClassLabels.NOT_BEHAVIOR,  # gap (1)
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,  # (2)
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,  # gap (3)
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,  # (3)
+                ClassLabels.NOT_BEHAVIOR,  # gap (1)
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,  # (2)
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = pipeline.run(classes, probabilities)
+
+        # After stitching (removes ALL NOT_BEHAVIOR bouts <= 2, including boundaries):
+        # Removes indices [0, 2, 6, 8]:
+        #   - Index 8 (last, NOT_BEHAVIOR(2)): merges with previous BEHAVIOR(2) → BEHAVIOR(4)
+        #   - Index 6 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(9)
+        #   - Index 2 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(6)
+        #   - Index 0 (first, NOT_BEHAVIOR(2)): merges with next BEHAVIOR → BEHAVIOR(8)
+        # Result: BEHAVIOR(8), NOT_BEHAVIOR(3), BEHAVIOR(9)
+        # After duration filter (min 4): All bouts >= 4, so nothing removed
+        expected = np.array(
+            [
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+            ]
+        )
+        np.testing.assert_array_equal(result, expected)
+
+    def test_constructor_preserves_stage_config(self):
+        """Test that stage configurations are properly passed to stage."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 10}}]
+        pipeline = PostprocessingPipeline(config)
+
+        assert pipeline._stages[0].config["min_duration"] == 10
+
+    def test_schema_validation_invalid_config(self):
+        """Test that invalid config raises error."""
+        # Missing required "stage_name"
+        invalid_config = [{"parameters": {"min_duration": 5}}]
+        with pytest.raises(
+            ValueError, match="Invalid config for stage 0: 'stage_name' is a required property"
+        ):
+            PostprocessingPipeline(invalid_config)
+
+        # Additional property not allowed
+        invalid_config = [
+            {
+                "stage_name": "BoutDurationFilterStage",
+                "parameters": {"min_duration": 5},
+                "extra": 123,
+            }
+        ]
+        with pytest.raises(
+            ValueError, match="Invalid config for stage 0: Additional properties are not allowed"
+        ):
+            PostprocessingPipeline(invalid_config)

@@ -85,6 +85,14 @@ class PredictedLabelWidget(ManualLabelWidget):
             # Set alpha from probabilities if available
             if self._probabilities is not None:
                 alphas = (self._probabilities[slice_start : slice_end + 1] * 255).astype(np.uint8)
+
+                # some post-processed predictions may have zero probability, specifically the interpolation stage
+                # which fills in short gaps where there was no prediction. To ensure these interpolated classes
+                # are still visible, set a minimum alpha anywhere there is a prediction but probability is zero
+                # to ensure visibility. Interpolated predictions will show as having a low confidence.
+                mask = (color_indices != 0) & (alphas == 0)
+                alphas[mask] = 125
+
                 colors[:, 3] = alphas
 
             # Expand to bar height: shape = (bar_height, frames in view, 4)

@@ -34,7 +34,7 @@ class CrossValidationSettingsGroup(SettingsGroup):
 
         self.add_control_row("CV Grouping:", self._cv_grouping_combo)
 
-    def _create_documentation(self):
+    def _create_documentation(self) -> QLabel:
         """Create help documentation for cross-validation settings."""
         help_label = QLabel(self)
         help_label.setTextFormat(Qt.TextFormat.RichText)

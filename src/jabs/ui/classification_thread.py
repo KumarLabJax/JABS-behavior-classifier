@@ -3,6 +3,7 @@ import pandas as pd
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
+from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
@@ -84,6 +85,7 @@ class ClassifyThread(QThread):
         self._tasks_complete = 0
         current_video_predictions = {}
         current_video_probabilities = {}
+        current_video_predictions_postprocessed = {}
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -91,6 +93,10 @@ class ClassifyThread(QThread):
 
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
+
+            postprocessing_pipeline = PostprocessingPipeline(
+                project_settings.get("postprocessing", [])
+            )
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
@@ -103,6 +109,7 @@ class ClassifyThread(QThread):
                 # collect predictions, probabilities, and frame indexes for each identity in the video
                 predictions = {}
                 probabilities = {}
+                postprocessed_predictions = {}
 
                 for identity in pose_est.identities:
                     check_termination_requested()
@@ -138,22 +145,23 @@ class ClassifyThread(QThread):
                             data, feature_values["frame_indexes"]
                         )
 
-                        # Derive predictions by taking argmax (class with highest probability)
-                        # This is equivalent to predict() but avoids duplicate computation
-                        # Consider using np.where with a threshold here if we want to be more conservative
-                        # about predictions
-                        predictions[identity] = np.argmax(prob, axis=1).astype(np.int8)
-
-                        # Use predictions as column indexes for each row of prob
-                        probabilities[identity] = prob[np.arange(len(prob)), predictions[identity]]
+                        predictions[identity], probabilities[identity] = (
+                            self._classifier.derive_predictions(prob)
+                        )
                     else:
                         predictions[identity] = np.array(0)
                         probabilities[identity] = np.array(0)
 
+                    # apply post-processing to the predictions.
+                    postprocessed_predictions[identity] = postprocessing_pipeline.run(
+                        predictions[identity], probabilities[identity]
+                    )
+
                 if video == self._current_video:
                     # keep predictions for the video currently loaded in the video player
-                    current_video_predictions = predictions.copy()
-                    current_video_probabilities = probabilities.copy()
+                    current_video_predictions = predictions
+                    current_video_probabilities = probabilities
+                    current_video_predictions_postprocessed = postprocessed_predictions
 
                 # save predictions to disk
                 self.current_status.emit("Saving Predictions")
@@ -164,6 +172,7 @@ class ClassifyThread(QThread):
                     probabilities,
                     self._behavior,
                     self._classifier,
+                    postprocessed_predictions=postprocessed_predictions,
                 )
 
                 self._tasks_complete += 1
@@ -175,6 +184,7 @@ class ClassifyThread(QThread):
                 {
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
+                    "predictions_postprocessed": current_video_predictions_postprocessed,
                 }
             )
         except Exception as e:

@@ -709,3 +709,31 @@ class Classifier:
         else:
             # Random forests can't handle NAs & infs, so fill them with 0s
             return features.replace([np.inf, -np.inf], 0).fillna(0)
+
+    @staticmethod
+    def derive_predictions(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Derive predicted classes from predicted probabilities.
+
+        Args:
+            probabilities: Array of predicted probabilities for each class.
+
+        Returns:
+            Array of predicted classes. Frames where no pose is detected are assigned -1.
+
+        TODO: Consider returning predictions where there is no pose instead of removing.
+          If the gap in pose is small, accurate predictions might be possible due to window features.
+          Maybe allow a maximum gap size parameter?
+        """
+        # Derive predictions by taking argmax (class with highest probability)
+        # This is equivalent to predict() but avoids duplicate computation
+        predictions = np.argmax(probabilities, axis=1).astype(np.int8)
+
+        # Use predictions as column indexes for each row of prob
+        probabilities = probabilities[np.arange(len(probabilities)), predictions]
+
+        # currently, predict_proba sets probabilities to 0 for frames with no pose
+        # we're going to set the predictions for those frames to -1 (no prediction)
+        no_pose_frames = np.where(probabilities == 0)[0]
+        predictions[no_pose_frames] = -1
+
+        return predictions, probabilities
