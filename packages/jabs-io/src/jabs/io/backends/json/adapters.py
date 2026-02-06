@@ -1,5 +1,8 @@
 import json
-from dataclasses import asdict, is_dataclass
+import types
+from dataclasses import asdict, fields, is_dataclass
+from datetime import datetime, timezone
+from typing import Union, get_args, get_origin
 
 import numpy as np
 
@@ -31,11 +34,16 @@ class DataclassAdapter:
 
     @staticmethod
     def _json_default(obj):
+        """Serialize a dataclass instance to a JSON string."""
         # Handle numpy arrays / scalars
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         if isinstance(obj, np.generic):  # numpy scalar types (e.g., np.int64)
             return obj.item()
+
+        # Handle datetime → UTC ISO 8601 string
+        if isinstance(obj, datetime):
+            return obj.astimezone(timezone.utc).isoformat()
 
         # Handle nested dataclasses (extra-safe)
         if is_dataclass(obj):
@@ -44,10 +52,28 @@ class DataclassAdapter:
         # Let JSON raise a helpful error for truly unsupported types
         raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
+    @staticmethod
+    def _is_datetime_type(field_type) -> bool:
+        """Check if a type annotation represents datetime or Optional[datetime]."""
+        if field_type is datetime:
+            return True
+
+        origin = get_origin(field_type)
+        if origin is Union or origin is types.UnionType:
+            args = get_args(field_type)
+            return datetime in args
+
+        return False
+
     def to_json(self, data: T) -> str:
         """Serialize a dataclass instance to a JSON string."""
         return json.dumps(asdict(data), default=self._json_default)
 
     def from_json(self, json_str: str) -> T:
         """Deserialize a JSON string to a dataclass instance."""
-        return self.data_type(**json.loads(json_str))
+        data = json.loads(json_str)
+        for f in fields(self.data_type):
+            field_value = data.get(f.name)
+            if self._is_datetime_type(f.type) and isinstance(field_value, str):
+                data[f.name] = datetime.fromisoformat(field_value)
+        return self.data_type(**data)
