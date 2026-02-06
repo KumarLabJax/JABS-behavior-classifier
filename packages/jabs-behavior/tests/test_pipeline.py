@@ -74,8 +74,8 @@ class TestPostprocessingPipeline:
         # Should remain unchanged
         np.testing.assert_array_equal(result, classes)
 
-    def test_run_single_filter(self):
-        """Test run with single filter."""
+    def test_run_single_stage(self):
+        """Test run with single stage."""
         config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
         pipeline = PostprocessingPipeline(config)
 
@@ -97,8 +97,8 @@ class TestPostprocessingPipeline:
         expected = np.array([ClassLabels.NOT_BEHAVIOR] * 6)
         np.testing.assert_array_equal(result, expected)
 
-    def test_run_multiple_filters_sequential(self):
-        """Test that filters are applied sequentially."""
+    def test_run_multiple_stages_sequential(self):
+        """Test that stages are applied sequentially."""
         config = [
             {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
             {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
@@ -144,15 +144,15 @@ class TestPostprocessingPipeline:
         np.testing.assert_array_equal(result, expected)
 
     def test_run_order_matters(self):
-        """Test that filter order affects results."""
-        # Apply duration filter first, then stitching
+        """Test that stage order affects results."""
+        # Apply duration stage first, then stitching
         config1 = [
             {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
             {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
         ]
         pipeline1 = PostprocessingPipeline(config1)
 
-        # Apply stitching first, then duration filter
+        # Apply stitching first, then duration stage
         config2 = [
             {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
             {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
@@ -293,9 +293,31 @@ class TestPostprocessingPipeline:
         )
         np.testing.assert_array_equal(result, expected)
 
-    def test_constructor_preserves_filter_config(self):
-        """Test that filter configurations are properly passed to filters."""
+    def test_constructor_preserves_stage_config(self):
+        """Test that stage configurations are properly passed to stage."""
         config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 10}}]
         pipeline = PostprocessingPipeline(config)
 
         assert pipeline._stages[0].config["min_duration"] == 10
+
+    def test_schema_validation_invalid_config(self):
+        """Test that invalid config raises error."""
+        # Missing required "stage_name"
+        invalid_config = [{"parameters": {"min_duration": 5}}]
+        with pytest.raises(
+            ValueError, match="Invalid config for stage 0: 'stage_name' is a required property"
+        ):
+            PostprocessingPipeline(invalid_config)
+
+        # Additional property not allowed
+        invalid_config = [
+            {
+                "stage_name": "BoutDurationFilterStage",
+                "parameters": {"min_duration": 5},
+                "extra": 123,
+            }
+        ]
+        with pytest.raises(
+            ValueError, match="Invalid config for stage 0: Additional properties are not allowed"
+        ):
+            PostprocessingPipeline(invalid_config)
