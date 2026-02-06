@@ -36,7 +36,6 @@ class KeypointInferenceResult:
         metadata: Metadata needed to reproduce aggregation.
         frames: Per-frame keypoint inference results.
         annotation: Aggregated annotation for the video.
-        format_version: Output format version identifier.
     """
 
     metadata: InferenceRunMetadata

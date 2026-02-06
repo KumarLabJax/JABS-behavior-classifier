@@ -69,11 +69,11 @@ class DataclassAdapter:
         """Serialize a dataclass instance to a JSON string."""
         return json.dumps(asdict(data), default=self._json_default)
 
-    def from_json(self, json_str: str) -> T:
+    def from_json(self, json_str: str, data_type: type[T]) -> T:
         """Deserialize a JSON string to a dataclass instance."""
         data = json.loads(json_str)
-        for f in fields(self.data_type):
+        for f in fields(data_type):
             field_value = data.get(f.name)
             if self._is_datetime_type(f.type) and isinstance(field_value, str):
                 data[f.name] = datetime.fromisoformat(field_value)
-        return self.data_type(**data)
+        return data_type(**data)

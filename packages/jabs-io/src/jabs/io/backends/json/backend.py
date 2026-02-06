@@ -24,7 +24,6 @@ class JsonBackend:
 
     Example:
         >>> backend = JsonBackend()
-        >>> backend.register_dataclass(MyConfig)
         >>> backend.save(my_config, Path("config.json"))
         >>> loaded = backend.load(Path("config.json"), MyConfig)
     """
@@ -54,7 +53,7 @@ class JsonBackend:
             raise FileNotFoundError(f"File not found: {path}")
 
         adapter = self.registry.get(data_type)
-        return adapter.from_json(path.read_text())
+        return adapter.from_json(path.read_text(), data_type)
 
     def save(self, data: Any, path: Path) -> None:
         """Save data to a JSON file.

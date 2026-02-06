@@ -25,7 +25,4 @@ def save(data: Any, path: Path, **kwargs) -> None:
     """Save data to a file using the appropriate backend."""
     path = Path(path)
     backend = BACKEND_REGISTRY.get_backend(path)
-    print(backend)
-    print(backend.registry._predicate_adapters)
-    print(backend.registry._adapters)
     backend.save(data, path, **kwargs)

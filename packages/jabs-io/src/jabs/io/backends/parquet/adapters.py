@@ -17,10 +17,8 @@ import numpy as np
 
 try:
     import pyarrow as pa
-    import pyarrow.parquet as pq
 except ImportError:
     pa = None
-    pq = None
 
 
 from jabs.io.backends.parquet.backend import PARQUET_ADAPTERS

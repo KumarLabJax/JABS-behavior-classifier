@@ -59,7 +59,6 @@ class BackendAdapterRegistry(Generic[AdapterT]):
     def __init__(self) -> None:
         self._adapters: dict[type, AdapterT] = {}
         self._predicate_adapters: list[AdapterT] = []
-        print("Init BackendAdapterRegistry...")
 
     def register(self) -> Callable[[T], T]:
         """Decorator to register an adapter.
@@ -71,14 +70,11 @@ class BackendAdapterRegistry(Generic[AdapterT]):
         Raises:
             ValueError: If an exact-match adapter for this type is already registered.
         """
-        print("Registering adapter...")
 
         def _register(cls: T) -> T:
             if isinstance(cls, PredicateAdapter):
-                print("Registering predicate adapter...")
                 self._predicate_adapters.append(cls())  # type: ignore[arg-type]
             else:
-                print("Registering adapter without predicate adapter...")
                 data_type = cls.data_type
                 if data_type in self._adapters:
                     raise ValueError(
@@ -130,7 +126,6 @@ class BackendAdapterRegistry(Generic[AdapterT]):
         Raises:
             KeyError: If no adapter is registered for this object's type.
         """
-        print(type(data))
         return self.get(type(data))
 
     def list_types(self) -> list[type]:
