@@ -538,7 +538,7 @@ class MenuHandlers:
         ):
             # If the user had bbox overlay selected but the new video doesn't support it, switch to floating
             self.window._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
-            self.window._menu_refs.identity_overlay_bbox.setChecked(True)
+            self.window._menu_refs.identity_overlay_floating.setChecked(True)
 
     # ========== Helper Methods ==========
 
