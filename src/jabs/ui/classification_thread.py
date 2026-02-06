@@ -94,13 +94,9 @@ class ClassifyThread(QThread):
         try:
             project_settings = self._project.settings_manager.get_behavior(self._behavior)
 
-            postprocessing_config = {}
-            for stage in project_settings.get("postprocessing", []):
-                stage_name = stage.get("stage_name")
-                if stage_name:
-                    postprocessing_config[stage_name] = stage.get("config", {})
-
-            postprocessing_pipeline = PostprocessingPipeline(postprocessing_config)
+            postprocessing_pipeline = PostprocessingPipeline(
+                project_settings.get("postprocessing", [])
+            )
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:

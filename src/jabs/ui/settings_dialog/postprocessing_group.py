@@ -7,7 +7,7 @@ from jabs.behavior.postprocessing.stages import (
     GapInterpolationStage,
 )
 
-from ..settings_group import SettingsGroup
+from .settings_group import SettingsGroup
 
 
 class InterpolationStageSettingsGroup(SettingsGroup):
@@ -60,8 +60,8 @@ class InterpolationStageSettingsGroup(SettingsGroup):
         """
         return {
             "stage_name": GapInterpolationStage.__name__,
-            "config": {
-                "enabled": self._interpolation_checkbox.isChecked(),
+            "enabled": self._interpolation_checkbox.isChecked(),
+            "parameters": {
                 "max_interpolation_gap": self._interpolation_max_frames_spinbox.value(),
             },
         }
@@ -73,10 +73,10 @@ class InterpolationStageSettingsGroup(SettingsGroup):
         Args:
             values: Dictionary with setting names and their desired values.
         """
-        filter_values = values.get(GapInterpolationStage.__name__, {})
-        self._interpolation_checkbox.setChecked(filter_values.get("enabled", False))
+        stage_config = values.get(GapInterpolationStage.__name__, {})
+        self._interpolation_checkbox.setChecked(stage_config.get("enabled", False))
         self._interpolation_max_frames_spinbox.setValue(
-            filter_values.get("max_interpolation_gap", 5)
+            stage_config.get("parameters", {}).get("max_interpolation_gap", 5)
         )
 
 
@@ -130,8 +130,8 @@ class StitchingStageSettingsGroup(SettingsGroup):
         """
         return {
             "stage_name": BoutStitchingStage.__name__,
-            "config": {
-                "enabled": self._stitching_checkbox.isChecked(),
+            "enabled": self._stitching_checkbox.isChecked(),
+            "parameters": {
                 "max_stitch_gap": self._stitching_max_gap.value(),
             },
         }
@@ -143,10 +143,12 @@ class StitchingStageSettingsGroup(SettingsGroup):
         Args:
             values: Dictionary with setting names and their desired values.
         """
-        filter_values = values.get(BoutStitchingStage.__name__, {})
-        self._stitching_checkbox.setChecked(filter_values.get("enabled", False))
+        stage_config = values.get(BoutStitchingStage.__name__, {})
+        self._stitching_checkbox.setChecked(stage_config.get("enabled", False))
         self._stitching_max_gap.setValue(
-            filter_values.get("max_stitch_gap", self._stitching_max_gap.value())
+            stage_config.get("parameters", {}).get(
+                "max_stitch_gap", self._stitching_max_gap.value()
+            )
         )
 
 
@@ -198,8 +200,8 @@ class DurationStageSettingsGroup(SettingsGroup):
         """
         return {
             "stage_name": BoutDurationFilterStage.__name__,
-            "config": {
-                "enabled": self._duration_checkbox.isChecked(),
+            "enabled": self._duration_checkbox.isChecked(),
+            "parameters": {
                 "min_duration": self._duration_min_frames_spinbox.value(),
             },
         }
@@ -211,6 +213,8 @@ class DurationStageSettingsGroup(SettingsGroup):
         Args:
             values: Dictionary with setting names and their desired values.
         """
-        filter_values = values.get(BoutDurationFilterStage.__name__, {})
-        self._duration_checkbox.setChecked(filter_values.get("enabled", False))
-        self._duration_min_frames_spinbox.setValue(filter_values.get("min_duration", 3))
+        stage_config = values.get(BoutDurationFilterStage.__name__, {})
+        self._duration_checkbox.setChecked(stage_config.get("enabled", False))
+        self._duration_min_frames_spinbox.setValue(
+            stage_config.get("parameters", {}).get("min_duration", 3)
+        )

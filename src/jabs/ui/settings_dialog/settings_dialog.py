@@ -18,9 +18,9 @@ from jabs.core.constants import APP_NAME, ORG_NAME
 from jabs.project.settings_manager import SettingsManager
 
 from .cross_validation_settings_group import CrossValidationSettingsGroup
-from .postprocessing_settings import InterpolationStageSettingsGroup
-from .postprocessing_settings.postprocessing_group import (
+from .postprocessing_group import (
     DurationStageSettingsGroup,
+    InterpolationStageSettingsGroup,
     StitchingStageSettingsGroup,
 )
 from .session_tracking_group import SessionTrackingSettingsGroup
@@ -288,9 +288,10 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
         all_settings = {}
 
         for stage in settings:
-            all_settings[stage["stage_name"]] = stage["config"]
+            all_settings[stage["stage_name"]] = stage
 
-        # we just pass all settings dict to each group, they will pick what they need based on stage name
+        # we pass all settings to each group and each will pick out the settings relevant
+        # to it based on stage_name
         for group in self._settings_groups:
             group.set_values(all_settings)
 
@@ -299,10 +300,6 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
         # Order matters, since it determines the order stages are applied.
         # To preserve order they are saved as a list of dicts, each dict representing a stage with its
         # config so that order will be maintained even though the project.json file is sorted by key.
-        # transform from
-        #   dict {stage_name: config, stage2_name: config, ...}
-        # to
-        #   list [{"stage_name": stage_name, "config": config}, ...]
         ordered_stages = []
         for group in self._settings_groups:
             ordered_stages.append(group.get_values())

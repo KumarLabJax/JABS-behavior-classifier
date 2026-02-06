@@ -11,40 +11,47 @@ class TestPostprocessingPipeline:
 
     def test_constructor_empty_config(self):
         """Test constructor with empty config."""
-        pipeline = PostprocessingPipeline({})
-        assert len(pipeline._filters) == 0
+        pipeline = PostprocessingPipeline([])
+        assert len(pipeline._stages) == 0
 
-    def test_constructor_single_filter(self):
-        """Test constructor with single filter."""
-        config = {"BoutDurationFilterStage": {"min_duration": 5}}
+    def test_constructor_single_stage(self):
+        """Test constructor with single stage."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}}]
         pipeline = PostprocessingPipeline(config)
 
-        assert len(pipeline._filters) == 1
-        assert isinstance(pipeline._filters[0], BoutDurationFilterStage)
-        assert pipeline._filters[0].config["min_duration"] == 5
+        assert len(pipeline._stages) == 1
+        assert isinstance(pipeline._stages[0], BoutDurationFilterStage)
+        assert pipeline._stages[0].config["min_duration"] == 5
 
-    def test_constructor_multiple_filters(self):
-        """Test constructor with multiple filters."""
-        config = {
-            "BoutDurationFilterStage": {"min_duration": 5},
-            "BoutStitchingStage": {"max_stitch_gap": 3},
-        }
+    def test_constructor_multiple_stages(self):
+        """Test constructor with multiple stages."""
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
         pipeline = PostprocessingPipeline(config)
 
-        assert len(pipeline._filters) == 2
-        assert isinstance(pipeline._filters[0], BoutDurationFilterStage)
-        assert isinstance(pipeline._filters[1], BoutStitchingStage)
+        assert len(pipeline._stages) == 2
+        assert isinstance(pipeline._stages[0], BoutDurationFilterStage)
+        assert isinstance(pipeline._stages[1], BoutStitchingStage)
 
-    def test_constructor_unrecognized_filter(self):
-        """Test that constructor raises error for unrecognized filter."""
-        config = {"NonExistentFilter": {}}
-
-        with pytest.raises(ValueError, match="Filter 'NonExistentFilter' is not recognized"):
+    def test_constructor_unrecognized_stage(self):
+        """Test that constructor raises error for unrecognized stage."""
+        config = [{"stage_name": "NonExistentStage", "parameters": {}}]
+        with pytest.raises(ValueError, match="Stage 'NonExistentStage' is not recognized"):
             PostprocessingPipeline(config)
 
-    def test_constructor_filter_with_none_kwargs(self):
-        """Test constructor when filter config value is None."""
-        config = {"BoutDurationFilterStage": None}
+    def test_constructor_stage_with_empty_param_dict(self):
+        """Test constructor when stage config has no parameters (empty dict)."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {}}]
+
+        with pytest.raises(ValueError):
+            # Should fail because DurationFilter requires min_duration
+            PostprocessingPipeline(config)
+
+    def test_constructor_stage_with_none_param(self):
+        """Test constructor when stage config has no parameters (None)."""
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": None}]
 
         with pytest.raises(ValueError):
             # Should fail because DurationFilter requires min_duration
@@ -52,7 +59,7 @@ class TestPostprocessingPipeline:
 
     def test_run_empty_pipeline(self):
         """Test run with empty pipeline."""
-        pipeline = PostprocessingPipeline({})
+        pipeline = PostprocessingPipeline([])
         classes = np.array(
             [
                 ClassLabels.BEHAVIOR,
@@ -69,7 +76,7 @@ class TestPostprocessingPipeline:
 
     def test_run_single_filter(self):
         """Test run with single filter."""
-        config = {"BoutDurationFilterStage": {"min_duration": 3}}
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array(
@@ -92,10 +99,10 @@ class TestPostprocessingPipeline:
 
     def test_run_multiple_filters_sequential(self):
         """Test that filters are applied sequentially."""
-        config = {
-            "BoutStitchingStage": {"max_stitch_gap": 2},
-            "BoutDurationFilterStage": {"min_duration": 5},
-        }
+        config = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+        ]
         pipeline = PostprocessingPipeline(config)
 
         # Pattern: BEHAVIOR(2), NOT_BEHAVIOR(1), BEHAVIOR(2), NOT_BEHAVIOR(5)
@@ -139,17 +146,17 @@ class TestPostprocessingPipeline:
     def test_run_order_matters(self):
         """Test that filter order affects results."""
         # Apply duration filter first, then stitching
-        config1 = {
-            "BoutDurationFilterStage": {"min_duration": 4},
-            "BoutStitchingStage": {"max_stitch_gap": 2},
-        }
+        config1 = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+        ]
         pipeline1 = PostprocessingPipeline(config1)
 
         # Apply stitching first, then duration filter
-        config2 = {
-            "BoutStitchingStage": {"max_stitch_gap": 2},
-            "BoutDurationFilterStage": {"min_duration": 4},
-        }
+        config2 = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+        ]
         pipeline2 = PostprocessingPipeline(config2)
 
         # Pattern: NOT_BEHAVIOR(2), BEHAVIOR(2), NOT_BEHAVIOR(1), BEHAVIOR(2), NOT_BEHAVIOR(2)
@@ -190,10 +197,10 @@ class TestPostprocessingPipeline:
 
     def test_run_empty_array(self):
         """Test run with empty array."""
-        config = {
-            "BoutDurationFilterStage": {"min_duration": 5},
-            "BoutStitchingStage": {"max_stitch_gap": 3},
-        }
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array([])
@@ -204,10 +211,10 @@ class TestPostprocessingPipeline:
 
     def test_run_all_same_state(self):
         """Test run with array of all same state."""
-        config = {
-            "BoutDurationFilterStage": {"min_duration": 5},
-            "BoutStitchingStage": {"max_stitch_gap": 3},
-        }
+        config = [
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 5}},
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}},
+        ]
         pipeline = PostprocessingPipeline(config)
 
         classes = np.array([ClassLabels.BEHAVIOR] * 10)
@@ -219,10 +226,10 @@ class TestPostprocessingPipeline:
 
     def test_run_complex_sequence(self):
         """Test run with complex sequence of behaviors."""
-        config = {
-            "BoutStitchingStage": {"max_stitch_gap": 2},
-            "BoutDurationFilterStage": {"min_duration": 4},
-        }
+        config = [
+            {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 2}},
+            {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 4}},
+        ]
         pipeline = PostprocessingPipeline(config)
 
         # Complex pattern
@@ -288,9 +295,7 @@ class TestPostprocessingPipeline:
 
     def test_constructor_preserves_filter_config(self):
         """Test that filter configurations are properly passed to filters."""
-        config = {
-            "BoutDurationFilterStage": {"min_duration": 10},
-        }
+        config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 10}}]
         pipeline = PostprocessingPipeline(config)
 
-        assert pipeline._filters[0].config["min_duration"] == 10
+        assert pipeline._stages[0].config["min_duration"] == 10
