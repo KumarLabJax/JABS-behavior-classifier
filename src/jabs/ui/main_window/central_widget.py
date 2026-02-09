@@ -1,7 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from PySide6 import QtCore, QtWidgets
@@ -12,7 +12,7 @@ from shapely.geometry import Point
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import ClassifierType, PredictionType
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
@@ -76,6 +76,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._pose_est: PoseEstimation | None = None
         self._label_overlay_mode = PlayerWidget.LabelOverlayMode.NONE
         self._suppress_label_track_update = False
+        self._prediction_type = PredictionType.RAW
 
         #  classifier
         self._classifier = Classifier(n_jobs=-1)
@@ -87,7 +88,7 @@ class CentralWidget(QtWidgets.QWidget):
         # information about current predictions
         self._predictions = {}
         self._probabilities = {}
-        self._frame_indexes = {}
+        self._predictions_postprocessed = {}
 
         self._selection_start = None
         self._selection_end = None
@@ -169,6 +170,23 @@ class CentralWidget(QtWidgets.QWidget):
     def overlay_annotations_enabled(self, enabled: bool) -> None:
         """Set the annotation overlay enabled status on the player widget."""
         self._player_widget.overlay_annotations_enabled = enabled
+
+    @property
+    def prediction_type(self) -> PredictionType:
+        """get the current prediction type being shown"""
+        return self._prediction_type
+
+    @prediction_type.setter
+    def prediction_type(self, prediction_type: PredictionType) -> None:
+        """set the current prediction type being shown
+
+        Args:
+            prediction_type (PredictionType): the new prediction type to show
+        """
+        if prediction_type != self._prediction_type:
+            self._prediction_type = prediction_type
+            # update the timeline widget to show the right predictions
+            self._set_prediction_vis()
 
     @property
     def behavior(self) -> str:
@@ -330,7 +348,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
-            self._predictions, self._probabilities, self._frame_indexes = (
+            self._predictions, self._probabilities, self._predictions_postprocessed = (
                 self._project.prediction_manager.load_predictions(path.name, self.behavior)
             )
 
@@ -500,7 +518,7 @@ class CentralWidget(QtWidgets.QWidget):
 
         # load saved predictions
         if self._loaded_video:
-            self._predictions, self._probabilities, self._frame_indexes = (
+            self._predictions, self._probabilities, self._predictions_postprocessed = (
                 self._project.prediction_manager.load_predictions(
                     self._loaded_video.name, self.behavior
                 )
@@ -900,6 +918,7 @@ class CentralWidget(QtWidgets.QWidget):
         # display the new predictions
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
+        self._predictions_postprocessed = output["predictions_postprocessed"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
         self.status_message.emit("Classification Complete", 3000)
@@ -925,26 +944,33 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_list = []
         probability_list = []
 
+        # does the user want to see raw or post-processed predictions?
+        # if they do, also make sure we have post-processed predictions to show
+        # to check, just make sure the keys match up -- that means we have post-processed data for all identities
+        if (
+            self.prediction_type == PredictionType.POSTPROCESSED
+            and self._predictions_postprocessed.keys() == self._predictions.keys()
+        ):
+            predictions = self._predictions_postprocessed
+        else:
+            predictions = self._predictions
+
         for i in range(self._pose_est.num_identities):
-            prediction_labels = np.full(
-                self._player_widget.num_frames,
-                TrackLabels.Label.NONE.value,
-                dtype=np.byte,
-            )
-
-            prediction_prob = np.zeros(self._player_widget.num_frames, dtype=np.float64)
-
-            try:
-                indexes = self._frame_indexes[i]
-            except KeyError:
-                prediction_list.append(prediction_labels)
-                probability_list.append(prediction_prob)
+            # if there are no predictions we will pass an array of no-predictions and zero probabilities to
+            # the timeline widget
+            if not predictions:
+                prediction_list.append(
+                    np.full(
+                        self._player_widget.num_frames,
+                        TrackLabels.Label.NONE.value,
+                        dtype=np.byte,
+                    )
+                )
+                probability_list.append(np.zeros(self._player_widget.num_frames, dtype=np.float64))
                 continue
 
-            prediction_labels[indexes] = self._predictions[i][indexes]
-            prediction_prob[indexes] = self._probabilities[i][indexes]
-            prediction_list.append(prediction_labels)
-            probability_list.append(prediction_prob)
+            prediction_list.append(predictions[i])
+            probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
 
     def set_train_button_enabled_state(self) -> None:
@@ -1086,7 +1112,7 @@ class CentralWidget(QtWidgets.QWidget):
         """save the window sizes to the project settings"""
         self._project.settings_manager.save_project_file({"window_sizes": window_sizes})
 
-    def update_behavior_settings(self, key: str, val: any) -> None:
+    def update_behavior_settings(self, key: str, val: Any) -> None:
         """propagates an updated setting to the project"""
         # early exit if no behavior selected
         if self.behavior == "":

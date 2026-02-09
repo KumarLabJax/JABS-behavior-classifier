@@ -1,0 +1,43 @@
+[project]
+name = "jabs-behavior"
+version = "0.1.0a1"
+description = "JABS behavior event processing and postprocessing filters"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = { text = "Proprietary" }
+
+authors = [
+  { name = "Glen Beane" },
+  { name = "Alexander Berger-Liedtka" },
+  { name = "Keith Sheppard" },
+]
+
+dependencies = [
+  "jsonschema>=4.25.1,<5.0.0",
+  "numpy>=2.0.0,<3.0.0",
+]
+
+[dependency-groups]
+dev = [
+  {include-group = "lint"},
+  {include-group = "test"},
+  "pre-commit>=4.2.0,<5.0.0",
+]
+test = [
+  "pytest>=8.3.4,<9.0.0",
+  "pytest-cov>=7.0.0",
+]
+lint = [
+  "ruff>=0.11.5,<0.12.0",
+]
+
+[project.urls]
+Repository = "https://github.com/KumarLabJax/JABS-behavior-classifier"
+Issues = "https://github.com/KumarLabJax/JABS-behavior-classifier/issues"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "jabs.behavior"

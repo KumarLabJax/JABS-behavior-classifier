@@ -92,8 +92,8 @@ We welcome various types of contributions:
 
 For detailed information about JABS architecture, development setup, and implementation guides, see:
 
-- **[Development Guide](docs/DEVELOPMENT.md)** - Comprehensive guide to JABS architecture, feature extraction system, building, and deployment
-- **[User Guide](docs/user-guide.md)** - End-user documentation
+- **[Development Guide](development.md)** - Comprehensive guide to JABS architecture, feature extraction system, building, and deployment
+- **[User Guide](../user-guide/overview.md)** - End-user documentation
 
 ## Pull Request Process
 

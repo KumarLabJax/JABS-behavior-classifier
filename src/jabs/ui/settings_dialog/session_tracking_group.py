@@ -14,7 +14,7 @@ class SessionTrackingSettingsGroup(SettingsGroup):
         Args:
             parent (QWidget | None): Parent widget for this settings group.
         """
-        super().__init__("Cross-Validation", parent)
+        super().__init__("Session Tracking", parent)
 
     def _create_controls(self) -> None:
         """Create the settings controls."""
