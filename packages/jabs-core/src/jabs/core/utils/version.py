@@ -6,7 +6,7 @@ import warnings
 from pathlib import Path
 
 
-def version_str(pacakge: str = "jabs-behavior-classifier") -> str:
+def version_str(package: str = "jabs-behavior-classifier") -> str:
     """Return version string from package metadata or pyproject.toml.
 
     If jabs-behavior-classifier is an installed package, gets the version from the package metadata. If not installed,
@@ -14,14 +14,14 @@ def version_str(pacakge: str = "jabs-behavior-classifier") -> str:
     the version using either rof these methods.
     """
     try:
-        return importlib.metadata.version(pacakge)
+        return importlib.metadata.version(package)
     except importlib.metadata.PackageNotFoundError:
-        return _toml_version(pacakge)
+        return _toml_version(package)
 
 
-def _toml_version(pacakge: str):
+def _toml_version(package: str):
     warnings.warn(
-        f"Could not determine version for '{pacakge}' from package metadata. \n"
+        f"Could not determine version for '{package}' from package metadata. \n"
         "Falling back to 'jabs-behavior-classifier' pyproject.toml, which may not be "
         "the package whose version you requested. \n"
         "This fallback is DEPRECATED and will be removed in a future release. \n"
