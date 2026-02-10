@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.core.constants import FINAL_TRAIN_SEED
+from jabs.core.enums import PredictionType
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
@@ -28,7 +29,11 @@ from ..dialogs import (
     UserGuideDialog,
 )
 from ..player_widget import PlayerWidget
-from ..settings_dialog import JabsSettingsDialog, ProjectSettingsDialog
+from ..settings_dialog import (
+    JabsSettingsDialog,
+    PostprocessingSettingsDialog,
+    ProjectSettingsDialog,
+)
 from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
@@ -275,6 +280,16 @@ class MenuHandlers:
         dialog = LicenseAgreementDialog(self.window, view_only=True)
         dialog.exec_()
 
+    # ========== Tool Menu Handlers ==========
+
+    def open_postprocessing_dialog(self) -> None:
+        """Open the postprocessing settings dialog."""
+        behavior = self.window._central_widget.behavior
+        settings_dialog = PostprocessingSettingsDialog(
+            self.window._project.settings_manager, behavior=behavior, parent=self.window
+        )
+        settings_dialog.exec()
+
     # ========== View Menu Handlers ==========
 
     def set_video_list_visibility(self, checked: bool) -> None:
@@ -331,9 +346,9 @@ class MenuHandlers:
 
     def on_timeline_view_mode_changed(self) -> None:
         """Handle timeline view mode change (Labels, Predictions, or Both)."""
-        if self.window._timeline_labels_preds.isChecked():
+        if self.window._menu_refs.timeline_labels_preds.isChecked():
             mode = StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
-        elif self.window._timeline_labels.isChecked():
+        elif self.window._menu_refs.timeline_labels.isChecked():
             mode = StackedTimelineWidget.ViewMode.LABELS
         else:
             mode = StackedTimelineWidget.ViewMode.PREDICTIONS
@@ -342,22 +357,29 @@ class MenuHandlers:
 
     def on_timeline_identity_mode_changed(self) -> None:
         """Handle timeline identity mode change (All Animals or Selected Animal)."""
-        if self.window._timeline_all_animals.isChecked():
+        if self.window._menu_refs.timeline_all_animals.isChecked():
             mode = StackedTimelineWidget.IdentityMode.ALL
         else:
             mode = StackedTimelineWidget.IdentityMode.ACTIVE
 
         self.window._central_widget.timeline_identity_mode = mode
 
+    def on_timeline_prediction_type_changed(self) -> None:
+        """Handle change to the prediction type shown in the timeline (raw vs. postprocessed)."""
+        if self.window._menu_refs.timeline_raw_predictions.isChecked():
+            mode = PredictionType.RAW
+        else:
+            mode = PredictionType.POSTPROCESSED
+        self.window._central_widget.prediction_type = mode
+
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""
-        if self.window._label_overlay_none.isChecked():
+        if self.window._menu_refs.label_overlay_none.isChecked():
             mode = PlayerWidget.LabelOverlayMode.NONE
-        elif self.window._label_overlay_labels.isChecked():
+        elif self.window._menu_refs.label_overlay_labels.isChecked():
             mode = PlayerWidget.LabelOverlayMode.LABEL
         else:
             mode = PlayerWidget.LabelOverlayMode.PREDICTION
-
         self.window._central_widget.label_overlay_mode = mode
 
     # ========== Features Menu Handlers ==========
@@ -444,7 +466,7 @@ class MenuHandlers:
     def update_window_menu(self) -> None:
         """Update the Window menu with the current list of open windows."""
         # Remove all dynamic window items (everything after the separator)
-        actions = self.window._window_menu.actions()
+        actions = self.window._menu_refs.window_menu.actions()
         separator_found = False
         items_to_remove = []
 
@@ -455,14 +477,14 @@ class MenuHandlers:
                 separator_found = True
 
         for action in items_to_remove:
-            self.window._window_menu.removeAction(action)
+            self.window._menu_refs.window_menu.removeAction(action)
 
         # Add Main Window
         main_window_action = QAction("Main Window", self.window)
         main_window_action.setCheckable(True)
         main_window_action.setChecked(self.window.isActiveWindow())
         main_window_action.triggered.connect(lambda: self.activate_window(self.window))
-        self.window._window_menu.addAction(main_window_action)
+        self.window._menu_refs.window_menu.addAction(main_window_action)
 
         # Add User Guide window if open
         if (
@@ -475,7 +497,7 @@ class MenuHandlers:
             guide_action.triggered.connect(
                 lambda: self.activate_window(self.window._user_guide_window)
             )
-            self.window._window_menu.addAction(guide_action)
+            self.window._menu_refs.window_menu.addAction(guide_action)
 
         # Add any open dialogs from the central widget
         for title, dialog in self.window._central_widget.get_open_dialogs():
@@ -483,7 +505,7 @@ class MenuHandlers:
             dialog_action.setCheckable(True)
             dialog_action.setChecked(dialog.isActiveWindow())
             dialog_action.triggered.connect(lambda checked, w=dialog: self.activate_window(w))
-            self.window._window_menu.addAction(dialog_action)
+            self.window._menu_refs.window_menu.addAction(dialog_action)
 
     def activate_window(self, window: QtWidgets.QWidget) -> None:
         """Activate and bring a window to the front.
@@ -508,7 +530,7 @@ class MenuHandlers:
         Args:
             supported: Whether bounding box overlay is supported
         """
-        self.window._identity_overlay_bbox.setEnabled(supported)
+        self.window._menu_refs.identity_overlay_bbox.setEnabled(supported)
         if (
             not supported
             and self.window._central_widget.id_overlay_mode
@@ -516,7 +538,7 @@ class MenuHandlers:
         ):
             # If the user had bbox overlay selected but the new video doesn't support it, switch to floating
             self.window._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
-            self.window._identity_overlay_floating.setChecked(True)
+            self.window._menu_refs.identity_overlay_floating.setChecked(True)
 
     # ========== Helper Methods ==========
 
