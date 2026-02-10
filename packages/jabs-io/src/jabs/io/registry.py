@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 from jabs.core.enums import StorageFormat
 from jabs.io.base import Adapter
@@ -219,3 +220,10 @@ def get_storage_format(path: Path) -> StorageFormat:
     if suffix not in PATH_TO_STORAGE_FORMAT:
         raise ValueError(f"Unsupported file extension: {suffix}")
     return PATH_TO_STORAGE_FORMAT[suffix]
+
+
+def get_domain_type(inst: Any) -> type | None:
+    """Convenience to resolve a domain type from an instance."""
+    if isinstance(inst, list):
+        return type(inst[0])
+    return type(inst)

@@ -11,7 +11,11 @@ Design principle: Use native Parquet types wherever possible.
 from __future__ import annotations
 
 import numpy as np
-import pyarrow as pa
+
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 from jabs.core.enums import StorageFormat
 from jabs.core.types.keypoints import (

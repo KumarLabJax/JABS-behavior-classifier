@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import json
 
-import pyarrow as pa
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 from jabs.core.enums import StorageFormat
 from jabs.core.types import InferenceRunMetadata, ModelInfo
