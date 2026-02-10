@@ -38,7 +38,7 @@ from jabs.io.base import (
 )
 ```
 
-To have register you adapter for use, use the `register` adapter decorator.
+To register your adapter for use, use the `register` adapter decorator.
 ```python
 from jabs.core.enums import StorageFormat
 from jabs.io.base import JSONAdapter
