@@ -1,5 +1,6 @@
 """The root of the jabs.io package."""
 
+from jabs.io import internal
 from jabs.io.api import load, save
 
 __all__ = [

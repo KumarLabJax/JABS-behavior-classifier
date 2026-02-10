@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from jabs.io.types.inference import AggregationSpec, InferenceSampling
-from jabs.io.types.keypoints import FrameKeypoints, KeypointAnnotation
-from jabs.io.types.model import ModelInfo
-from jabs.io.types.video import VideoInfo
+from jabs.core.types.inference import AggregationSpec, InferenceSampling
+from jabs.core.types.keypoints import FrameKeypoints, KeypointAnnotation
+from jabs.core.types.model import ModelInfo
+from jabs.core.types.video import VideoInfo
 
 
 @dataclass(frozen=True)

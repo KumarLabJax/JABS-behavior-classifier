@@ -1,28 +1,17 @@
-import contextlib
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
-from jabs.io.backends.json import JsonBackend
-from jabs.io.backends.parquet import ParquetBackend
-from jabs.io.registry import BACKEND_REGISTRY
-
-T = TypeVar("T")
-
-BACKEND_REGISTRY.register(JsonBackend())
-
-with contextlib.suppress(ImportError):
-    BACKEND_REGISTRY.register(ParquetBackend())
+from jabs.io.base import DomainType
+from jabs.io.registry import get_adapter, get_storage_format
 
 
-def load(path: Path, data_type: type[T], **kwargs) -> T:
+def load(path: str | Path, data_type: type[DomainType], **kwargs) -> DomainType:
     """Load data from a file using the appropriate backend."""
     path = Path(path)
-    backend = BACKEND_REGISTRY.get_backend(path)
-    return backend.load(path, data_type, **kwargs)
+    return get_adapter(get_storage_format(path), data_type).read(path, **kwargs)
 
 
 def save(data: Any, path: Path, **kwargs) -> None:
     """Save data to a file using the appropriate backend."""
     path = Path(path)
-    backend = BACKEND_REGISTRY.get_backend(path)
-    backend.save(data, path, **kwargs)
+    return get_adapter(get_storage_format(path), type(data)).write(data, path, **kwargs)

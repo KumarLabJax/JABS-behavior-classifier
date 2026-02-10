@@ -2,6 +2,7 @@
 
 from .classifier_types import ClassifierType
 from .cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
+from .storage_format import StorageFormat
 from .units import ProjectDistanceUnit
 
 __all__ = [
@@ -9,4 +10,5 @@ __all__ = [
     "ClassifierType",
     "CrossValidationGroupingStrategy",
     "ProjectDistanceUnit",
+    "StorageFormat",
 ]
