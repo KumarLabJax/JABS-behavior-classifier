@@ -4,4 +4,5 @@ from jabs.io.internal import (
     dataclass,
     inference,
     keypoints,
+    prediction,
 )

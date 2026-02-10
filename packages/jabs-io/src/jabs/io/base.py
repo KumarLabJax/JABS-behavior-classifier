@@ -39,16 +39,6 @@ class Adapter(ABC):
         """Check if this adapter can handle the given data type."""
 
     @abstractmethod
-    def encode(self, data: DomainType | list[DomainType]) -> StorageType:
-        """Encode one or more domain objects into the storage format."""
-
-    @abstractmethod
-    def decode(
-        self, data: StorageType, data_type: type | None = None
-    ) -> DomainType | list[DomainType]:
-        """Decode storage-formatted data back into domain object(s)."""
-
-    @abstractmethod
     def write(self, data: DomainType | list[DomainType], path: str | Path, **kwargs) -> None:
         """Encode and write domain object(s) to a file."""
 
@@ -179,3 +169,49 @@ class ParquetAdapter(Adapter):
     def read(self, path: str, data_type: type | None = None):  # noqa: D102
         table = pq.read_table(path)
         return self.decode(table, data_type)
+
+
+class HDF5Adapter(Adapter):
+    """Base class for HDF5-based adapters.
+
+    HDF5 is inherently file-based, so ``encode``/``decode`` are not
+    meaningful and raise ``NotImplementedError``.  Real work is done
+    in ``write`` and ``read``, which delegate to the abstract helpers
+    ``_write_one`` and ``_read_one``.
+
+    Lists are stored as numbered subgroups (``_item_0``, ``_item_1``, ...)
+    with a root attribute ``_list_length`` recording the count.
+
+    Concrete adapters must implement ``_write_one`` and ``_read_one``.
+    """
+
+    def __init__(self):
+        if h5py is None:
+            raise ImportError(
+                "h5py is required to use HDF5. Install jabs-io with the 'hdf5' extra."
+            )
+
+    @abstractmethod
+    def _write_one(self, data, group) -> None:
+        """Write a single domain object into an h5py Group."""
+
+    @abstractmethod
+    def _read_one(self, group, data_type: type | None = None):
+        """Read a single domain object from an h5py Group."""
+
+    def write(self, data, path: str | Path, **kwargs) -> None:  # noqa: D102
+        with h5py.File(path, "w") as h5:
+            if isinstance(data, list):
+                h5.attrs["_list_length"] = len(data)
+                for i, item in enumerate(data):
+                    grp = h5.create_group(f"_item_{i}")
+                    self._write_one(item, grp)
+            else:
+                self._write_one(data, h5)
+
+    def read(self, path: str | Path, data_type: type | None = None):  # noqa: D102
+        with h5py.File(path, "r") as h5:
+            if "_list_length" in h5.attrs:
+                length = int(h5.attrs["_list_length"])
+                return [self._read_one(h5[f"_item_{i}"], data_type) for i in range(length)]
+            return self._read_one(h5, data_type)

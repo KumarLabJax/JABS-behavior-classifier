@@ -8,8 +8,6 @@ Design principle: Use native Parquet types wherever possible.
 - Dicts -> JSON string (Parquet maps are less portable)
 """
 
-from __future__ import annotations
-
 import json
 
 try:

@@ -26,12 +26,7 @@ class FrameKeypoints:
 
     frame_index: int
     keypoints: np.ndarray
-    confidence: float | None = None
-
-    def __post_init__(self) -> None:
-        keypoints = np.asarray(self.keypoints)
-        if keypoints.ndim != 2 or keypoints.shape[1] != 2:
-            raise ValueError("FrameKeypoints.keypoints must have shape (K, 2)")
+    confidence: np.ndarray | None = None
 
 
 @dataclass(frozen=True)

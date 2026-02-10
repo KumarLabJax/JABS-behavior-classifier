@@ -7,8 +7,7 @@ from importlib import metadata
 
 from packaging.version import parse as parse_version
 
-# TODO: Consider moving this to jabs.core
-from jabs.version import version_str
+from jabs.core.utils.version import version_str
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ def check_for_update() -> tuple[bool, str | None, str]:
             - current_version: Current installed version string
     """
     try:
-        current_version = version_str()
+        current_version = version_str("jabs-behavior-classifier")
 
         with urllib.request.urlopen(
             "https://pypi.org/pypi/jabs-behavior-classifier/json", timeout=5

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 from jabs.io.base import Adapter, JSONAdapter, ParquetAdapter
@@ -42,6 +43,23 @@ class ArrayRecord:
     """A dataclass with a list field."""
 
     data: list[float]
+
+
+@dataclass
+class NumpyRecord:
+    """A dataclass with numpy array fields."""
+
+    name: str
+    values: np.ndarray
+    labels: np.ndarray
+
+
+@dataclass
+class NestedRecord:
+    """A dataclass containing another dataclass."""
+
+    outer_name: str
+    inner: SampleRecord
 
 
 # ---------------------------------------------------------------------------
