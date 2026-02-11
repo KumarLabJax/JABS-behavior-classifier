@@ -79,7 +79,7 @@ def to_safe_name(behavior: str) -> str:
     """
     safe_behavior = re.sub(r"[^\w.-]+", "_", behavior, flags=re.UNICODE)
     safe_behavior = re.sub("_{2,}", "_", safe_behavior)
-    safe_behavior = safe_behavior.lstrip("_").rstrip("_")
+    safe_behavior = safe_behavior.strip("_")
     if safe_behavior == "":
         raise ValueError("Behavior name is empty after sanitization.")
     return safe_behavior
