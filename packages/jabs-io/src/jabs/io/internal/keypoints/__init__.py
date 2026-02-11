@@ -1,9 +1,9 @@
 """Keypoints adapters."""
 
 from .frame_keypoints import FrameKeypointsDataAdapter
-from .keypoint_annotation import KeypointAnnotation
+from .keypoint_annotation import KeypointAnnotationAdapter
 
 __all__ = [
     "FrameKeypointsDataAdapter",
-    "KeypointAnnotation",
+    "KeypointAnnotationAdapter",
 ]
