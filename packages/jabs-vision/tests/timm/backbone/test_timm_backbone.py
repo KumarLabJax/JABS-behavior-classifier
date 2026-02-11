@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from jabs.vision.backbones.timm import TimmBackbone, TimmBackboneConfig
+from jabs.vision.timm.backbone import TimmBackbone, TimmBackboneConfig
 
 
 @pytest.fixture

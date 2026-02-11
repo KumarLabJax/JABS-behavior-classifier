@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 import torch.nn as nn
 from torch import Tensor
 
-from jabs.vision.backbones.timm import TimmBackbone, TimmBackboneConfig
-from jabs.vision.core.interfaces import BaseVisionModel, OutputKeys
-from jabs.vision.core.registry import MODEL_REGISTRY
-from jabs.vision.modules.decoders import UNetDecoder
-from jabs.vision.modules.heads import HeatmapHead
+from jabs.vision.timm.backbone import TimmBackbone, TimmBackboneConfig
+from jabs.vision.timm.core.interfaces import BaseVisionModel, OutputKeys
+from jabs.vision.timm.core.registry import MODEL_REGISTRY
+from jabs.vision.timm.modules.decoders import UNetDecoder
+from jabs.vision.timm.modules.heads import HeatmapHead
 
 logger = logging.getLogger(__name__)
 

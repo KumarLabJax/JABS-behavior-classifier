@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from jabs.vision.modules.decoders import ConvBNReLU
+from jabs.vision.timm.modules import ConvBNReLU
 
 
 def test_conv_bnrelu_init() -> None:

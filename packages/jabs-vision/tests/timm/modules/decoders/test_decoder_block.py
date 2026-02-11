@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from jabs.vision.modules.decoders import DecoderBlock
+from jabs.vision.timm.modules import DecoderBlock
 
 
 def test_decoder_block_init() -> None:
