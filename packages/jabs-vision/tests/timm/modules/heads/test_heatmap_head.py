@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from jabs.vision.modules.heads import HeatmapHead
+from jabs.vision.timm.modules.heads import HeatmapHead
 
 
 @pytest.mark.parametrize("in_channels", [16, 32])

@@ -2,7 +2,7 @@
 
 import pytest
 
-from jabs.vision.core.registry import MODEL_REGISTRY, ModelRegistry
+from jabs.vision.timm.core import MODEL_REGISTRY, ModelRegistry
 
 
 @pytest.fixture

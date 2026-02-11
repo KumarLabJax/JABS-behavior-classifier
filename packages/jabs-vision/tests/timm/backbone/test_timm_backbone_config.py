@@ -1,6 +1,6 @@
 """Tests for TimmBackboneConfig."""
 
-from jabs.vision.backbones.timm import TimmBackboneConfig
+from jabs.vision.timm.backbone import TimmBackboneConfig
 
 
 def test_timm_backbone_config_defaults() -> None:
