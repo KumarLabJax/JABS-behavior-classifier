@@ -11,7 +11,7 @@ from jabs.vision.timm.backbone import TimmBackbone, TimmBackboneConfig
 @pytest.fixture
 def mock_timm():
     """Fixture to mock timm package."""
-    with patch("jabs.vision.backbones.timm.timm") as mock_timm_pkg:
+    with patch("jabs.vision.timm.backbone.timm") as mock_timm_pkg:
         # Setup create_model mock
         mock_model = MagicMock()
         mock_timm_pkg.create_model.return_value = mock_model
@@ -43,7 +43,7 @@ def mock_timm():
 def test_timm_missing_dependency():
     """Test error when timm is not installed."""
     # We need to simulate timm being None in the module
-    with patch("jabs.vision.backbones.timm.timm", None):
+    with patch("jabs.vision.timm.backbone.timm", None):
         cfg = TimmBackboneConfig()
         with pytest.raises(ImportError, match="timm is required"):
             TimmBackbone(cfg)
