@@ -6,6 +6,6 @@ from .heads import HeatmapHead
 __all__ = [
     "ConvBNReLU",
     "DecoderBlock",
-    "DecoderBlock",
+    "HeatmapHead",
     "UNetDecoder",
 ]
