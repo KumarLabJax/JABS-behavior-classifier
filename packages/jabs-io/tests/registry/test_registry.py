@@ -1,7 +1,6 @@
 """Tests for AdapterRegistry and module-level convenience functions."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,12 +19,25 @@ from tests.conftest import SampleRecord
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_adapter(can_handle_types=None):
-    """Create a mock Adapter that passes isinstance checks."""
-    adapter = MagicMock(spec=Adapter)
-    can_handle_types = can_handle_types or set()
-    adapter.can_handle = MagicMock(side_effect=lambda t: t in can_handle_types)
-    return adapter
+def _make_adapter_class(can_handle_types=None):
+    """Create a minimal Adapter subclass that can be registered."""
+    handle_types = can_handle_types or set()
+
+    class MockAdapter(Adapter):
+        can_handle_call_count = 0
+
+        @classmethod
+        def can_handle(cls, data_type):
+            cls.can_handle_call_count += 1
+            return data_type in handle_types
+
+        def write(self, data, path, **kwargs):
+            pass
+
+        def read(self, path, data_type=None):
+            pass
+
+    return MockAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -36,18 +48,18 @@ def _make_mock_adapter(can_handle_types=None):
 def test_register_with_domain_type():
     """Registering with an explicit domain type makes the adapter discoverable."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, SampleRecord)
-    assert reg.get_adapter(StorageFormat.JSON, SampleRecord) is adapter
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, SampleRecord)
+    assert isinstance(reg.get_adapter(StorageFormat.JSON, SampleRecord), adapter_cls)
 
 
 def test_register_polymorphic():
     """Registering without a domain type creates a polymorphic adapter."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, domain_type=None)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, domain_type=None)
     # Should be discoverable via can_handle fallback
-    assert reg.get_adapter(StorageFormat.JSON, SampleRecord) is adapter
+    assert isinstance(reg.get_adapter(StorageFormat.JSON, SampleRecord), adapter_cls)
 
 
 def test_register_rejects_non_adapter():
@@ -60,9 +72,9 @@ def test_register_rejects_non_adapter():
 def test_register_rejects_adapter_that_cannot_handle_type():
     """Registering an adapter that cannot handle the claimed type raises ValueError."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter(set())  # can_handle returns False for everything
+    adapter_cls = _make_adapter_class(set())  # can_handle returns False for everything
     with pytest.raises(ValueError, match="cannot handle type"):
-        reg.register(StorageFormat.JSON, adapter, SampleRecord)
+        reg.register(StorageFormat.JSON, adapter_cls, SampleRecord)
 
 
 # ---------------------------------------------------------------------------
@@ -73,21 +85,21 @@ def test_register_rejects_adapter_that_cannot_handle_type():
 def test_higher_priority_wins():
     """The adapter with the highest priority is returned first."""
     reg = AdapterRegistry()
-    low = _make_mock_adapter({SampleRecord})
-    high = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, low, SampleRecord, priority=0)
-    reg.register(StorageFormat.JSON, high, SampleRecord, priority=10)
-    assert reg.get_adapter(StorageFormat.JSON, SampleRecord) is high
+    low_cls = _make_adapter_class({SampleRecord})
+    high_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, low_cls, SampleRecord, priority=0)
+    reg.register(StorageFormat.JSON, high_cls, SampleRecord, priority=10)
+    assert isinstance(reg.get_adapter(StorageFormat.JSON, SampleRecord), high_cls)
 
 
 def test_equal_priority_first_registered_wins():
     """When priorities tie, the first registered adapter wins."""
     reg = AdapterRegistry()
-    first = _make_mock_adapter({SampleRecord})
-    second = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, first, SampleRecord, priority=0)
-    reg.register(StorageFormat.JSON, second, SampleRecord, priority=0)
-    assert reg.get_adapter(StorageFormat.JSON, SampleRecord) is first
+    first_cls = _make_adapter_class({SampleRecord})
+    second_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, first_cls, SampleRecord, priority=0)
+    reg.register(StorageFormat.JSON, second_cls, SampleRecord, priority=0)
+    assert isinstance(reg.get_adapter(StorageFormat.JSON, SampleRecord), first_cls)
 
 
 def test_get_adapter_returns_none_for_unknown():
@@ -104,18 +116,21 @@ def test_get_adapter_returns_none_for_unknown():
 def test_polymorphic_lookup_is_cached():
     """After a polymorphic adapter matches, subsequent lookups should be O(1)."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, domain_type=None)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, domain_type=None)
 
     # First lookup triggers can_handle
     result1 = reg.get_adapter(StorageFormat.JSON, SampleRecord)
-    # Second lookup should hit cache
+    # Reset counter after first lookup
+    initial_count = adapter_cls.can_handle_call_count
+
+    # Second lookup should hit cache (no additional can_handle call)
     result2 = reg.get_adapter(StorageFormat.JSON, SampleRecord)
 
-    assert result1 is result2 is adapter
-    # can_handle should have been called exactly once (first lookup),
-    # second lookup uses the cached exact-match entry
-    assert adapter.can_handle.call_count == 1
+    assert isinstance(result1, adapter_cls)
+    assert isinstance(result2, adapter_cls)
+    # can_handle should not have been called again for the second lookup
+    assert adapter_cls.can_handle_call_count == initial_count
 
 
 # ---------------------------------------------------------------------------
@@ -126,29 +141,29 @@ def test_polymorphic_lookup_is_cached():
 def test_get_all_adapters_combines_exact_and_polymorphic():
     """get_all_adapters returns both exact and polymorphic matches, sorted by priority."""
     reg = AdapterRegistry()
-    exact = _make_mock_adapter({SampleRecord})
-    poly = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, exact, SampleRecord, priority=5)
-    reg.register(StorageFormat.JSON, poly, domain_type=None, priority=3)
+    exact_cls = _make_adapter_class({SampleRecord})
+    poly_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, exact_cls, SampleRecord, priority=5)
+    reg.register(StorageFormat.JSON, poly_cls, domain_type=None, priority=3)
 
     all_adapters = reg.get_all_adapters(StorageFormat.JSON, SampleRecord)
-    assert exact in all_adapters
-    assert poly in all_adapters
+    assert exact_cls in all_adapters
+    assert poly_cls in all_adapters
     # Higher priority first
-    assert all_adapters[0] is exact
+    assert all_adapters[0] is exact_cls
 
 
 def test_get_all_adapters_no_duplicates():
     """A polymorphic adapter already cached as exact should not appear twice."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, domain_type=None)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, domain_type=None)
 
     # Trigger caching
     reg.get_adapter(StorageFormat.JSON, SampleRecord)
 
     all_adapters = reg.get_all_adapters(StorageFormat.JSON, SampleRecord)
-    assert all_adapters.count(adapter) == 1
+    assert all_adapters.count(adapter_cls) == 1
 
 
 def test_get_all_adapters_empty():
@@ -165,8 +180,8 @@ def test_get_all_adapters_empty():
 def test_supports_type_exact():
     """supports_type returns True for explicitly registered format-type pairs."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, SampleRecord)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, SampleRecord)
     assert reg.supports_type(StorageFormat.JSON, SampleRecord) is True
     assert reg.supports_type(StorageFormat.PARQUET, SampleRecord) is False
 
@@ -174,16 +189,16 @@ def test_supports_type_exact():
 def test_supports_type_polymorphic():
     """supports_type returns True when a polymorphic adapter can handle the type."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, domain_type=None)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, domain_type=None)
     assert reg.supports_type(StorageFormat.JSON, SampleRecord) is True
 
 
 def test_get_supported_types():
     """get_supported_types returns all explicitly registered types for a format."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, SampleRecord)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, SampleRecord)
     types = reg.get_supported_types(StorageFormat.JSON)
     assert SampleRecord in types
 
@@ -199,8 +214,8 @@ def test_get_supported_types_returns_copy():
 def test_get_supported_formats():
     """get_supported_formats returns all formats registered for a type."""
     reg = AdapterRegistry()
-    adapter = _make_mock_adapter({SampleRecord})
-    reg.register(StorageFormat.JSON, adapter, SampleRecord)
+    adapter_cls = _make_adapter_class({SampleRecord})
+    reg.register(StorageFormat.JSON, adapter_cls, SampleRecord)
     formats = reg.get_supported_formats(SampleRecord)
     assert StorageFormat.JSON in formats
 

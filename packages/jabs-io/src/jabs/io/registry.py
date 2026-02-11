@@ -56,7 +56,7 @@ class AdapterRegistry:
             TypeError: If the adapter is not a subclass of Adapter.
             ValueError: If domain_type is provided but the adapter cannot handle it.
         """
-        if not isinstance(adapter, Adapter):
+        if not isinstance(adapter, type) or not issubclass(adapter, Adapter):
             raise TypeError(f"Adapter must be a subclass of Adapter, got {type(adapter).__name__}")
 
         if domain_type is None:
