@@ -33,12 +33,15 @@ def _toml_version(package: str):
 
     try:
         import toml
+    except ImportError:
+        return "dev"
 
+    try:
         pyproject_file = (
             Path(__file__).parent.parent.parent.parent.parent.parent.parent / "pyproject.toml"
         )
 
         data = toml.load(pyproject_file)
         return data["project"]["version"]
-    except (ImportError, FileNotFoundError, KeyError, toml.TomlDecodeError):
+    except (FileNotFoundError, KeyError, toml.TomlDecodeError):
         return "dev"

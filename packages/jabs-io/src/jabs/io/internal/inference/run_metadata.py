@@ -8,6 +8,8 @@ Design principle: Use native Parquet types wherever possible.
 - Dicts -> JSON string (Parquet maps are less portable)
 """
 
+from __future__ import annotations
+
 import json
 
 try:
@@ -36,55 +38,63 @@ class InferenceRunMetadataAdapter(ParquetAdapter):
     - extra: string (JSON-encoded dict)
     """
 
-    VIDEO_INFO_TYPE = pa.struct(
-        [
-            pa.field("path", pa.string()),
-            pa.field("width", pa.int64()),
-            pa.field("height", pa.int64()),
-            pa.field("fps", pa.float64()),
-            pa.field("frame_count", pa.int64()),
-        ]
-    )
-
-    MODEL_INFO_TYPE = pa.struct(
-        [
-            pa.field("checkpoint_path", pa.string()),
-            pa.field("backbone", pa.string()),
-            pa.field("num_keypoints", pa.int64()),
-            pa.field("input_size", pa.list_(pa.int64(), 2)),
-            pa.field("output_stride", pa.int64()),
-            pa.field("decode_use_dark", pa.bool_()),
-            pa.field("decode_sigma", pa.float64()),
-        ]
-    )
-
-    SAMPLING_TYPE = pa.struct(
-        [
-            pa.field("num_frames", pa.int64()),
-            pa.field("frame_indices", pa.list_(pa.int64())),
-            pa.field("strategy", pa.string()),
-        ]
-    )
-
-    AGGREGATION_TYPE = pa.struct(
-        [
-            pa.field("confidence_threshold", pa.float64()),
-            pa.field("confidence_metric", pa.string()),
-            pa.field("method", pa.string()),
-        ]
-    )
-
     @classmethod
     def can_handle(cls, data_type):  # noqa: D102
         return data_type is InferenceRunMetadata
 
+    @staticmethod
+    def _video_info_type():
+        return pa.struct(
+            [
+                pa.field("path", pa.string()),
+                pa.field("width", pa.int64()),
+                pa.field("height", pa.int64()),
+                pa.field("fps", pa.float64()),
+                pa.field("frame_count", pa.int64()),
+            ]
+        )
+
+    @staticmethod
+    def _model_info_type():
+        return pa.struct(
+            [
+                pa.field("checkpoint_path", pa.string()),
+                pa.field("backbone", pa.string()),
+                pa.field("num_keypoints", pa.int64()),
+                pa.field("input_size", pa.list_(pa.int64(), 2)),
+                pa.field("output_stride", pa.int64()),
+                pa.field("decode_use_dark", pa.bool_()),
+                pa.field("decode_sigma", pa.float64()),
+            ]
+        )
+
+    @staticmethod
+    def _sampling_type():
+        return pa.struct(
+            [
+                pa.field("num_frames", pa.int64()),
+                pa.field("frame_indices", pa.list_(pa.int64())),
+                pa.field("strategy", pa.string()),
+            ]
+        )
+
+    @staticmethod
+    def _aggregation_type():
+        return pa.struct(
+            [
+                pa.field("confidence_threshold", pa.float64()),
+                pa.field("confidence_metric", pa.string()),
+                pa.field("method", pa.string()),
+            ]
+        )
+
     def schema(self) -> pa.Schema:  # noqa: D102
         return pa.schema(
             [
-                pa.field("video", self.VIDEO_INFO_TYPE),
-                pa.field("model", self.MODEL_INFO_TYPE),
-                pa.field("sampling", self.SAMPLING_TYPE),
-                pa.field("aggregation", self.AGGREGATION_TYPE),
+                pa.field("video", self._video_info_type()),
+                pa.field("model", self._model_info_type()),
+                pa.field("sampling", self._sampling_type()),
+                pa.field("aggregation", self._aggregation_type()),
                 pa.field("created_at", pa.string()),
                 pa.field("extra", pa.string()),
             ]

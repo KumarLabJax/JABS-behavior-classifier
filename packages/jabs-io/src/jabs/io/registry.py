@@ -26,19 +26,19 @@ class AdapterRegistry:
     """
 
     def __init__(self):
-        self._adapters: dict[tuple[StorageFormat, type], list[tuple[int, Adapter]]] = defaultdict(
-            list
+        self._adapters: dict[tuple[StorageFormat, type], list[tuple[int, type[Adapter]]]] = (
+            defaultdict(list)
         )
         self._format_adapters: dict[StorageFormat, set[type]] = defaultdict(set)
         self._type_formats: dict[type, set[StorageFormat]] = defaultdict(set)
-        self._polymorphic_adapters: dict[StorageFormat, list[tuple[int, Adapter]]] = defaultdict(
-            list
+        self._polymorphic_adapters: dict[StorageFormat, list[tuple[int, type[Adapter]]]] = (
+            defaultdict(list)
         )
 
     def register(
         self,
         storage_format: StorageFormat,
-        adapter: Adapter,
+        adapter: type[Adapter],
         domain_type: type | None = None,
         priority: int = 0,
     ) -> None:
@@ -46,7 +46,7 @@ class AdapterRegistry:
 
         Args:
             storage_format: The storage format this adapter handles.
-            adapter: The adapter instance to register. Must be a subclass of Adapter.
+            adapter: The adapter class to register. Must be a subclass of Adapter.
             domain_type: The domain type this adapter converts to and from.
                 If None, the adapter is registered as polymorphic and will be
                 checked via can_handle() for any type lookup.
@@ -104,14 +104,14 @@ class AdapterRegistry:
         key = (storage_format, domain_type)
         adapters = self._adapters.get(key, [])
         if adapters:
-            return adapters[0][1]
+            return adapters[0][1]()
 
         for priority, adapter in self._polymorphic_adapters.get(storage_format, []):
             if adapter.can_handle(domain_type):
                 self._adapters[key].append((priority, adapter))
                 self._format_adapters[storage_format].add(domain_type)
                 self._type_formats[domain_type].add(storage_format)
-                return adapter
+                return adapter()
 
         return None
 
@@ -202,15 +202,14 @@ def register_adapter(
     """
 
     def decorator(adapter_class):
-        adapter_instance = adapter_class()
-        _global_registry.register(storage_format, adapter_instance, domain_type, priority)
+        _global_registry.register(storage_format, adapter_class, domain_type, priority)
         return adapter_class
 
     return decorator
 
 
 def get_adapter(storage_format: StorageFormat, domain_type: type) -> Adapter | None:
-    """Convenience function to get an adapter from the global registry."""
+    """Convenience function to get and instantiate an adapter from the global registry."""
     return _global_registry.get_adapter(storage_format, domain_type)
 
 
