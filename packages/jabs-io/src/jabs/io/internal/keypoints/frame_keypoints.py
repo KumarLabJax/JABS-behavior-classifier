@@ -60,13 +60,12 @@ class FrameKeypointsDataAdapter(ParquetAdapter):
     def _from_record(self, record: dict, data_type: type | None = None):
         raise NotImplementedError("Use decode() directly for FrameKeypointsData")
 
-    def encode(self, data: FrameKeypointsData | list[FrameKeypointsData]) -> pa.Table:
+    def encode(self, data: FrameKeypointsData) -> pa.Table:
         """Convert FrameKeypointsData to a PyArrow Table.
 
         Each FrameKeypoints in data.frames becomes a row in the table.
-        Encoding a list of FrameKeypointsData concatenates all frames.
         """
-        frames = [f for d in data for f in d.frames] if isinstance(data, list) else data.frames
+        frames = data.frames
 
         records = [
             {
@@ -90,3 +89,39 @@ class FrameKeypointsDataAdapter(ParquetAdapter):
             for row in data.to_pylist()
         ]
         return FrameKeypointsData(frames=frames)
+
+
+@register_adapter(StorageFormat.PARQUET, FrameKeypoints, priority=10)
+class FrameKeypointsAdapter(ParquetAdapter):
+    """Parquet adapter for FrameKeypoints.
+
+    Uses the same schema as FrameKeypointsDataAdapter (one row per frame).
+    Supports single instances and lists via the base ParquetAdapter contract.
+    """
+
+    @classmethod
+    def can_handle(cls, data_type):  # noqa: D102
+        return data_type is FrameKeypoints
+
+    def schema(self) -> pa.Schema:  # noqa: D102
+        return pa.schema(
+            [
+                pa.field("frame_index", pa.int64()),
+                pa.field("keypoints", pa.list_(pa.list_(pa.float64(), 2))),
+                pa.field("confidence", pa.float64()),
+            ]
+        )
+
+    def _to_record(self, data: FrameKeypoints) -> dict:
+        return {
+            "frame_index": data.frame_index,
+            "keypoints": data.keypoints.tolist(),
+            "confidence": data.confidence,
+        }
+
+    def _from_record(self, record: dict, data_type: type | None = None) -> FrameKeypoints:
+        return FrameKeypoints(
+            frame_index=record["frame_index"],
+            keypoints=np.array(record["keypoints"], dtype=np.float64),
+            confidence=record["confidence"],
+        )
