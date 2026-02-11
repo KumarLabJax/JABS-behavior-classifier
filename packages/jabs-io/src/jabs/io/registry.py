@@ -224,5 +224,10 @@ def get_storage_format(path: Path) -> StorageFormat:
 def get_domain_type(inst: Any) -> type | None:
     """Convenience to resolve a domain type from an instance."""
     if isinstance(inst, list):
+        if not inst:
+            raise ValueError(
+                "Cannot infer domain type from an empty list; provide a non-empty list "
+                "or specify the domain type explicitly."
+            )
         return type(inst[0])
     return type(inst)
