@@ -2,7 +2,7 @@
 
 import torch
 
-from jabs.vision.modules.decoders import UNetDecoder
+from jabs.vision.timm.modules import UNetDecoder
 
 
 def test_unet_decoder_init_defaults() -> None:
