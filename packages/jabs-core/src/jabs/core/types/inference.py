@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from jabs.core.enums import ConfidenceMetric, Method, SamplingStrategy
+
 
 @dataclass(frozen=True)
 class InferenceSampling:
@@ -13,7 +15,7 @@ class InferenceSampling:
 
     num_frames: int
     frame_indices: list[int]
-    strategy: str = "uniform"
+    strategy: SamplingStrategy = SamplingStrategy.UNIFORM
 
 
 @dataclass(frozen=True)
@@ -27,5 +29,5 @@ class AggregationSpec:
     """
 
     confidence_threshold: float
-    confidence_metric: str = "mean_keypoint_max_sigmoid"
-    method: str = "mean"
+    confidence_metric: ConfidenceMetric = ConfidenceMetric.MEAN_KEYPOINT_MAX_SIGMOID
+    method: Method = Method.MEAN

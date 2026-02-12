@@ -24,8 +24,10 @@ class FrameKeypoints:
         confidence: Per-frame confidence score.
     """
 
-    frame_index: int
+    # x, y - Origin top left
     keypoints: np.ndarray
+    # The index of the frame f
+    frame_index: int | None = None
     confidence: np.ndarray | None = None
 
 
