@@ -1,14 +1,15 @@
 """Lightweight utilities for custom MMPose experiments."""
 
-from .metrics import SingleClassAPMetric  # noqa: F401
-from .heads import AssociativeEmbeddingHeadNoKptWeight  # noqa: F401
-from .transforms import PackPoseInputsWithAE  # noqa: F401
+from .backbones import EfficientNetV2Backbone
+from .heads import AssociativeEmbeddingHeadNoKptWeight
+from .metrics import SingleClassAPMetric
+from .transforms import PackPoseInputsWithAE
 from .visualization import visualize_dataset_samples
 
 __all__ = [
-    "EfficientNetV2Backbone",
     "AssociativeEmbeddingHeadNoKptWeight",
-    "SingleClassAPMetric",
+    "EfficientNetV2Backbone",
     "PackPoseInputsWithAE",
+    "SingleClassAPMetric",
     "visualize_dataset_samples",
 ]

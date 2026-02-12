@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 import torch
+from mmpose.registry import MODELS
 from torch import nn
 from torchvision.models import (
     efficientnet_v2_l,
@@ -14,8 +15,6 @@ from torchvision.models.efficientnet import (
     EfficientNet_V2_M_Weights,
     EfficientNet_V2_S_Weights,
 )
-
-from mmpose.registry import MODELS
 
 try:  # Optional: allow this backbone to be used in MMDetection configs.
     from mmdet.registry import MODELS as MMDET_MODELS
@@ -68,6 +67,14 @@ class EfficientNetV2Backbone(nn.Module):
         return tuple(normalized)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """Forward pass through the backbone.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Tuple of feature maps at the specified out_indices.
+        """
         outs = []
         for idx, layer in enumerate(self.features):
             x = layer(x)

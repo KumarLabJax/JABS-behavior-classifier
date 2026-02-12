@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from mmengine.evaluator import BaseMetric
@@ -87,25 +87,41 @@ if METRICS is not None:
             super().__init__(collect_device="cpu", prefix=prefix)
             self.iou_thr = float(iou_thr)
 
-        def process(self, data_batch: Dict, data_samples: Sequence[dict]) -> None:
+        def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
+            """Process a batch of data samples.
+
+            Args:
+                data_batch: A batch of input data.
+                data_samples: A sequence of data samples containing ground truth
+                    and predicted instances.
+            """
             samples = _to_cpu(data_samples)
             for idx, sample in enumerate(samples):
                 gt_instances = sample.get("gt_instances", {})
                 pred_instances = sample.get("pred_instances", {})
-                record = dict(
-                    image_id=sample.get("img_id", idx),
-                    gt_bboxes=_safe_get_boxes(gt_instances, "bboxes"),
-                    pred_bboxes=_safe_get_boxes(pred_instances, "bboxes"),
-                    pred_scores=_safe_get_scores(pred_instances),
-                )
+                record = {
+                    "image_id": sample.get("img_id", idx),
+                    "gt_bboxes": _safe_get_boxes(gt_instances, "bboxes"),
+                    "pred_bboxes": _safe_get_boxes(pred_instances, "bboxes"),
+                    "pred_scores": _safe_get_scores(pred_instances),
+                }
                 self.results.append(record)
 
         def compute_metrics(self, results: list) -> dict:
+            """Compute AP metrics from detection results.
+
+            Args:
+                results: A list of detection results containing gt_bboxes,
+                    pred_bboxes, and pred_scores for each image.
+
+            Returns:
+                A dictionary containing AP, precision, and recall metrics.
+            """
             total_gts = int(sum(res["gt_bboxes"].shape[0] for res in results))
             if total_gts == 0:
                 return {"AP": 0.0, "precision": 0.0, "recall": 0.0}
 
-            gt_cache: Dict[int, Dict[str, np.ndarray]] = {}
+            gt_cache: dict[int, dict[str, np.ndarray]] = {}
             for res in results:
                 img_id = res["image_id"]
                 boxes = res["gt_bboxes"]
@@ -116,17 +132,17 @@ if METRICS is not None:
                         [cache["matched"], np.zeros(boxes.shape[0], dtype=bool)], axis=0
                     )
                 else:
-                    gt_cache[img_id] = dict(
-                        boxes=boxes,
-                        matched=np.zeros(boxes.shape[0], dtype=bool),
-                    )
+                    gt_cache[img_id] = {
+                        "boxes": boxes,
+                        "matched": np.zeros(boxes.shape[0], dtype=bool),
+                    }
 
             detections = []
             for res in results:
                 img_id = res["image_id"]
                 boxes = res["pred_bboxes"]
                 scores = res["pred_scores"]
-                for box, score in zip(boxes, scores):
+                for box, score in zip(boxes, scores, strict=False):
                     detections.append((img_id, float(score), box))
             detections.sort(key=lambda item: item[1], reverse=True)
 
