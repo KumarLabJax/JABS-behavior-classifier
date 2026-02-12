@@ -1,0 +1,5 @@
+Bootstrap: docker
+From: ghcr.io/kumarlabjax/mmpose-base:latest
+
+%runscript
+    exec "$@"

@@ -1,0 +1,3 @@
+*.sif
+runs/
+train-*-logs/
