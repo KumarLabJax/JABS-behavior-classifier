@@ -11,7 +11,7 @@ def version_str(package: str = "jabs-behavior-classifier") -> str:
 
     If jabs-behavior-classifier is an installed package, gets the version from the package metadata. If not installed,
     attempts to read the project's pyproject.toml file to get the version. Returns 'dev' if it's not able to determine
-    the version using either rof these methods.
+    the version using either of these methods.
     """
     try:
         return importlib.metadata.version(package)
