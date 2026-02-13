@@ -1,9 +1,6 @@
 """jabs version"""
 
-import importlib.metadata
-from pathlib import Path
-
-import toml
+from jabs.core.utils.version import version_str as new_version_str
 
 
 def version_str() -> str:
@@ -13,12 +10,4 @@ def version_str() -> str:
     attempts to read the project's pyproject.toml file to get the version. Returns 'dev' if it's not able to determine
     the version using either rof these methods.
     """
-    try:
-        return importlib.metadata.version("jabs-behavior-classifier")
-    except importlib.metadata.PackageNotFoundError:
-        pyproject_file = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
-        try:
-            data = toml.load(pyproject_file)
-            return data["tool"]["poetry"]["version"]
-        except (FileNotFoundError, KeyError, toml.TomlDecodeError):
-            return "dev"
+    return new_version_str("jabs-behavior-classifier")
