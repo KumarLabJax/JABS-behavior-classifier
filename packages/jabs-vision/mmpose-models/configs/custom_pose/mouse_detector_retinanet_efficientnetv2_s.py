@@ -5,6 +5,8 @@ import pathlib
 
 _base_ = ["./_base_/det_runtime.py"]
 
+# MMDetection single-class detector for top-down MMPose box proposals.
+# This variant swaps RetinaNet's backbone to EfficientNetV2-S.
 num_classes = 1
 data_root = str(pathlib.Path.home() / "datasets/hydra-label-cache")
 train_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_train_coco.json"
@@ -13,6 +15,7 @@ test_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_
 
 metainfo = {"classes": ("mouse",), "palette": [(255, 0, 0)]}
 
+# RetinaNet + FPN detector built from MMDet components.
 model = {
     "type": "RetinaNet",
     "data_preprocessor": {
@@ -76,6 +79,7 @@ train_pipeline = [
     {"type": "PackDetInputs"},
 ]
 
+# Eval/inference pipeline keeps transforms deterministic.
 test_pipeline = [
     {"type": "LoadImageFromFile"},
     {"type": "Resize", "scale": (1333, 800), "keep_ratio": True},
@@ -162,6 +166,7 @@ test_dataloader = {
     },
 }
 
+# Detector optimization/schedule (independent from pose training configs).
 optim_wrapper = {
     "type": "OptimWrapper",
     "optimizer": {"type": "SGD", "lr": 0.0025, "momentum": 0.9, "weight_decay": 0.0001},
@@ -184,6 +189,7 @@ train_cfg = {"type": "EpochBasedTrainLoop", "max_epochs": 24, "val_interval": 1}
 val_cfg = {"type": "ValLoop"}
 test_cfg = {"type": "TestLoop"}
 
+# Single-class AP metric used for model selection/checkpointing.
 val_evaluator = {"type": "SingleClassAPMetric", "iou_thr": 0.75}
 
 test_evaluator = {"type": "SingleClassAPMetric", "iou_thr": 0.75}

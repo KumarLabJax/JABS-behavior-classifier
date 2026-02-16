@@ -5,6 +5,8 @@ import pathlib
 
 _base_ = ["./_base_/runtime.py"]
 
+# MMPose top-down keypoint config: assumes person/animal boxes are available
+# (typically from an MMDetection model trained via configs in this same folder).
 max_epochs = 200
 val_interval = 10
 base_lr = 5e-4
@@ -31,6 +33,7 @@ param_scheduler = [
 
 codec = {"type": "MSRAHeatmap", "input_size": input_size, "heatmap_size": heatmap_size, "sigma": 2}
 
+# Pose model stack (backbone + heatmap head) built through MMPose registries.
 model = {
     "type": "TopdownPoseEstimator",
     "data_preprocessor": {
@@ -68,6 +71,7 @@ model = {
 
 dataset_type = "CocoDataset"
 data_mode = "topdown"
+# COCO-style keypoint annotations exported from our internal dataset cache.
 data_root = str(pathlib.Path.home() / "datasets/hydra-label-cache")
 train_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_train_coco.json"
 val_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_val_coco.json"
@@ -106,6 +110,7 @@ train_pipeline = [
     {"type": "PackPoseInputs", "pack_transformed": False},
 ]
 
+# Val/test use deterministic preprocessing only.
 test_pipeline = [
     {"type": "LoadImage"},
     {"type": "GetBBoxCenterScale", "padding": 1.25},
@@ -115,6 +120,7 @@ test_pipeline = [
 
 val_pipeline = copy.deepcopy(test_pipeline)
 
+# Dataset metainfo consumed by MMPose for keypoint ordering, flips, and skeleton.
 metainfo = {
     "dataset_name": "custom_mouse_pose",
     "keypoint_info": {
@@ -221,6 +227,7 @@ test_dataloader = {
     },
 }
 
+# Track both keypoint localization quality and COCO-style aggregate metrics.
 val_evaluator = [
     {"type": "PCKAccuracy", "thr": 0.05, "norm_item": "bbox"},
     {"type": "CocoMetric", "ann_file": coco_val_ann_file},
