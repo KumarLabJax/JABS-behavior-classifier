@@ -1,0 +1,27 @@
+{
+  "name": "dax3-mmpose",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/${localWorkspaceFolderBasename},type=bind",
+  "workspaceFolder": "/workspace/${localWorkspaceFolderBasename}",
+  "runArgs": [
+    "--gpus",
+    "all"
+  ],
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/bin/python",
+        "python.formatting.provider": "black"
+      }
+    }
+  }
+}
