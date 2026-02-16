@@ -3,13 +3,11 @@ import typing
 from datetime import datetime
 from pathlib import Path
 
-import h5py
 import numpy as np
 
-from jabs.core.exceptions import MissingBehaviorError
+from jabs import io
+from jabs.core.types.prediction import BehaviorPrediction, ClassifierMetadata
 from jabs.version import version_str
-
-from .project_utils import to_safe_name
 
 if typing.TYPE_CHECKING:
     from jabs.classifier import Classifier
@@ -71,54 +69,23 @@ class PredictionManager:
         Returns:
             None
         """
-        # TODO catch exceptions
-        with h5py.File(output_path, "a") as h5:
-            h5.attrs["pose_file"] = Path(poses.pose_file).name
-            h5.attrs["pose_hash"] = poses.hash
-            h5.attrs["version"] = cls._PREDICTION_FILE_VERSION
-            prediction_group = h5.require_group("predictions")
-            # Write external identity mapping only if not already present.
-            if (
-                poses.external_identities is not None
-                and "external_identity_mapping" not in prediction_group
-            ):
-                prediction_group.create_dataset(
-                    "external_identity_mapping",
-                    data=np.array(poses.external_identities, dtype=object),
-                    dtype=h5py.string_dtype(encoding="utf-8"),
-                )
-            behavior_group = prediction_group.require_group(to_safe_name(behavior))
-            behavior_group.attrs["classifier_file"] = classifier.classifier_file
-            behavior_group.attrs["classifier_hash"] = classifier.classifier_hash
-            behavior_group.attrs["app_version"] = version_str()
-            behavior_group.attrs["prediction_date"] = str(datetime.now())
-            h5_predictions = behavior_group.require_dataset(
-                "predicted_class", shape=predictions.shape, dtype=predictions.dtype
-            )
-            h5_predictions[...] = predictions
-
-            h5_probabilities = behavior_group.require_dataset(
-                "probabilities", shape=probabilities.shape, dtype=probabilities.dtype
-            )
-            h5_probabilities[...] = probabilities
-
-            if postprocessed_predictions is not None:
-                h5_postprocessed = behavior_group.require_dataset(
-                    "predicted_class_postprocessed",
-                    shape=postprocessed_predictions.shape,
-                    dtype=postprocessed_predictions.dtype,
-                )
-                h5_postprocessed[...] = postprocessed_predictions
-
-            if poses.identity_to_track is not None:
-                h5_ids = behavior_group.require_dataset(
-                    "identity_to_track",
-                    shape=poses.identity_to_track.shape,
-                    dtype=poses.identity_to_track.dtype,
-                )
-                h5_ids[...] = poses.identity_to_track
-            elif "identity_to_track" in behavior_group:
-                del behavior_group["identity_to_track"]
+        pred = BehaviorPrediction(
+            behavior=behavior,
+            predicted_class=predictions,
+            probabilities=probabilities,
+            classifier=ClassifierMetadata(
+                classifier_file=classifier.classifier_file,
+                classifier_hash=classifier.classifier_hash,
+                app_version=version_str(),
+                prediction_date=str(datetime.now()),
+            ),
+            pose_file=Path(poses.pose_file).name,
+            pose_hash=poses.hash,
+            predicted_class_postprocessed=postprocessed_predictions,
+            identity_to_track=poses.identity_to_track,
+            external_identity_mapping=poses.external_identities,
+        )
+        io.save(pred, output_path)
 
     def load_predictions(self, video: str, behavior: str):
         """load predictions for a given video and behavior
@@ -144,36 +111,19 @@ class PredictionManager:
         ]
 
         try:
-            with h5py.File(path, "r") as h5:
-                assert h5.attrs["version"] == self._PREDICTION_FILE_VERSION
-                prediction_group = h5["predictions"]
-                if to_safe_name(behavior) not in prediction_group:
-                    # This needs to appear as if no saved predictions exist for this video.
-                    raise MissingBehaviorError(
-                        f"Behavior {to_safe_name(behavior)} not in prediction file."
-                    )
-                behavior_group = prediction_group[to_safe_name(behavior)]
-                assert behavior_group["predicted_class"].shape[0] == nident
-                assert behavior_group["probabilities"].shape[0] == nident
+            pred = io.load(path, BehaviorPrediction, behavior=behavior)
+            assert pred.predicted_class.shape[0] == nident
 
-                _probabilities = behavior_group["probabilities"][:]
-                _classes = behavior_group["predicted_class"][:]
+            for i in range(nident):
+                predictions[i] = pred.predicted_class[i]
+                probabilities[i] = pred.probabilities[i]
+                if pred.predicted_class_postprocessed is not None:
+                    postprocessed_predictions[i] = pred.predicted_class_postprocessed[i]
 
-                if "predicted_class_postprocessed" in behavior_group:
-                    _postprocessed = behavior_group["predicted_class_postprocessed"][:]
-                else:
-                    _postprocessed = None
-
-                for i in range(nident):
-                    predictions[i] = _classes[i]
-                    probabilities[i] = _probabilities[i]
-                    if _postprocessed is not None:
-                        postprocessed_predictions[i] = _postprocessed[i]
-
-        except (MissingBehaviorError, FileNotFoundError):
+        except (KeyError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
-        except (AssertionError, KeyError):
+        except AssertionError:
             print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
         return predictions, probabilities, postprocessed_predictions
