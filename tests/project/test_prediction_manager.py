@@ -86,8 +86,14 @@ def test_load_predictions(prediction_manager, mock_project):
     # Create a valid HDF5 prediction file
     with h5py.File(prediction_file, "w") as h5:
         h5.attrs["version"] = 2
+        h5.attrs["pose_file"] = "test_pose.h5"
+        h5.attrs["pose_hash"] = "testhash"
         prediction_group = h5.create_group("predictions")
         behavior_group = prediction_group.create_group(behavior)
+        behavior_group.attrs["classifier_file"] = "test_classifier.pkl"
+        behavior_group.attrs["classifier_hash"] = "clshash"
+        behavior_group.attrs["app_version"] = "1.0.0"
+        behavior_group.attrs["prediction_date"] = "2025-01-01"
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
         behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
 
