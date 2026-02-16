@@ -12,67 +12,59 @@ input_size = (256, 256)
 heatmap_size = (input_size[0] // 4, input_size[1] // 4)
 num_keypoints = 5  # will be overridden by script if pose meta provides a different spec
 
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=val_interval)
-val_cfg = dict(type="ValLoop")
-test_cfg = dict(type="TestLoop")
+train_cfg = {"type": "EpochBasedTrainLoop", "max_epochs": max_epochs, "val_interval": val_interval}
+val_cfg = {"type": "ValLoop"}
+test_cfg = {"type": "TestLoop"}
 
-optim_wrapper = dict(type="OptimWrapper", optimizer=dict(type="Adam", lr=base_lr))
+optim_wrapper = {"type": "OptimWrapper", "optimizer": {"type": "Adam", "lr": base_lr}}
 param_scheduler = [
-    dict(type="LinearLR", begin=0, end=500, start_factor=0.001, by_epoch=False),
-    dict(
-        type="MultiStepLR",
-        begin=0,
-        end=max_epochs,
-        milestones=[int(max_epochs * 0.7)],
-        by_epoch=True,
-        gamma=0.1,
-    ),
+    {"type": "LinearLR", "begin": 0, "end": 500, "start_factor": 0.001, "by_epoch": False},
+    {
+        "type": "MultiStepLR",
+        "begin": 0,
+        "end": max_epochs,
+        "milestones": [int(max_epochs * 0.7)],
+        "by_epoch": True,
+        "gamma": 0.1,
+    },
 ]
 
-codec = dict(type="MSRAHeatmap", input_size=input_size, heatmap_size=heatmap_size, sigma=2)
+codec = {"type": "MSRAHeatmap", "input_size": input_size, "heatmap_size": heatmap_size, "sigma": 2}
 
-model = dict(
-    type="TopdownPoseEstimator",
-    data_preprocessor=dict(
-        type="PoseDataPreprocessor",
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        bgr_to_rgb=True,
-    ),
-    backbone=dict(
-        type="EfficientNetV2Backbone",
-        variant="s",
-        out_indices=(-1,),
-        pretrained=False,
-    ),
-    head=dict(
-        type="HeatmapHead",
-        in_channels=1280,
-        out_channels=num_keypoints,
-        deconv_out_channels=(256, 256, 256),
-        deconv_kernel_sizes=(4, 4, 4),
-        loss=dict(type="KeypointMSELoss", use_target_weight=True),
-        decoder=dict(
-            type="MSRAHeatmap",
-            input_size=input_size,
-            heatmap_size=heatmap_size,
-            sigma=2.0,
-        ),
-    ),
-    test_cfg=dict(flip_test=True, flip_mode="heatmap", shift_heatmap=True),
-)
+model = {
+    "type": "TopdownPoseEstimator",
+    "data_preprocessor": {
+        "type": "PoseDataPreprocessor",
+        "mean": [123.675, 116.28, 103.53],
+        "std": [58.395, 57.12, 57.375],
+        "bgr_to_rgb": True,
+    },
+    "backbone": {
+        "type": "EfficientNetV2Backbone",
+        "variant": "s",
+        "out_indices": (-1,),
+        "pretrained": False,
+    },
+    "head": {
+        "type": "HeatmapHead",
+        "in_channels": 1280,
+        "out_channels": num_keypoints,
+        "deconv_out_channels": (256, 256, 256),
+        "deconv_kernel_sizes": (4, 4, 4),
+        "loss": {"type": "KeypointMSELoss", "use_target_weight": True},
+        "decoder": {
+            "type": "MSRAHeatmap",
+            "input_size": input_size,
+            "heatmap_size": heatmap_size,
+            "sigma": 2.0,
+        },
+    },
+    "test_cfg": {"flip_test": True, "flip_mode": "heatmap", "shift_heatmap": True},
+}
 
-# dataset_type = "JsonKeypointDataset"
 dataset_type = "CocoDataset"
 data_mode = "topdown"
-# data_root = "data"
-# train_ann_file = "data/train.json"
-# val_ann_file = "data/val.json"
-# test_ann_file = "data/test.json"
 data_root = str(pathlib.Path.home() / "datasets/hydra-label-cache")
-# train_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_train.json"
-# val_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_val.json"
-# test_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_test.json"
 train_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_train_coco.json"
 val_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_val_coco.json"
 test_ann_file = "dax-ml-datasets/datasets-murine/data_versions/2025-09-17d_dax3_v7_chkpt/2025-09-17d_no-tail_test_coco.json"
@@ -82,175 +74,156 @@ coco_val_ann_file = str(pathlib.Path(data_root) / val_ann_file)
 coco_test_ann_file = str(pathlib.Path(data_root) / test_ann_file)
 
 train_pipeline = [
-    dict(type="LoadImage"),
-    dict(type="GetBBoxCenterScale", padding=1.25),
-    dict(
-        type="RandomFlip",
-        direction=["horizontal", "vertical"],
-        prob=[0.25, 0.25],
-    ),
-    dict(
-        type="RandomBBoxTransform",
-        shift_factor=0.2,
-        shift_prob=0.25,
-        scale_factor=(0.7, 1.3),
-        scale_prob=0.25,
-        rotate_factor=45.0,
-        rotate_prob=0.25,
-    ),
-    dict(type="TopdownAffine", input_size=input_size),
-    dict(
-        type="PhotometricDistortion",
-        brightness_delta=32,
-        contrast_range=(0.5, 1.5),
-        saturation_range=(0.5, 1.5),
-        hue_delta=18,
-    ),
-    dict(type="GenerateTarget", encoder=codec),
-    dict(type="PackPoseInputs", pack_transformed=False),
+    {"type": "LoadImage"},
+    {"type": "GetBBoxCenterScale", "padding": 1.25},
+    {
+        "type": "RandomFlip",
+        "direction": ["horizontal", "vertical"],
+        "prob": [0.25, 0.25],
+    },
+    {
+        "type": "RandomBBoxTransform",
+        "shift_factor": 0.2,
+        "shift_prob": 0.25,
+        "scale_factor": (0.7, 1.3),
+        "scale_prob": 0.25,
+        "rotate_factor": 45.0,
+        "rotate_prob": 0.25,
+    },
+    {"type": "TopdownAffine", "input_size": input_size},
+    {
+        "type": "PhotometricDistortion",
+        "brightness_delta": 32,
+        "contrast_range": (0.5, 1.5),
+        "saturation_range": (0.5, 1.5),
+        "hue_delta": 18,
+    },
+    {"type": "GenerateTarget", "encoder": codec},
+    {"type": "PackPoseInputs", "pack_transformed": False},
 ]
 
 test_pipeline = [
-    dict(type="LoadImage"),
-    dict(type="GetBBoxCenterScale", padding=1.25),
-    dict(type="TopdownAffine", input_size=input_size),
-    dict(type="PackPoseInputs", pack_transformed=False),
+    {"type": "LoadImage"},
+    {"type": "GetBBoxCenterScale", "padding": 1.25},
+    {"type": "TopdownAffine", "input_size": input_size},
+    {"type": "PackPoseInputs", "pack_transformed": False},
 ]
 
 val_pipeline = copy.deepcopy(test_pipeline)
 
-# raw_meta = dict(
-#     dataset_name="custom_mouse_pose",
-#     keypoints=[
-#         {"name": "tip of nose", "type": "upper", "color": [255, 85, 0]},
-#         {"name": "left ear", "type": "upper", "swap": "right ear", "color": [0, 255, 0]},
-#         {"name": "right ear", "type": "upper", "swap": "left ear", "color": [0, 255, 0]},
-#         {"name": "base of tail", "type": "lower", "color": [0, 0, 255]},
-#         {"name": "tip of tail", "type": "lower", "color": [255, 255, 0]},
-#     ],
-#     skeleton=[
-#         {"link": ["left ear", "tip of nose"], "color": [255, 255, 0]},
-#         {"link": ["right ear", "tip of nose"], "color": [0, 255, 255]},
-#         {"link": ["base of tail", "tip of nose"], "color": [255, 255, 255]},
-#         {"link": ["tip of tail", "base of tail"], "color": [255, 128, 0]},
-#     ],
-#     joint_weights=[1.0, 1.0, 1.0, 1.0, 1.0],
-#     sigmas=[0.05, 0.05, 0.05, 0.05, 0.05],
-# )
-
-metainfo = dict(
-    dataset_name="custom_mouse_pose",
-    keypoint_info={
-        0: dict(
-            id=0,
-            name="tip of nose",
-            type="upper",
-            swap="",
-            color=[255, 85, 0],
-        ),
-        1: dict(
-            id=1,
-            name="left ear",
-            type="upper",
-            swap="right ear",
-            color=[0, 255, 0],
-        ),
-        2: dict(
-            id=2,
-            name="right ear",
-            type="upper",
-            swap="left ear",
-            color=[0, 255, 0],
-        ),
-        3: dict(
-            id=3,
-            name="base of tail",
-            type="lower",
-            swap="",
-            color=[0, 0, 255],
-        ),
-        4: dict(
-            id=4,
-            name="tip of tail",
-            type="lower",
-            swap="",
-            color=[255, 255, 0],
-        ),
+metainfo = {
+    "dataset_name": "custom_mouse_pose",
+    "keypoint_info": {
+        0: {
+            "id": 0,
+            "name": "tip of nose",
+            "type": "upper",
+            "swap": "",
+            "color": [255, 85, 0],
+        },
+        1: {
+            "id": 1,
+            "name": "left ear",
+            "type": "upper",
+            "swap": "right ear",
+            "color": [0, 255, 0],
+        },
+        2: {
+            "id": 2,
+            "name": "right ear",
+            "type": "upper",
+            "swap": "left ear",
+            "color": [0, 255, 0],
+        },
+        3: {
+            "id": 3,
+            "name": "base of tail",
+            "type": "lower",
+            "swap": "",
+            "color": [0, 0, 255],
+        },
+        4: {
+            "id": 4,
+            "name": "tip of tail",
+            "type": "lower",
+            "swap": "",
+            "color": [255, 255, 0],
+        },
     },
-    skeleton_info={
-        0: dict(id=0, link=("left ear", "tip of nose"), color=[255, 255, 0]),
-        1: dict(id=1, link=("right ear", "tip of nose"), color=[0, 255, 255]),
-        2: dict(id=2, link=("base of tail", "tip of nose"), color=[255, 255, 255]),
-        3: dict(id=3, link=("tip of tail", "base of tail"), color=[255, 128, 0]),
+    "skeleton_info": {
+        0: {"id": 0, "link": ("left ear", "tip of nose"), "color": [255, 255, 0]},
+        1: {"id": 1, "link": ("right ear", "tip of nose"), "color": [0, 255, 255]},
+        2: {"id": 2, "link": ("base of tail", "tip of nose"), "color": [255, 255, 255]},
+        3: {"id": 3, "link": ("tip of tail", "base of tail"), "color": [255, 128, 0]},
     },
-    joint_weights=[1.0, 1.0, 1.0, 1.0, 1.0],
-    sigmas=[0.05, 0.05, 0.05, 0.05, 0.05],
-)
+    "joint_weights": [1.0, 1.0, 1.0, 1.0, 1.0],
+    "sigmas": [0.05, 0.05, 0.05, 0.05, 0.05],
+}
 
-train_dataloader = dict(
-    batch_size=16,
-    num_workers=8,
-    persistent_workers=True,
-    pin_memory=True,
-    prefetch_factor=4,
-    sampler=dict(type="DefaultSampler", shuffle=True),
-    dataset=dict(
-        type=dataset_type,
-        metainfo=copy.deepcopy(metainfo),
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file=train_ann_file,
-        data_prefix=dict(img=""),
-        pipeline=train_pipeline,
+train_dataloader = {
+    "batch_size": 16,
+    "num_workers": 8,
+    "persistent_workers": True,
+    "pin_memory": True,
+    "prefetch_factor": 4,
+    "sampler": {"type": "DefaultSampler", "shuffle": True},
+    "dataset": {
+        "type": dataset_type,
+        "metainfo": copy.deepcopy(metainfo),
+        "data_root": data_root,
+        "data_mode": data_mode,
+        "ann_file": train_ann_file,
+        "data_prefix": {"img": ""},
+        "pipeline": train_pipeline,
         # raw_meta=copy.deepcopy(raw_meta),
-    ),
-)
+    },
+}
 
-val_dataloader = dict(
-    batch_size=8,
-    num_workers=4,
-    persistent_workers=False,
-    pin_memory=True,
-    sampler=dict(type="DefaultSampler", shuffle=False),
-    dataset=dict(
-        type=dataset_type,
-        metainfo=copy.deepcopy(metainfo),
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file=val_ann_file,
-        data_prefix=dict(img=""),
-        pipeline=val_pipeline,
+val_dataloader = {
+    "batch_size": 8,
+    "num_workers": 4,
+    "persistent_workers": False,
+    "pin_memory": True,
+    "sampler": {"type": "DefaultSampler", "shuffle": False},
+    "dataset": {
+        "type": dataset_type,
+        "metainfo": copy.deepcopy(metainfo),
+        "data_root": data_root,
+        "data_mode": data_mode,
+        "ann_file": val_ann_file,
+        "data_prefix": {"img": ""},
+        "pipeline": val_pipeline,
         # raw_meta=copy.deepcopy(raw_meta),
-        test_mode=True,
-    ),
-)
+        "test_mode": True,
+    },
+}
 
-test_dataloader = dict(
-    batch_size=8,
-    num_workers=4,
-    persistent_workers=False,
-    pin_memory=True,
-    sampler=dict(type="DefaultSampler", shuffle=False),
-    dataset=dict(
-        type=dataset_type,
-        metainfo=copy.deepcopy(metainfo),
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file=test_ann_file,
-        data_prefix=dict(img=""),
-        pipeline=test_pipeline,
+test_dataloader = {
+    "batch_size": 8,
+    "num_workers": 4,
+    "persistent_workers": False,
+    "pin_memory": True,
+    "sampler": {"type": "DefaultSampler", "shuffle": False},
+    "dataset": {
+        "type": dataset_type,
+        "metainfo": copy.deepcopy(metainfo),
+        "data_root": data_root,
+        "data_mode": data_mode,
+        "ann_file": test_ann_file,
+        "data_prefix": {"img": ""},
+        "pipeline": test_pipeline,
         # raw_meta=copy.deepcopy(raw_meta),
-        test_mode=True,
-    ),
-)
+        "test_mode": True,
+    },
+}
 
 val_evaluator = [
-    dict(type="PCKAccuracy", thr=0.05, norm_item="bbox"),
-    dict(type="CocoMetric", ann_file=coco_val_ann_file),
+    {"type": "PCKAccuracy", "thr": 0.05, "norm_item": "bbox"},
+    {"type": "CocoMetric", "ann_file": coco_val_ann_file},
 ]
 test_evaluator = [
-    dict(type="PCKAccuracy", thr=0.05, norm_item="bbox"),
-    dict(type="CocoMetric", ann_file=coco_test_ann_file),
+    {"type": "PCKAccuracy", "thr": 0.05, "norm_item": "bbox"},
+    {"type": "CocoMetric", "ann_file": coco_test_ann_file},
 ]
 
 work_dir = "runs/topdown_efficientnetv2_s"

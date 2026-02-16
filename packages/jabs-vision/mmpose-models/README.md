@@ -24,14 +24,14 @@ apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/c
 # Pose training (top-down, EfficientNetV2-S backbone)
 apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/custom_pose/topdown_efficientnetv2_s.py
 
-# Pose training (bottom-up)
-apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/custom_pose/bottomup_hrnet_w32.py
-
 # Detection training (mouse detector)
 apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/custom_pose/mouse_detector_retinanet.py
 
 # Detection training (EfficientNetV2-S backbone)
 apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/custom_pose/mouse_detector_retinanet_efficientnetv2_s.py
+
+# Pose training (bottom-up)
+apptainer run --nv mmpose.sif python src/train_custom_pose.py --config configs/custom_pose/bottomup_hrnet_w32.py
 ```
 
 ### SLURM wrappers
