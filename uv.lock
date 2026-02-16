@@ -1384,7 +1384,7 @@ test = [
 
 [[package]]
 name = "jabs-io"
-version = "0.2.0.dev0"
+version = "0.2.0"
 source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "jabs-core" },
