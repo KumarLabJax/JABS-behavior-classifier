@@ -32,7 +32,7 @@ jobs:
 
       # This syncs the entire workspace (all packages)
       - name: Install dependencies with uv
-        run: uv sync --all-packages
+        run: uv sync --all-packages --all-groups
 
       # Run tests - discovers all test directories automatically
       - name: Test with pytest
