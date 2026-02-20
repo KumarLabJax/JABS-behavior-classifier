@@ -144,7 +144,14 @@ def predict_single_pose(
 
     writer = None
     if render is not None:
-        import imageio.v2 as imageio
+        try:
+            import imageio.v2 as imageio
+        except ImportError as exc:
+            raise ImportError(
+                "Optional dependency 'imageio' is required for rendering video output. "
+                "Install it with:\n"
+                "  pip install imageio imageio-ffmpeg"
+            ) from exc
 
         writer = imageio.get_writer(render, fps=30)
 
