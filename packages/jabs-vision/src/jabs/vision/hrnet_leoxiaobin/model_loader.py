@@ -27,7 +27,8 @@ def _require_config_loader() -> Any:
         if exc.name == "yacs":
             raise ImportError(
                 "The Leoxiaobin HRNet config loader requires 'yacs'. "
-                "Install with: pip install 'jabs-vision[hrnet_leoxiaobin]'"
+                "Install with: pip install 'jabs-vision[hrnet_leoxiaobin]' "
+                "(the extra name may also appear as 'hrnet-leoxiaobin')."
             ) from exc
         raise
     return load_cfg_from_file
