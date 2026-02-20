@@ -1,6 +1,6 @@
 [project]
 name = "jabs-vision"
-version = "0.2.0"
+version = "0.3.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
@@ -39,6 +39,9 @@ submitit = [
 ]
 timm = [
     "timm>=1.0.0",
+]
+hrnet_leoxiaobin = [
+    "yacs>=0.1.8",
 ]
 
 [dependency-groups]
