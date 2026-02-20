@@ -35,7 +35,7 @@ def _require_config_loader() -> Any:
 
 def _apply_torch_runtime_settings(cfg: Any) -> None:
     """Apply runtime flags from HRNet config."""
-    cudnn.benchmark = False
+    cudnn.benchmark = cfg.CUDNN.BENCHMARK
     torch.backends.cudnn.deterministic = cfg.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = cfg.CUDNN.ENABLED
     torch.backends.cuda.matmul.allow_tf32 = True
