@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from jabs.vision.hrnet_leoxiaobin import preprocess_hrnet
+from jabs.vision.hrnet_msfork import preprocess_hrnet
 
 
 def test_preprocess_hrnet_shape_dtype_and_normalization() -> None:

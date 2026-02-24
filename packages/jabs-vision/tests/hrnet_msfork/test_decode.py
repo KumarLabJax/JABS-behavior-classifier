@@ -2,7 +2,7 @@
 
 import torch
 
-from jabs.vision.hrnet_leoxiaobin import argmax_2d_torch
+from jabs.vision.hrnet_msfork import argmax_2d_torch
 
 
 def test_argmax_2d_torch_returns_expected_coordinates() -> None:

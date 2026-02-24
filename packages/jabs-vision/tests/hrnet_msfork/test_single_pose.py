@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from jabs.vision.hrnet_leoxiaobin import predict_single_pose
+from jabs.vision.hrnet_msfork import predict_single_pose
 
 
 class DummyPoseModel(torch.nn.Module):

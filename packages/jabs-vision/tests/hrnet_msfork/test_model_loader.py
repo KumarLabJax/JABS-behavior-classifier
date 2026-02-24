@@ -7,9 +7,9 @@ from textwrap import dedent
 
 import torch
 
-from jabs.vision.hrnet_leoxiaobin.config import load_cfg_from_file
-from jabs.vision.hrnet_leoxiaobin.model_loader import load_pose_model
-from jabs.vision.hrnet_leoxiaobin.models import get_pose_net
+from jabs.vision.hrnet_msfork.config import load_cfg_from_file
+from jabs.vision.hrnet_msfork.model_loader import load_pose_model
+from jabs.vision.hrnet_msfork.models import get_pose_net
 
 _MINIMAL_HRNET_YAML = dedent(
     """
