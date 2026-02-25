@@ -1367,7 +1367,7 @@ test = [
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.41.0a4"
+version = "0.41.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
@@ -1597,7 +1597,7 @@ test = [
 
 [[package]]
 name = "jabs-vision"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "packages/jabs-vision" }
 dependencies = [
     { name = "hydra-core" },
@@ -1608,6 +1608,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+hrnet-leoxiaobin = [
+    { name = "yacs" },
+]
 mlflow = [
     { name = "mlflow" },
 ]
@@ -1652,8 +1655,9 @@ requires-dist = [
     { name = "torch", specifier = ">=2.9.1" },
     { name = "torchvision", specifier = ">=0.24.1" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.24.0" },
+    { name = "yacs", marker = "extra == 'hrnet-leoxiaobin'", specifier = ">=0.1.8" },
 ]
-provides-extras = ["plot", "mlflow", "wandb", "submitit", "timm"]
+provides-extras = ["plot", "mlflow", "wandb", "submitit", "timm", "hrnet-leoxiaobin"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4563,6 +4567,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/53/37032dca20dae7a88ad1907f817a81f232ca6e935f0c28c98db3c0a0bd22/xgboost-2.1.4-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:d366097d0db047315736f46af852feaa907f6d7371716af741cdce488ae36d20", size = 4206715, upload-time = "2025-02-06T18:17:08.448Z" },
     { url = "https://files.pythonhosted.org/packages/e4/3c/e3a93bfa7e8693c825df5ec02a40f7ff5f0950e02198b1e85da9315a8d47/xgboost-2.1.4-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:8df6da72963969ab2bf49a520c3e147b1e15cbeddd3aa0e3e039b3532c739339", size = 223642416, upload-time = "2025-02-06T18:17:25.08Z" },
     { url = "https://files.pythonhosted.org/packages/43/80/0b5a2dfcf5b4da27b0b68d2833f05d77e1a374d43db951fca200a1f12a52/xgboost-2.1.4-py3-none-win_amd64.whl", hash = "sha256:8bbfe4fedc151b83a52edbf0de945fd94358b09a81998f2945ad330fd5f20cd6", size = 124910381, upload-time = "2025-02-06T18:17:43.202Z" },
+]
+
+[[package]]
+name = "yacs"
+version = "0.1.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/3e/4a45cb0738da6565f134c01d82ba291c746551b5bc82e781ec876eb20909/yacs-0.1.8.tar.gz", hash = "sha256:efc4c732942b3103bea904ee89af98bcd27d01f0ac12d8d4d369f1e7a2914384", size = 11100, upload-time = "2020-08-10T16:37:47.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/4f/fe9a4d472aa867878ce3bb7efb16654c5d63672b86dc0e6e953a67018433/yacs-0.1.8-py3-none-any.whl", hash = "sha256:99f893e30497a4b66842821bac316386f7bd5c4f47ad35c9073ef089aa33af32", size = 14747, upload-time = "2020-08-10T16:37:46.4Z" },
 ]
 
 [[package]]
