@@ -19,7 +19,7 @@ done
 echo "Root version: $ROOT_VERSION"
 
 for toml in packages/*/pyproject.toml; do
-    pkg_name=$(sed -n 's/^name = "\(.*\)"/\1/p' "$toml")
+    pkg_name=$(python3 -c "import tomllib; print(tomllib.load(open('$toml','rb'))['project']['name'])")
     current=$(uv version --package "$pkg_name" --short)
 
     if [ "$current" = "$ROOT_VERSION" ]; then

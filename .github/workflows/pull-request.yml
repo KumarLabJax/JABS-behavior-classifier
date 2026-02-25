@@ -18,12 +18,12 @@ jobs:
       - name: Check version consistency
         run: |
           set -euo pipefail
-          ROOT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          ROOT_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           echo "Root version: $ROOT_VERSION"
 
           MISMATCH=0
           for toml in packages/*/pyproject.toml; do
-            PKG_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$toml")
+            PKG_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('$toml','rb'))['project']['version'])")
             PKG_NAME=$(basename "$(dirname "$toml")")
             if [ "$PKG_VERSION" != "$ROOT_VERSION" ]; then
               echo "::error::$PKG_NAME version ($PKG_VERSION) != root ($ROOT_VERSION). Run ./dev/sync-versions.sh"

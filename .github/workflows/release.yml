@@ -60,7 +60,7 @@ jobs:
 
           # Check if root pyproject.toml has a version change in the diff
           if git diff "$BEFORE_SHA" HEAD -- pyproject.toml | grep -qE '^\+version\s*=\s*["'\''"]'; then
-            VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+            VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 
             if echo "$VERSION" | grep -qE '([.-]?(a|b|rc|dev|pre|preview))[0-9]*'; then
               IS_PRERELEASE="true"
@@ -92,7 +92,7 @@ jobs:
 
           MISMATCH=0
           for toml in packages/*/pyproject.toml; do
-            PKG_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$toml")
+            PKG_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('$toml','rb'))['project']['version'])")
             PKG_NAME=$(basename "$(dirname "$toml")")
             if [ "$PKG_VERSION" != "$ROOT_VERSION" ]; then
               echo "::error::$PKG_NAME version ($PKG_VERSION) does not match root ($ROOT_VERSION)"
