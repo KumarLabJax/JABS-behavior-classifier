@@ -40,6 +40,9 @@ submitit = [
 timm = [
     "timm>=1.0.0",
 ]
+hrnet_msfork = [
+    "yacs>=0.1.8",
+]
 
 [dependency-groups]
 dev = [
