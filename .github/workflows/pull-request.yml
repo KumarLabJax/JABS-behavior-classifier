@@ -9,7 +9,36 @@ jobs:
     name: "Format and Lint"
     uses: ./.github/workflows/_format-lint-action.yml
 
+  version-check:
+    name: "Version Sync Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          set -euo pipefail
+          ROOT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          echo "Root version: $ROOT_VERSION"
+
+          MISMATCH=0
+          for toml in packages/*/pyproject.toml; do
+            PKG_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$toml")
+            PKG_NAME=$(basename "$(dirname "$toml")")
+            if [ "$PKG_VERSION" != "$ROOT_VERSION" ]; then
+              echo "::error::$PKG_NAME version ($PKG_VERSION) != root ($ROOT_VERSION). Run ./dev/sync-versions.sh"
+              MISMATCH=1
+            else
+              echo "$PKG_NAME: $PKG_VERSION (ok)"
+            fi
+          done
+
+          if [ "$MISMATCH" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All package versions in sync"
+
   test:
     name: "Run Tests"
-    needs: format-lint
+    needs: [format-lint, version-check]
     uses: ./.github/workflows/_run-tests-action.yml

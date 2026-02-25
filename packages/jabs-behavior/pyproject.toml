@@ -1,6 +1,6 @@
 [project]
 name = "jabs-behavior"
-version = "0.1.0a1"
+version = "0.41.0a5"
 description = "JABS behavior event processing and postprocessing filters"
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
