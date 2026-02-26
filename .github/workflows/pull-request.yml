@@ -9,6 +9,8 @@ jobs:
     name: "Format and Lint"
     uses: ./.github/workflows/_format-lint-action.yml
 
+  # Ensure every sub-package version in packages/*/pyproject.toml matches the
+  # root pyproject.toml version. Catches accidental version drift before merge.
   version-check:
     name: "Version Sync Check"
     runs-on: ubuntu-latest

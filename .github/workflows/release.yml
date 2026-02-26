@@ -76,6 +76,9 @@ jobs:
           echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "has-change=$HAS_CHANGE" >> "$GITHUB_OUTPUT"
 
+  # Gate the release on all sub-package versions matching the root version.
+  # If any package in packages/ is out of sync the release is blocked.
+  # Fix with: ./dev/sync-versions.sh
   verify-version-sync:
     name: "Verify Version Sync"
     runs-on: ubuntu-latest
