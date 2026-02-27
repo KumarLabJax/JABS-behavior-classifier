@@ -61,7 +61,7 @@ lint = [
 ]
 docs = [
     "mkdocstrings[python]>=1.0.2",
-    "zensical>=0.0.19",
+    "zensical>=0.0.24",
 ]
 
 [project.urls]

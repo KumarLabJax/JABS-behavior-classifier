@@ -3,19 +3,16 @@ on:
   push:
     branches:
       - main
+  pull_request:
 permissions:
   contents: read
   pages: write
   id-token: write
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/configure-pages@v5
       - uses: actions/setup-python@v5
         with:
           python-version: 3.13
@@ -24,10 +21,28 @@ jobs:
         with:
           version: "latest"
       - name: Install dependencies with uv
-        run:  uv sync --only-group docs
-      - run: uv run --only-group docs zensical build --clean
+        run: uv sync --only-group docs
+      - name: Build docs
+        run: |
+          set -o pipefail
+          uv run --only-group docs zensical build --clean 2>&1 | tee docs-build.log
+          exit_code=$?
+          if grep -q "^Error:" docs-build.log; then
+            echo "::error::Documentation build produced errors"
+            exit 1
+          fi
+          exit "$exit_code"
       - uses: actions/upload-pages-artifact@v4
+        if: github.ref == 'refs/heads/main'
         with:
           path: site
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/deploy-pages@v4
         id: deployment
