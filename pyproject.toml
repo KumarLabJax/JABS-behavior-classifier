@@ -1,6 +1,6 @@
 [project]
 name = "jabs-behavior-classifier"
-version = "0.41.0a5"
+version = "0.41.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
@@ -61,7 +61,7 @@ lint = [
 ]
 docs = [
     "mkdocstrings[python]>=1.0.2",
-    "zensical>=0.0.19",
+    "zensical>=0.0.24",
 ]
 
 [project.urls]
