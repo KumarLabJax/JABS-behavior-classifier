@@ -22,7 +22,15 @@ jobs:
           version: "latest"
       - name: Install dependencies with uv
         run: uv sync --only-group docs
-      - run: uv run --only-group docs zensical build --clean
+      - name: Build docs
+        run: |
+          output=$(uv run --only-group docs zensical build --clean 2>&1) || exit_code=$?
+          echo "$output"
+          if echo "$output" | grep -q "^Error:"; then
+            echo "::error::Documentation build produced errors"
+            exit 1
+          fi
+          exit ${exit_code:-0}
       - uses: actions/upload-pages-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
