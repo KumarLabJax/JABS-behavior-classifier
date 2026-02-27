@@ -24,13 +24,14 @@ jobs:
         run: uv sync --only-group docs
       - name: Build docs
         run: |
-          output=$(uv run --only-group docs zensical build --clean 2>&1) || exit_code=$?
-          echo "$output"
-          if echo "$output" | grep -q "^Error:"; then
+          set -o pipefail
+          uv run --only-group docs zensical build --clean 2>&1 | tee docs-build.log
+          exit_code=$?
+          if grep -q "^Error:" docs-build.log; then
             echo "::error::Documentation build produced errors"
             exit 1
           fi
-          exit ${exit_code:-0}
+          exit "$exit_code"
       - uses: actions/upload-pages-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
