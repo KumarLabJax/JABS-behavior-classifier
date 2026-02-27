@@ -1390,7 +1390,7 @@ test = [
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.41.0"
+version = "0.41.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
