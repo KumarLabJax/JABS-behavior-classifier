@@ -104,7 +104,7 @@ class PoseNWBAdapter(Adapter):
         behavior.add(
             TimeSeries(
                 name=_IDENTITY_MASK_KEY,
-                data=data.identity_mask.astype(np.uint8),
+                data=data.identity_mask.T.astype(np.uint8),  # (num_frames, num_identities)
                 unit="bool",
                 rate=float(data.fps),
             )
@@ -114,7 +114,9 @@ class PoseNWBAdapter(Adapter):
             behavior.add(
                 TimeSeries(
                     name=_BOUNDING_BOXES_KEY,
-                    data=data.bounding_boxes,
+                    data=np.transpose(
+                        data.bounding_boxes, (1, 0, 2, 3)
+                    ),  # (num_frames, num_identities, 2, 2)
                     unit="pixels",
                     rate=float(data.fps),
                 )
@@ -274,19 +276,28 @@ class PoseNWBAdapter(Adapter):
             point_mask = np.stack(all_point_mask, axis=0)
 
             # Identity mask
+            # Per-identity files store (num_frames,); single files store (num_frames, num_identities).
+            # Both need to be returned as (num_identities, num_frames).
             identity_mask_ts = behavior[_IDENTITY_MASK_KEY]
             identity_mask = np.array(identity_mask_ts.data[:]).astype(bool)
-            # Handle 1D case (single identity per-identity file)
             if identity_mask.ndim == 1:
-                identity_mask = identity_mask[np.newaxis, :]
+                identity_mask = identity_mask[np.newaxis, :]  # (1, num_frames)
+            else:
+                identity_mask = identity_mask.T  # (num_identities, num_frames)
 
             # Bounding boxes
+            # Per-identity files store (num_frames, 2, 2); single files store (num_frames, num_identities, 2, 2).
+            # Both need to be returned as (num_identities, num_frames, 2, 2).
             bounding_boxes = None
             if _BOUNDING_BOXES_KEY in behavior.data_interfaces:
                 bb_ts = behavior[_BOUNDING_BOXES_KEY]
                 bounding_boxes = np.array(bb_ts.data[:])
                 if bounding_boxes.ndim == 3:
-                    bounding_boxes = bounding_boxes[np.newaxis, :]
+                    bounding_boxes = bounding_boxes[np.newaxis, :]  # (1, num_frames, 2, 2)
+                else:
+                    bounding_boxes = np.transpose(
+                        bounding_boxes, (1, 0, 2, 3)
+                    )  # (num_identities, num_frames, 2, 2)
 
             # Recover JABS-specific fields
             cm_per_pixel = jabs_meta.get("cm_per_pixel")
