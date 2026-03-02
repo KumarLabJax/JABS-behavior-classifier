@@ -265,7 +265,7 @@ class PoseNWBAdapter(Adapter):
                 for j, bp in enumerate(body_parts):
                     series = pe.pose_estimation_series[bp]
                     identity_points[:, j, :] = np.array(series.data[:])
-                    identity_mask[:, j] = np.array(series.confidence[:]) >= 0.5
+                    identity_mask[:, j] = np.array(series.confidence[:]) > 0.0
 
                 all_points.append(identity_points)
                 all_point_mask.append(identity_mask)
