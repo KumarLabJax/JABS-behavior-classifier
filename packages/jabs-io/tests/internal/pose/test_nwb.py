@@ -241,17 +241,15 @@ def test_per_identity_files_index_naming(tmp_path, adapter):
 
 
 def test_per_identity_roundtrip_single_file(tmp_path, adapter):
-    """Reading a single per-identity file returns a 1-identity PoseData."""
+    """Reading any per-identity file auto-merges siblings and returns all identities."""
     path = tmp_path / "pose.nwb"
     data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
 
     adapter.write(data, path, per_identity_files=True)
 
-    # Reading one file individually should give single-identity PoseData
-    # but auto-detect will merge them. Read the first to check structure.
     loaded = adapter.read(tmp_path / "pose_mouse_a.nwb")
 
-    assert loaded.points.shape[0] == 2  # auto-merged both siblings
+    assert loaded.points.shape[0] == 2
 
 
 def test_per_identity_auto_merge(tmp_path, adapter):
