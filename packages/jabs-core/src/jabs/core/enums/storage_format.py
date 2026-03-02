@@ -8,3 +8,4 @@ class StorageFormat(Enum):
     HDF5 = "hdf5"
     PARQUET = "parquet"
     CSV = "csv"
+    NWB = "nwb"

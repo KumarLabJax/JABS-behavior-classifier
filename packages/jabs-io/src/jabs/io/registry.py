@@ -12,6 +12,7 @@ PATH_TO_STORAGE_FORMAT = {
     ".pq": StorageFormat.PARQUET,
     ".h5": StorageFormat.HDF5,
     ".hdf5": StorageFormat.HDF5,
+    ".nwb": StorageFormat.NWB,
 }
 
 

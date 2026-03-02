@@ -48,3 +48,7 @@ from jabs.io.registry import register_adapter
 class DataclassJSONAdapter(JSONAdapter):
     ...
 ```
+
+## Future Work
+
+- **NWB: segmentation data roundtrip** — `PoseData.segmentation_data` is not currently stored by the NWB adapter. If possible, we might want to consider writing it as an additional `TimeSeries` in the behavior processing module (similar to `jabs_identity_mask`) so it survives a write/read roundtrip.
