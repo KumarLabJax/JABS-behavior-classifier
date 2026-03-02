@@ -301,7 +301,12 @@ class PoseNWBAdapter(Adapter):
 
             # Recover JABS-specific fields
             cm_per_pixel = jabs_meta.get("cm_per_pixel")
-            external_ids = jabs_meta.get("external_ids")
+            # Per-identity files store the full external_ids list, but this
+            # intermediate PoseData holds only one identity. Pass None here and
+            # recover the full list from jabs_meta in _read_merged.
+            external_ids = (
+                None if jabs_meta.get("per_identity_files") else jabs_meta.get("external_ids")
+            )
             metadata = jabs_meta.get("metadata", {})
             static_objects = {
                 k: np.array(v) for k, v in jabs_meta.get("static_objects", {}).items()
@@ -372,12 +377,9 @@ class PoseNWBAdapter(Adapter):
         if all(pd.bounding_boxes is not None for pd in pose_datas):
             bounding_boxes = np.concatenate([pd.bounding_boxes for pd in pose_datas], axis=0)
 
-        # Recover external_ids from per-file identity_names (one per file)
-        external_ids = ref.external_ids  # original full list stored in each file
-        if external_ids is not None:
-            # Each per-identity file stores the full original external_ids list,
-            # so just use it directly from any file rather than concatenating.
-            pass
+        # Recover external_ids from jabs_meta of the first file; each per-identity
+        # file stores the full original list, so any file's meta will do.
+        external_ids = parts[0][2].get("external_ids")
 
         return PoseData(
             points=points,
