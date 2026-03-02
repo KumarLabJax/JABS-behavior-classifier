@@ -218,10 +218,16 @@ class PoseNWBAdapter(Adapter):
                 if isinstance(obj, PoseEstimation)
             }
 
-            # Order containers by identity_names if available
-            if identity_names:
-                ordered_names = [n for n in identity_names if n in pe_containers]
-            else:
+            if not pe_containers:
+                raise ValueError(
+                    f"No PoseEstimation containers found in behavior module of {path}"
+                )
+
+            # Order containers by identity_names if available.
+            # Fall back to sorted keys if identity_names is absent or none of
+            # its entries match the containers found in the file.
+            ordered_names = [n for n in identity_names if n in pe_containers]
+            if not ordered_names:
                 ordered_names = sorted(pe_containers.keys())
 
             # Extract body_parts in the original written order from jabs_metadata.

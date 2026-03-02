@@ -78,3 +78,20 @@ class PoseData:
                 f"bounding_boxes shape {self.bounding_boxes.shape} must "
                 f"be {(num_idents, num_frames, 2, 2)}"
             )
+
+        invalid_edges = [e for e in self.edges if e[0] >= num_keypoints or e[1] >= num_keypoints]
+        if invalid_edges:
+            raise ValueError(
+                f"edges contain out-of-range keypoint indices (num_keypoints={num_keypoints}): "
+                f"{invalid_edges}"
+            )
+
+        if self.external_ids is not None:
+            if len(self.external_ids) != num_idents:
+                raise ValueError(
+                    f"external_ids length ({len(self.external_ids)}) must match "
+                    f"num_identities ({num_idents})"
+                )
+            if len(set(self.external_ids)) != len(self.external_ids):
+                duplicates = [x for x in self.external_ids if self.external_ids.count(x) > 1]
+                raise ValueError(f"external_ids must be unique, found duplicates: {duplicates}")
