@@ -321,20 +321,23 @@ class PoseNWBAdapter(Adapter):
         expected_suffix = f"_{identity_name}"
         base_stem = stem[: -len(expected_suffix)] if stem.endswith(expected_suffix) else stem
 
-        # Glob for siblings
-        siblings = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
-        if len(siblings) < total:
-            raise ValueError(
-                f"Expected {total} identity files matching '{base_stem}_*.nwb', "
-                f"found {len(siblings)}: {[s.name for s in siblings]}"
-            )
-
-        # Read all siblings and sort by source_identity_index
+        # Glob for candidate siblings, then filter to only those whose
+        # jabs_metadata identifies them as belonging to this specific file set
+        # (same base_stem and total_identities). This prevents stale files from
+        # prior runs matching the glob pattern and producing extra identities.
+        candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
         parts: list[tuple[int, PoseData, dict]] = []
-        for sibling_path in siblings:
+        for sibling_path in candidates:
             pd, meta = self._read_single(sibling_path)
-            idx = meta.get("source_identity_index", 0)
-            parts.append((idx, pd, meta))
+            if meta.get("per_identity_files") and meta.get("total_identities") == total:
+                idx = meta.get("source_identity_index", 0)
+                parts.append((idx, pd, meta))
+
+        if len(parts) != total:
+            raise ValueError(
+                f"Expected {total} identity files for '{base_stem}', "
+                f"found {len(parts)} matching candidates out of {len(candidates)} glob results"
+            )
 
         parts.sort(key=lambda x: x[0])
         pose_datas = [pd for _, pd, _ in parts]
