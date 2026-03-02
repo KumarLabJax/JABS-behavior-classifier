@@ -288,7 +288,7 @@ alternate_style = true
 
 [project.plugins.mkdocstrings.handlers.python]
 inventories = ["https://docs.python.org/3/objects.inv"]
-paths = ["src", "packages/jabs-vision/src", "packages/jabs-io/src", "packages/jabs-core/src"]
+paths = ["src", "packages/jabs-behavior/src", "packages/jabs-vision/src", "packages/jabs-io/src", "packages/jabs-core/src"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
 docstring_style = "google"

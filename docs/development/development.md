@@ -1157,27 +1157,33 @@ The release process is triggered automatically when the version number in `pypro
 
 To create a new release:
 
-1. Update the version number in `pyproject.toml`:
+1. Update the version number in the root `pyproject.toml`:
    ```toml
    version = "X.Y.Z"  # for stable releases
    version = "X.Y.Za1" # for alpha pre-releases
    version = "X.Y.Zrc1" # for release candidates
    ```
 
-2. Re-lock the uv lock file:
+2. Sync the version to all sub-packages:
+   ```bash
+   ./dev/sync-versions.sh          # propagate root version to all packages/*
+   # ./dev/sync-versions.sh --dry-run  # preview without writing
+   ```
+
+3. Re-lock the uv lock file:
    ```bash
    uv lock
    ```
 
-3. Commit and push the change:
+4. Commit and push the change:
    ```bash
-   git add pyproject.toml uv.lock
+   git add pyproject.toml packages/*/pyproject.toml uv.lock
    git commit -m "Bump version to X.Y.Z"
    ```
 
-4. Merge your changes into the `main` branch via a pull request
+5. Merge your changes into the `main` branch via a pull request
 
-5. The CI/CD pipeline will automatically:
+6. The CI/CD pipeline will automatically:
    - Detect the version change
    - Run all quality checks and tests
    - Build and publish the package to PyPI
