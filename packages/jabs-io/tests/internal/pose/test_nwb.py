@@ -298,3 +298,74 @@ def test_can_handle():
     """can_handle returns True only for PoseData."""
     assert PoseNWBAdapter.can_handle(PoseData) is True
     assert PoseNWBAdapter.can_handle(dict) is False
+
+
+# ---------------------------------------------------------------------------
+# Identity name sanitization
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_identity_name_alphanumeric():
+    """Alphanumeric names and underscores/hyphens pass through unchanged."""
+    assert PoseNWBAdapter._sanitize_identity_name("mouse_A-1") == "mouse_A-1"
+
+
+def test_sanitize_identity_name_slash():
+    """Forward slash is replaced with underscore."""
+    assert PoseNWBAdapter._sanitize_identity_name("mouse/A") == "mouse_A"
+
+
+def test_sanitize_identity_name_space():
+    """Spaces within a name are replaced with underscores."""
+    assert PoseNWBAdapter._sanitize_identity_name("mouse A") == "mouse_A"
+
+
+def test_sanitize_identity_name_strips_whitespace():
+    """Leading and trailing whitespace is stripped before substitution."""
+    assert PoseNWBAdapter._sanitize_identity_name("  mouse  ") == "mouse"
+
+
+def test_sanitize_identity_name_special_chars():
+    """Dots, colons, and other special characters are replaced with underscores."""
+    assert PoseNWBAdapter._sanitize_identity_name("mouse.A:1") == "mouse_A_1"
+
+
+def test_sanitize_identity_name_empty_raises():
+    """Empty string raises ValueError."""
+    import pytest
+
+    with pytest.raises(ValueError, match="empty"):
+        PoseNWBAdapter._sanitize_identity_name("")
+
+
+def test_sanitize_identity_name_whitespace_only_raises():
+    """Whitespace-only string raises ValueError after stripping."""
+    import pytest
+
+    with pytest.raises(ValueError, match="empty"):
+        PoseNWBAdapter._sanitize_identity_name("   ")
+
+
+def test_write_sanitizes_external_ids(tmp_path, adapter):
+    """External IDs with special characters are sanitized in the written NWB file."""
+    path = tmp_path / "pose.nwb"
+    data = _make_pose_data(external_ids=["mouse/A", "mouse/B"])
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    # Data roundtrips correctly even though IDs were sanitized on disk
+    assert loaded.external_ids == ["mouse/A", "mouse/B"]
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_write_raises_on_collision_after_sanitization(tmp_path, adapter):
+    """Write raises if two external IDs produce the same sanitized name."""
+    import pytest
+
+    path = tmp_path / "pose.nwb"
+    # "mouse/A" and "mouse.A" both sanitize to "mouse_A"
+    data = _make_pose_data(external_ids=["mouse/A", "mouse.A"])
+
+    with pytest.raises(ValueError, match="not unique after sanitization"):
+        adapter.write(data, path)

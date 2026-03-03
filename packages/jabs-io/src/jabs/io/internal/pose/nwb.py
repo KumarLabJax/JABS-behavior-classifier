@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -79,6 +80,8 @@ class PoseNWBAdapter(Adapter):
     def _write_single_file(self, data: PoseData, path: Path, **kwargs) -> None:
         num_identities = data.points.shape[0]
         identity_names = [self._identity_name(data, i) for i in range(num_identities)]
+        if len(set(identity_names)) != len(identity_names):
+            raise ValueError(f"Identity names are not unique after sanitization: {identity_names}")
 
         nwbfile = self._make_nwb_file(**kwargs)
         skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
@@ -136,6 +139,9 @@ class PoseNWBAdapter(Adapter):
 
     def _write_per_identity(self, data: PoseData, path: Path, **kwargs) -> None:
         num_identities = data.points.shape[0]
+        all_names = [self._identity_name(data, i) for i in range(num_identities)]
+        if len(set(all_names)) != len(all_names):
+            raise ValueError(f"Identity names are not unique after sanitization: {all_names}")
 
         for i in range(num_identities):
             identity_name = self._identity_name(data, i)
@@ -478,9 +484,21 @@ class PoseNWBAdapter(Adapter):
         return meta
 
     @staticmethod
+    def _sanitize_identity_name(name: str) -> str:
+        """Sanitize an external ID for use as an NWB/HDF5 container name.
+
+        Strips leading/trailing whitespace and replaces any character that is
+        not alphanumeric, underscore, or hyphen with an underscore.
+        """
+        name = name.strip()
+        if not name:
+            raise ValueError("Identity name cannot be empty or whitespace-only")
+        return re.sub(r"[^A-Za-z0-9_\-]", "_", name)
+
+    @staticmethod
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
-            return data.external_ids[index]
+            return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
         return f"identity_{index}"
 
     @staticmethod
