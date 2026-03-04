@@ -395,7 +395,7 @@ def convert_to_nwb(
                 per_identity=per_identity,
                 session_description=session_description,
             )
-        except ValueError as e:
+        except Exception as e:
             raise click.ClickException(str(e)) from e
 
     if per_identity:
