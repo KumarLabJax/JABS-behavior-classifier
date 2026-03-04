@@ -16,6 +16,7 @@ from jabs.classifier import Classifier
 from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import Project, export_training_data, get_videos_to_prune
 
+from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
 
 # find out which classifiers are supported in this environment
@@ -326,6 +327,81 @@ def cross_validation(
         run_cross_validation(directory, behavior, classifier_type, cv_grouping, k, report_file)
     except Exception as e:
         raise click.ClickException(str(e)) from e
+
+
+@cli.command(name="convert-to-nwb")
+@click.argument(
+    "input_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.argument(
+    "output",
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+)
+@click.option(
+    "--per-identity",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write one NWB file per identity instead of a single combined file. "
+        "OUTPUT is used as a naming template; files are written as "
+        "{output_stem}_{identity_name}.nwb alongside it."
+    ),
+)
+@click.option(
+    "--session-description",
+    type=str,
+    default=None,
+    help="NWB session description string. Defaults to 'JABS PoseEstimation Data'.",
+)
+@click.pass_context
+def convert_to_nwb(
+    ctx: click.Context,
+    input_path: Path,
+    output: Path,
+    per_identity: bool,
+    session_description: str | None,
+) -> None:
+    """Convert a JABS pose estimation file to NWB format.
+
+    INPUT_PATH is a JABS pose HDF5 file (any version, v2-v8). The format
+    version is inferred automatically from the filename (e.g. _pose_est_v6.h5).
+
+    OUTPUT is the destination NWB file. In --per-identity mode, OUTPUT is a
+    naming template and is not created directly; instead one file per identity
+    is written as {output_stem}_{identity_name}.nwb in the same directory.
+
+    Examples:
+
+    \b
+        # Single file, all identities
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
+
+    \b
+        # One NWB file per identity
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --per-identity
+    """
+    if ctx.obj["VERBOSE"]:
+        click.echo(f"Input:  {input_path}")
+        click.echo(f"Output: {output}")
+        click.echo(f"Per-identity: {per_identity}")
+
+    console = Console()
+    with console.status(f"Converting {input_path.name} → NWB ...", spinner="dots"):
+        try:
+            run_conversion(
+                input_path=input_path,
+                output_path=output,
+                per_identity=per_identity,
+                session_description=session_description,
+            )
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
+
+    if per_identity:
+        click.echo(f"Wrote per-identity NWB files alongside {output}")
+    else:
+        click.echo(f"Wrote {output}")
 
 
 def main():
