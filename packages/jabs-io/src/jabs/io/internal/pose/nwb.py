@@ -2,11 +2,13 @@
 
 import datetime
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
 from pynwb import NWBHDF5IO, NWBFile, TimeSeries
 from pynwb.core import ScratchData
@@ -15,6 +17,8 @@ from jabs.core.enums import StorageFormat
 from jabs.core.types import PoseData
 from jabs.io.base import Adapter
 from jabs.io.registry import register_adapter
+
+logger = logging.getLogger(__name__)
 
 _JABS_NWB_FORMAT_VERSION = 1
 _JABS_METADATA_KEY = "jabs_metadata"
@@ -85,7 +89,8 @@ class PoseNWBAdapter(Adapter):
 
         nwbfile = self._make_nwb_file(**kwargs)
         skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
-        skeletons = Skeletons(skeletons=[skeleton])
+        static_skeletons = self._build_static_skeletons(data.static_objects)
+        skeletons = Skeletons(skeletons=[skeleton, *static_skeletons.values()])
 
         behavior = nwbfile.create_processing_module(  # type: ignore[attr-defined]
             name=_PROCESSING_MODULE_NAME,
@@ -103,6 +108,13 @@ class PoseNWBAdapter(Adapter):
                 skeleton=skeleton,
             )
             behavior.add(pe)
+
+        for obj_name, obj_skeleton in static_skeletons.items():
+            behavior.add(
+                self._build_static_object_pose_estimation(
+                    obj_name, data.static_objects[obj_name], obj_skeleton
+                )
+            )
 
         behavior.add(
             TimeSeries(
@@ -149,7 +161,10 @@ class PoseNWBAdapter(Adapter):
 
             nwbfile = self._make_nwb_file(**kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
-            skeletons = Skeletons(skeletons=[skeleton])
+            # Rebuild static skeletons each iteration: HDMF objects can only
+            # belong to one container, so they cannot be shared across files.
+            static_skeletons = self._build_static_skeletons(data.static_objects)
+            skeletons = Skeletons(skeletons=[skeleton, *static_skeletons.values()])
 
             behavior = nwbfile.create_processing_module(  # type: ignore[attr-defined]
                 name=_PROCESSING_MODULE_NAME,
@@ -166,6 +181,13 @@ class PoseNWBAdapter(Adapter):
                 skeleton=skeleton,
             )
             behavior.add(pe)
+
+            for obj_name, obj_skeleton in static_skeletons.items():
+                behavior.add(
+                    self._build_static_object_pose_estimation(
+                        obj_name, data.static_objects[obj_name], obj_skeleton
+                    )
+                )
 
             behavior.add(
                 TimeSeries(
@@ -220,6 +242,7 @@ class PoseNWBAdapter(Adapter):
 
             # Discover PoseEstimation containers (skip Skeletons, TimeSeries)
             identity_names = jabs_meta.get("identity_names", [])
+            identity_names_set = set(identity_names)
             pe_containers = {
                 name: obj
                 for name, obj in behavior.data_interfaces.items()
@@ -231,17 +254,22 @@ class PoseNWBAdapter(Adapter):
                     f"No PoseEstimation containers found in behavior module of {path}"
                 )
 
+            # Separate animal identity containers from static object containers
+            identity_pe_containers = {
+                name: obj for name, obj in pe_containers.items() if name in identity_names_set
+            }
+
             # Order containers by identity_names if available.
             # Fall back to sorted keys if identity_names is absent or none of
             # its entries match the containers found in the file.
-            ordered_names = [n for n in identity_names if n in pe_containers]
+            ordered_names = [n for n in identity_names if n in identity_pe_containers]
             if not ordered_names:
-                ordered_names = sorted(pe_containers.keys())
+                ordered_names = sorted(identity_pe_containers.keys())
 
             # Extract body_parts in the original written order from jabs_metadata.
             # pynwb returns PoseEstimationSeries alphabetically from HDF5, so we
             # cannot rely on pose_estimation_series.values() for ordering.
-            first_pe = pe_containers[ordered_names[0]]
+            first_pe = identity_pe_containers[ordered_names[0]]
             stored_body_parts = jabs_meta.get("body_parts")
             if stored_body_parts:
                 body_parts = stored_body_parts
@@ -262,7 +290,7 @@ class PoseNWBAdapter(Adapter):
             all_point_mask = []
 
             for pe_name in ordered_names:
-                pe = pe_containers[pe_name]
+                pe = identity_pe_containers[pe_name]
                 identity_points = np.empty(
                     (len(pe.pose_estimation_series[body_parts[0]].data), num_keypoints, 2)
                 )
@@ -314,9 +342,10 @@ class PoseNWBAdapter(Adapter):
                 None if jabs_meta.get("per_identity_files") else jabs_meta.get("external_ids")
             )
             metadata = jabs_meta.get("metadata", {})
-            static_objects = {
-                k: np.array(v) for k, v in jabs_meta.get("static_objects", {}).items()
-            }
+
+            # Read static objects from NWB-native PoseEstimation containers.
+            # Any PoseEstimation not in identity_names_set is a static object.
+            static_objects = self._read_static_objects(pe_containers, identity_names_set)
 
         pose_data = PoseData(
             points=points,
@@ -465,6 +494,100 @@ class PoseNWBAdapter(Adapter):
         )
 
     @staticmethod
+    def _build_static_skeletons(
+        static_objects: dict[str, npt.NDArray],
+    ) -> dict[str, Skeleton]:  # type: ignore[valid-type]
+        """Build a Skeleton for each 2-D static object array.
+
+        Only arrays with ``ndim == 2`` (shape ``(N, 2)``) are supported.
+        Objects with other shapes are skipped with a warning.
+
+        Args:
+            static_objects: Mapping of object name to coordinate array.
+
+        Returns:
+            Ordered dict mapping object name to its Skeleton.
+        """
+        skeletons: dict[str, Skeleton] = {}  # type: ignore[valid-type]
+        for name, pts in static_objects.items():
+            if pts.ndim != 2:
+                logger.warning(
+                    "Skipping static object %r: expected 2-D array (N, 2), got shape %s",
+                    name,
+                    pts.shape,
+                )
+                continue
+            nodes = [f"{name}_{i}" for i in range(pts.shape[0])]
+            skeletons[name] = Skeleton(name=name, nodes=nodes)
+        return skeletons
+
+    @staticmethod
+    def _build_static_object_pose_estimation(
+        name: str,
+        points: npt.NDArray,
+        skeleton: Skeleton,  # type: ignore[valid-type]
+    ) -> PoseEstimation:
+        """Build a single-timestamp PoseEstimation for a static spatial object.
+
+        Each node in the skeleton corresponds to one row of ``points`` and is
+        stored as a ``PoseEstimationSeries`` with a single timestamp at t=0.
+
+        Args:
+            name: Name for this PoseEstimation (matches the static object key).
+            points: Shape (N, 2) array of x, y coordinates.
+            skeleton: Skeleton with N nodes, one per point.
+        """
+        series_list = [
+            PoseEstimationSeries(
+                name=f"{name}_{i}",
+                data=points[i : i + 1, :].astype(np.float64),  # shape (1, 2)
+                confidence=np.ones(1, dtype=np.float64),
+                confidence_definition="Static landmark; confidence is always 1.0",
+                timestamps=[0.0],
+                unit="pixels",
+                reference_frame=_REFERENCE_FRAME,
+            )
+            for i in range(points.shape[0])
+        ]
+        return PoseEstimation(
+            name=name,
+            pose_estimation_series=series_list,
+            description=f"Static object: {name}",
+            skeleton=skeleton,
+            source_software="JABS",
+        )
+
+    @staticmethod
+    def _read_static_objects(
+        pe_containers: dict[str, PoseEstimation],
+        identity_names_set: set[str],
+    ) -> dict[str, npt.NDArray[np.float64]]:
+        """Reconstruct static_objects from non-identity PoseEstimation containers.
+
+        Args:
+            pe_containers: All PoseEstimation containers from the behavior module.
+            identity_names_set: Set of container names that are animal identities.
+
+        Returns:
+            Mapping of static object name to (N, 2) float64 array.
+        """
+        static_objects: dict[str, npt.NDArray[np.float64]] = {}
+        for name, pe in pe_containers.items():
+            if name in identity_names_set:
+                continue
+            # Sort series by numeric suffix to restore original point order.
+            series_items = sorted(
+                pe.pose_estimation_series.items(),
+                key=lambda kv: int(kv[0].rsplit("_", 1)[-1]),
+            )
+            pts = np.array(
+                [np.array(series.data[0]) for _, series in series_items],
+                dtype=np.float64,
+            )  # shape (N, 2)
+            static_objects[name] = pts
+        return static_objects
+
+    @staticmethod
     def _build_jabs_metadata(
         data: PoseData,
         identity_names: list[str],
@@ -477,7 +600,6 @@ class PoseNWBAdapter(Adapter):
             "identity_names": identity_names,
             "num_identities": data.points.shape[0],
             "body_parts": data.body_parts,
-            "static_objects": {k: v.tolist() for k, v in data.static_objects.items()},
             "metadata": data.metadata,
         }
         meta.update(extra)

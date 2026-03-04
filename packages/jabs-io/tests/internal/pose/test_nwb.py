@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from ndx_pose import PoseEstimation
 
 from jabs.core.types import PoseData
 from jabs.io.internal.pose.nwb import PoseNWBAdapter
@@ -33,7 +34,8 @@ def _make_pose_data(
     bounding_boxes = (
         rng.random((num_identities, num_frames, 2, 2)) * 100 if with_bounding_boxes else None
     )
-    static_objects = {"lixit": np.array([100.0, 200.0])} if with_static_objects else {}
+    # Static objects use 2-D arrays: shape (N, 2) where N is number of points.
+    static_objects = {"lixit": np.array([[100.0, 200.0]])} if with_static_objects else {}
     metadata = {"source": "test", "model_version": "1.0"} if with_metadata else {}
     if edges is None:
         edges = [(0, 1), (1, 2)]
@@ -168,7 +170,7 @@ def test_cm_per_pixel_none(tmp_path, adapter):
 
 
 def test_static_objects_roundtrip(tmp_path, adapter):
-    """Static objects survive JSON serialization roundtrip."""
+    """Static objects survive NWB-native roundtrip via PoseEstimation containers."""
     path = tmp_path / "pose_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
@@ -177,6 +179,92 @@ def test_static_objects_roundtrip(tmp_path, adapter):
 
     assert "lixit" in loaded.static_objects
     np.testing.assert_allclose(loaded.static_objects["lixit"], data.static_objects["lixit"])
+
+
+@pytest.mark.parametrize(
+    ("obj_name", "points"),
+    [
+        ("corners", np.array([[10.0, 20.0], [300.0, 20.0], [10.0, 300.0], [300.0, 300.0]])),
+        ("lixit", np.array([[62.0, 166.0]])),  # single-keypoint lixit (1, 2)
+        (
+            "lixit",
+            np.array([[62.0, 166.0], [65.0, 160.0], [60.0, 172.0]]),
+        ),  # 3-keypoint lixit (3, 2)
+        (
+            "food_hopper",
+            np.array([[7.0, 291.0], [7.0, 528.0], [44.0, 296.0], [44.0, 518.0]]),
+        ),  # (4, 2)
+    ],
+    ids=["corners-4pt", "lixit-1pt", "lixit-3pt", "food_hopper-4pt"],
+)
+def test_static_objects_multiple_points(tmp_path, adapter, obj_name, points):
+    """Static objects with various point counts roundtrip correctly."""
+    from jabs.core.types import PoseData
+
+    path = tmp_path / "pose_static.nwb"
+    base = _make_pose_data(with_static_objects=False)
+    data = PoseData(
+        points=base.points,
+        point_mask=base.point_mask,
+        identity_mask=base.identity_mask,
+        body_parts=base.body_parts,
+        edges=base.edges,
+        fps=base.fps,
+        cm_per_pixel=base.cm_per_pixel,
+        static_objects={obj_name: points},
+        metadata=base.metadata,
+    )
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert obj_name in loaded.static_objects
+    assert loaded.static_objects[obj_name].shape == points.shape
+    np.testing.assert_allclose(loaded.static_objects[obj_name], points)
+
+
+def test_static_objects_nwb_structure(tmp_path, adapter):
+    """Static objects are stored as PoseEstimation containers in the behavior module."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_static_struct.nwb"
+    data = _make_pose_data(with_static_objects=True)
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+
+        # lixit should be a PoseEstimation container
+        assert "lixit" in behavior.data_interfaces
+        assert isinstance(behavior.data_interfaces["lixit"], PoseEstimation)
+
+        # The Skeletons container should include a lixit skeleton
+        skeletons_obj = behavior.data_interfaces["Skeletons"]
+        skeleton_names = list(skeletons_obj.skeletons.keys())
+        assert "lixit" in skeleton_names
+
+        # The lixit PoseEstimation should have one series named lixit_0
+        lixit_pe = behavior.data_interfaces["lixit"]
+        assert "lixit_0" in lixit_pe.pose_estimation_series
+
+
+def test_static_objects_not_in_jabs_metadata_json(tmp_path, adapter):
+    """Static objects are no longer stored in the JSON scratch blob."""
+    import json
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_no_json_static.nwb"
+    data = _make_pose_data(with_static_objects=True)
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        jabs_meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert "static_objects" not in jabs_meta
 
 
 def test_empty_static_objects(tmp_path, adapter):
@@ -188,6 +276,34 @@ def test_empty_static_objects(tmp_path, adapter):
     loaded = adapter.read(path)
 
     assert loaded.static_objects == {}
+
+
+def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
+    """1-D static object arrays are skipped with a warning (not stored)."""
+    import logging
+
+    from jabs.core.types import PoseData
+
+    base = _make_pose_data(with_static_objects=False)
+    data = PoseData(
+        points=base.points,
+        point_mask=base.point_mask,
+        identity_mask=base.identity_mask,
+        body_parts=base.body_parts,
+        edges=base.edges,
+        fps=base.fps,
+        cm_per_pixel=base.cm_per_pixel,
+        static_objects={"bad_obj": np.array([1.0, 2.0])},  # 1-D, invalid
+        metadata=base.metadata,
+    )
+
+    path = tmp_path / "pose_1d_static.nwb"
+    with caplog.at_level(logging.WARNING):
+        adapter.write(data, path)
+
+    assert "bad_obj" in caplog.text
+    loaded = adapter.read(path)
+    assert "bad_obj" not in loaded.static_objects
 
 
 def test_edges_roundtrip(tmp_path, adapter):
