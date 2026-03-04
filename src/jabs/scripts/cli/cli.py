@@ -399,7 +399,7 @@ def convert_to_nwb(
             raise click.ClickException(str(e)) from e
 
     if per_identity:
-        click.echo(f"Wrote per-identity NWB files alongside {output}")
+        click.echo(f"Wrote per-identity NWB files to {output.parent}")
     else:
         click.echo(f"Wrote {output}")
 
