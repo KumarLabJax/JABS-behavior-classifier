@@ -13,12 +13,15 @@ class PoseData:
         point_mask: Boolean mask indicating valid keypoints, shape (num_identities, num_frames, num_keypoints).
         identity_mask: Boolean mask indicating if identity is present in frame, shape (num_identities, num_frames).
         body_parts: List of names for the keypoints.
+        edges: List of tuples defining connections between keypoints (e.g., for skeleton visualization).
         fps: Frames per second of the source video.
         cm_per_pixel: Optional scale factor for converting pixels to centimeters.
         bounding_boxes: Optional bounding boxes of shape (num_identities, num_frames, 2, 2).
             Format is [[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]].
         segmentation_data: Optional segmentation masks or data.
         static_objects: Dictionary of static objects (e.g., 'lixit') and their positions.
+        external_ids: Optional list of external identifiers for each identity.
+            Maps an identity index to an external ID string.
         metadata: Dictionary for any additional provenance or experimental metadata.
     """
 
@@ -26,11 +29,13 @@ class PoseData:
     point_mask: np.ndarray
     identity_mask: np.ndarray
     body_parts: list[str]
+    edges: list[tuple[int, int]]
     fps: int
     cm_per_pixel: float | None = None
     bounding_boxes: np.ndarray | None = None
     segmentation_data: np.ndarray | None = None
     static_objects: dict[str, np.ndarray] = field(default_factory=dict)
+    external_ids: list[str] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -73,3 +78,20 @@ class PoseData:
                 f"bounding_boxes shape {self.bounding_boxes.shape} must "
                 f"be {(num_idents, num_frames, 2, 2)}"
             )
+
+        invalid_edges = [e for e in self.edges if e[0] >= num_keypoints or e[1] >= num_keypoints]
+        if invalid_edges:
+            raise ValueError(
+                f"edges contain out-of-range keypoint indices (num_keypoints={num_keypoints}): "
+                f"{invalid_edges}"
+            )
+
+        if self.external_ids is not None:
+            if len(self.external_ids) != num_idents:
+                raise ValueError(
+                    f"external_ids length ({len(self.external_ids)}) must match "
+                    f"num_identities ({num_idents})"
+                )
+            if len(set(self.external_ids)) != len(self.external_ids):
+                duplicates = [x for x in self.external_ids if self.external_ids.count(x) > 1]
+                raise ValueError(f"external_ids must be unique, found duplicates: {duplicates}")
