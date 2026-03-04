@@ -108,7 +108,7 @@ def run_conversion(
         session_description: Optional NWB session description string.
 
     Raises:
-        ValueError: If the input file is not a recognised JABS pose file.
+        ValueError: If the input file is not a recognized JABS pose file.
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
