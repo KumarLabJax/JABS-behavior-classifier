@@ -28,9 +28,7 @@ _PROCESSING_MODULE_NAME = "behavior"
 _PROCESSING_MODULE_DESC = "JABS pose estimation data"
 _SKELETON_NAME = "subject"
 _REFERENCE_FRAME = "Top-left corner of video frame, x increases rightward, y increases downward"
-_CONFIDENCE_DEFINITION = (
-    "Validity mask from JABS: 0.0=invalid/missing keypoint, >0.0=valid keypoint"
-)
+_CONFIDENCE_DEFINITION = "0.0=invalid/missing keypoint, >0.0=valid keypoint"
 
 
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
