@@ -44,16 +44,67 @@ class PoseNWBAdapter(Adapter):
     def write(self, data: PoseData, path: str | Path, **kwargs) -> None:
         """Write PoseData to NWB file(s).
 
+        By default, all identities are written to a single NWB file at ``path``.
+        Pass ``per_identity_files=True`` to write one file per identity instead.
+        In that mode, ``path`` is used as a naming template — the base file is
+        *not* created; instead, each identity is written to a sibling file whose
+        stem is ``{path.stem}_{identity_name}``.  Identity names come from
+        ``data.external_ids`` (sanitized for HDF5 compatibility) or fall back to
+        ``identity_0``, ``identity_1``, … when ``external_ids`` is ``None``.
+
+        Example — single file::
+
+            save(pose_data, "session.nwb")
+            # → session.nwb  (all identities)
+
+        Example — per-identity files with external IDs::
+
+            save(pose_data, "session.nwb", per_identity_files=True)
+            # pose_data.external_ids = ["mouse_a", "mouse_b"]
+            # → session_mouse_a.nwb
+            # → session_mouse_b.nwb
+
+        Example — per-identity files without external IDs::
+
+            save(pose_data, "session.nwb", per_identity_files=True)
+            # pose_data.external_ids = None
+            # → session_subject_0.nwb
+            # → session_subject_1.nwb
+
+        The NWB layout written by this adapter (ndx-pose 0.2)::
+
+            processing/behavior/
+              Skeletons/
+                subject/              ← animal skeleton (keypoints + edges)
+                <obj_name>/           ← one Skeleton per static object
+              <identity_name>/        ← one PoseEstimation per identity
+                <keypoint>/           ← one PoseEstimationSeries per keypoint
+              <obj_name>/             ← one PoseEstimation per static object
+                <obj_name>_0/         ← one PoseEstimationSeries per point
+              jabs_identity_mask      ← TimeSeries, uint8 presence mask
+              jabs_bounding_boxes     ← TimeSeries, optional (num_frames, …, 2, 2)
+            scratch/
+              jabs_metadata           ← JSON: format_version, cm_per_pixel,
+                                        identity_names, body_parts, metadata, …
+
         Args:
             data: The PoseData to write.
-            path: Output file path (.nwb).
+            path: Output file path (.nwb).  In per-identity mode this is a
+                naming template; the actual files are written alongside it.
             **kwargs:
-                per_identity_files: If True, write one NWB file per identity.
-                    Default False.
-                session_description: NWB session description.
-                session_start_time: NWB session start time.
-                identifier: NWB file identifier string.
-                skeleton_name: Name for the Skeleton object.
+                per_identity_files (bool): Write one NWB file per identity.
+                    Default ``False``.
+                session_description (str): NWB session description string.
+                    Default ``"JABS PoseEstimation Data"``.
+                session_start_time (datetime.datetime): NWB session start time.
+                    Default: current UTC time at write time.
+                identifier (str): NWB file identifier.  Default: random UUID.
+                skeleton_name (str): Name for the animal Skeleton object.
+                    Default ``"subject"``.
+
+        Raises:
+            ValueError: If sanitized identity names are not unique (collision
+                after special-character replacement).
         """
         path = Path(path)
         per_identity_files = kwargs.get("per_identity_files", False)
@@ -66,8 +117,40 @@ class PoseNWBAdapter(Adapter):
     def read(self, path: str | Path, data_type: type | None = None) -> PoseData:
         """Read PoseData from an NWB file.
 
-        If the file was written with ``per_identity_files=True``, sibling
-        identity files are auto-detected and merged.
+        Handles both single-file and per-identity file layouts transparently —
+        no kwargs are needed; the file records which layout was used.
+
+        **Single-file layout:** point ``path`` at the file written by
+        ``write()``.  All identities are returned in one ``PoseData``.
+
+        **Per-identity layout:** point ``path`` at *any one* of the sibling
+        files.  The reader detects the per-identity flag in the embedded
+        ``jabs_metadata``, then globs for siblings matching
+        ``{base_stem}_*.nwb`` in the same directory, filters to those that
+        belong to the same write session (matching ``total_identities``), sorts
+        by ``source_identity_index``, and concatenates them into a single
+        ``PoseData`` with all identities restored in their original order.
+
+        Example::
+
+            # Single file
+            pose_data = load("session.nwb", PoseData)
+
+            # Per-identity — point at any sibling; result is the same
+            pose_data = load("session_mouse_a.nwb", PoseData)
+            pose_data = load("session_mouse_b.nwb", PoseData)
+
+        Args:
+            path: Path to an NWB file written by this adapter.
+            data_type: Ignored; present for interface compatibility.
+
+        Returns:
+            ``PoseData`` with all identities merged in their original order.
+
+        Raises:
+            ValueError: If no ``PoseEstimation`` containers are found, or if
+                the expected number of sibling files cannot be located when
+                reading a per-identity layout.
         """
         path = Path(path)
         pose_data, jabs_meta = self._read_single(path)
@@ -621,7 +704,7 @@ class PoseNWBAdapter(Adapter):
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
             return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
-        return f"identity_{index}"
+        return f"subject_{index}"
 
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:
