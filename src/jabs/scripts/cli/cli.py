@@ -7,6 +7,7 @@ comprehensive tool for managing JABS projects (possibly integrating
 functionality from existing JABS scripts such as `jabs-init` or `jabs-merge`).
 """
 
+import json
 from pathlib import Path
 
 import click
@@ -400,8 +401,6 @@ def convert_to_nwb(
         # Include per-animal metadata
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
     """
-    import json
-
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
