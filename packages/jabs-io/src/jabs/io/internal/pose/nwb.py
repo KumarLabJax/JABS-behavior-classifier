@@ -22,7 +22,7 @@ except ImportError:
     _NWB_AVAILABLE = False
 
 from jabs.core.enums import StorageFormat
-from jabs.core.types import PoseData
+from jabs.core.types import DynamicObjectData, PoseData
 from jabs.io.base import Adapter
 from jabs.io.registry import register_adapter
 
@@ -37,6 +37,9 @@ _PROCESSING_MODULE_DESC = "JABS pose estimation data"
 _SKELETON_NAME = "subject"
 _REFERENCE_FRAME = "Top-left corner of video frame, x increases rightward, y increases downward"
 _CONFIDENCE_DEFINITION = "0.0=invalid/missing keypoint, >0.0=valid keypoint"
+_DYNAMIC_CONFIDENCE_DEFINITION = (
+    "1.0=valid object instance in this slot, 0.0=slot unoccupied at this prediction"
+)
 
 
 def _bounding_box_key(identity_name: str) -> str:
@@ -197,7 +200,10 @@ class PoseNWBAdapter(Adapter):
         nwbfile = self._make_nwb_file(**kwargs)
         skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
         static_skeletons = self._build_static_skeletons(data.static_objects)
-        skeletons = Skeletons(skeletons=[skeleton, *static_skeletons.values()])
+        dynamic_skeletons = self._build_dynamic_skeletons(data.dynamic_objects)
+        skeletons = Skeletons(
+            skeletons=[skeleton, *static_skeletons.values(), *dynamic_skeletons.values()]
+        )
 
         behavior = nwbfile.create_processing_module(  # type: ignore[attr-defined]
             name=_PROCESSING_MODULE_NAME,
@@ -220,6 +226,13 @@ class PoseNWBAdapter(Adapter):
             behavior.add(
                 self._build_static_object_pose_estimation(
                     obj_name, data.static_objects[obj_name], obj_skeleton
+                )
+            )
+
+        for obj_name, obj_skeleton in dynamic_skeletons.items():
+            behavior.add(
+                self._build_dynamic_object_pose_estimation(
+                    obj_name, data.dynamic_objects[obj_name], data.fps, obj_skeleton
                 )
             )
 
@@ -267,10 +280,13 @@ class PoseNWBAdapter(Adapter):
 
             nwbfile = self._make_nwb_file(**kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
-            # Rebuild static skeletons each iteration: HDMF objects can only
-            # belong to one container, so they cannot be shared across files.
+            # Rebuild static/dynamic skeletons each iteration: HDMF objects can
+            # only belong to one container, so they cannot be shared across files.
             static_skeletons = self._build_static_skeletons(data.static_objects)
-            skeletons = Skeletons(skeletons=[skeleton, *static_skeletons.values()])
+            dynamic_skeletons = self._build_dynamic_skeletons(data.dynamic_objects)
+            skeletons = Skeletons(
+                skeletons=[skeleton, *static_skeletons.values(), *dynamic_skeletons.values()]
+            )
 
             behavior = nwbfile.create_processing_module(  # type: ignore[attr-defined]
                 name=_PROCESSING_MODULE_NAME,
@@ -292,6 +308,13 @@ class PoseNWBAdapter(Adapter):
                 behavior.add(
                     self._build_static_object_pose_estimation(
                         obj_name, data.static_objects[obj_name], obj_skeleton
+                    )
+                )
+
+            for obj_name, obj_skeleton in dynamic_skeletons.items():
+                behavior.add(
+                    self._build_dynamic_object_pose_estimation(
+                        obj_name, data.dynamic_objects[obj_name], data.fps, obj_skeleton
                     )
                 )
 
@@ -349,6 +372,9 @@ class PoseNWBAdapter(Adapter):
             # Discover PoseEstimation containers (skip Skeletons, TimeSeries)
             identity_names = jabs_meta.get("identity_names", [])
             identity_names_set = set(identity_names)
+            dynamic_object_names = jabs_meta.get("dynamic_object_names", [])
+            dynamic_object_shapes = jabs_meta.get("dynamic_object_shapes", {})
+            dynamic_names_set = set(dynamic_object_names)
             pe_containers = {
                 name: obj
                 for name, obj in behavior.data_interfaces.items()
@@ -445,9 +471,16 @@ class PoseNWBAdapter(Adapter):
             subjects = None if per_id else jabs_meta.get("subjects")
             metadata = jabs_meta.get("metadata", {})
 
+            # Read dynamic objects from NWB-native PoseEstimation containers.
+            dynamic_objects = self._read_dynamic_objects(
+                pe_containers, dynamic_object_names, dynamic_object_shapes, int(fps_value)
+            )
+
             # Read static objects from NWB-native PoseEstimation containers.
-            # Any PoseEstimation not in identity_names_set is a static object.
-            static_objects = self._read_static_objects(pe_containers, identity_names_set)
+            # Exclude both identity names and dynamic object names.
+            static_objects = self._read_static_objects(
+                pe_containers, identity_names_set | dynamic_names_set
+            )
 
         pose_data = PoseData(
             points=points,
@@ -459,6 +492,7 @@ class PoseNWBAdapter(Adapter):
             cm_per_pixel=cm_per_pixel,
             bounding_boxes=bounding_boxes,
             static_objects=static_objects,
+            dynamic_objects=dynamic_objects,
             external_ids=external_ids,
             subjects=subjects,
             metadata=metadata,
@@ -531,6 +565,7 @@ class PoseNWBAdapter(Adapter):
             cm_per_pixel=ref.cm_per_pixel,
             bounding_boxes=bounding_boxes,
             static_objects=ref.static_objects,
+            dynamic_objects=ref.dynamic_objects,
             external_ids=external_ids,
             subjects=subjects,
             metadata=ref.metadata,
@@ -664,22 +699,144 @@ class PoseNWBAdapter(Adapter):
         )
 
     @staticmethod
+    def _build_dynamic_skeletons(
+        dynamic_objects: dict[str, DynamicObjectData],
+    ) -> dict[str, Skeleton]:  # type: ignore[valid-type]
+        """Build a Skeleton for each dynamic object.
+
+        For single-keypoint objects, nodes are named ``{name}_{slot}``.
+        For multi-keypoint objects, nodes are named ``{name}_{slot}_{kp}``.
+
+        Args:
+            dynamic_objects: Mapping of object name to DynamicObjectData.
+
+        Returns:
+            Ordered dict mapping object name to its Skeleton.
+        """
+        skeletons: dict[str, Skeleton] = {}  # type: ignore[valid-type]
+        for name, dyn_obj in dynamic_objects.items():
+            max_count = dyn_obj.points.shape[1]
+            n_keypoints = dyn_obj.points.shape[2]
+            if n_keypoints == 1:
+                nodes = [f"{name}_{slot}" for slot in range(max_count)]
+            else:
+                nodes = [
+                    f"{name}_{slot}_{kp}" for slot in range(max_count) for kp in range(n_keypoints)
+                ]
+            skeletons[name] = Skeleton(name=name, nodes=nodes)
+        return skeletons
+
+    @staticmethod
+    def _build_dynamic_object_pose_estimation(
+        name: str,
+        dyn_obj: DynamicObjectData,
+        fps: int,
+        skeleton: Skeleton,  # type: ignore[valid-type]
+    ) -> PoseEstimation:
+        """Build a PoseEstimation container for one dynamic object.
+
+        Each slot/keypoint combination is stored as a PoseEstimationSeries with
+        irregular timestamps corresponding to the sample indices.  Confidence of
+        1.0 indicates the slot is occupied at that prediction; 0.0 means empty.
+
+        Args:
+            name: Name of the dynamic object (e.g. "fecal_boli").
+            dyn_obj: DynamicObjectData with shape (n_predictions, max_count, n_keypoints, 2).
+            fps: Frames per second used to convert sample indices to timestamps.
+            skeleton: Skeleton built by :meth:`_build_dynamic_skeletons`.
+
+        Returns:
+            PoseEstimation container ready to add to the behavior module.
+        """
+        n_predictions, max_count, n_keypoints, _ = dyn_obj.points.shape
+        timestamps = (dyn_obj.sample_indices / fps).tolist()
+        series_list = []
+        for slot in range(max_count):
+            slot_confidence = (dyn_obj.counts > slot).astype(np.float64)
+            for kp in range(n_keypoints):
+                series_name = f"{name}_{slot}" if n_keypoints == 1 else f"{name}_{slot}_{kp}"
+                series_list.append(
+                    PoseEstimationSeries(
+                        name=series_name,
+                        data=dyn_obj.points[:, slot, kp, :].astype(np.float64),
+                        confidence=slot_confidence,
+                        confidence_definition=_DYNAMIC_CONFIDENCE_DEFINITION,
+                        timestamps=timestamps,
+                        unit="pixels",
+                        reference_frame=_REFERENCE_FRAME,
+                    )
+                )
+        return PoseEstimation(
+            name=name,
+            pose_estimation_series=series_list,
+            description=f"Dynamic object: {name}",
+            skeleton=skeleton,
+            source_software="JABS",
+        )
+
+    @staticmethod
+    def _read_dynamic_objects(
+        pe_containers: dict[str, PoseEstimation],
+        dynamic_object_names: list[str],
+        dynamic_object_shapes: dict[str, list[int]],
+        fps: int,
+    ) -> dict[str, DynamicObjectData]:
+        """Reconstruct dynamic_objects from PoseEstimation containers.
+
+        Args:
+            pe_containers: All PoseEstimation containers from the behavior module.
+            dynamic_object_names: Names of dynamic objects recorded in jabs_metadata.
+            dynamic_object_shapes: Mapping of name to [max_count, n_keypoints].
+            fps: Frames per second used to convert timestamps back to sample indices.
+
+        Returns:
+            Mapping of object name to DynamicObjectData.
+        """
+        dynamic_objects: dict[str, DynamicObjectData] = {}
+        for name in dynamic_object_names:
+            if name not in pe_containers:
+                logger.warning("Dynamic object %r not found in behavior module", name)
+                continue
+            pe = pe_containers[name]
+            max_count, n_keypoints = dynamic_object_shapes[name]
+            first_series = next(iter(pe.pose_estimation_series.values()))
+            timestamps = np.array(first_series.timestamps[:])
+            sample_indices = np.round(timestamps * fps).astype(np.int64)
+            n_predictions = len(sample_indices)
+            points = np.empty((n_predictions, max_count, n_keypoints, 2), dtype=np.float64)
+            counts = np.zeros(n_predictions, dtype=np.int64)
+            for slot in range(max_count):
+                slot_confidence = None
+                for kp in range(n_keypoints):
+                    series_name = f"{name}_{slot}" if n_keypoints == 1 else f"{name}_{slot}_{kp}"
+                    series = pe.pose_estimation_series[series_name]
+                    points[:, slot, kp, :] = np.array(series.data[:])
+                    if slot_confidence is None:
+                        slot_confidence = np.array(series.confidence[:])
+                if slot_confidence is not None:
+                    counts += (slot_confidence > 0).astype(np.int64)
+            dynamic_objects[name] = DynamicObjectData(
+                points=points, counts=counts, sample_indices=sample_indices
+            )
+        return dynamic_objects
+
+    @staticmethod
     def _read_static_objects(
         pe_containers: dict[str, PoseEstimation],
-        identity_names_set: set[str],
+        excluded_names: set[str],
     ) -> dict[str, npt.NDArray[np.float64]]:
         """Reconstruct static_objects from non-identity PoseEstimation containers.
 
         Args:
             pe_containers: All PoseEstimation containers from the behavior module.
-            identity_names_set: Set of container names that are animal identities.
+            excluded_names: Set of container names to exclude (identities and dynamic objects).
 
         Returns:
             Mapping of static object name to (N, 2) float64 array.
         """
         static_objects: dict[str, npt.NDArray[np.float64]] = {}
         for name, pe in pe_containers.items():
-            if name in identity_names_set:
+            if name in excluded_names:
                 continue
             # Sort series by numeric suffix to restore original point order.
             series_items = sorted(
@@ -709,6 +866,12 @@ class PoseNWBAdapter(Adapter):
             "subjects": data.subjects,
             "metadata": data.metadata,
         }
+        if data.dynamic_objects:
+            meta["dynamic_object_names"] = list(data.dynamic_objects.keys())
+            meta["dynamic_object_shapes"] = {
+                name: [dyn.points.shape[1], dyn.points.shape[2]]
+                for name, dyn in data.dynamic_objects.items()
+            }
         meta.update(extra)
         return meta
 
