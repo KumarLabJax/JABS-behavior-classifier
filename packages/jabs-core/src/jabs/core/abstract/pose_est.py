@@ -8,6 +8,7 @@ import joblib
 import numpy as np
 from shapely.geometry import MultiPoint
 
+from jabs.core.types import DynamicObjectData
 from jabs.core.utils import hash_file
 
 MINIMUM_CONFIDENCE = 0.3
@@ -132,7 +133,8 @@ class PoseEstimation(ABC):
         self._hash = hash_file(file_path)
         self._fps = fps
 
-        self._static_objects = {}
+        self._static_objects: dict = {}
+        self._dynamic_objects: dict[str, DynamicObjectData] = {}
 
         # check cache version, if it doesn't match, clear the cache file for this pose file
         if self._cache_dir is not None and not self.check_cache_version():
@@ -269,6 +271,28 @@ class PoseEstimation(ABC):
     def static_objects(self):
         """get static objects from the pose file"""
         return self._static_objects
+
+    @property
+    def dynamic_objects(self) -> dict[str, DynamicObjectData]:
+        """Get dynamic objects from the pose file.
+
+        Returns:
+            Mapping of object name to jabs.core.types.DynamicObjectData.
+            Empty for pose versions that do not support dynamic objects (v2-v6).
+        """
+        return self._dynamic_objects
+
+    def get_dynamic_object(self, name: str) -> DynamicObjectData | None:
+        """Get a named dynamic object from the pose file.
+
+        Args:
+            name: Name of the dynamic object (e.g. "fecal_boli").
+
+        Returns:
+            DynamicObjectData for the requested object, or None if not present.
+            Always None for pose versions that do not support dynamic objects (v2-v6).
+        """
+        return self._dynamic_objects.get(name)
 
     def get_identity_convex_hulls(self, identity):
         """get a list of length #frames containing convex hulls for the given identity.

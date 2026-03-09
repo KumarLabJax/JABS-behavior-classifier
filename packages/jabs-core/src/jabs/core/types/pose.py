@@ -2,6 +2,33 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
+
+
+@dataclass(frozen=True)
+class DynamicObjectData:
+    """Container for a single dynamic object read from a pose file.
+
+    Dynamic objects are objects that may change position or count over time, but
+    are not predicted every frame.  Only frames listed in sample_indices have
+    valid predictions.  Coordinates are always stored in (x, y) order.
+
+    points is always 4-D regardless of how many keypoints each object
+    instance has.  Single-keypoint objects (e.g. fecal boli) have
+    n_keypoints=1 after normalization on read.
+
+    Attributes:
+        points: Detected keypoint coordinates in (x, y) order, shape
+            (n_predictions, max_count, n_keypoints, 2).
+        counts: Number of valid detected objects for each prediction, shape
+            (n_predictions,).
+        sample_indices: Frame indices at which each prediction was made, shape
+            (n_predictions,).
+    """
+
+    points: npt.NDArray[np.float64]
+    counts: npt.NDArray[np.int64]
+    sample_indices: npt.NDArray[np.int64]
 
 
 @dataclass(frozen=True)
@@ -22,6 +49,10 @@ class PoseData:
         static_objects: Dictionary of static objects (e.g., 'lixit') and their positions.
         external_ids: Optional list of external identifiers for each identity.
             Maps an identity index to an external ID string.
+        subjects: Optional per-animal biological metadata, keyed by identity name
+            (matching the values in external_ids).  Each value is a free-form
+            dict; standard keys are subject_id, sex, genotype,
+            strain, age, weight, species, description.
         metadata: Dictionary for any additional provenance or experimental metadata.
     """
 
@@ -35,7 +66,9 @@ class PoseData:
     bounding_boxes: np.ndarray | None = None
     segmentation_data: np.ndarray | None = None
     static_objects: dict[str, np.ndarray] = field(default_factory=dict)
+    dynamic_objects: dict[str, DynamicObjectData] = field(default_factory=dict)
     external_ids: list[str] | None = None
+    subjects: dict[str, dict] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):

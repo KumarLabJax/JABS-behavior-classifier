@@ -354,6 +354,20 @@ def cross_validation(
     default=None,
     help="NWB session description string. Defaults to 'JABS PoseEstimation Data'.",
 )
+@click.option(
+    "--subjects",
+    "subjects_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to a JSON file containing per-animal biological metadata. "
+        "Keys are identity names: use the external IDs from the pose file "
+        "if present (e.g. 'mouse_a'), or 'subject_0', 'subject_1', … if the "
+        "pose file has no external IDs. "
+        "Standard fields: subject_id, sex, genotype, strain, age, weight, "
+        "species, description."
+    ),
+)
 @click.pass_context
 def convert_to_nwb(
     ctx: click.Context,
@@ -361,6 +375,7 @@ def convert_to_nwb(
     output: Path,
     per_identity: bool,
     session_description: str | None,
+    subjects_path: Path | None,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
@@ -380,11 +395,30 @@ def convert_to_nwb(
     \b
         # One NWB file per identity
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --per-identity
+
+    \b
+        # Include per-animal metadata
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
     """
+    import json
+
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
         click.echo(f"Per-identity: {per_identity}")
+        if subjects_path:
+            click.echo(f"Subjects: {subjects_path}")
+
+    subjects: dict[str, dict] | None = None
+    if subjects_path is not None:
+        try:
+            subjects = json.loads(subjects_path.read_text())
+        except Exception as e:
+            raise click.ClickException(f"Failed to read subjects file: {e}") from e
+        if not isinstance(subjects, dict):
+            raise click.ClickException(
+                f"Subjects file must contain a JSON object, got {type(subjects).__name__}"
+            )
 
     console = Console()
     with console.status(f"Converting {input_path.name} → NWB ...", spinner="dots"):
@@ -394,6 +428,7 @@ def convert_to_nwb(
                 output_path=output,
                 per_identity=per_identity,
                 session_description=session_description,
+                subjects=subjects,
             )
         except Exception as e:
             raise click.ClickException(str(e)) from e

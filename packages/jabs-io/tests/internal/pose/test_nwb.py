@@ -24,6 +24,7 @@ def _make_pose_data(
     with_bounding_boxes=False,
     with_static_objects=True,
     with_metadata=True,
+    with_subjects=False,
     edges=None,
 ):
     rng = np.random.default_rng(42)
@@ -40,6 +41,9 @@ def _make_pose_data(
     if edges is None:
         edges = [(0, 1), (1, 2)]
 
+    names = external_ids or [f"subject_{i}" for i in range(num_identities)]
+    subjects = {name: {"sex": "M", "genotype": "WT"} for name in names} if with_subjects else None
+
     return PoseData(
         points=points,
         point_mask=point_mask,
@@ -51,6 +55,7 @@ def _make_pose_data(
         bounding_boxes=bounding_boxes,
         static_objects=static_objects,
         external_ids=external_ids,
+        subjects=subjects,
         metadata=metadata,
     )
 
@@ -65,6 +70,7 @@ def _assert_pose_data_equal(a: PoseData, b: PoseData):
     assert a.fps == b.fps
     assert a.cm_per_pixel == b.cm_per_pixel
     assert a.external_ids == b.external_ids
+    assert a.subjects == b.subjects
     assert a.metadata == b.metadata
     assert a.static_objects.keys() == b.static_objects.keys()
     for key in a.static_objects:
@@ -84,6 +90,17 @@ def test_roundtrip_single_file(tmp_path, adapter):
     """Write multi-identity PoseData to one file, read back, assert equality."""
     path = tmp_path / "pose.nwb"
     data = _make_pose_data()
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_roundtrip_with_subjects(tmp_path, adapter):
+    """subjects metadata survives roundtrip and is caught by _assert_pose_data_equal."""
+    path = tmp_path / "pose_subjects.nwb"
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"], with_subjects=True)
 
     adapter.write(data, path)
     loaded = adapter.read(path)
@@ -304,6 +321,98 @@ def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
     assert "bad_obj" in caplog.text
     loaded = adapter.read(path)
     assert "bad_obj" not in loaded.static_objects
+
+
+def test_subjects_roundtrip(tmp_path, adapter):
+    """Per-animal subjects metadata survives a single-file roundtrip."""
+    import json
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_subjects.nwb"
+    subjects = {
+        "mouse_a": {"sex": "M", "genotype": "WT", "strain": "C57BL/6", "age": "P60"},
+        "mouse_b": {"sex": "F", "genotype": "KO", "strain": "C57BL/6", "age": "P60"},
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{
+            **{f: getattr(data, f) for f in data.__dataclass_fields__},
+            "subjects": subjects,
+        }
+    )
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.subjects == subjects
+
+    # Verify it's in the jabs_metadata JSON
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert meta["subjects"] == subjects
+
+
+def test_subjects_none_roundtrip(tmp_path, adapter):
+    """subjects=None reads back as None."""
+    path = tmp_path / "pose_no_subjects.nwb"
+    data = _make_pose_data()
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.subjects is None
+
+
+def test_subjects_per_identity_roundtrip(tmp_path, adapter):
+    """Per-animal subjects metadata survives a per-identity file roundtrip."""
+    path = tmp_path / "pose.nwb"
+    subjects = {
+        "mouse_a": {"sex": "M", "genotype": "WT"},
+        "mouse_b": {"sex": "F", "genotype": "KO"},
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{
+            **{f: getattr(data, f) for f in data.__dataclass_fields__},
+            "subjects": subjects,
+        }
+    )
+
+    adapter.write(data, path, per_identity_files=True)
+    loaded = adapter.read(tmp_path / "pose_mouse_a.nwb")
+
+    assert loaded.subjects == subjects
+
+
+def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
+    """Bounding boxes are stored as one TimeSeries per identity, not a single combined array."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_bb_struct.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        num_frames=10,
+        external_ids=["mouse_a", "mouse_b"],
+        with_bounding_boxes=True,
+    )
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+
+        assert "jabs_bounding_boxes_mouse_a" in behavior.data_interfaces
+        assert "jabs_bounding_boxes_mouse_b" in behavior.data_interfaces
+        # The old combined key must not be present
+        assert "jabs_bounding_boxes" not in behavior.data_interfaces
+
+        bb_a = behavior["jabs_bounding_boxes_mouse_a"]
+        bb_b = behavior["jabs_bounding_boxes_mouse_b"]
+        assert np.array(bb_a.data[:]).shape == (10, 2, 2)
+        assert np.array(bb_b.data[:]).shape == (10, 2, 2)
 
 
 def test_edges_roundtrip(tmp_path, adapter):

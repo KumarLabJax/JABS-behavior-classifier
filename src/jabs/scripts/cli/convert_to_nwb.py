@@ -31,15 +31,19 @@ def _segments_to_edges(segments) -> list[tuple[int, int]]:
     return edges
 
 
-def pose_to_pose_data(pose: PoseEstimation) -> PoseData:
+def pose_to_pose_data(
+    pose: PoseEstimation,
+    subjects: dict[str, dict] | None = None,
+) -> PoseData:
     """Convert any PoseEstimation object to a PoseData dataclass.
 
-    Handles all supported JABS pose versions (v2-v8).  Optional attributes
-    introduced in later versions (``static_objects``, ``external_identities``,
-    ``cm_per_pixel``) are read with safe fallbacks for older formats.
+    Handles all supported JABS pose versions (v2-v8).
 
     Args:
         pose: A loaded PoseEstimation object (any version).
+        subjects: Optional per-animal biological metadata, keyed by identity
+            name (matching external_identities values).  Passed through
+            directly to PoseData.subjects.
 
     Returns:
         A PoseData instance ready for NWB export.
@@ -84,6 +88,7 @@ def pose_to_pose_data(pose: PoseEstimation) -> PoseData:
         cm_per_pixel=cm_per_pixel,
         static_objects=static_objects,
         external_ids=external_ids,
+        subjects=subjects,
         metadata=metadata,
     )
 
@@ -93,19 +98,23 @@ def run_conversion(
     output_path: Path,
     per_identity: bool = False,
     session_description: str | None = None,
+    subjects: dict[str, dict] | None = None,
 ) -> None:
     """Convert a JABS pose HDF5 file to NWB and write to disk.
 
     The pose format version is inferred from the filename (e.g.
-    ``_pose_est_v6.h5`` → v6).  Supported versions: v2-v8.
+    "_pose_est_v6.h5" → v6).  Supported versions: v2-v8.
 
     Args:
         input_path: Path to the input JABS pose HDF5 file.
         output_path: Destination path for the NWB file.  In per-identity mode
             this is used as a naming template; actual files are written
-            alongside it as ``{stem}_{identity_name}.nwb``.
+            alongside it as "{stem}_{identity_name}.nwb".
         per_identity: If True, write one NWB file per identity.
         session_description: Optional NWB session description string.
+        subjects: Optional per-animal biological metadata dict, keyed by
+            identity name.  See PoseData.subjects for the expected
+            structure.
 
     Raises:
         ValueError: If the input file is not a recognized JABS pose file.
@@ -118,7 +127,7 @@ def run_conversion(
         "%d %s, %d frames, %d fps", pose.num_identities, identity_word, pose.num_frames, pose.fps
     )
 
-    pose_data = pose_to_pose_data(pose)
+    pose_data = pose_to_pose_data(pose, subjects=subjects)
 
     write_kwargs: dict = {"per_identity_files": per_identity}
     if session_description is not None:

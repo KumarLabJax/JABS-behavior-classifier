@@ -1,5 +1,7 @@
 """NWB adapter for PoseData using ndx-pose."""
 
+from __future__ import annotations
+
 import datetime
 import json
 import logging
@@ -9,9 +11,15 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
-from pynwb import NWBHDF5IO, NWBFile, TimeSeries
-from pynwb.core import ScratchData
+
+try:
+    from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
+    from pynwb import NWBHDF5IO, NWBFile, TimeSeries
+    from pynwb.core import ScratchData
+
+    _NWB_AVAILABLE = True
+except ImportError:
+    _NWB_AVAILABLE = False
 
 from jabs.core.enums import StorageFormat
 from jabs.core.types import PoseData
@@ -23,7 +31,7 @@ logger = logging.getLogger(__name__)
 _JABS_NWB_FORMAT_VERSION = 1
 _JABS_METADATA_KEY = "jabs_metadata"
 _IDENTITY_MASK_KEY = "jabs_identity_mask"
-_BOUNDING_BOXES_KEY = "jabs_bounding_boxes"
+_BOUNDING_BOXES_PREFIX = "jabs_bounding_boxes"
 _PROCESSING_MODULE_NAME = "behavior"
 _PROCESSING_MODULE_DESC = "JABS pose estimation data"
 _SKELETON_NAME = "subject"
@@ -31,9 +39,27 @@ _REFERENCE_FRAME = "Top-left corner of video frame, x increases rightward, y inc
 _CONFIDENCE_DEFINITION = "0.0=invalid/missing keypoint, >0.0=valid keypoint"
 
 
+def _bounding_box_key(identity_name: str) -> str:
+    """Return the TimeSeries name for bounding boxes of a given identity."""
+    return f"{_BOUNDING_BOXES_PREFIX}_{identity_name}"
+
+
 @register_adapter(StorageFormat.NWB, PoseData, priority=10)
 class PoseNWBAdapter(Adapter):
     """NWB adapter for PoseData."""
+
+    def __init__(self) -> None:
+        """Initialize the adapter, raising ImportError if NWB deps are not installed."""
+        self._require_nwb()
+
+    @staticmethod
+    def _require_nwb() -> None:
+        """Raise a clear ImportError if pynwb / ndx-pose are not installed."""
+        if not _NWB_AVAILABLE:
+            raise ImportError(
+                "pynwb and ndx-pose are required for NWB format support. "
+                "Install with: pip install 'jabs-io[nwb]'"
+            )
 
     @classmethod
     def can_handle(cls, data_type):  # noqa: D102
@@ -79,8 +105,8 @@ class PoseNWBAdapter(Adapter):
                 <keypoint>/           ← one PoseEstimationSeries per keypoint
               <obj_name>/             ← one PoseEstimation per static object
                 <obj_name>_0/         ← one PoseEstimationSeries per point
-              jabs_identity_mask      ← TimeSeries, uint8 presence mask
-              jabs_bounding_boxes     ← TimeSeries, optional (num_frames, …, 2, 2)
+              jabs_identity_mask              ← TimeSeries, uint8 presence mask
+              jabs_bounding_boxes_<identity>  ← TimeSeries per identity, optional (num_frames, 2, 2)
             scratch/
               jabs_metadata           ← JSON: format_version, cm_per_pixel,
                                         identity_names, body_parts, metadata, …
@@ -207,16 +233,15 @@ class PoseNWBAdapter(Adapter):
         )
 
         if data.bounding_boxes is not None:
-            behavior.add(
-                TimeSeries(
-                    name=_BOUNDING_BOXES_KEY,
-                    data=np.transpose(
-                        data.bounding_boxes, (1, 0, 2, 3)
-                    ),  # (num_frames, num_identities, 2, 2)
-                    unit="pixels",
-                    rate=float(data.fps),
+            for i, name in enumerate(identity_names):
+                behavior.add(
+                    TimeSeries(
+                        name=_bounding_box_key(name),
+                        data=data.bounding_boxes[i],  # (num_frames, 2, 2)
+                        unit="pixels",
+                        rate=float(data.fps),
+                    )
                 )
-            )
 
         jabs_meta = self._build_jabs_metadata(data, identity_names)
         nwbfile.add_scratch(
@@ -282,8 +307,8 @@ class PoseNWBAdapter(Adapter):
             if data.bounding_boxes is not None:
                 behavior.add(
                     TimeSeries(
-                        name=_BOUNDING_BOXES_KEY,
-                        data=data.bounding_boxes[i],
+                        name=_bounding_box_key(identity_name),
+                        data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
                         rate=float(data.fps),
                     )
@@ -400,28 +425,24 @@ class PoseNWBAdapter(Adapter):
             else:
                 identity_mask = identity_mask.T  # (num_identities, num_frames)
 
-            # Bounding boxes
-            # Per-identity files store (num_frames, 2, 2); single files store (num_frames, num_identities, 2, 2).
-            # Both need to be returned as (num_identities, num_frames, 2, 2).
+            # Bounding boxes — one TimeSeries per identity, each (num_frames, 2, 2).
+            # Stack to (num_identities, num_frames, 2, 2). Present only if all identity
+            # containers exist (bounding boxes are all-or-nothing in PoseData).
             bounding_boxes = None
-            if _BOUNDING_BOXES_KEY in behavior.data_interfaces:
-                bb_ts = behavior[_BOUNDING_BOXES_KEY]
-                bounding_boxes = np.array(bb_ts.data[:])
-                if bounding_boxes.ndim == 3:
-                    bounding_boxes = bounding_boxes[np.newaxis, :]  # (1, num_frames, 2, 2)
-                else:
-                    bounding_boxes = np.transpose(
-                        bounding_boxes, (1, 0, 2, 3)
-                    )  # (num_identities, num_frames, 2, 2)
+            bb_keys = [_bounding_box_key(name) for name in ordered_names]
+            if all(k in behavior.data_interfaces for k in bb_keys):
+                bounding_boxes = np.stack(
+                    [np.array(behavior[k].data[:]) for k in bb_keys], axis=0
+                )  # (num_identities, num_frames, 2, 2)
 
             # Recover JABS-specific fields
             cm_per_pixel = jabs_meta.get("cm_per_pixel")
-            # Per-identity files store the full external_ids list, but this
-            # intermediate PoseData holds only one identity. Pass None here and
-            # recover the full list from jabs_meta in _read_merged.
-            external_ids = (
-                None if jabs_meta.get("per_identity_files") else jabs_meta.get("external_ids")
-            )
+            # Per-identity files store the full external_ids and subjects dicts, but
+            # this intermediate PoseData holds only one identity. Pass None here and
+            # recover the full values from jabs_meta in _read_merged.
+            per_id = jabs_meta.get("per_identity_files", False)
+            external_ids = None if per_id else jabs_meta.get("external_ids")
+            subjects = None if per_id else jabs_meta.get("subjects")
             metadata = jabs_meta.get("metadata", {})
 
             # Read static objects from NWB-native PoseEstimation containers.
@@ -439,6 +460,7 @@ class PoseNWBAdapter(Adapter):
             bounding_boxes=bounding_boxes,
             static_objects=static_objects,
             external_ids=external_ids,
+            subjects=subjects,
             metadata=metadata,
         )
         return pose_data, jabs_meta
@@ -493,9 +515,11 @@ class PoseNWBAdapter(Adapter):
         if all(pd.bounding_boxes is not None for pd in pose_datas):
             bounding_boxes = np.concatenate([pd.bounding_boxes for pd in pose_datas], axis=0)
 
-        # Recover external_ids from jabs_meta of the first file; each per-identity
-        # file stores the full original list, so any file's meta will do.
-        external_ids = parts[0][2].get("external_ids")
+        # Recover external_ids and subjects from jabs_meta of the first file;
+        # each per-identity file stores the full original values, so any file's meta will do.
+        first_meta = parts[0][2]
+        external_ids = first_meta.get("external_ids")
+        subjects = first_meta.get("subjects")
 
         return PoseData(
             points=points,
@@ -508,6 +532,7 @@ class PoseNWBAdapter(Adapter):
             bounding_boxes=bounding_boxes,
             static_objects=ref.static_objects,
             external_ids=external_ids,
+            subjects=subjects,
             metadata=ref.metadata,
         )
 
@@ -681,6 +706,7 @@ class PoseNWBAdapter(Adapter):
             "identity_names": identity_names,
             "num_identities": data.points.shape[0],
             "body_parts": data.body_parts,
+            "subjects": data.subjects,
             "metadata": data.metadata,
         }
         meta.update(extra)
