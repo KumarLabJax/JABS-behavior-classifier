@@ -47,6 +47,7 @@ class PoseData:
             Format is [[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]].
         segmentation_data: Optional segmentation masks or data.
         static_objects: Dictionary of static objects (e.g., 'lixit') and their positions.
+        dynamic_objects: Dictionary of dynamic objects (e.g., 'fecal_boli') and their data.
         external_ids: Optional list of external identifiers for each identity.
             Maps an identity index to an external ID string.
         subjects: Optional per-animal biological metadata, keyed by identity name
