@@ -70,6 +70,11 @@ def pose_to_pose_data(
     static_objects = getattr(pose, "static_objects", {})
     external_ids = getattr(pose, "external_identities", None)
 
+    per_identity_boxes = [pose.get_bounding_boxes(i) for i in pose.identities]
+    bounding_boxes: np.ndarray | None = None
+    if all(b is not None for b in per_identity_boxes):
+        bounding_boxes = np.stack(per_identity_boxes, axis=0)  # (num_identities, num_frames, 2, 2)
+
     file_hash = getattr(pose, "hash", None)
     metadata: dict = {
         "source_file": str(pose.pose_file),
@@ -86,6 +91,7 @@ def pose_to_pose_data(
         edges=edges,
         fps=pose.fps,
         cm_per_pixel=cm_per_pixel,
+        bounding_boxes=bounding_boxes,
         static_objects=static_objects,
         external_ids=external_ids,
         subjects=subjects,

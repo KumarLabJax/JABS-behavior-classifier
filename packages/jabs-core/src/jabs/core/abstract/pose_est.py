@@ -443,3 +443,11 @@ class PoseEstimation(ABC):
             return None
         filename = self._path.name.replace(".h5", "_cache.h5")
         return self._cache_dir / filename
+
+    def get_bounding_boxes(self, identity: int) -> np.ndarray | None:
+        """Get bounding box array for an identity index.
+
+        Default implementation returns None, indicating no bounding box data.
+        Bounding boxes are not available in pose file versions <8, this is included for interface consistency.
+        """
+        return None
