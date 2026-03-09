@@ -374,7 +374,6 @@ class PoseNWBAdapter(Adapter):
             identity_names_set = set(identity_names)
             dynamic_object_names = jabs_meta.get("dynamic_object_names", [])
             dynamic_object_shapes = jabs_meta.get("dynamic_object_shapes", {})
-            dynamic_names_set = set(dynamic_object_names)
             pe_containers = {
                 name: obj
                 for name, obj in behavior.data_interfaces.items()
@@ -477,10 +476,8 @@ class PoseNWBAdapter(Adapter):
             )
 
             # Read static objects from NWB-native PoseEstimation containers.
-            # Exclude both identity names and dynamic object names.
-            static_objects = self._read_static_objects(
-                pe_containers, identity_names_set | dynamic_names_set
-            )
+            static_object_names = jabs_meta.get("static_object_names", [])
+            static_objects = self._read_static_objects(pe_containers, static_object_names)
 
         pose_data = PoseData(
             points=points,
@@ -823,31 +820,31 @@ class PoseNWBAdapter(Adapter):
     @staticmethod
     def _read_static_objects(
         pe_containers: dict[str, PoseEstimation],
-        excluded_names: set[str],
+        static_names: list[str],
     ) -> dict[str, npt.NDArray[np.float64]]:
-        """Reconstruct static_objects from non-identity PoseEstimation containers.
+        """Reconstruct static_objects from PoseEstimation containers.
 
         Args:
             pe_containers: All PoseEstimation containers from the behavior module.
-            excluded_names: Set of container names to exclude (identities and dynamic objects).
+            static_names: Ordered list of static object container names from
+                ``jabs_metadata``.
 
         Returns:
             Mapping of static object name to (N, 2) float64 array.
         """
         static_objects: dict[str, npt.NDArray[np.float64]] = {}
-        for name, pe in pe_containers.items():
-            if name in excluded_names:
+        for name in static_names:
+            if name not in pe_containers:
+                logger.warning("Static object %r listed in metadata but not found in file", name)
                 continue
-            # Sort series by numeric suffix to restore original point order.
             series_items = sorted(
-                pe.pose_estimation_series.items(),
+                pe_containers[name].pose_estimation_series.items(),
                 key=lambda kv: int(kv[0].rsplit("_", 1)[-1]),
             )
-            pts = np.array(
+            static_objects[name] = np.array(
                 [np.array(series.data[0]) for _, series in series_items],
                 dtype=np.float64,
             )  # shape (N, 2)
-            static_objects[name] = pts
         return static_objects
 
     @staticmethod
@@ -866,6 +863,8 @@ class PoseNWBAdapter(Adapter):
             "subjects": data.subjects,
             "metadata": data.metadata,
         }
+        if data.static_objects:
+            meta["static_object_names"] = list(data.static_objects.keys())
         if data.dynamic_objects:
             meta["dynamic_object_names"] = list(data.dynamic_objects.keys())
             meta["dynamic_object_shapes"] = {

@@ -293,13 +293,13 @@ def test_static_objects_nwb_structure(tmp_path, adapter):
         assert "lixit_0" in lixit_pe.pose_estimation_series
 
 
-def test_static_objects_not_in_jabs_metadata_json(tmp_path, adapter):
-    """Static objects are no longer stored in the JSON scratch blob."""
+def test_static_object_names_in_jabs_metadata_json(tmp_path, adapter):
+    """static_object_names is written to jabs_metadata when static objects are present."""
     import json
 
     from pynwb import NWBHDF5IO
 
-    path = tmp_path / "pose_no_json_static.nwb"
+    path = tmp_path / "pose_json_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
     adapter.write(data, path)
@@ -307,7 +307,8 @@ def test_static_objects_not_in_jabs_metadata_json(tmp_path, adapter):
     with NWBHDF5IO(str(path), "r") as io:
         nwb = io.read()
         jabs_meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
-        assert "static_objects" not in jabs_meta
+        assert "static_object_names" in jabs_meta
+        assert jabs_meta["static_object_names"] == ["lixit"]
 
 
 def test_empty_static_objects(tmp_path, adapter):
