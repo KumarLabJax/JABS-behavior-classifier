@@ -22,6 +22,7 @@ class MessageType(Enum):
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
+    QUESTION = "question"
 
 
 class MessageDialog(QDialog):
@@ -45,7 +46,7 @@ class MessageDialog(QDialog):
             message: The main message to display
             title: Dialog window title (default: determined by message_type)
             details: Optional detailed information (e.g., stack trace) that can be expanded
-            message_type: Type of message (ERROR, WARNING, or INFO)
+            message_type: Type of message (ERROR, WARNING, INFO, or QUESTION)
             parent: Parent widget
         """
         super().__init__(parent)
@@ -59,6 +60,8 @@ class MessageDialog(QDialog):
                     title = "Warning"
                 case MessageType.INFO:
                     title = "Information"
+                case MessageType.QUESTION:
+                    title = "Confirm"
                 case _:
                     title = "Message"
 
@@ -171,10 +174,20 @@ class MessageDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(self.accept)
-        close_button.setDefault(True)
-        button_layout.addWidget(close_button)
+        if message_type == MessageType.QUESTION:
+            no_button = QPushButton("No")
+            no_button.clicked.connect(self.reject)
+            no_button.setDefault(True)
+            button_layout.addWidget(no_button)
+
+            yes_button = QPushButton("Yes")
+            yes_button.clicked.connect(self.accept)
+            button_layout.addWidget(yes_button)
+        else:
+            close_button = QPushButton("Close")
+            close_button.clicked.connect(self.accept)
+            close_button.setDefault(True)
+            button_layout.addWidget(close_button)
 
         main_layout.addLayout(button_layout)
 
@@ -214,6 +227,7 @@ class MessageDialog(QDialog):
             MessageType.ERROR: "❌",
             MessageType.WARNING: "⚠️",
             MessageType.INFO: "ℹ️",  # noqa: RUF001
+            MessageType.QUESTION: "❓",
         }
         return fallback_map.get(self._message_type, "❌")
 
@@ -234,6 +248,34 @@ class MessageDialog(QDialog):
 
         # Adjust dialog size
         self.adjustSize()
+
+    @classmethod
+    def question(
+        cls,
+        parent,
+        title: str | None = None,
+        message: str = "",
+        details: str | None = None,
+    ) -> bool:
+        """Show a Yes/No confirmation dialog.
+
+        Args:
+            parent: Parent widget
+            title: Dialog window title (default: "Confirm")
+            message: The question to display
+            details: Optional additional context
+
+        Returns:
+            True if Yes was clicked, False if No or the dialog was closed.
+        """
+        dialog = cls(
+            message=message,
+            title=title,
+            details=details,
+            message_type=MessageType.QUESTION,
+            parent=parent,
+        )
+        return dialog.exec() == QDialog.DialogCode.Accepted
 
     @classmethod
     def error(

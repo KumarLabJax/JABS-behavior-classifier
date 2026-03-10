@@ -1,4 +1,5 @@
 import logging
+import traceback
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -331,7 +332,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
-        QtWidgets.QMessageBox.critical(self, "Error loading project", str(error))
+        MessageDialog.error(
+            self,
+            title="Error loading project",
+            message=str(error),
+            details="".join(traceback.format_exception(error)),
+        )
 
     def show_license_dialog(self) -> QtWidgets.QDialog.DialogCode:
         """prompt the user to accept the license agreement if they haven't already"""

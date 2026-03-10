@@ -181,12 +181,10 @@ class MenuHandlers:
         if not dont_use_native_dialogs:
             app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
 
-        result = QtWidgets.QMessageBox.warning(
+        result = MessageDialog.question(
             self.window,
-            "Clear Cache",
-            "Are you sure you want to clear the project cache?",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-            QtWidgets.QMessageBox.StandardButton.No,
+            title="Clear Cache",
+            message="Are you sure you want to clear the project cache?",
         )
 
         # restore the original setting
@@ -195,7 +193,7 @@ class MenuHandlers:
                 Qt.ApplicationAttribute.AA_DontUseNativeDialogs, dont_use_native_dialogs
             )
 
-        if result == QtWidgets.QMessageBox.StandardButton.Yes:
+        if result:
             self.window._project.clear_cache()
             # need to reload the current video to force the pose file to reload
             if self.window._central_widget.loaded_video:
@@ -553,14 +551,12 @@ class MenuHandlers:
                 send_file_to_recycle_bin(file)
             except Exception as e:
                 # If we can't send to recycle bin, ask user if they want to permanently delete
-                reply = QtWidgets.QMessageBox.question(
+                reply = MessageDialog.question(
                     self.window,
-                    "Unable to Move to Recycle Bin",
-                    f"Unable to move {file.name} to recycle bin.\n\n"
+                    title="Unable to Move to Recycle Bin",
+                    message=f"Unable to move {file.name} to recycle bin.\n\n"
                     f"Error: {e}\n\n"
                     "Would you like to permanently delete this file instead?",
-                    QtWidgets.QMessageBox.StandardButton.Yes
-                    | QtWidgets.QMessageBox.StandardButton.No,
                 )
-                if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+                if reply:
                     file.unlink()
