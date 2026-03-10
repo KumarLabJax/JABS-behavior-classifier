@@ -66,6 +66,8 @@ class BoundingBoxOverlay(Overlay):
         # we use methods available only in PoseEstimationV8 and later
         # cast the base PoseEstimation to PoseEstimationV8 to avoid IDE warnings about undefined methods
         pose = cast(PoseEstimationV8, self.parent.pose)
+
+        # no need to proceed if there are no bounding boxes to draw
         if not pose.has_bounding_boxes:
             return
 

@@ -10,6 +10,7 @@ authors = [
   { name = "Glen Beane" },
   { name = "Brian Geuther" },
   { name = "Keith Sheppard" },
+  { name = "Alexander Berger-Liedtka" },
 ]
 
 dependencies = [

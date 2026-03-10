@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from ndx_pose import PoseEstimation
 
-from jabs.core.types import PoseData
+from jabs.core.types import DynamicObjectData, PoseData
 from jabs.io.internal.pose.nwb import PoseNWBAdapter
 
 
@@ -24,6 +24,8 @@ def _make_pose_data(
     with_bounding_boxes=False,
     with_static_objects=True,
     with_metadata=True,
+    with_subjects=False,
+    with_dynamic_objects=False,
     edges=None,
 ):
     rng = np.random.default_rng(42)
@@ -40,6 +42,24 @@ def _make_pose_data(
     if edges is None:
         edges = [(0, 1), (1, 2)]
 
+    names = external_ids or [f"subject_{i}" for i in range(num_identities)]
+    subjects = {name: {"sex": "M", "genotype": "WT"} for name in names} if with_subjects else None
+
+    if with_dynamic_objects:
+        dyn_rng = np.random.default_rng(42)
+        points_dyn = dyn_rng.random((5, 2, 1, 2)) * 100
+        counts_dyn = np.array([2, 1, 0, 2, 1], dtype=np.int64)
+        sample_indices_dyn = np.array([10, 25, 40, 60, 80], dtype=np.int64)
+        dynamic_objects: dict[str, DynamicObjectData] = {
+            "fecal_boli": DynamicObjectData(
+                points=points_dyn,
+                counts=counts_dyn,
+                sample_indices=sample_indices_dyn,
+            )
+        }
+    else:
+        dynamic_objects = {}
+
     return PoseData(
         points=points,
         point_mask=point_mask,
@@ -50,7 +70,9 @@ def _make_pose_data(
         cm_per_pixel=cm_per_pixel,
         bounding_boxes=bounding_boxes,
         static_objects=static_objects,
+        dynamic_objects=dynamic_objects,
         external_ids=external_ids,
+        subjects=subjects,
         metadata=metadata,
     )
 
@@ -65,10 +87,20 @@ def _assert_pose_data_equal(a: PoseData, b: PoseData):
     assert a.fps == b.fps
     assert a.cm_per_pixel == b.cm_per_pixel
     assert a.external_ids == b.external_ids
+    assert a.subjects == b.subjects
     assert a.metadata == b.metadata
     assert a.static_objects.keys() == b.static_objects.keys()
     for key in a.static_objects:
         np.testing.assert_allclose(a.static_objects[key], b.static_objects[key])
+    assert set(a.dynamic_objects.keys()) == set(b.dynamic_objects.keys())
+    for key in a.dynamic_objects:
+        np.testing.assert_allclose(
+            a.dynamic_objects[key].points, b.dynamic_objects[key].points, atol=1e-10
+        )
+        np.testing.assert_array_equal(a.dynamic_objects[key].counts, b.dynamic_objects[key].counts)
+        np.testing.assert_array_equal(
+            a.dynamic_objects[key].sample_indices, b.dynamic_objects[key].sample_indices
+        )
     if a.bounding_boxes is None:
         assert b.bounding_boxes is None
     else:
@@ -84,6 +116,17 @@ def test_roundtrip_single_file(tmp_path, adapter):
     """Write multi-identity PoseData to one file, read back, assert equality."""
     path = tmp_path / "pose.nwb"
     data = _make_pose_data()
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_roundtrip_with_subjects(tmp_path, adapter):
+    """subjects metadata survives roundtrip and is caught by _assert_pose_data_equal."""
+    path = tmp_path / "pose_subjects.nwb"
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"], with_subjects=True)
 
     adapter.write(data, path)
     loaded = adapter.read(path)
@@ -250,13 +293,13 @@ def test_static_objects_nwb_structure(tmp_path, adapter):
         assert "lixit_0" in lixit_pe.pose_estimation_series
 
 
-def test_static_objects_not_in_jabs_metadata_json(tmp_path, adapter):
-    """Static objects are no longer stored in the JSON scratch blob."""
+def test_static_object_names_in_jabs_metadata_json(tmp_path, adapter):
+    """static_object_names is written to jabs_metadata when static objects are present."""
     import json
 
     from pynwb import NWBHDF5IO
 
-    path = tmp_path / "pose_no_json_static.nwb"
+    path = tmp_path / "pose_json_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
     adapter.write(data, path)
@@ -264,7 +307,8 @@ def test_static_objects_not_in_jabs_metadata_json(tmp_path, adapter):
     with NWBHDF5IO(str(path), "r") as io:
         nwb = io.read()
         jabs_meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
-        assert "static_objects" not in jabs_meta
+        assert "static_object_names" in jabs_meta
+        assert jabs_meta["static_object_names"] == ["lixit"]
 
 
 def test_empty_static_objects(tmp_path, adapter):
@@ -304,6 +348,98 @@ def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
     assert "bad_obj" in caplog.text
     loaded = adapter.read(path)
     assert "bad_obj" not in loaded.static_objects
+
+
+def test_subjects_roundtrip(tmp_path, adapter):
+    """Per-animal subjects metadata survives a single-file roundtrip."""
+    import json
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_subjects.nwb"
+    subjects = {
+        "mouse_a": {"sex": "M", "genotype": "WT", "strain": "C57BL/6", "age": "P60"},
+        "mouse_b": {"sex": "F", "genotype": "KO", "strain": "C57BL/6", "age": "P60"},
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{
+            **{f: getattr(data, f) for f in data.__dataclass_fields__},
+            "subjects": subjects,
+        }
+    )
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.subjects == subjects
+
+    # Verify it's in the jabs_metadata JSON
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert meta["subjects"] == subjects
+
+
+def test_subjects_none_roundtrip(tmp_path, adapter):
+    """subjects=None reads back as None."""
+    path = tmp_path / "pose_no_subjects.nwb"
+    data = _make_pose_data()
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.subjects is None
+
+
+def test_subjects_per_identity_roundtrip(tmp_path, adapter):
+    """Per-animal subjects metadata survives a per-identity file roundtrip."""
+    path = tmp_path / "pose.nwb"
+    subjects = {
+        "mouse_a": {"sex": "M", "genotype": "WT"},
+        "mouse_b": {"sex": "F", "genotype": "KO"},
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{
+            **{f: getattr(data, f) for f in data.__dataclass_fields__},
+            "subjects": subjects,
+        }
+    )
+
+    adapter.write(data, path, per_identity_files=True)
+    loaded = adapter.read(tmp_path / "pose_mouse_a.nwb")
+
+    assert loaded.subjects == subjects
+
+
+def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
+    """Bounding boxes are stored as one TimeSeries per identity, not a single combined array."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_bb_struct.nwb"
+    data = _make_pose_data(
+        num_identities=2,
+        num_frames=10,
+        external_ids=["mouse_a", "mouse_b"],
+        with_bounding_boxes=True,
+    )
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+
+        assert "jabs_bounding_boxes_mouse_a" in behavior.data_interfaces
+        assert "jabs_bounding_boxes_mouse_b" in behavior.data_interfaces
+        # The old combined key must not be present
+        assert "jabs_bounding_boxes" not in behavior.data_interfaces
+
+        bb_a = behavior["jabs_bounding_boxes_mouse_a"]
+        bb_b = behavior["jabs_bounding_boxes_mouse_b"]
+        assert np.array(bb_a.data[:]).shape == (10, 2, 2)
+        assert np.array(bb_b.data[:]).shape == (10, 2, 2)
 
 
 def test_edges_roundtrip(tmp_path, adapter):
@@ -485,3 +621,121 @@ def test_write_raises_on_collision_after_sanitization(tmp_path, adapter):
 
     with pytest.raises(ValueError, match="not unique after sanitization"):
         adapter.write(data, path)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic objects
+# ---------------------------------------------------------------------------
+
+
+def test_dynamic_objects_roundtrip(tmp_path, adapter):
+    """Dynamic objects survive a single-file roundtrip."""
+    path = tmp_path / "pose_dyn.nwb"
+    data = _make_pose_data(with_dynamic_objects=True)
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_dynamic_objects_per_identity_roundtrip(tmp_path, adapter):
+    """Dynamic objects survive a per-identity file roundtrip."""
+    path = tmp_path / "pose.nwb"
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"], with_dynamic_objects=True)
+
+    adapter.write(data, path, per_identity_files=True)
+    loaded = adapter.read(tmp_path / "pose_mouse_a.nwb")
+
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_dynamic_objects_nwb_structure(tmp_path, adapter):
+    """Dynamic objects are stored as PoseEstimation + Skeleton in the behavior module."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_dyn_struct.nwb"
+    data = _make_pose_data(with_dynamic_objects=True)
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+
+        # fecal_boli should be a PoseEstimation container
+        assert "fecal_boli" in behavior.data_interfaces
+        assert isinstance(behavior.data_interfaces["fecal_boli"], PoseEstimation)
+
+        # The Skeletons container should include a fecal_boli skeleton
+        skeletons_obj = behavior.data_interfaces["Skeletons"]
+        assert "fecal_boli" in skeletons_obj.skeletons
+
+        # Single-keypoint, 2 slots → series named fecal_boli_0 and fecal_boli_1
+        fb_pe = behavior.data_interfaces["fecal_boli"]
+        assert "fecal_boli_0" in fb_pe.pose_estimation_series
+        assert "fecal_boli_1" in fb_pe.pose_estimation_series
+
+
+def test_dynamic_objects_empty(tmp_path, adapter):
+    """Empty dynamic_objects writes no extra containers and reads back as empty dict."""
+    import json
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_no_dyn.nwb"
+    data = _make_pose_data(with_dynamic_objects=False)
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.dynamic_objects == {}
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert "dynamic_object_names" not in meta
+        assert "dynamic_object_shapes" not in meta
+
+
+def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
+    """Multi-keypoint dynamic objects use {name}_{slot}_{kp} node naming and roundtrip."""
+    path = tmp_path / "pose_dyn_multi.nwb"
+    rng = np.random.default_rng(7)
+    # foo: 2 instances, 2 keypoints each → shape (4, 2, 2, 2)
+    points_foo = rng.random((4, 2, 2, 2)) * 200
+    counts_foo = np.array([2, 1, 2, 0], dtype=np.int64)
+    sample_indices_foo = np.array([5, 15, 30, 50], dtype=np.int64)
+    dyn_obj = DynamicObjectData(
+        points=points_foo, counts=counts_foo, sample_indices=sample_indices_foo
+    )
+    base = _make_pose_data(with_dynamic_objects=False)
+    data = PoseData(
+        points=base.points,
+        point_mask=base.point_mask,
+        identity_mask=base.identity_mask,
+        body_parts=base.body_parts,
+        edges=base.edges,
+        fps=base.fps,
+        cm_per_pixel=base.cm_per_pixel,
+        dynamic_objects={"foo": dyn_obj},
+        metadata=base.metadata,
+    )
+
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert "foo" in loaded.dynamic_objects
+    foo = loaded.dynamic_objects["foo"]
+    np.testing.assert_allclose(foo.points, points_foo, atol=1e-10)
+    np.testing.assert_array_equal(foo.counts, counts_foo)
+    np.testing.assert_array_equal(foo.sample_indices, sample_indices_foo)
+
+    from pynwb import NWBHDF5IO
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        foo_pe = nwb.processing["behavior"]["foo"]
+        # 2 slots * 2 keypoints -> 4 series
+        expected_names = {"foo_0_0", "foo_0_1", "foo_1_0", "foo_1_1"}
+        assert set(foo_pe.pose_estimation_series.keys()) == expected_names

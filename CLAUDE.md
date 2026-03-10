@@ -151,6 +151,7 @@ cache invalidation logic (version mismatch, pose hash, distance scale).
 - `__init__.py` files: unused imports (F401) are allowed
 - **Naming**: `PascalCase` classes, `snake_case` functions/methods/files,
   `UPPER_SNAKE_CASE` constants, `_` prefix for private members
+- Prefer American English spelling (e.g., "behavior" not "behaviour").
 
 ## Coding Standards
 
