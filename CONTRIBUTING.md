@@ -109,7 +109,7 @@ For detailed information about JABS architecture, development setup, and impleme
 
 - **General questions**: Open an issue on GitHub
 - **Security issues**: Email jabs@jax.org (do not open public issues)
-- **Development questions**: See [DEVELOPMENT.md](docs/DEVELOPMENT.md) or contact jabs@jax.org
+- **Development questions**: See [DEVELOPMENT.md](docs/development/DEVELOPMENT.md) or contact jabs@jax.org
 
 ## Code of Conduct
 
