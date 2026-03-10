@@ -22,7 +22,7 @@ class MessageType(Enum):
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
-    QUESTION = "question"
+    CONFIRM = "confirm"
 
 
 class MessageDialog(QDialog):
@@ -60,7 +60,7 @@ class MessageDialog(QDialog):
                     title = "Warning"
                 case MessageType.INFO:
                     title = "Information"
-                case MessageType.QUESTION:
+                case MessageType.CONFIRM:
                     title = "Confirm"
                 case _:
                     title = "Message"
@@ -174,7 +174,7 @@ class MessageDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        if message_type == MessageType.QUESTION:
+        if message_type == MessageType.CONFIRM:
             no_button = QPushButton("No")
             no_button.clicked.connect(self.reject)
             no_button.setDefault(True)
@@ -227,7 +227,7 @@ class MessageDialog(QDialog):
             MessageType.ERROR: "❌",
             MessageType.WARNING: "⚠️",
             MessageType.INFO: "ℹ️",  # noqa: RUF001
-            MessageType.QUESTION: "❓",
+            MessageType.CONFIRM: "❓",
         }
         return fallback_map.get(self._message_type, "❌")
 
@@ -250,7 +250,7 @@ class MessageDialog(QDialog):
         self.adjustSize()
 
     @classmethod
-    def question(
+    def confirm(
         cls,
         parent,
         title: str | None = None,
@@ -272,7 +272,7 @@ class MessageDialog(QDialog):
             message=message,
             title=title,
             details=details,
-            message_type=MessageType.QUESTION,
+            message_type=MessageType.CONFIRM,
             parent=parent,
         )
         return dialog.exec() == QDialog.DialogCode.Accepted
