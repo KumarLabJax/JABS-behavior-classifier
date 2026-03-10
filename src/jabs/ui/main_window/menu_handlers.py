@@ -171,28 +171,11 @@ class MenuHandlers:
 
     def clear_cache(self) -> None:
         """Clear the project's feature cache after user confirmation."""
-        app = QtWidgets.QApplication.instance()
-        dont_use_native_dialogs = app.testAttribute(
-            Qt.ApplicationAttribute.AA_DontUseNativeDialogs
-        )
-
-        # if app is currently set to use native dialogs, we will temporarily set it to use Qt dialogs
-        # the native style, at least on macOS, is not ideal so we'll force the Qt dialog instead
-        if not dont_use_native_dialogs:
-            app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
-
-        result = MessageDialog.question(
+        result = MessageDialog.confirm(
             self.window,
             title="Clear Cache",
             message="Are you sure you want to clear the project cache?",
         )
-
-        # restore the original setting
-        if not dont_use_native_dialogs:
-            app.setAttribute(
-                Qt.ApplicationAttribute.AA_DontUseNativeDialogs, dont_use_native_dialogs
-            )
-
         if result:
             self.window._project.clear_cache()
             # need to reload the current video to force the pose file to reload
@@ -551,7 +534,7 @@ class MenuHandlers:
                 send_file_to_recycle_bin(file)
             except Exception as e:
                 # If we can't send to recycle bin, ask user if they want to permanently delete
-                reply = MessageDialog.question(
+                reply = MessageDialog.confirm(
                     self.window,
                     title="Unable to Move to Recycle Bin",
                     message=f"Unable to move {file.name} to recycle bin.\n\n"
