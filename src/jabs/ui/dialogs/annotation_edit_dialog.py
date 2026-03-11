@@ -326,7 +326,7 @@ class AnnotationEditDialog(QDialog):
         Parent code should connect to `annotation_deleted` and remove the interval(s)
         from the appropriate IntervalTree in the VideoLabels object.
         """
-        reply = MessageDialog.question(
+        reply = MessageDialog.confirm(
             self,
             title="Delete annotation?",
             message="Are you sure you want to delete this annotation? This cannot be undone.",
