@@ -1,5 +1,6 @@
 """Convert a JABS pose estimation file (any version) to NWB format."""
 
+import datetime
 import logging
 from pathlib import Path
 
@@ -99,12 +100,55 @@ def pose_to_pose_data(
     )
 
 
+_SESSION_METADATA_FIELDS = frozenset(
+    {
+        "session_start_time",
+        "experimenter",
+        "lab",
+        "institution",
+        "experiment_description",
+        "session_id",
+    }
+)
+
+
+def _parse_session_start_time(value: str) -> datetime.datetime:
+    """Parse an ISO 8601 datetime string into a timezone-aware datetime.
+
+    Accepts any offset-aware ISO 8601 string.  The trailing ``Z`` shorthand
+    for UTC is normalized to ``+00:00`` for Python 3.10 compatibility.  If the
+    string carries no timezone offset, UTC is assumed and a warning is logged.
+
+    Args:
+        value: ISO 8601 datetime string, e.g. ``"2024-03-15T10:30:00-05:00"``
+            or ``"2024-03-15T10:30:00Z"``.
+
+    Returns:
+        A timezone-aware :class:`datetime.datetime` object.
+
+    Raises:
+        ValueError: If the string cannot be parsed as an ISO 8601 datetime.
+    """
+    normalized = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.datetime.fromisoformat(normalized)
+    except ValueError as e:
+        raise ValueError(
+            f"session_start_time {value!r} is not a valid ISO 8601 datetime: {e}"
+        ) from e
+    if dt.tzinfo is None:
+        logger.warning("session_start_time %r has no timezone; assuming UTC", value)
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+
 def run_conversion(
     input_path: Path,
     output_path: Path,
     per_identity: bool = False,
     session_description: str | None = None,
     subjects: dict[str, dict] | None = None,
+    session_metadata: dict | None = None,
 ) -> None:
     """Convert a JABS pose HDF5 file to NWB and write to disk.
 
@@ -121,9 +165,15 @@ def run_conversion(
         subjects: Optional per-animal biological metadata dict, keyed by
             identity name.  See PoseData.subjects for the expected
             structure.
+        session_metadata: Optional dict of NWB session-level metadata.
+            Supported keys: ``session_start_time`` (ISO 8601 string),
+            ``experimenter`` (str or list[str]), ``lab``, ``institution``,
+            ``experiment_description``, ``session_id``.  Unknown keys are
+            ignored with a warning.
 
     Raises:
-        ValueError: If the input file is not a recognized JABS pose file.
+        ValueError: If the input file is not a recognized JABS pose file, or
+            if ``session_start_time`` cannot be parsed.
         FileNotFoundError: If the input file does not exist.
     """
     logger.info("Loading %s", input_path)
@@ -138,6 +188,19 @@ def run_conversion(
     write_kwargs: dict = {"per_identity_files": per_identity}
     if session_description is not None:
         write_kwargs["session_description"] = session_description
+
+    if session_metadata is not None:
+        unknown = set(session_metadata) - _SESSION_METADATA_FIELDS
+        if unknown:
+            logger.warning("Ignoring unrecognised session_metadata keys: %s", sorted(unknown))
+
+        if "session_start_time" in session_metadata:
+            write_kwargs["session_start_time"] = _parse_session_start_time(
+                session_metadata["session_start_time"]
+            )
+        for key in _SESSION_METADATA_FIELDS - {"session_start_time"}:
+            if key in session_metadata:
+                write_kwargs[key] = session_metadata[key]
 
     logger.info("Writing NWB to %s", output_path)
     save(pose_data, output_path, **write_kwargs)

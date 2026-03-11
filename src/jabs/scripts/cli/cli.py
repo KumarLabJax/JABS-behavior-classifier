@@ -369,6 +369,18 @@ def cross_validation(
         "species, description."
     ),
 )
+@click.option(
+    "--session-metadata",
+    "session_metadata_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to a JSON file containing NWB session-level metadata. "
+        "Supported keys: session_start_time (ISO 8601 string), "
+        "experimenter (string or list of strings), "
+        "lab, institution, experiment_description, session_id (strings)."
+    ),
+)
 @click.pass_context
 def convert_to_nwb(
     ctx: click.Context,
@@ -377,6 +389,7 @@ def convert_to_nwb(
     per_identity: bool,
     session_description: str | None,
     subjects_path: Path | None,
+    session_metadata_path: Path | None,
 ) -> None:
     """Convert a JABS pose estimation file to NWB format.
 
@@ -400,6 +413,10 @@ def convert_to_nwb(
     \b
         # Include per-animal metadata
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
+
+    \b
+        # Specify session start time and other session metadata
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata session.json
     """
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
@@ -407,6 +424,8 @@ def convert_to_nwb(
         click.echo(f"Per-identity: {per_identity}")
         if subjects_path:
             click.echo(f"Subjects: {subjects_path}")
+        if session_metadata_path:
+            click.echo(f"Session metadata: {session_metadata_path}")
 
     subjects: dict[str, dict] | None = None
     if subjects_path is not None:
@@ -419,6 +438,18 @@ def convert_to_nwb(
                 f"Subjects file must contain a JSON object, got {type(subjects).__name__}"
             )
 
+    session_metadata: dict | None = None
+    if session_metadata_path is not None:
+        try:
+            session_metadata = json.loads(session_metadata_path.read_text())
+        except Exception as e:
+            raise click.ClickException(f"Failed to read session metadata file: {e}") from e
+        if not isinstance(session_metadata, dict):
+            raise click.ClickException(
+                "Session metadata file must contain a JSON object, "
+                f"got {type(session_metadata).__name__}"
+            )
+
     console = Console()
     with console.status(f"Converting {input_path.name} → NWB ...", spinner="dots"):
         try:
@@ -428,6 +459,7 @@ def convert_to_nwb(
                 per_identity=per_identity,
                 session_description=session_description,
                 subjects=subjects,
+                session_metadata=session_metadata,
             )
         except Exception as e:
             raise click.ClickException(str(e)) from e

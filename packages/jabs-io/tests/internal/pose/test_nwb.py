@@ -788,3 +788,46 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
         # 2 slots * 2 keypoints -> 4 series
         expected_names = {"foo_0_0", "foo_0_1", "foo_1_0", "foo_1_1"}
         assert set(foo_pe.pose_estimation_series.keys()) == expected_names
+
+
+def test_session_start_time_written_to_nwb(tmp_path, adapter):
+    """session_start_time kwarg is written to NWBFile.session_start_time."""
+    import datetime
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_time.nwb"
+    data = _make_pose_data()
+    session_time = datetime.datetime(2024, 3, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+
+    adapter.write(data, path, session_start_time=session_time)
+
+    with NWBHDF5IO(str(path), mode="r") as io:
+        nwb = io.read()
+        assert nwb.session_start_time == session_time
+
+
+def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
+    """lab, institution, experimenter, experiment_description, session_id are forwarded."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_meta.nwb"
+    data = _make_pose_data()
+
+    adapter.write(
+        data,
+        path,
+        lab="Kumar Lab",
+        institution="The Jackson Laboratory",
+        experimenter=["Jane Smith", "John Doe"],
+        experiment_description="Open field test",
+        session_id="session_001",
+    )
+
+    with NWBHDF5IO(str(path), mode="r") as io:
+        nwb = io.read()
+        assert nwb.lab == "Kumar Lab"
+        assert nwb.institution == "The Jackson Laboratory"
+        assert list(nwb.experimenter) == ["Jane Smith", "John Doe"]
+        assert nwb.experiment_description == "Open field test"
+        assert nwb.session_id == "session_001"

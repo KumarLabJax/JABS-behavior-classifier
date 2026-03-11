@@ -581,6 +581,15 @@ class PoseNWBAdapter(Adapter):
             ),
             "identifier": str(kwargs.get("identifier", uuid.uuid4())),
         }
+        for _field in (
+            "experimenter",
+            "lab",
+            "institution",
+            "experiment_description",
+            "session_id",
+        ):
+            if kwargs.get(_field) is not None:
+                nwb_kwargs[_field] = kwargs[_field]
         if kwargs.get("subject") is not None:
             nwb_kwargs["subject"] = kwargs["subject"]
         return NWBFile(**nwb_kwargs)
