@@ -96,7 +96,7 @@ files and otherwise defaults to the time the export was run.
 
 | Key                      | Type                      | Description                                                                                                                              |
 |--------------------------|---------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `session_start_time`     | ISO 8601 string           | Recording start time. Must include a UTC offset (e.g. `-05:00` or `+00:00`). The `Z` suffix is also accepted. Defaults to export time.   |
+| `session_start_time`     | ISO 8601 string           | Recording start time. Should include a UTC offset (e.g. `-05:00`, `+00:00`, or `Z`). If no offset is provided, the time is assumed UTC and a warning is emitted. Defaults to export time. |
 | `experimenter`           | string or list of strings | Name(s) of the experimenter(s).                                                                                                          |
 | `lab`                    | string                    | Lab name.                                                                                                                                |
 | `institution`            | string                    | Institution name.                                                                                                                        |
