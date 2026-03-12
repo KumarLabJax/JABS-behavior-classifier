@@ -534,12 +534,12 @@ class MenuHandlers:
                 send_file_to_recycle_bin(file)
             except Exception as e:
                 # If we can't send to recycle bin, ask user if they want to permanently delete
-                reply = MessageDialog.confirm(
+                reply_ok = MessageDialog.confirm(
                     self.window,
                     title="Unable to Move to Recycle Bin",
                     message=f"Unable to move {file.name} to recycle bin.\n\n"
                     f"Error: {e}\n\n"
                     "Would you like to permanently delete this file instead?",
                 )
-                if reply:
+                if reply_ok:
                     file.unlink()

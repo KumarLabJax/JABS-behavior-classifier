@@ -639,11 +639,10 @@ class MainControlWidget(QtWidgets.QWidget):
 
             # select new window size
             self.set_window_size(val)
-            MessageDialog.information(
+            MessageDialog.warning(
                 self,
                 title="Window Size Added",
-                message="Window Size Added.\n"
-                "If features have not been computed for "
+                message="If features have not been computed for "
                 "this window size, they will be computed the first time a "
                 "classifier is trained using this window size.\n"
                 "This may be slow.",
