@@ -156,10 +156,10 @@ order.
 
 ### Subject metadata and `NWBFile.subject`
 
-| Mode         | `NWBFile.subject`             | `jabs_metadata.subjects`   |
-|--------------|-------------------------------|----------------------------|
-| Combined     | Not set                       | Set (all identities)       |
-| Per-identity | Set for this file's identity  | Set (all identities)       |
+| Mode         | NWBFile.subject              | jabs_metadata.subjects   |
+|--------------|------------------------------|--------------------------|
+| Combined     | Not set                      | Set (all identities)     |
+| Per-identity | Set for this file's identity | Set (all identities)     |
 
 `jabs_metadata.subjects` always carries the full dict for all identities, even in
 per-identity files. This makes each file self-contained: the JABS reader can recover
