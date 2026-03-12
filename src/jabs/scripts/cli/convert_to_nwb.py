@@ -129,7 +129,9 @@ def _parse_session_start_time(value: str) -> datetime.datetime:
     Raises:
         ValueError: If the string cannot be parsed as an ISO 8601 datetime.
     """
-    normalized = value.replace("Z", "+00:00")
+    normalized = value
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
     try:
         dt = datetime.datetime.fromisoformat(normalized)
     except ValueError as e:
