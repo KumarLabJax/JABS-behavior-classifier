@@ -12,6 +12,8 @@ from jabs.behavior_search import (
 from jabs.behavior_search.behavior_search_util import TimelineAnnotationSearchQuery
 from jabs.project import Project
 
+from .message_dialog import MessageDialog
+
 
 class _SearchMethod(IntEnum):
     """Enumeration for different search methods in the behavior search dialog."""
@@ -264,26 +266,26 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
             min_frames = min_frames if min_frames is not None else 1
             max_frames = max_frames if max_frames is not None else float("inf")
         except ValueError:
-            QtWidgets.QMessageBox.warning(
+            MessageDialog.warning(
                 self,
-                "Invalid Input",
-                "Please enter valid integers for frame count.",
+                title="Invalid Input",
+                message="Please enter valid integers for frame count.",
             )
             return False
 
         if min_frames < 1 or max_frames < 1:
-            QtWidgets.QMessageBox.warning(
+            MessageDialog.warning(
                 self,
-                "Invalid Frame Count",
-                "Frame counts must be positive integers.",
+                title="Invalid Frame Count",
+                message="Frame counts must be positive integers.",
             )
             return False
 
         if min_frames > max_frames:
-            QtWidgets.QMessageBox.warning(
+            MessageDialog.warning(
                 self,
-                "Invalid Frame Range",
-                "Minimum frame count cannot be greater than maximum frame count.",
+                title="Invalid Frame Range",
+                message="Minimum frame count cannot be greater than maximum frame count.",
             )
             return False
 
@@ -299,36 +301,36 @@ class BehaviorSearchDialog(QtWidgets.QDialog):
                         min_prob = self._text_to_maybe_float(self.prob_greater_value.text())
                         max_prob = self._text_to_maybe_float(self.prob_less_value.text())
                         if min_prob is None and max_prob is None:
-                            QtWidgets.QMessageBox.warning(
+                            MessageDialog.warning(
                                 self,
-                                "Invalid Input",
-                                "Please enter at least one probability value for the range.",
+                                title="Invalid Input",
+                                message="Please enter at least one probability value for the range.",
                             )
                             return
 
                         min_prob = min_prob if min_prob is not None else 0.0
                         max_prob = max_prob if max_prob is not None else 1.0
                     except ValueError:
-                        QtWidgets.QMessageBox.warning(
+                        MessageDialog.warning(
                             self,
-                            "Invalid Input",
-                            "Please enter valid numbers for probability range.",
+                            title="Invalid Input",
+                            message="Please enter valid numbers for probability range.",
                         )
                         return
 
                     if not (0.0 <= min_prob <= 1.0 and 0.0 <= max_prob <= 1.0):
-                        QtWidgets.QMessageBox.warning(
+                        MessageDialog.warning(
                             self,
-                            "Out of Range",
-                            "Probability values must be between 0.0 and 1.0.",
+                            title="Out of Range",
+                            message="Probability values must be between 0.0 and 1.0.",
                         )
                         return
 
                     if min_prob > max_prob:
-                        QtWidgets.QMessageBox.warning(
+                        MessageDialog.warning(
                             self,
-                            "Invalid Range",
-                            "Minimum probability cannot be greater than maximum probability.",
+                            title="Invalid Range",
+                            message="Minimum probability cannot be greater than maximum probability.",
                         )
                         return
 

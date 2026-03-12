@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QRadioButton,
     QSizePolicy,
     QToolButton,
@@ -20,6 +19,8 @@ from PySide6.QtWidgets import (
 from qt_material_icons import MaterialIcon
 
 from jabs.project import timeline_annotations
+
+from .message_dialog import MessageDialog
 
 DEFAULT_ANNOTATION_COLOR = "#6495ED"  # cornflower blue
 
@@ -325,14 +326,12 @@ class AnnotationEditDialog(QDialog):
         Parent code should connect to `annotation_deleted` and remove the interval(s)
         from the appropriate IntervalTree in the VideoLabels object.
         """
-        reply = QMessageBox.question(
+        reply = MessageDialog.confirm(
             self,
-            "Delete annotation?",
-            "Are you sure you want to delete this annotation? This cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            title="Delete annotation?",
+            message="Are you sure you want to delete this annotation? This cannot be undone.",
         )
-        if reply == QMessageBox.StandardButton.Yes:
+        if reply:
             payload = {
                 "start": self._start,
                 "end": self._end,
