@@ -18,6 +18,7 @@ from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
 from ..classification_thread import ClassifyThread
 from ..dialogs import AnnotationEditDialog, TrainingReportDialog
+from ..dialogs.message_dialog import MessageDialog
 from ..dialogs.progress_dialog import create_cancelable_progress_dialog
 from ..exceptions import ThreadTerminatedError
 from ..main_control_widget import MainControlWidget
@@ -833,8 +834,10 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._print_exception(error)
             self.status_message.emit("Training Failed", 3000)
-            QtWidgets.QMessageBox.critical(
-                self, "Error", f"An exception occurred during training:\n{error}"
+            MessageDialog.error(
+                self,
+                message=f"An exception occurred during training:\n{error}",
+                details="".join(traceback.format_exception(error)),
             )
             self._controls.classify_button_enabled = False
 
@@ -848,8 +851,10 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._print_exception(error)
             self.status_message.emit("Classification Failed", 3000)
-            QtWidgets.QMessageBox.critical(
-                self, "Error", f"An exception occurred during classification:\n{error}"
+            MessageDialog.error(
+                self,
+                message=f"An exception occurred during classification:\n{error}",
+                details="".join(traceback.format_exception(error)),
             )
 
     @staticmethod
@@ -1338,7 +1343,7 @@ class CentralWidget(QtWidgets.QWidget):
                     message = f"A video-level annotation with tag '{tag}' already exists at frames {start}-{end}."
                 else:
                     message = f"An annotation with tag '{tag}' for this identity already exists at frames {start}-{end}."
-                QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
+                MessageDialog.warning(self, title="Duplicate annotation", message=message)
                 return
 
             # No duplicate found; create and insert the annotation
@@ -1400,7 +1405,7 @@ class CentralWidget(QtWidgets.QWidget):
             start=start, end=end, tag=new_tag, identity_index=new_identity
         ):
             message = f"An annotation with tag '{new_tag}' for this identity already exists at frames {start}-{end}."
-            QtWidgets.QMessageBox.warning(self, "Duplicate annotation", message)
+            MessageDialog.warning(self, title="Duplicate annotation", message=message)
             return
 
         # modification is handled by removing the old annotation and inserting a new one with the updated properties

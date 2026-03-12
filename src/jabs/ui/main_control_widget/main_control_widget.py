@@ -26,6 +26,7 @@ from ..colors import (
     NOT_BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR_BRIGHT,
 )
+from ..dialogs.message_dialog import MessageDialog
 from ..ear_tag_icons import EarTagIconManager
 from .k_fold_slider_widget import KFoldSliderWidget
 from .label_count_widget import FrameLabelCountWidget
@@ -638,11 +639,10 @@ class MainControlWidget(QtWidgets.QWidget):
 
             # select new window size
             self.set_window_size(val)
-            QtWidgets.QMessageBox.warning(
+            MessageDialog.warning(
                 self,
-                "Window Size Added",
-                "Window Size Added.\n"
-                "If features have not been computed for "
+                title="Window Size Added",
+                message="If features have not been computed for "
                 "this window size, they will be computed the first time a "
                 "classifier is trained using this window size.\n"
                 "This may be slow.",
