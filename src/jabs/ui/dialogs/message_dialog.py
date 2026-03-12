@@ -46,7 +46,7 @@ class MessageDialog(QDialog):
             message: The main message to display
             title: Dialog window title (default: determined by message_type)
             details: Optional detailed information (e.g., stack trace) that can be expanded
-            message_type: Type of message (ERROR, WARNING, INFO, or QUESTION)
+            message_type: Type of message (ERROR, WARNING, INFO, or CONFIRM)
             parent: Parent widget
         """
         super().__init__(parent)
