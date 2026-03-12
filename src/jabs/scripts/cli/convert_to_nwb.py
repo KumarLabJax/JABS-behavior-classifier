@@ -194,7 +194,7 @@ def run_conversion(
     if session_metadata is not None:
         unknown = set(session_metadata) - _SESSION_METADATA_FIELDS
         if unknown:
-            logger.warning("Ignoring unrecognised session_metadata keys: %s", sorted(unknown))
+            logger.warning("Ignoring unrecognized session_metadata keys: %s", sorted(unknown))
 
         if "session_start_time" in session_metadata:
             write_kwargs["session_start_time"] = _parse_session_start_time(
