@@ -127,8 +127,13 @@ def _parse_session_start_time(value: str) -> datetime.datetime:
         A timezone-aware :class:`datetime.datetime` object.
 
     Raises:
+        ValueError: If ``value`` is not a string.
         ValueError: If the string cannot be parsed as an ISO 8601 datetime.
     """
+    if not isinstance(value, str):
+        raise ValueError(
+            f"session_start_time must be a string, got {type(value).__name__!r}: {value!r}"
+        )
     normalized = value
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
