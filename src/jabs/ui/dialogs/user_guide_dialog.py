@@ -197,6 +197,7 @@ class UserGuideDialog(QDialog):
                 "jabs-classify": "cli-tools.md#jabs-classify",
                 "jabs-features": "cli-tools.md#jabs-features",
                 "jabs-cli": "cli-tools.md#jabs-cli",
+                "jabs-init": "cli-tools.md#jabs-init",
             },
             "File Formats": {
                 "_file": "file-formats.md",
@@ -207,6 +208,7 @@ class UserGuideDialog(QDialog):
             "Post-Processing": "postprocessing.md",
             "Features Reference": "features.md",
             "Keyboard Shortcuts Reference": "keyboard-shortcuts.md",
+            "NWB Pose Export": "nwb-export.md",
         }
 
         def add_tree_items(

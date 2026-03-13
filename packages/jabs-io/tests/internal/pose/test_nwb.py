@@ -413,6 +413,55 @@ def test_subjects_per_identity_roundtrip(tmp_path, adapter):
     assert loaded.subjects == subjects
 
 
+def test_per_identity_nwbfile_subject_populated(tmp_path, adapter):
+    """NWBFile.subject is populated from subjects metadata in per-identity mode."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose.nwb"
+    subjects = {
+        "mouse_a": {"subject_id": "M001", "sex": "M", "genotype": "WT", "species": "Mus musculus"},
+        "mouse_b": {"subject_id": "M002", "sex": "F", "genotype": "KO"},
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{
+            **{f: getattr(data, f) for f in data.__dataclass_fields__},
+            "subjects": subjects,
+        }
+    )
+
+    adapter.write(data, path, per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        nwb_a = io.read()
+        assert nwb_a.subject is not None
+        assert nwb_a.subject.subject_id == "M001"
+        assert nwb_a.subject.sex == "M"
+        assert nwb_a.subject.genotype == "WT"
+        assert nwb_a.subject.species == "Mus musculus"
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_b.nwb"), mode="r") as io:
+        nwb_b = io.read()
+        assert nwb_b.subject is not None
+        assert nwb_b.subject.subject_id == "M002"
+        assert nwb_b.subject.sex == "F"
+        assert nwb_b.subject.genotype == "KO"
+
+
+def test_per_identity_nwbfile_subject_none_without_subjects(tmp_path, adapter):
+    """NWBFile.subject is not set when no subjects metadata is provided."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose.nwb"
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+
+    adapter.write(data, path, per_identity_files=True)
+
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
+        nwb = io.read()
+        assert nwb.subject is None
+
+
 def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
     """Bounding boxes are stored as one TimeSeries per identity, not a single combined array."""
     from pynwb import NWBHDF5IO
@@ -739,3 +788,46 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
         # 2 slots * 2 keypoints -> 4 series
         expected_names = {"foo_0_0", "foo_0_1", "foo_1_0", "foo_1_1"}
         assert set(foo_pe.pose_estimation_series.keys()) == expected_names
+
+
+def test_session_start_time_written_to_nwb(tmp_path, adapter):
+    """session_start_time kwarg is written to NWBFile.session_start_time."""
+    import datetime
+
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_time.nwb"
+    data = _make_pose_data()
+    session_time = datetime.datetime(2024, 3, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+
+    adapter.write(data, path, session_start_time=session_time)
+
+    with NWBHDF5IO(str(path), mode="r") as io:
+        nwb = io.read()
+        assert nwb.session_start_time == session_time
+
+
+def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
+    """lab, institution, experimenter, experiment_description, session_id are forwarded."""
+    from pynwb import NWBHDF5IO
+
+    path = tmp_path / "pose_meta.nwb"
+    data = _make_pose_data()
+
+    adapter.write(
+        data,
+        path,
+        lab="Kumar Lab",
+        institution="The Jackson Laboratory",
+        experimenter=["Jane Smith", "John Doe"],
+        experiment_description="Open field test",
+        session_id="session_001",
+    )
+
+    with NWBHDF5IO(str(path), mode="r") as io:
+        nwb = io.read()
+        assert nwb.lab == "Kumar Lab"
+        assert nwb.institution == "The Jackson Laboratory"
+        assert list(nwb.experimenter) == ["Jane Smith", "John Doe"]
+        assert nwb.experiment_description == "Open field test"
+        assert nwb.session_id == "session_001"
