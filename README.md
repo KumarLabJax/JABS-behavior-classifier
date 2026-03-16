@@ -6,14 +6,14 @@
 
 [![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
-[![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-orange.svg)](LICENSE)
+[![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-orange.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.2-green.svg)](https://doi.org/10.7554/eLife.107259.2)
 
-[Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
+[Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
 
 ---
 
-![JABS Screenshot](docs/assets/images/jabs_screenshot.png)
+![JABS Screenshot](https://raw.githubusercontent.com/KumarLabJax/JABS-behavior-classifier/main/docs/assets/images/jabs_screenshot.png)
 
 </div>
 
@@ -60,6 +60,18 @@ jabs-init --help  # View project initialization options
 ```bash
 pip install jabs-behavior-classifier
 ```
+
+To include optional extras, use bracket notation. For example, to install with NWB export support:
+
+```bash
+pip install "jabs-behavior-classifier[nwb]"
+```
+
+Available extras:
+
+| Extra | Description                              |
+|-------|------------------------------------------|
+| `nwb` | NWB export support (`pynwb`, `ndx-pose`) |
 
 </details>
 
@@ -127,16 +139,12 @@ JABS requires pose files generated from the Kumar Lab's mouse pose estimation ne
 - **Single mouse:** [deep-hrnet-mouse](https://github.com/KumarLabJax/deep-hrnet-mouse)
 - **Multi-mouse:** Under development — [contact us](mailto:jabs@jax.org) for more information
 
-## Singularity/Linux
+## Singularity/Apptainer (Linux)
 
-We provide tested Singularity definition files for Linux environments:
-
-| Container                       | Use Case                                  |
-|---------------------------------|-------------------------------------------|
-| [headless.def](vm/headless.def) | Command-line use on compute clusters      |
-| [gui.def](vm/gui.def)           | Interactive GUI in a portable environment |
-
-Please inspect the definition files for related Linux packages required to run the software.
+We provide Singularity/Apptainer definition files and SLURM batch scripts for running
+JABS on Linux compute clusters. See
+[vm/README.md](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/vm/README.md)
+for build instructions and usage details.
 
 ## Project Portability
 
@@ -171,14 +179,14 @@ JABS uses four version numbers to track compatibility:
 ## Documentation
 
 - **[ReadTheDocs Tutorial](https://jabs-tutorial.readthedocs.io/)** — Complete user guide and tutorials
-- **[User Guide](docs/user-guide/overview.md)** — Markdown documentation
+- **[User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/docs/user-guide/overview.md)** — Markdown documentation
 - **[Sample Data](https://doi.org/10.5281/zenodo.16697331)** — Test datasets for demonstration
 
 ## Contributing
 
 Interested in contributing? Check out our:
-- [Contributing Guide](CONTRIBUTING.md)
-- [Development Guide](docs/DEVELOPMENT.md)
+- [Contributing Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/CONTRIBUTING.md)
+- [Development Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/docs/DEVELOPMENT.md)
 
 ## Citation
 
@@ -190,7 +198,7 @@ If you use JABS in your research, please cite:
 
 Copyright 2023 The Jackson Laboratory — All rights reserved.
 
-JABS is licensed under a **non-commercial use license**. See [LICENSE](LICENSE) for details.
+JABS is licensed under a **non-commercial use license**. See [LICENSE](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/LICENSE) for details.
 
 For commercial licensing inquiries, [contact us](mailto:jabs@jax.org).
 
