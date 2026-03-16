@@ -16,6 +16,7 @@ try:
     from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
     from pynwb import NWBHDF5IO, NWBFile, TimeSeries
     from pynwb.core import ScratchData
+    from pynwb.file import Subject
 
     _NWB_AVAILABLE = True
 except ImportError:
@@ -278,7 +279,9 @@ class PoseNWBAdapter(Adapter):
             identity_name = self._identity_name(data, i)
             identity_path = self._identity_file_path(path, identity_name)
 
-            nwbfile = self._make_nwb_file(**kwargs)
+            subject_meta = (data.subjects or {}).get(identity_name)
+            subject = self._make_subject(subject_meta) if subject_meta else None
+            nwbfile = self._make_nwb_file(subject=subject, **kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
             # Rebuild static/dynamic skeletons each iteration: HDMF objects can
             # only belong to one container, so they cannot be shared across files.
@@ -570,14 +573,51 @@ class PoseNWBAdapter(Adapter):
 
     @staticmethod
     def _make_nwb_file(**kwargs) -> NWBFile:
-        return NWBFile(
-            session_description=kwargs.get("session_description", "JABS PoseEstimation Data"),
-            session_start_time=kwargs.get(
+        nwb_kwargs: dict = {
+            "session_description": kwargs.get("session_description", "JABS PoseEstimation Data"),
+            "session_start_time": kwargs.get(
                 "session_start_time",
                 datetime.datetime.now(datetime.timezone.utc),
             ),
-            identifier=str(kwargs.get("identifier", uuid.uuid4())),
+            "identifier": str(kwargs.get("identifier", uuid.uuid4())),
+        }
+        for _field in (
+            "experimenter",
+            "lab",
+            "institution",
+            "experiment_description",
+            "session_id",
+        ):
+            if kwargs.get(_field) is not None:
+                nwb_kwargs[_field] = kwargs[_field]
+        if kwargs.get("subject") is not None:
+            nwb_kwargs["subject"] = kwargs["subject"]
+        return NWBFile(**nwb_kwargs)
+
+    @staticmethod
+    def _make_subject(subject_meta: dict) -> Subject:
+        """Build a pynwb Subject from a subject metadata dict.
+
+        Args:
+            subject_meta: Dict with optional keys subject_id, sex, genotype,
+                strain, age, weight, species, description.  None values are
+                omitted so pynwb uses its own defaults.
+
+        Returns:
+            A pynwb Subject object populated from the non-None fields.
+        """
+        _SUBJECT_FIELDS = (
+            "subject_id",
+            "sex",
+            "genotype",
+            "strain",
+            "age",
+            "weight",
+            "species",
+            "description",
         )
+        kwargs = {k: v for k, v in subject_meta.items() if k in _SUBJECT_FIELDS and v is not None}
+        return Subject(**kwargs)
 
     @staticmethod
     def _make_skeleton(
