@@ -16,6 +16,10 @@ For comprehensive developer documentation, see `docs/development/development.md`
 process) and `docs/development/contributing.md` (contribution guidelines, copyright
 assignment, PR process).
 
+## File Protection Rules
+
+- Never modify, overwrite, or delete the `LICENSE` file under any circumstances.
+
 ## Build & Development Commands
 
 ```bash
