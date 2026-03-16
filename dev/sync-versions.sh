@@ -2,20 +2,20 @@
 # Sync all workspace sub-package versions to match the root package version.
 #
 # Usage:
-#   ./dev/sync-versions.sh                    # apply root version to all sub-packages
-#   ./dev/sync-versions.sh --update-readme    # also rewrite GitHub URLs in README.md to the release tag
-#   ./dev/sync-versions.sh --dry-run          # preview without writing
-#   ./dev/sync-versions.sh --dry-run --update-readme  # preview both
+#   ./dev/sync-versions.sh                     # apply root version to all sub-packages and update README.md
+#   ./dev/sync-versions.sh --no-readme         # skip rewriting GitHub URLs in README.md
+#   ./dev/sync-versions.sh --dry-run           # preview without writing
+#   ./dev/sync-versions.sh --dry-run --no-readme  # preview package syncs only
 set -euo pipefail
 
 ROOT_VERSION=$(uv version --short)
 DRY_RUN=""
-UPDATE_README=""
+UPDATE_README="yes"
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN="--dry-run" ;;
-        --update-readme) UPDATE_README="yes" ;;
+        --no-readme) UPDATE_README="" ;;
         *) echo "Unknown argument: $arg"; exit 1 ;;
     esac
 done

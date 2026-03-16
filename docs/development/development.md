@@ -1164,11 +1164,17 @@ To create a new release:
    version = "X.Y.Zrc1" # for release candidates
    ```
 
-2. Sync the version to all sub-packages:
+2. Sync the version to all sub-packages and update README URLs:
    ```bash
-   ./dev/sync-versions.sh          # propagate root version to all packages/*
+   ./dev/sync-versions.sh          # propagate root version to all packages/* and rewrite README.md URLs
    # ./dev/sync-versions.sh --dry-run  # preview without writing
+   # ./dev/sync-versions.sh --no-readme  # skip README URL rewrite
    ```
+
+   By default, `sync-versions.sh` also rewrites all GitHub URLs in `README.md` from
+   the previous release tag to `blob/vX.Y.Z/`, so the PyPI README
+   links to files at the exact release tag rather than `main`. This should only be done 
+   immediately prior to releasing a new JABS version, otherwise these will be broken links.
 
 3. Re-lock the uv lock file:
    ```bash
@@ -1177,7 +1183,7 @@ To create a new release:
 
 4. Commit and push the change:
    ```bash
-   git add pyproject.toml packages/*/pyproject.toml uv.lock
+   git add pyproject.toml packages/*/pyproject.toml uv.lock README.md
    git commit -m "Bump version to X.Y.Z"
    ```
 
