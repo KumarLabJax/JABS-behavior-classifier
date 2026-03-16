@@ -2,16 +2,20 @@
 # Sync all workspace sub-package versions to match the root package version.
 #
 # Usage:
-#   ./dev/sync-versions.sh          # apply root version to all sub-packages
-#   ./dev/sync-versions.sh --dry-run  # preview without writing
+#   ./dev/sync-versions.sh                    # apply root version to all sub-packages
+#   ./dev/sync-versions.sh --update-readme    # also rewrite GitHub URLs in README.md to the release tag
+#   ./dev/sync-versions.sh --dry-run          # preview without writing
+#   ./dev/sync-versions.sh --dry-run --update-readme  # preview both
 set -euo pipefail
 
 ROOT_VERSION=$(uv version --short)
 DRY_RUN=""
+UPDATE_README=""
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN="--dry-run" ;;
+        --update-readme) UPDATE_README="yes" ;;
         *) echo "Unknown argument: $arg"; exit 1 ;;
     esac
 done
@@ -29,6 +33,27 @@ for toml in packages/*/pyproject.toml; do
         uv version "$ROOT_VERSION" --package "$pkg_name" --frozen $DRY_RUN
     fi
 done
+
+if [ -n "$UPDATE_README" ]; then
+    echo ""
+    echo "README.md GitHub URL rewrite: blob/(main|v*) -> blob/v${ROOT_VERSION}"
+    if [ -n "$DRY_RUN" ]; then
+        # Show lines that would change without writing
+        echo "  Lines in README.md that would be updated:"
+        grep -nE "(github\.com|raw\.githubusercontent\.com)/KumarLabJax/JABS-behavior-classifier/(blob/)?(main|v[^/]+)/" README.md \
+            | sed "s/^/    /" \
+            || echo "    (no matching URLs found)"
+    else
+        # Replace /blob/main/ and /blob/v<old>/ with /blob/v<new>/
+        # Replace raw.githubusercontent.com/.../main/ and .../v<old>/ with .../v<new>/
+        sed -i.bak -E \
+            -e "s#/blob/(main|v[^/]*)/#/blob/v${ROOT_VERSION}/#g" \
+            -e "s#JABS-behavior-classifier/(main|v[^/]*)/#JABS-behavior-classifier/v${ROOT_VERSION}/#g" \
+            README.md
+        rm -f README.md.bak
+        echo "  README.md updated."
+    fi
+fi
 
 if [ -z "$DRY_RUN" ]; then
     echo ""
