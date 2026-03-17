@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
-"""Remap behavior labels between two JABS projects by matching identities with bbox IoU.
+"""Remap behavior labels from a source JABS project to a destination JABS project.
 
 The script processes each labeled source block independently. For a given block,
 it scores every destination identity by the median bounding-box IoU over the
-block interval and selects the single best-scoring destination identity. This
+block interval and selects the highest-scoring destination identity. This
 is a per-block best match, not a greedy or one-to-one assignment across the
 whole video, so multiple source identities may map to the same destination
 identity.
 
-Matches below the configured IoU threshold are skipped. Accepted blocks are
+Matches below the requested IoU threshold are skipped. Matched blocks are
 written directly into the destination label track. If a write overlaps labels
 already written for the same destination identity and behavior, the script
 warns. Identical overlaps are reported as mapping collisions, and conflicting
@@ -73,7 +73,7 @@ def interval_cost(
     start: int,
     end: int,
 ) -> float:
-    """Return the median bbox IoU across the interval for one source/destination pair.
+    """Return the median bbox IoU across one source-identity/destination-identity interval.
 
     Only frames where both boxes are finite and have positive area contribute to
     the score. If no such frames exist, returns 0.0.
@@ -159,7 +159,7 @@ def _warn_on_label_overlap(
     message = (
         f"WARNING: {video} behavior={behavior} src_id={src_identity} -> dst_id={dst_identity} "
         f"frames={start}-{end} overlaps existing destination labels "
-        f"({same_count} identical, {conflict_count} conflicting frame(s)); possible identity mapping collision."
+        f"({same_count} identical, {conflict_count} conflicting frame(s)); identity mapping collision."
     )
     if conflict_count:
         message += " Conflicting frames will be overwritten."
@@ -179,7 +179,7 @@ def remap_labels_for_video(
     Source labels are read as contiguous blocks per source identity and
     behavior. Each block is matched independently to the destination identity
     with the highest median bbox IoU over that interval. The destination label
-    track is updated immediately after each accepted match, so later overlapping
+    track is updated immediately after each successful match, so later overlapping
     writes for the same destination identity and behavior replace earlier frame
     values. Overlaps are warned before the write occurs.
 
@@ -286,12 +286,12 @@ def remap_labels_for_video(
                 success_count += 1
 
     dest_project.save_annotations(dest_labels, dest_pose)
-    print(f"Saved converted labels for {video} -> {dest_project.project_paths.annotations_dir}")
+    print(f"Saved remapped labels for {video} -> {dest_project.project_paths.annotations_dir}")
     return success_count, skipped_count
 
 
 def main():
-    """Main entry point for converting JABS labels between projects."""
+    """Main entry point for remapping labels from a source project to a destination project."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -323,7 +323,7 @@ def main():
     source_project = Project(args.source_project)
     dest_project = Project(args.dest_project)
 
-    # Ensure destination project has the same behavior labels as the source.
+    # Copy any behavior definitions that exist in the source project but not in the destination.
     # This keeps label keys consistent even when the destination project is freshly created.
     source_behaviors = source_project.settings_manager.behavior_names
     dest_behaviors = set(dest_project.settings_manager.behavior_names)
