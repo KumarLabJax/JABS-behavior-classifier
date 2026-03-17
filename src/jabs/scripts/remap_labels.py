@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Convert behavior labels between two JABS projects by matching identities with bbox IoU.
+"""Remap behavior labels between two JABS projects by matching identities with bbox IoU.
 
 The script processes each labeled source block independently. For a given block,
 it scores every destination identity by the median bounding-box IoU over the
@@ -20,8 +20,7 @@ per-frame labels, not overlapping contradictory intervals.
 Both projects must use pose files with bounding boxes available.
 
 Example:
--------
-python convert_labels.py /path/to/source_proj /path/to/dest_proj --min-iou-thresh 0.5
+  python remap_labels.py /path/to/source_proj /path/to/dest_proj --min-iou-thresh 0.5
 """
 
 from __future__ import annotations
@@ -167,7 +166,7 @@ def _warn_on_label_overlap(
     print(message, file=sys.stderr)
 
 
-def convert_labels_for_video(
+def remap_labels_for_video(
     video: str,
     source_project: Project,
     dest_project: Project,
@@ -175,7 +174,7 @@ def convert_labels_for_video(
     verbose: bool = False,
     annotate_failures: bool = False,
 ):
-    """Convert labels for a single video.
+    """Remap labels for a single video.
 
     Source labels are read as contiguous blocks per source identity and
     behavior. Each block is matched independently to the destination identity
@@ -242,7 +241,7 @@ def convert_labels_for_video(
                     )
                     skipped_count += 1
 
-                    tag = "convert-behavior-failed" if present else "convert-not-behavior-failed"
+                    tag = "remap-behavior-failed" if present else "remap-not-behavior-failed"
                     if (
                         annotate_failures
                         and not dest_labels.timeline_annotations.annotation_exists(
@@ -256,7 +255,7 @@ def convert_labels_for_video(
                                 tag=tag,
                                 color="#FF8800" if present else "#8888FF",
                                 description=(
-                                    f"conversion failed: behavior={behavior}, present={present}, "
+                                    f"remap failed: behavior={behavior}, present={present}, "
                                     f"src_id={src_identity}, best_iou={iou:.2f}"
                                 ),
                                 identity_index=None,
@@ -293,7 +292,10 @@ def convert_labels_for_video(
 
 def main():
     """Main entry point for converting JABS labels between projects."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("source_project", type=Path, help="Path to source JABS project directory")
     parser.add_argument(
         "dest_project", type=Path, help="Path to destination JABS project directory"
@@ -355,7 +357,7 @@ def main():
     total_success = 0
     total_skipped = 0
     for video in common_videos:
-        success, skipped = convert_labels_for_video(
+        success, skipped = remap_labels_for_video(
             video,
             source_project,
             dest_project,
