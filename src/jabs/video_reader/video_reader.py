@@ -95,13 +95,13 @@ class VideoReader:
         self.close()
 
     def get_frame_time(self, frame_number: int) -> str:
-        """return a formatted string of the time of a given frame
+        """Return a formatted string of the time of a given frame.
 
         Args:
             frame_number: Frame index to get the frame time for.
 
         Returns:
-            string containing formatted time (%H:%M:%S) of the given frame
+            Formatted time string (%H:%M:%S) of the given frame.
         """
         return time.strftime("%H:%M:%S", time.gmtime(frame_number * self._duration))
 
