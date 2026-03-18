@@ -164,3 +164,83 @@ def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
     assert (project_dir / "video1_pose_est_v7.h5").read_text() == "new-v7"
     assert not live_predictions_dir.exists()
     assert not live_cache_dir.exists()
+
+
+def test_restore_cleanup_paths_includes_created_pose_and_annotation(tmp_path):
+    """Cleanup path calculation should include files the failed apply may have created."""
+    project_dir = tmp_path / "project"
+    staged_annotations_dir = tmp_path / "stage" / "jabs" / "annotations"
+    staged_annotations_dir.mkdir(parents=True)
+    (staged_annotations_dir / "video1.json").write_text("staged-annotation")
+
+    replacement_pose = tmp_path / "new_pose" / "video1_pose_est_v7.h5"
+    replacement_pose.parent.mkdir(parents=True)
+    replacement_pose.write_text("new-v7")
+
+    cleanup_paths = update_pose._restore_cleanup_paths(
+        project_dir,
+        ["video1.avi"],
+        {"video1.avi": replacement_pose},
+        staged_annotations_dir,
+    )
+
+    assert cleanup_paths == [
+        project_dir / "jabs" / "annotations" / "video1.json",
+        project_dir / "video1_pose_est_v7.h5",
+    ]
+
+
+def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
+    tmp_path, monkeypatch, capsys
+):
+    """A failed live apply should print cleanup steps for newly created files before restore."""
+    project_dir = tmp_path / "project"
+    live_annotations_dir = project_dir / "jabs" / "annotations"
+    live_predictions_dir = project_dir / "jabs" / "predictions"
+    live_annotations_dir.mkdir(parents=True)
+    live_predictions_dir.mkdir(parents=True)
+
+    (project_dir / "jabs" / "project.json").write_text("live-project")
+    (project_dir / "video1_pose_est_v8.h5").write_text("old-v8")
+    (live_predictions_dir / "video1.h5").write_text("prediction")
+
+    stage_root = tmp_path / "stage"
+    staged_annotations_dir = stage_root / "jabs" / "annotations"
+    staged_annotations_dir.mkdir(parents=True)
+    (staged_annotations_dir / "video1.json").write_text("staged-annotation")
+    staged_project_file = stage_root / "jabs" / "project.json"
+    staged_project_file.write_text("staged-project")
+
+    new_pose_dir = tmp_path / "new_pose"
+    new_pose_dir.mkdir()
+    replacement_pose = new_pose_dir / "video1_pose_est_v7.h5"
+    replacement_pose.write_text("new-v7")
+
+    dest_project = SimpleNamespace(
+        project_paths=SimpleNamespace(
+            annotations_dir=staged_annotations_dir,
+            project_file=staged_project_file,
+        )
+    )
+
+    def fail_rmtree(_path, ignore_errors=False):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(update_pose.shutil, "rmtree", fail_rmtree)
+
+    with pytest.raises(SystemExit):
+        update_pose._apply_live_update(
+            project_dir,
+            dest_project,
+            ["video1.avi"],
+            {"video1.avi": replacement_pose},
+            set(),
+            project_dir / ".backup" / "update_pose_test.zip",
+        )
+
+    stderr = capsys.readouterr().err
+    assert "boom" in stderr
+    assert "rm -f" in stderr
+    assert "video1_pose_est_v7.h5" in stderr
+    assert "jabs/annotations/video1.json" in stderr
+    assert "unzip -o .backup/update_pose_test.zip" in stderr

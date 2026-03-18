@@ -16,8 +16,8 @@ Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may
 overwrite or delete: pose files, annotations, ``jabs/project.json``, and
 predictions. Cache is never backed up. If a failure occurs after the final
-live apply begins, the script prints the backup path and manual restore
-instructions instead of restoring automatically.
+live apply begins, the script prints the backup path plus cleanup and manual
+restore instructions instead of restoring automatically.
 
 The label-remap behavior is unchanged from the original two-project workflow:
 labels are processed block by block, matched by median bbox IoU, and written
@@ -520,12 +520,48 @@ def _copy_file_atomic(source: Path, destination: Path) -> None:
     tmp_path.replace(destination)
 
 
-def _print_manual_restore(project_dir: Path, backup_path: Path) -> None:
-    """Print manual restore instructions for a previously created backup archive."""
+def _restore_cleanup_paths(
+    project_dir: Path,
+    videos: list[str],
+    replacement_pose_files: dict[str, Path],
+    staged_annotations_dir: Path,
+) -> list[Path]:
+    """Return live-project files that may have been created during the failed apply step."""
+    cleanup_paths: set[Path] = set()
+    for video in videos:
+        cleanup_paths.add(project_dir / replacement_pose_files[video].name)
+
+        staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
+        if staged_annotation.exists():
+            cleanup_paths.add(project_dir / "jabs" / "annotations" / staged_annotation.name)
+
+    return sorted(cleanup_paths)
+
+
+def _print_manual_restore(project_dir: Path, backup_path: Path, cleanup_paths: list[Path]) -> None:
+    """Print cleanup and restore instructions for a previously created backup archive."""
     restore_zip = backup_path.relative_to(project_dir)
-    command = f"cd {shlex.quote(str(project_dir))} && unzip -o {shlex.quote(str(restore_zip))}"
     print(f"Backup archive preserved at: {backup_path}", file=sys.stderr)
-    print(f"To restore manually, run: {command}", file=sys.stderr)
+
+    if cleanup_paths:
+        cleanup_targets = " ".join(
+            shlex.quote(str(path.relative_to(project_dir))) for path in cleanup_paths
+        )
+        cleanup_command = f"cd {shlex.quote(str(project_dir))} && rm -f {cleanup_targets}"
+        print(
+            "Before restoring, remove files that may have been created during the failed apply:",
+            file=sys.stderr,
+        )
+        print(cleanup_command, file=sys.stderr)
+
+    restore_command = (
+        f"cd {shlex.quote(str(project_dir))} && unzip -o {shlex.quote(str(restore_zip))}"
+    )
+    print(f"Then restore the backup archive: {restore_command}", file=sys.stderr)
+    print(
+        "If you prefer, restore into a clean copy of the project directory instead.",
+        file=sys.stderr,
+    )
 
 
 def _apply_live_update(
@@ -549,6 +585,13 @@ def _apply_live_update(
         raise RuntimeError(
             "staged pose update did not produce annotations for: " + ", ".join(missing_annotations)
         )
+
+    cleanup_paths = _restore_cleanup_paths(
+        project_dir,
+        videos,
+        replacement_pose_files,
+        staged_annotations_dir,
+    )
 
     try:
         for video in videos:
@@ -578,7 +621,7 @@ def _apply_live_update(
             f"ERROR: Failed while applying the pose update to the live project: {exc}",
             file=sys.stderr,
         )
-        _print_manual_restore(project_dir, backup_path)
+        _print_manual_restore(project_dir, backup_path, cleanup_paths)
         raise SystemExit(1) from exc
 
 
