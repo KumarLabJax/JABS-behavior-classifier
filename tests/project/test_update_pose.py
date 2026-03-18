@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import jabs.scripts.remap_labels as remap_labels
+import jabs.scripts.update_pose as update_pose
 
 
 def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
@@ -26,14 +26,14 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     def fake_open_pose_file(path, _cache_dir):
         return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
 
-    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
-        remap_labels.VideoReader,
+        update_pose.VideoReader,
         "get_nframes_from_file",
         staticmethod(lambda _path: 10),
     )
 
-    videos, replacement_pose_files, live_annotations = remap_labels._preflight_remap_inputs(
+    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
         project_dir, new_pose_dir
     )
 
@@ -64,16 +64,16 @@ def test_preflight_rejects_nonwritable_live_annotation_file(tmp_path, monkeypatc
     def fake_access(path, mode):
         return not (Path(path) == annotation_path and mode & os.W_OK)
 
-    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
-        remap_labels.VideoReader,
+        update_pose.VideoReader,
         "get_nframes_from_file",
         staticmethod(lambda _path: 10),
     )
-    monkeypatch.setattr(remap_labels.os, "access", fake_access)
+    monkeypatch.setattr(update_pose.os, "access", fake_access)
 
     with pytest.raises(PermissionError, match="live annotation file is not writable"):
-        remap_labels._preflight_remap_inputs(project_dir, new_pose_dir)
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
 
 
 def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypatch):
@@ -97,20 +97,20 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
     def fake_access(path, mode):
         return not (Path(path) == annotations_dir and mode & os.W_OK)
 
-    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
-        remap_labels.VideoReader,
+        update_pose.VideoReader,
         "get_nframes_from_file",
         staticmethod(lambda _path: 10),
     )
-    monkeypatch.setattr(remap_labels.os, "access", fake_access)
+    monkeypatch.setattr(update_pose.os, "access", fake_access)
 
     with pytest.raises(PermissionError, match="live annotations directory is not writable"):
-        remap_labels._preflight_remap_inputs(project_dir, new_pose_dir)
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
 
 
 def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
-    """Applying a staged remap should replace annotations/project metadata and swap the pose set."""
+    """Applying a staged pose update should replace annotations/project metadata and swap the pose set."""
     project_dir = tmp_path / "project"
     live_annotations_dir = project_dir / "jabs" / "annotations"
     live_predictions_dir = project_dir / "jabs" / "predictions"
@@ -148,13 +148,13 @@ def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
         )
     )
 
-    remap_labels._apply_live_update(
+    update_pose._apply_live_update(
         project_dir,
         dest_project,
         ["video1.avi"],
         {"video1.avi": replacement_pose},
         {"video1.avi"},
-        project_dir / ".backup" / "remap_test.zip",
+        project_dir / ".backup" / "update_pose_test.zip",
     )
 
     assert live_annotation.read_text() == "staged-annotation"

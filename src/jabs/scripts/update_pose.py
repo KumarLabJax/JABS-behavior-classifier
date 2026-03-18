@@ -1,30 +1,30 @@
 #!/usr/bin/env python
 
-"""Remap behavior labels in place onto an updated pose set for a JABS project.
+"""Update a JABS project in place to use an updated pose set while remapping labels.
 
 This is intended for keeping existing labels when pose files for the same
 videos have been regenerated or otherwise updated. The script validates the
-updated pose set first, then performs the remap in two disposable staging
-projects so the live project stays unchanged while remapping is underway. The
-updated pose directory must provide the same latest pose version for every
-project video, and only that latest version is copied back into the live
-project. Only after the staged remap succeeds does it copy the staged
-annotations and project metadata back to the live project and swap in the
-updated pose files.
+updated pose set first, then performs the label remap in two disposable
+staging projects so the live project stays unchanged while the update is
+underway. The updated pose directory must provide the same latest pose version
+for every project video, and only that latest version is copied back into the
+live project. Only after the staged label remap succeeds does it copy the
+staged annotations and project metadata back to the live project and swap in
+the updated pose files.
 
-Before the live project is modified, the script creates a timestamped backup zip
-under ``<project>/.backup`` containing every live file the update may overwrite
-or delete: pose files, annotations, ``jabs/project.json``, and predictions.
-Cache is never backed up. If a failure occurs after the final live apply
-begins, the script prints the backup path and manual restore instructions
-instead of restoring automatically.
+Before the live project is modified, the script creates a timestamped backup
+zip under ``<project>/.backup`` containing every live file the update may
+overwrite or delete: pose files, annotations, ``jabs/project.json``, and
+predictions. Cache is never backed up. If a failure occurs after the final
+live apply begins, the script prints the backup path and manual restore
+instructions instead of restoring automatically.
 
-The matching behavior is unchanged from the original two-project workflow:
+The label-remap behavior is unchanged from the original two-project workflow:
 labels are processed block by block, matched by median bbox IoU, and written
 directly to the destination label track with warnings on label overlap.
 
 Example:
-  python remap_labels.py /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+  jabs-update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 """
 
 from __future__ import annotations
@@ -280,7 +280,11 @@ def remap_labels_for_video(
                     )
                     skipped_count += 1
 
-                    tag = "remap-behavior-failed" if present else "remap-not-behavior-failed"
+                    tag = (
+                        "update-pose-behavior-remap-failed"
+                        if present
+                        else "update-pose-not-behavior-remap-failed"
+                    )
                     if (
                         annotate_failures
                         and not dest_labels.timeline_annotations.annotation_exists(
@@ -294,7 +298,8 @@ def remap_labels_for_video(
                                 tag=tag,
                                 color="#FF8800" if present else "#8888FF",
                                 description=(
-                                    f"remap failed: behavior={behavior}, present={present}, "
+                                    f"label remap failed during pose update: behavior={behavior}, "
+                                    f"present={present}, "
                                     f"src_id={src_identity}, best_iou={iou:.2f}"
                                 ),
                                 identity_index=None,
@@ -325,7 +330,7 @@ def remap_labels_for_video(
                 success_count += 1
 
     dest_project.save_annotations(dest_labels, dest_pose)
-    print(f"Saved remapped labels for {video} -> {dest_project.project_paths.annotations_dir}")
+    print(f"Saved staged label remap for {video} -> {dest_project.project_paths.annotations_dir}")
     return success_count, skipped_count
 
 
@@ -393,7 +398,7 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
-def _preflight_remap_inputs(
+def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
 ) -> tuple[list[str], dict[str, Path], set[str]]:
@@ -453,7 +458,7 @@ def _create_backup_archive(project_dir: Path, videos: list[str]) -> Path:
     """Create a timestamped backup archive of live files that will be replaced or removed."""
     backup_dir = project_dir / ".backup"
     backup_dir.mkdir(exist_ok=True)
-    backup_path = backup_dir / f"remap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    backup_path = backup_dir / f"update_pose_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 
     files_to_backup: set[Path] = set()
     for video in videos:
@@ -531,7 +536,7 @@ def _apply_live_update(
     live_annotation_videos: set[str],
     backup_path: Path,
 ) -> None:
-    """Apply staged remap output back to the live project."""
+    """Apply staged pose-update output back to the live project."""
     live_annotations_dir = project_dir / "jabs" / "annotations"
     staged_annotations_dir = dest_project.project_paths.annotations_dir
 
@@ -542,7 +547,7 @@ def _apply_live_update(
     )
     if missing_annotations:
         raise RuntimeError(
-            "staged remap did not produce annotations for: " + ", ".join(missing_annotations)
+            "staged pose update did not produce annotations for: " + ", ".join(missing_annotations)
         )
 
     try:
@@ -570,21 +575,21 @@ def _apply_live_update(
         shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)
     except Exception as exc:
         print(
-            f"ERROR: Failed while applying the remap to the live project: {exc}",
+            f"ERROR: Failed while applying the pose update to the live project: {exc}",
             file=sys.stderr,
         )
         _print_manual_restore(project_dir, backup_path)
         raise SystemExit(1) from exc
 
 
-def _run_staged_remap(
+def _run_staged_label_remap(
     source_project: Project,
     dest_project: Project,
     min_iou: float,
     verbose: bool,
     annotate_failures: bool,
 ) -> tuple[int, int]:
-    """Run the existing per-video remap semantics from source to destination."""
+    """Run the existing per-video label-remap semantics from source to destination."""
     total_success = 0
     total_skipped = 0
 
@@ -603,24 +608,24 @@ def _run_staged_remap(
     return total_success, total_skipped
 
 
-def remap_project_in_place(
+def update_project_pose_in_place(
     project_dir: Path,
     new_pose_dir: Path,
     min_iou: float,
     verbose: bool = False,
     annotate_failures: bool = False,
 ) -> tuple[int, int, Path]:
-    """Remap a live project in place using replacement pose files from ``new_pose_dir``."""
+    """Update a live project in place using replacement pose files from ``new_pose_dir``."""
     project_dir = project_dir.resolve()
     new_pose_dir = new_pose_dir.resolve()
 
-    videos, replacement_pose_files, live_annotation_videos = _preflight_remap_inputs(
+    videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
         project_dir,
         new_pose_dir,
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
-    with tempfile.TemporaryDirectory(prefix="jabs-remap-") as temp_root:
+    with tempfile.TemporaryDirectory(prefix="jabs-update-pose-") as temp_root:
         temp_root_path = Path(temp_root)
         source_stage = temp_root_path / "source_stage"
         dest_stage = temp_root_path / "dest_stage"
@@ -643,7 +648,7 @@ def remap_project_in_place(
             validate_project_dir=False,
         )
 
-        total_success, total_skipped = _run_staged_remap(
+        total_success, total_skipped = _run_staged_label_remap(
             source_project,
             dest_project,
             min_iou,
@@ -664,7 +669,7 @@ def remap_project_in_place(
 
 
 def main():
-    """Main entry point for remapping project labels onto a replacement pose set."""
+    """Main entry point for updating a project to a replacement pose set."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -673,29 +678,29 @@ def main():
     parser.add_argument(
         "new_pose_dir",
         type=Path,
-        help="Directory containing updated pose files for the project videos",
+        help="Directory containing updated pose files onto which existing labels will be remapped",
     )
     parser.add_argument(
         "--min-iou-thresh",
         type=float,
         default=0.5,
         dest="min_iou",
-        help="Minimum acceptable median IoU for a match (default: 0.5)",
+        help="Minimum acceptable median IoU for a label remap match (default: 0.5)",
     )
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Print successful match assignments in addition to warnings",
+        help="Print successful label remap assignments in addition to warnings",
     )
     parser.add_argument(
         "--annotate-failures",
         action="store_true",
-        help="Add timeline annotations to the project for each block that fails remap",
+        help="Add timeline annotations to the project for each block whose label remap fails",
     )
 
     args = parser.parse_args()
 
-    total_success, total_skipped, backup_path = remap_project_in_place(
+    total_success, total_skipped, backup_path = update_project_pose_in_place(
         args.project,
         args.new_pose_dir,
         args.min_iou,
@@ -705,7 +710,8 @@ def main():
 
     print(f"Backup archive: {backup_path}")
     print(
-        f"Remap summary: {total_success} blocks assigned, {total_skipped} blocks skipped "
+        f"Pose update summary: {total_success} label blocks assigned, "
+        f"{total_skipped} label blocks skipped "
         f"(IoU threshold={args.min_iou})"
     )
 

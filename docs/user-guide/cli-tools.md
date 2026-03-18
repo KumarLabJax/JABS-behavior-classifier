@@ -149,26 +149,26 @@ jabs-init /path/to/project --metadata project_metadata.json --parallel 8
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview.
 
-## jabs-remap-labels
+## jabs-update-pose
 
-The `jabs-remap-labels` command remaps labels in an existing JABS project onto updated pose files for the same videos. This is intended for keeping existing labels when pose files have been regenerated or otherwise updated.
+The `jabs-update-pose` command updates an existing JABS project to use updated pose files for the same videos while remapping existing labels onto the updated poses. This is intended for keeping labels when pose files have been regenerated or otherwise updated.
 
 **Usage:**
 
 ```bash
-jabs-remap-labels <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures]
+jabs-update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
 - `<updated_pose_dir>`: Directory containing updated pose files for the project videos. For each video, the latest pose version in this directory is used. All videos must resolve to the same latest version, and that version must include bounding boxes.
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
-- `--verbose`: Print successful match assignments in addition to warnings.
-- `--annotate-failures`: Add timeline annotations to the project for blocks that fail remap.
+- `--verbose`: Print successful label remap assignments in addition to warnings.
+- `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails.
 
-Before modifying the project, the command validates the updated pose files, runs the remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup`. Only after the staged remap succeeds are annotations, project metadata, and pose files copied back into the project.
+Before modifying the project, the command validates the updated pose files, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup`. Only after the staged pose update succeeds are annotations, project metadata, and pose files copied back into the project.
 
 **Example:**
 
 ```bash
-jabs-remap-labels /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+jabs-update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 ```
