@@ -132,8 +132,10 @@ class VideoInfoDialog(QDialog):
 
             except OSError:
                 logger.exception("Could not open pose file for info: %s", pose_path)
+                pose_form.addRow("Pose file:", QLabel("Unable to read pose file"))
             except KeyError as e:
                 logger.exception("Missing expected key in pose file %s: %s", pose_path, e)
+                pose_form.addRow("Pose file:", QLabel("Unable to parse pose file"))
 
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
