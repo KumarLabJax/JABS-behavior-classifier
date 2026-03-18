@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """Update a JABS project in place to use an updated pose set while remapping labels.
 
 This is intended for keeping existing labels when pose files for the same
@@ -29,7 +27,7 @@ existing source timeline annotations are discarded instead of being copied or
 remapped.
 
 Example:
-  jabs-update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+  jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 """
 
 from __future__ import annotations
@@ -893,10 +891,3 @@ def update_pose_command(
         f"{total_skipped} label blocks skipped "
         f"(IoU threshold={min_iou})"
     )
-
-
-main = update_pose_command
-
-
-if __name__ == "__main__":
-    main()

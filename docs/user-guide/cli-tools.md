@@ -115,6 +115,7 @@ Commands:
   export-training   Export training data for a specified behavior and JABS project directory.
   prune             Prune unused videos from a JABS project directory.
   rename-behavior   Rename a behavior in a JABS project.
+  update-pose       Update a JABS project to use updated pose files while remapping labels.
 ```
 
 See [NWB Export](nwb-export.md) for full documentation of the `convert-to-nwb` command
@@ -149,14 +150,14 @@ jabs-init /path/to/project --metadata project_metadata.json --parallel 8
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview.
 
-## jabs-update-pose
+## jabs-cli update-pose
 
-The `jabs-update-pose` command updates an existing JABS project to use updated pose files for the same videos while remapping existing labels onto the updated poses. This is intended for keeping labels when pose files have been regenerated or otherwise updated.
+The `jabs-cli update-pose` command updates an existing JABS project to use updated pose files for the same videos while remapping existing labels onto the updated poses. This is intended for keeping labels when pose files have been regenerated or otherwise updated.
 
 **Usage:**
 
 ```bash
-jabs-update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations]
+jabs-cli update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
@@ -171,5 +172,5 @@ Before modifying the project, the command validates the updated pose files, runs
 **Example:**
 
 ```bash
-jabs-update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 ```

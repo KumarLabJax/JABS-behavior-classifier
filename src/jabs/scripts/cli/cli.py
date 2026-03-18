@@ -19,6 +19,7 @@ from jabs.project import Project, export_training_data, get_videos_to_prune
 
 from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
+from .update_pose import update_pose_command
 
 # find out which classifiers are supported in this environment
 CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
@@ -36,6 +37,9 @@ def cli(ctx: click.Context, verbose):
     """JABS CLI."""
     ctx.ensure_object(dict)
     ctx.obj["VERBOSE"] = verbose
+
+
+cli.add_command(update_pose_command)
 
 
 @cli.command(name="export-training")

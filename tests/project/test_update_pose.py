@@ -7,8 +7,9 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-import jabs.scripts.update_pose as update_pose
+import jabs.scripts.cli.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
+from jabs.scripts.cli.cli import cli
 
 
 def _make_pose(identities, boxes_by_identity):
@@ -173,8 +174,8 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
     assert live_annotations == {"video1.avi"}
 
 
-def test_update_pose_click_command_invokes_update_project_pose_in_place(tmp_path, monkeypatch):
-    """The standalone Click command should forward parsed options to the core update helper."""
+def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, monkeypatch):
+    """The jabs-cli update-pose subcommand should forward parsed options to the core update helper."""
     project_dir = tmp_path / "project"
     new_pose_dir = tmp_path / "new_pose"
     project_dir.mkdir()
@@ -211,8 +212,9 @@ def test_update_pose_click_command_invokes_update_project_pose_in_place(tmp_path
 
     runner = CliRunner()
     result = runner.invoke(
-        update_pose.main,
+        cli,
         [
+            "update-pose",
             str(project_dir),
             str(new_pose_dir),
             "--min-iou-thresh",

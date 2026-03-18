@@ -75,7 +75,6 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 "jabs-init" = "jabs.scripts.initialize_project:main"
 "jabs-features" = "jabs.scripts.generate_features:main"
 "jabs-convert-parquet" = "jabs.scripts.convert_parquet:main"
-"jabs-update-pose" = "jabs.scripts.update_pose:main"
 "jabs-project-merge" = "jabs.scripts.merge_projects:main"
 "jabs-cli" = "jabs.scripts.cli:main"
 
