@@ -1,6 +1,9 @@
+"""Video file reading and frame extraction using OpenCV."""
+
 import time
-import typing
+import weakref
 from pathlib import Path
+from typing import ClassVar
 
 import cv2
 
@@ -11,9 +14,9 @@ class VideoReader:
     Uses OpenCV to open a video file and read frames.
     """
 
-    _EOF: typing.ClassVar[dict] = {"data": None, "index": -1}
+    _EOF: ClassVar[dict[str, object]] = {"data": None, "index": -1}
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         """Initialize a VideoReader object.
 
         Args:
@@ -40,32 +43,48 @@ class VideoReader:
         self._height = int(self.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         self._filename = path.name
+        self._finalizer = weakref.finalize(self, self.stream.release)
 
     @property
-    def num_frames(self):
-        """get total number of frames in the video"""
+    def num_frames(self) -> int:
+        """Get total number of frames in the video.
+
+        Returns:
+            Total frame count.
+        """
         return self._num_frames
 
     @property
-    def fps(self):
-        """get frames per second from video"""
+    def fps(self) -> int:
+        """Get frames per second from video.
+
+        Returns:
+            Frame rate rounded to the nearest integer.
+        """
         return self._fps
 
     @property
-    def dimensions(self):
-        """return width, height of video frames"""
+    def dimensions(self) -> tuple[int, int]:
+        """Return width and height of video frames.
+
+        Returns:
+            Tuple of (width, height) in pixels.
+        """
         return self._width, self._height
 
     @property
-    def filename(self):
-        """return the name of the video file"""
+    def filename(self) -> str:
+        """Return the name of the video file.
+
+        Returns:
+            Filename component of the video path.
+        """
         return self._filename
 
-    def close(self):
+    def close(self) -> None:
         """Release the video capture resources."""
-        if self.stream is not None:
-            self.stream.release()
-            self.stream = None
+        self._finalizer()  # no-op if already called; calls stream.release() otherwise
+        self.stream = None
 
     def __enter__(self) -> "VideoReader":
         """Support use as a context manager."""
@@ -75,29 +94,48 @@ class VideoReader:
         """Release resources on context manager exit."""
         self.close()
 
-    def __del__(self):
-        """Ensure video capture is released when object is garbage collected."""
-        self.close()
+    def get_frame_time(self, frame_number: int) -> str:
+        """return a formatted string of the time of a given frame
 
-    def get_frame_time(self, frame_number):
-        """return a formatted string of the time of a given frame"""
+        Args:
+            frame_number: Frame index to get the frame time for.
+
+        Returns:
+            string containing formatted time (%H:%M:%S) of the given frame
+        """
         return time.strftime("%H:%M:%S", time.gmtime(frame_number * self._duration))
 
-    def seek(self, index):
+    def seek(self, index: int) -> None:
         """Seek to a specific frame.
 
         This will clear the buffer and insert the frame at the new position.
+
+        Args:
+            index: Frame index to seek to.
+
+        Raises:
+            OSError: If the video stream has been closed.
 
         Note:
             some video formats might not be able to seek to an exact frame
             position so this could be slow in those cases. Our avi files have
             reasonable seek times.
         """
+        if self.stream is None:
+            raise OSError("video stream is closed")
+
         if self.stream.set(cv2.CAP_PROP_POS_FRAMES, index):
             self._frame_index = index
 
-    def load_next_frame(self) -> dict:
-        """grab the next frame from the file"""
+    def load_next_frame(self) -> dict[str, object]:
+        """grab the next frame from the file
+
+        Raises:
+            OSError: If the video stream has been closed.
+        """
+        if self.stream is None:
+            raise OSError("video stream is closed")
+
         (grabbed, frame) = self.stream.read()
         if grabbed:
             data = {
@@ -110,59 +148,9 @@ class VideoReader:
             data = self._EOF
         return data
 
-    @staticmethod
-    def _resize_image(image, width=None, height=None, interpolation=None):
-        """resize an image, allow passing only desired width or height to maintain current aspect ratio
-
-        Args:
-            image: image to resize
-            width: new width, if None compute to maintain aspect ratio
-            height: new height, if None compute to maintain aspect ratio
-            interpolation: type of interpolation to use for resize. If
-                None, we will default to cv2.INTER_AREA for shrinking cv2.INTER_CUBIC when
-                expanding
-
-        Returns:
-            resized image
-        """
-        # current size
-        (h, w) = image.shape[:2]
-
-        # if both the width and height are None, then return the
-        # original image
-        if width is None and height is None:
-            return image
-
-        if width is None:
-            # calculate the ratio of the height and construct the
-            # dimensions
-            r = height / float(h)
-            dim = (int(w * r), height)
-
-        elif height is None:
-            # calculate the ratio of the width and construct the
-            # dimensions
-            r = width / float(w)
-            dim = (width, int(h * r))
-
-        else:
-            dim = (width, height)
-
-        if interpolation is None:
-            inter = cv2.INTER_AREA if dim[0] * dim[1] < w * h else cv2.INTER_CUBIC
-        else:
-            inter = interpolation
-
-        # resize the image
-        resized = cv2.resize(image, dim, interpolation=inter)
-
-        # return the resized image
-        return resized
-
     @classmethod
-    def get_nframes_from_file(cls, path: Path):
+    def get_nframes_from_file(cls, path: Path) -> int:
         """get the number of frames by inspecting the video file"""
-        # open video file
         stream = cv2.VideoCapture(str(path))
         if not stream.isOpened():
             raise OSError(f"unable to open {path}")
