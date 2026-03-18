@@ -7,7 +7,7 @@ from pathlib import Path
 
 import h5py
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -125,7 +125,9 @@ class VideoInfoDialog(QDialog):
                             text_view = QPlainTextEdit(formatted)
                             text_view.setReadOnly(True)
                             text_view.setMinimumHeight(150)
-                            text_view.setFont(QFont("Monospace"))
+                            text_view.setFont(
+                                QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+                            )
                             layout.addWidget(text_view)
 
             except OSError:
