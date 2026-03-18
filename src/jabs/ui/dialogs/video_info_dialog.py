@@ -1,3 +1,5 @@
+"""Dialog for displaying technical information about a video and its pose file."""
+
 import json
 import logging
 import re
@@ -5,6 +7,7 @@ from pathlib import Path
 
 import h5py
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -62,7 +65,7 @@ class VideoInfoDialog(QDialog):
                 num_frames = reader.num_frames
                 fps = reader.fps
 
-            duration_secs = num_frames / fps if fps > 0 else 0
+            duration_secs = num_frames / fps
             hours, remainder = divmod(int(duration_secs), 3600)
             minutes, seconds = divmod(remainder, 60)
             duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
@@ -71,8 +74,8 @@ class VideoInfoDialog(QDialog):
             form.addRow("Frames:", QLabel(str(num_frames)))
             form.addRow("Frame rate:", QLabel(f"{fps} fps"))
             form.addRow("Duration:", QLabel(duration_str))
-        except OSError:
-            logger.warning("Could not open video file for info: %s", video_path)
+        except (OSError, ValueError):
+            logger.exception("Could not open video file for info: %s", video_path)
             form.addRow("Video:", QLabel("Unable to read video file"))
 
         if identity_count is not None:
@@ -80,7 +83,7 @@ class VideoInfoDialog(QDialog):
 
         layout.addLayout(form)
 
-        ### Pose file section ###
+        # Pose file section
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
@@ -107,11 +110,13 @@ class VideoInfoDialog(QDialog):
 
                     raw_json = pose_h5["poseest"].attrs.get("model_metadata_json")
                     if raw_json:
+                        if isinstance(raw_json, bytes):
+                            raw_json = raw_json.decode("utf-8")
                         try:
-                            # to enforce JSON formatting, we will load the JSON and then reserialize as a formatted string
+                            # Enforce consistent formatting by round-tripping through json
                             formatted = json.dumps(json.loads(raw_json), indent=2)
                         except json.JSONDecodeError:
-                            logger.error(
+                            logger.exception(
                                 "Pose file model metadata is not valid JSON: %s", pose_path
                             )
                         else:
@@ -120,12 +125,13 @@ class VideoInfoDialog(QDialog):
                             text_view = QPlainTextEdit(formatted)
                             text_view.setReadOnly(True)
                             text_view.setMinimumHeight(150)
+                            text_view.setFont(QFont("Monospace"))
                             layout.addWidget(text_view)
 
             except OSError:
-                logger.warning("Could not open pose file for info: %s", pose_path)
-            except KeyError:
-                logger.warning("Error parsing pose file: %s", pose_path)
+                logger.exception("Could not open pose file for info: %s", pose_path)
+            except KeyError as e:
+                logger.exception("Missing expected key in pose file %s: %s", pose_path, e)
 
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
@@ -133,8 +139,9 @@ class VideoInfoDialog(QDialog):
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
     def sizeHint(self) -> QSize:
-        """Provide size hint for the dialog
+        """Provide size hint for the dialog.
 
-        Returns: QSize
+        Returns:
+            QSize indicating the recommended size for the dialog.
         """
         return QSize(600, 400)

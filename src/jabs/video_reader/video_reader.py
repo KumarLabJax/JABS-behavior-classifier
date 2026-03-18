@@ -29,6 +29,8 @@ class VideoReader:
 
         # get frame rate
         self._fps = round(self.stream.get(cv2.CAP_PROP_FPS))
+        if self._fps <= 0:
+            raise ValueError(f"invalid frame rate ({self._fps}) for video {path}")
 
         # calculate duration in seconds of each frame based on frame rate
         self._duration = 1.0 / self._fps
