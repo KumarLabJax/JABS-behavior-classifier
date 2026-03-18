@@ -65,6 +65,14 @@ class VideoReader:
             self.stream.release()
             self.stream = None
 
+    def __enter__(self) -> "VideoReader":
+        """Support use as a context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Release resources on context manager exit."""
+        self.close()
+
     def __del__(self):
         """Ensure video capture is released when object is garbage collected."""
         self.close()
