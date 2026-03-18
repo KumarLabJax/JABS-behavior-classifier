@@ -1,7 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.behavior_search import SearchHit
-from jabs.ui.dialogs import VideoInfoDialog
+from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
 
 
 class _VideoListWidget(QtWidgets.QListWidget):
