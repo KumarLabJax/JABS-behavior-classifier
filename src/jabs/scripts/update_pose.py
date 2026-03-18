@@ -47,7 +47,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
@@ -81,11 +81,12 @@ def _require_writable_existing_path(path: Path, description: str) -> None:
         raise PermissionError(f"{description} is not writable: {path}")
 
 
-def _bboxes_for_identity(pose, identity: int) -> np.ndarray | None:
+def _bboxes_for_identity(pose: PoseEstimation, identity: int) -> np.ndarray | None:
     """Return per-frame bboxes for an identity as [x1,y1,x2,y2], or None if unavailable."""
-    if not hasattr(pose, "get_bounding_boxes") or not getattr(pose, "has_bounding_boxes", False):
+    bbox_getter = getattr(pose, "get_bounding_boxes", None)
+    if bbox_getter is None or not getattr(pose, "has_bounding_boxes", False):
         return None
-    bboxes = pose.get_bounding_boxes(identity)
+    bboxes = bbox_getter(identity)
     if bboxes is None:
         return None
     # flatten [frames,2,2] -> [frames,4]
@@ -111,8 +112,8 @@ def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
 
 
 def interval_cost(
-    src_pose,
-    dst_pose,
+    src_pose: PoseEstimation,
+    dst_pose: PoseEstimation,
     src_identity: int,
     dst_identity: int,
     start: int,
@@ -159,8 +160,8 @@ def interval_cost(
 
 
 def find_best_identity(
-    src_pose,
-    dst_pose,
+    src_pose: PoseEstimation,
+    dst_pose: PoseEstimation,
     src_identity: int,
     start: int,
     end: int,
