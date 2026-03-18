@@ -19,6 +19,11 @@ predictions. Cache is never backed up. If a failure occurs after the final
 live apply begins, the script prints the backup path plus cleanup and manual
 restore instructions instead of restoring automatically.
 
+By default, the update also fails fast if an existing source annotation JSON
+contains timeline annotations, including prior ``--annotate-failures``
+output, because those annotations would not be preserved by the remap. Use
+``--force`` to allow the update anyway.
+
 The label-remap behavior is unchanged from the original two-project workflow:
 labels are processed block by block, matched by median bbox IoU, and written
 directly to the destination label track with warnings on label overlap.
@@ -30,6 +35,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -398,9 +404,20 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
+def _annotation_data_loss_risks(annotation_data: dict) -> list[str]:
+    """Describe timeline annotations that would be dropped by the pose update."""
+    risks = []
+
+    if annotation_data.get("annotations"):
+        risks.append("timeline annotations")
+
+    return risks
+
+
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
+    force: bool = False,
 ) -> tuple[list[str], dict[str, Path], set[str]]:
     """Validate live and replacement inputs before any live mutation occurs."""
     if not Project.is_valid_project_directory(project_dir):
@@ -446,8 +463,18 @@ def _preflight_update_inputs(
             )
 
         replacement_pose_files[video] = replacement_pose_path
-        if (annotations_dir / Path(video).with_suffix(".json")).exists():
+        annotation_path = annotations_dir / Path(video).with_suffix(".json")
+        if annotation_path.exists():
             live_annotations.add(video)
+            if not force:
+                with annotation_path.open() as f:
+                    risks = _annotation_data_loss_risks(json.load(f))
+
+                if risks:
+                    raise ValueError(
+                        f"{video} contains {', '.join(risks)} that would be dropped by the "
+                        "pose update; rerun with --force to allow it"
+                    )
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
@@ -657,6 +684,7 @@ def update_project_pose_in_place(
     min_iou: float,
     verbose: bool = False,
     annotate_failures: bool = False,
+    force: bool = False,
 ) -> tuple[int, int, Path]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``."""
     project_dir = project_dir.resolve()
@@ -665,6 +693,7 @@ def update_project_pose_in_place(
     videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
         project_dir,
         new_pose_dir,
+        force=force,
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -740,6 +769,14 @@ def main():
         action="store_true",
         help="Add timeline annotations to the project for each block whose label remap fails",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Allow the pose update to overwrite source annotation JSON that contains "
+            "timeline annotations, including prior --annotate-failures output"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -749,6 +786,7 @@ def main():
         args.min_iou,
         verbose=args.verbose,
         annotate_failures=args.annotate_failures,
+        force=args.force,
     )
 
     print(f"Backup archive: {backup_path}")

@@ -109,6 +109,95 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
         update_pose._preflight_update_inputs(project_dir, new_pose_dir)
 
 
+def test_preflight_rejects_timeline_annotations_without_force(tmp_path, monkeypatch):
+    """Preflight should fail fast if source annotations contain timeline annotations."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text(
+        """
+        {
+          "version": 1,
+          "file": "video1.avi",
+          "num_frames": 10,
+          "labels": {},
+          "unfragmented_labels": {},
+          "metadata": {"project": {}, "video": {}},
+          "annotations": [
+            {"start": 1, "end": 2, "tag": "note", "color": "#ffffff"}
+          ]
+        }
+        """
+    )
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        update_pose.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+
+    with pytest.raises(ValueError, match="timeline annotations"):
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+
+
+def test_preflight_allows_timeline_annotations_with_force(tmp_path, monkeypatch):
+    """Force mode should allow preflight to continue despite source timeline annotations."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text(
+        """
+        {
+          "version": 1,
+          "file": "video1.avi",
+          "num_frames": 10,
+          "labels": {},
+          "unfragmented_labels": {},
+          "metadata": {"project": {}, "video": {}},
+          "annotations": [
+            {"start": 1, "end": 2, "tag": "note", "color": "#ffffff"}
+          ]
+        }
+        """
+    )
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        update_pose.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+
+    videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
+        project_dir, new_pose_dir, force=True
+    )
+
+    assert videos == ["video1.avi"]
+    assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
+    assert live_annotations == {"video1.avi"}
+
+
 def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
     """Applying a staged pose update should replace annotations/project metadata and swap the pose set."""
     project_dir = tmp_path / "project"
