@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.behavior_search import SearchHit
+from jabs.ui.dialogs.message_dialog import MessageDialog
 from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
 
 
@@ -194,7 +195,11 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
             return
         video_path = self._project.video_manager.video_path(video_name)
         identity_count = self._project.video_manager.get_video_identity_count(video_name)
-        pose_path = self._project.video_manager.get_cached_pose_path(video_name)
+        try:
+            pose_path = self._project.video_manager.get_cached_pose_path(video_name)
+        except ValueError:
+            MessageDialog.error(self, "No pose file found for this video.")
+            return
         dialog = VideoInfoDialog(video_path, pose_path, identity_count=identity_count, parent=self)
         dialog.exec()
 
