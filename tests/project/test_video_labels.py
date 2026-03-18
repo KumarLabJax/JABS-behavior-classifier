@@ -62,6 +62,21 @@ class TestVideoLabels(unittest.TestCase):
         # make sure exported dict is the same as the one we used to create it
         self.assertDictEqual(labels.as_dict(mock_pose_est), video_label_dict)
 
+    def test_iter_identity_behavior_labels(self):
+        """Iterating labels should yield each identity/behavior track exactly once."""
+        labels = VideoLabels("filename.avi", 100)
+        walk_track = labels.get_track_labels("0", "Walk")
+        groom_track = labels.get_track_labels("1", "Groom")
+
+        entries = {
+            (identity, behavior): track
+            for identity, behavior, track in labels.iter_identity_behavior_labels()
+        }
+
+        self.assertEqual(set(entries), {("0", "Walk"), ("1", "Groom")})
+        self.assertIs(entries[("0", "Walk")], walk_track)
+        self.assertIs(entries[("1", "Groom")], groom_track)
+
     def test_label_fragmentation_with_identity_gaps(self):
         """test that label blocks are fragmented when there are identity gaps"""
         # Create a mask with a gap in the interval 100-200

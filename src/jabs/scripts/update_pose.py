@@ -261,7 +261,7 @@ def remap_labels_for_video(
     success_count = 0
     skipped_count = 0
 
-    for src_identity_str, behaviors in source_labels._identity_labels.items():
+    for src_identity_str, behavior, track_labels in source_labels.iter_identity_behavior_labels():
         try:
             src_identity = int(src_identity_str)
         except ValueError:
@@ -271,69 +271,65 @@ def remap_labels_for_video(
             )
             continue
 
-        for behavior, track_labels in behaviors.items():
-            for block in track_labels.get_blocks():
-                start, end, present = block["start"], block["end"], block["present"]
-                dst_identity, iou = find_best_identity(
-                    source_pose, dest_pose, src_identity, start, end
+        for block in track_labels.get_blocks():
+            start, end, present = block["start"], block["end"], block["present"]
+            dst_identity, iou = find_best_identity(
+                source_pose, dest_pose, src_identity, start, end
+            )
+
+            if dst_identity is None or not np.isfinite(iou) or iou < min_iou:
+                print(
+                    f"WARNING: {video} behavior={behavior} src_id={src_identity} frames={start}-{end} "
+                    f"no match meeting IoU ≥ {min_iou:.2f} (best {iou:.2f}). Skipping block.",
+                    file=sys.stderr,
                 )
+                skipped_count += 1
 
-                if dst_identity is None or not np.isfinite(iou) or iou < min_iou:
-                    print(
-                        f"WARNING: {video} behavior={behavior} src_id={src_identity} frames={start}-{end} "
-                        f"no match meeting IoU ≥ {min_iou:.2f} (best {iou:.2f}). Skipping block.",
-                        file=sys.stderr,
-                    )
-                    skipped_count += 1
-
-                    tag = (
-                        "update-pose-behavior-remap-failed"
-                        if present
-                        else "update-pose-not-behavior-remap-failed"
-                    )
-                    if (
-                        annotate_failures
-                        and not dest_labels.timeline_annotations.annotation_exists(
-                            start=start, end=end, tag=tag, identity_index=None
-                        )
-                    ):
-                        dest_labels.timeline_annotations.add_annotation(
-                            TimelineAnnotations.Annotation(
-                                start=start,
-                                end=end,
-                                tag=tag,
-                                color="#FF8800" if present else "#8888FF",
-                                description=(
-                                    f"label remap failed during pose update: behavior={behavior}, "
-                                    f"present={present}, "
-                                    f"src_id={src_identity}, best_iou={iou:.2f}"
-                                ),
-                                identity_index=None,
-                            )
-                        )
-                    continue
-
-                dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
-                _warn_on_label_overlap(
-                    video,
-                    behavior,
-                    src_identity,
-                    dst_identity,
-                    start,
-                    end,
-                    present,
-                    dst_track_labels,
+                tag = (
+                    "update-pose-behavior-remap-failed"
+                    if present
+                    else "update-pose-not-behavior-remap-failed"
                 )
-                if present:
-                    dst_track_labels.label_behavior(start, end)
-                else:
-                    dst_track_labels.label_not_behavior(start, end)
-                if verbose:
-                    print(
-                        f"MATCH: {video} behavior={behavior} src_id={src_identity} -> "
-                        f"dst_id={dst_identity} frames={start}-{end} iou={iou:.2f}"
+                if annotate_failures and not dest_labels.timeline_annotations.annotation_exists(
+                    start=start, end=end, tag=tag, identity_index=None
+                ):
+                    dest_labels.timeline_annotations.add_annotation(
+                        TimelineAnnotations.Annotation(
+                            start=start,
+                            end=end,
+                            tag=tag,
+                            color="#FF8800" if present else "#8888FF",
+                            description=(
+                                f"label remap failed during pose update: behavior={behavior}, "
+                                f"present={present}, "
+                                f"src_id={src_identity}, best_iou={iou:.2f}"
+                            ),
+                            identity_index=None,
+                        )
                     )
-                success_count += 1
+                continue
+
+            dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
+            _warn_on_label_overlap(
+                video,
+                behavior,
+                src_identity,
+                dst_identity,
+                start,
+                end,
+                present,
+                dst_track_labels,
+            )
+            if present:
+                dst_track_labels.label_behavior(start, end)
+            else:
+                dst_track_labels.label_not_behavior(start, end)
+            if verbose:
+                print(
+                    f"MATCH: {video} behavior={behavior} src_id={src_identity} -> "
+                    f"dst_id={dst_identity} frames={start}-{end} iou={iou:.2f}"
+                )
+            success_count += 1
 
     dest_project.save_annotations(dest_labels, dest_pose)
     print(f"Saved staged label remap for {video} -> {dest_project.project_paths.annotations_dir}")
