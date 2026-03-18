@@ -128,7 +128,7 @@ class VideoReader:
             self._frame_index = index
 
     def load_next_frame(self) -> dict[str, object]:
-        """grab the next frame from the file
+        """Grab the next frame from the file.
 
         Raises:
             OSError: If the video stream has been closed.
