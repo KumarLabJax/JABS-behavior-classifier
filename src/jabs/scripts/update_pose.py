@@ -118,10 +118,21 @@ def interval_cost(
     start: int,
     end: int,
 ) -> float:
-    """Return the median bbox IoU across one source-identity/destination-identity interval.
+    """Compute the median bbox IoU across one source-identity/destination-identity interval.
 
     Only frames where both boxes are finite and have positive area contribute to
     the score. If no such frames exist, returns 0.0.
+
+    Args:
+        src_pose: Source pose object.
+        dst_pose: Destination pose object.
+        src_identity: Source identity index.
+        dst_identity: Destination identity index.
+        start: Inclusive start frame for the interval.
+        end: Inclusive end frame for the interval.
+
+    Returns:
+        Median IoU across valid overlapping boxes in the interval, or ``0.0`` if none exist.
     """
     src_b = _bboxes_for_identity(src_pose, src_identity)
     dst_b = _bboxes_for_identity(dst_pose, dst_identity)
@@ -159,6 +170,17 @@ def find_best_identity(
     Destination identities are compared independently and the highest-IoU match
     is returned. The chosen identity is not reserved, so later blocks may match
     to the same destination identity.
+
+    Args:
+        src_pose: Source pose object.
+        dst_pose: Destination pose object.
+        src_identity: Source identity index.
+        start: Inclusive start frame for the interval.
+        end: Inclusive end frame for the interval.
+
+    Returns:
+        Tuple of ``(best_identity, best_iou)``. ``best_identity`` is ``None`` only if no
+        destination identities are available.
     """
     best_id: int | None = None
     best_score = -float("inf")
@@ -228,8 +250,16 @@ def remap_labels_for_video(
     writes for the same destination identity and behavior replace earlier frame
     values. Overlaps are warned before the write occurs.
 
+    Args:
+        video: Video filename to remap.
+        source_project: Project providing the current labels and source pose.
+        dest_project: Staging project providing the replacement pose and output location.
+        min_iou: Minimum median IoU required to accept a block match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to add timeline annotations for failed block matches.
+
     Returns:
-        (success_count, skipped_count)
+        Tuple of ``(success_count, skipped_count)``.
     """
     source_pose = source_project.load_pose_est(source_project.video_manager.video_path(video))
     dest_pose = dest_project.load_pose_est(dest_project.video_manager.video_path(video))
@@ -682,7 +712,19 @@ def update_project_pose_in_place(
     annotate_failures: bool = False,
     force: bool = False,
 ) -> tuple[int, int, Path]:
-    """Update a live project in place using replacement pose files from ``new_pose_dir``."""
+    """Update a live project in place using replacement pose files from ``new_pose_dir``.
+
+    Args:
+        project_dir: Path to the live project directory to update.
+        new_pose_dir: Directory containing replacement pose files.
+        min_iou: Minimum median IoU required to accept a label remap match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to write timeline annotations for failed block matches.
+        force: Whether to allow overwriting source annotation JSON with timeline annotations.
+
+    Returns:
+        Tuple of ``(total_success, total_skipped, backup_path)`` for the completed update.
+    """
     project_dir = project_dir.resolve()
     new_pose_dir = new_pose_dir.resolve()
 
