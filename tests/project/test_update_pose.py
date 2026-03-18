@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from click.testing import CliRunner
 
 import jabs.scripts.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
@@ -170,6 +171,69 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
     assert videos == ["video1.avi"]
     assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
     assert live_annotations == {"video1.avi"}
+
+
+def test_update_pose_click_command_invokes_update_project_pose_in_place(tmp_path, monkeypatch):
+    """The standalone Click command should forward parsed options to the core update helper."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    project_dir.mkdir()
+    new_pose_dir.mkdir()
+
+    captured = {}
+
+    def fake_update_project_pose_in_place(
+        project_dir_arg,
+        new_pose_dir_arg,
+        min_iou,
+        *,
+        verbose,
+        annotate_failures,
+        drop_timeline_annotations,
+    ):
+        captured.update(
+            {
+                "project_dir": project_dir_arg,
+                "new_pose_dir": new_pose_dir_arg,
+                "min_iou": min_iou,
+                "verbose": verbose,
+                "annotate_failures": annotate_failures,
+                "drop_timeline_annotations": drop_timeline_annotations,
+            }
+        )
+        return 3, 1, project_dir / ".backup" / "update_pose_test.zip"
+
+    monkeypatch.setattr(
+        update_pose,
+        "update_project_pose_in_place",
+        fake_update_project_pose_in_place,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        update_pose.main,
+        [
+            str(project_dir),
+            str(new_pose_dir),
+            "--min-iou-thresh",
+            "0.75",
+            "--verbose",
+            "--annotate-failures",
+            "--drop-timeline-annotations",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "project_dir": project_dir,
+        "new_pose_dir": new_pose_dir,
+        "min_iou": 0.75,
+        "verbose": True,
+        "annotate_failures": True,
+        "drop_timeline_annotations": True,
+    }
+    assert "Backup archive:" in result.output
+    assert "Pose update summary: 3 label blocks assigned, 1 label blocks skipped" in result.output
 
 
 def test_remap_labels_for_video_remaps_timeline_annotations():

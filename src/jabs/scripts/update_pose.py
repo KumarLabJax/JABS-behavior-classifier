@@ -34,7 +34,6 @@ Example:
 
 from __future__ import annotations
 
-import argparse
 import os
 import shlex
 import shutil
@@ -44,6 +43,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import click
 import numpy as np
 
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
@@ -823,58 +823,79 @@ def update_project_pose_in_place(
     return total_success, total_skipped, backup_path
 
 
-def main():
-    """Main entry point for updating a project to a replacement pose set."""
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("project", type=Path, help="Path to the live JABS project directory")
-    parser.add_argument(
-        "new_pose_dir",
-        type=Path,
-        help="Directory containing updated pose files onto which existing labels will be remapped",
-    )
-    parser.add_argument(
-        "--min-iou-thresh",
-        type=float,
-        default=0.5,
-        dest="min_iou",
-        help="Minimum acceptable median IoU for a label remap match (default: 0.5)",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Print successful label remap assignments in addition to warnings",
-    )
-    parser.add_argument(
-        "--annotate-failures",
-        action="store_true",
-        help="Add timeline annotations to the project for each block whose label remap fails",
-    )
-    parser.add_argument(
-        "--drop-timeline-annotations",
-        action="store_true",
-        help="Discard existing source timeline annotations instead of copying or remapping them",
-    )
-
-    args = parser.parse_args()
-
+@click.command(
+    name="update-pose",
+    context_settings={"max_content_width": 120},
+    help=__doc__,
+)
+@click.argument(
+    "project",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.argument(
+    "new_pose_dir",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.option(
+    "--min-iou-thresh",
+    "min_iou",
+    type=float,
+    default=0.5,
+    show_default=True,
+    help="Minimum acceptable median IoU for a label remap match.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Print successful label remap assignments in addition to warnings.",
+)
+@click.option(
+    "--annotate-failures",
+    is_flag=True,
+    help="Add timeline annotations to the project for each block whose label remap fails.",
+)
+@click.option(
+    "--drop-timeline-annotations",
+    is_flag=True,
+    help="Discard existing source timeline annotations instead of copying or remapping them.",
+)
+def update_pose_command(
+    project: Path,
+    new_pose_dir: Path,
+    min_iou: float,
+    verbose: bool,
+    annotate_failures: bool,
+    drop_timeline_annotations: bool,
+) -> None:
+    """Update a JABS project in place to use updated pose files while remapping labels."""
     total_success, total_skipped, backup_path = update_project_pose_in_place(
-        args.project,
-        args.new_pose_dir,
-        args.min_iou,
-        verbose=args.verbose,
-        annotate_failures=args.annotate_failures,
-        drop_timeline_annotations=args.drop_timeline_annotations,
+        project,
+        new_pose_dir,
+        min_iou,
+        verbose=verbose,
+        annotate_failures=annotate_failures,
+        drop_timeline_annotations=drop_timeline_annotations,
     )
 
-    print(f"Backup archive: {backup_path}")
-    print(
+    click.echo(f"Backup archive: {backup_path}")
+    click.echo(
         f"Pose update summary: {total_success} label blocks assigned, "
         f"{total_skipped} label blocks skipped "
-        f"(IoU threshold={args.min_iou})"
+        f"(IoU threshold={min_iou})"
     )
+
+
+main = update_pose_command
 
 
 if __name__ == "__main__":
