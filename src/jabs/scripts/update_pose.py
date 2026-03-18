@@ -19,14 +19,14 @@ predictions. Cache is never backed up. If a failure occurs after the final
 live apply begins, the script prints the backup path plus cleanup and manual
 restore instructions instead of restoring automatically.
 
-By default, the update also fails fast if an existing source annotation JSON
-contains timeline annotations, including prior ``--annotate-failures``
-output, because those annotations would not be preserved by the remap. Use
-``--force`` to allow the update anyway.
-
 The label-remap behavior is unchanged from the original two-project workflow:
 labels are processed block by block, matched by median bbox IoU, and written
 directly to the destination label track with warnings on label overlap.
+Timeline annotations are also carried forward: video-level annotations are
+copied as-is, and identity-scoped annotations are remapped by the same
+interval-matching logic. If ``--drop-timeline-annotations`` is provided,
+existing source timeline annotations are discarded instead of being copied or
+remapped.
 
 Example:
   jabs-update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
@@ -35,7 +35,6 @@ Example:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shlex
 import shutil
@@ -241,6 +240,7 @@ def remap_labels_for_video(
     min_iou: float,
     verbose: bool = False,
     annotate_failures: bool = False,
+    drop_timeline_annotations: bool = False,
 ):
     """Remap labels for a single video.
 
@@ -258,6 +258,8 @@ def remap_labels_for_video(
         min_iou: Minimum median IoU required to accept a block match.
         verbose: Whether to print successful block matches.
         annotate_failures: Whether to add timeline annotations for failed block matches.
+        drop_timeline_annotations: Whether to discard existing source timeline annotations
+            instead of copying or remapping them.
 
     Returns:
         Tuple of ``(success_count, skipped_count)``.
@@ -289,6 +291,65 @@ def remap_labels_for_video(
         return 0, 0
 
     dest_labels = VideoLabels(video, dest_pose.num_frames)
+
+    if not drop_timeline_annotations:
+        for annotation in source_labels.timeline_annotations.serialize():
+            start = annotation["start"]
+            end = annotation["end"]
+            tag = annotation["tag"]
+            color = annotation["color"]
+            description = annotation.get("description")
+            src_annotation_identity = annotation.get("identity")
+
+            if src_annotation_identity is None:
+                dst_annotation_identity = None
+                display_identity = None
+            else:
+                try:
+                    src_annotation_identity = int(src_annotation_identity)
+                except (TypeError, ValueError):
+                    print(
+                        f"WARNING: {video} annotation tag={tag} frames={start}-{end} has non-integer "
+                        f"identity {src_annotation_identity!r}; skipping annotation.",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                dst_annotation_identity, iou = find_best_identity(
+                    source_pose,
+                    dest_pose,
+                    src_annotation_identity,
+                    start,
+                    end,
+                )
+                if dst_annotation_identity is None or not np.isfinite(iou) or iou < min_iou:
+                    print(
+                        f"WARNING: {video} annotation tag={tag} src_id={src_annotation_identity} "
+                        f"frames={start}-{end} no match meeting IoU ≥ {min_iou:.2f} "
+                        f"(best {iou:.2f}). Skipping annotation.",
+                        file=sys.stderr,
+                    )
+                    continue
+                display_identity = dest_pose.identity_index_to_display(dst_annotation_identity)
+
+            if not dest_labels.timeline_annotations.annotation_exists(
+                start=start,
+                end=end,
+                tag=tag,
+                identity_index=dst_annotation_identity,
+            ):
+                dest_labels.add_annotation(
+                    TimelineAnnotations.Annotation(
+                        start=start,
+                        end=end,
+                        tag=tag,
+                        color=color,
+                        description=description,
+                        identity_index=dst_annotation_identity,
+                        display_identity=display_identity,
+                    )
+                )
+
     success_count = 0
     skipped_count = 0
 
@@ -431,20 +492,9 @@ def _validate_live_update_targets(
                 _require_writable_existing_path(child, f"live {derived_dir_name} file")
 
 
-def _annotation_data_loss_risks(annotation_data: dict) -> list[str]:
-    """Describe timeline annotations that would be dropped by the pose update."""
-    risks = []
-
-    if annotation_data.get("annotations"):
-        risks.append("timeline annotations")
-
-    return risks
-
-
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
-    force: bool = False,
 ) -> tuple[list[str], dict[str, Path], set[str]]:
     """Validate live and replacement inputs before any live mutation occurs."""
     if not Project.is_valid_project_directory(project_dir):
@@ -493,15 +543,6 @@ def _preflight_update_inputs(
         annotation_path = annotations_dir / Path(video).with_suffix(".json")
         if annotation_path.exists():
             live_annotations.add(video)
-            if not force:
-                with annotation_path.open() as f:
-                    risks = _annotation_data_loss_risks(json.load(f))
-
-                if risks:
-                    raise ValueError(
-                        f"{video} contains {', '.join(risks)} that would be dropped by the "
-                        "pose update; rerun with --force to allow it"
-                    )
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
@@ -685,6 +726,7 @@ def _run_staged_label_remap(
     min_iou: float,
     verbose: bool,
     annotate_failures: bool,
+    drop_timeline_annotations: bool,
 ) -> tuple[int, int]:
     """Run the existing per-video label-remap semantics from source to destination."""
     total_success = 0
@@ -698,6 +740,7 @@ def _run_staged_label_remap(
             min_iou,
             verbose=verbose,
             annotate_failures=annotate_failures,
+            drop_timeline_annotations=drop_timeline_annotations,
         )
         total_success += success
         total_skipped += skipped
@@ -711,7 +754,7 @@ def update_project_pose_in_place(
     min_iou: float,
     verbose: bool = False,
     annotate_failures: bool = False,
-    force: bool = False,
+    drop_timeline_annotations: bool = False,
 ) -> tuple[int, int, Path]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -721,7 +764,8 @@ def update_project_pose_in_place(
         min_iou: Minimum median IoU required to accept a label remap match.
         verbose: Whether to print successful block matches.
         annotate_failures: Whether to write timeline annotations for failed block matches.
-        force: Whether to allow overwriting source annotation JSON with timeline annotations.
+        drop_timeline_annotations: Whether to discard existing source timeline annotations
+            instead of copying or remapping them.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path)`` for the completed update.
@@ -732,7 +776,6 @@ def update_project_pose_in_place(
     videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
         project_dir,
         new_pose_dir,
-        force=force,
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -765,6 +808,7 @@ def update_project_pose_in_place(
             min_iou,
             verbose,
             annotate_failures,
+            drop_timeline_annotations,
         )
         _refresh_project_identity_counts(dest_project)
         _apply_live_update(
@@ -809,12 +853,9 @@ def main():
         help="Add timeline annotations to the project for each block whose label remap fails",
     )
     parser.add_argument(
-        "--force",
+        "--drop-timeline-annotations",
         action="store_true",
-        help=(
-            "Allow the pose update to overwrite source annotation JSON that contains "
-            "timeline annotations, including prior --annotate-failures output"
-        ),
+        help="Discard existing source timeline annotations instead of copying or remapping them",
     )
 
     args = parser.parse_args()
@@ -825,7 +866,7 @@ def main():
         args.min_iou,
         verbose=args.verbose,
         annotate_failures=args.annotate_failures,
-        force=args.force,
+        drop_timeline_annotations=args.drop_timeline_annotations,
     )
 
     print(f"Backup archive: {backup_path}")

@@ -156,7 +156,7 @@ The `jabs-update-pose` command updates an existing JABS project to use updated p
 **Usage:**
 
 ```bash
-jabs-update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--force]
+jabs-update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
@@ -164,9 +164,9 @@ jabs-update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
 - `--verbose`: Print successful label remap assignments in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails.
-- `--force`: Allow the pose update to overwrite source annotation JSON that contains timeline annotations, including prior `--annotate-failures` output.
+- `--drop-timeline-annotations`: Discard existing timeline annotations from the source project instead of copying or remapping them.
 
-Before modifying the project, the command validates the updated pose files, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup`. By default it also fails fast if an existing source annotation JSON contains timeline annotations, including prior `--annotate-failures` output, because those annotations would be dropped. Only after the staged pose update succeeds are annotations, project metadata, and pose files copied back into the project.
+Before modifying the project, the command validates the updated pose files, runs the pose update and label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup`. By default, existing timeline annotations are also carried forward: video-level annotations are copied as-is, and identity-scoped annotations are remapped by the same interval-matching logic used for label blocks. Use `--drop-timeline-annotations` if you want to discard existing timeline annotations instead. Only after the staged pose update succeeds are annotations, project metadata, and pose files copied back into the project.
 
 **Example:**
 

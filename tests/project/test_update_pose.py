@@ -1,10 +1,26 @@
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 import jabs.scripts.update_pose as update_pose
+from jabs.project import TimelineAnnotations, VideoLabels
+
+
+def _make_pose(identities, boxes_by_identity):
+    """Build a simple bbox-capable pose object for remap tests."""
+    num_frames = next(iter(boxes_by_identity.values())).shape[0]
+    return SimpleNamespace(
+        format_major_version=8,
+        has_bounding_boxes=True,
+        num_frames=num_frames,
+        identities=list(identities),
+        get_bounding_boxes=lambda identity: boxes_by_identity[identity],
+        identity_index_to_display=lambda identity: f"id-{identity}",
+    )
 
 
 def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
@@ -109,50 +125,8 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
         update_pose._preflight_update_inputs(project_dir, new_pose_dir)
 
 
-def test_preflight_rejects_timeline_annotations_without_force(tmp_path, monkeypatch):
-    """Preflight should fail fast if source annotations contain timeline annotations."""
-    project_dir = tmp_path / "project"
-    new_pose_dir = tmp_path / "new_pose"
-    annotations_dir = project_dir / "jabs" / "annotations"
-    annotations_dir.mkdir(parents=True)
-    new_pose_dir.mkdir()
-
-    (project_dir / "jabs" / "project.json").write_text("{}")
-    (project_dir / "video1.avi").touch()
-    (project_dir / "video1_pose_est_v8.h5").touch()
-    (new_pose_dir / "video1_pose_est_v8.h5").touch()
-    (annotations_dir / "video1.json").write_text(
-        """
-        {
-          "version": 1,
-          "file": "video1.avi",
-          "num_frames": 10,
-          "labels": {},
-          "unfragmented_labels": {},
-          "metadata": {"project": {}, "video": {}},
-          "annotations": [
-            {"start": 1, "end": 2, "tag": "note", "color": "#ffffff"}
-          ]
-        }
-        """
-    )
-
-    def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
-
-    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
-    monkeypatch.setattr(
-        update_pose.VideoReader,
-        "get_nframes_from_file",
-        staticmethod(lambda _path: 10),
-    )
-
-    with pytest.raises(ValueError, match="timeline annotations"):
-        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
-
-
-def test_preflight_allows_timeline_annotations_with_force(tmp_path, monkeypatch):
-    """Force mode should allow preflight to continue despite source timeline annotations."""
+def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
+    """Preflight should allow source timeline annotations because they are remapped."""
     project_dir = tmp_path / "project"
     new_pose_dir = tmp_path / "new_pose"
     annotations_dir = project_dir / "jabs" / "annotations"
@@ -190,12 +164,249 @@ def test_preflight_allows_timeline_annotations_with_force(tmp_path, monkeypatch)
     )
 
     videos, replacement_pose_files, live_annotations = update_pose._preflight_update_inputs(
-        project_dir, new_pose_dir, force=True
+        project_dir, new_pose_dir
     )
 
     assert videos == ["video1.avi"]
     assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
     assert live_annotations == {"video1.avi"}
+
+
+def test_remap_labels_for_video_remaps_timeline_annotations():
+    """Timeline annotations should be preserved and identity-scoped annotations remapped."""
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+
+    source_pose = _make_pose([0], {0: src_boxes})
+    dest_pose = _make_pose([1], {1: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=1,
+            end=2,
+            tag="global_note",
+            color="#ffffff",
+            description="global",
+            identity_index=None,
+        )
+    )
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=3,
+            end=4,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+
+    source_project = MagicMock()
+    source_project.video_manager.video_path.return_value = Path("video1.avi")
+    source_project.video_manager.load_video_labels.return_value = source_labels
+    source_project.load_pose_est.return_value = source_pose
+
+    dest_project = MagicMock()
+    dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    dest_project.load_pose_est.return_value = dest_pose
+    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose.remap_labels_for_video(
+        "video1.avi",
+        source_project,
+        dest_project,
+        min_iou=0.5,
+    )
+
+    assert success_count == 0
+    assert skipped_count == 0
+    saved_labels = dest_project.save_annotations.call_args[0][0]
+    assert saved_labels.timeline_annotations.serialize() == [
+        {
+            "start": 1,
+            "end": 2,
+            "tag": "global_note",
+            "color": "#ffffff",
+            "description": "global",
+        },
+        {
+            "start": 3,
+            "end": 4,
+            "tag": "identity_note",
+            "color": "#ff0000",
+            "description": "identity",
+            "identity": 1,
+        },
+    ]
+
+
+def test_remap_labels_for_video_skips_unmatched_identity_annotation(capsys):
+    """Identity-scoped timeline annotations should warn and be skipped when no match meets IoU."""
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[50.0, 50.0], [60.0, 60.0]]] * 10)
+
+    source_pose = _make_pose([0], {0: src_boxes})
+    dest_pose = _make_pose([1], {1: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=3,
+            end=4,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+
+    source_project = MagicMock()
+    source_project.video_manager.video_path.return_value = Path("video1.avi")
+    source_project.video_manager.load_video_labels.return_value = source_labels
+    source_project.load_pose_est.return_value = source_pose
+
+    dest_project = MagicMock()
+    dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    dest_project.load_pose_est.return_value = dest_pose
+    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose.remap_labels_for_video(
+        "video1.avi",
+        source_project,
+        dest_project,
+        min_iou=0.5,
+    )
+
+    assert success_count == 0
+    assert skipped_count == 0
+    saved_labels = dest_project.save_annotations.call_args[0][0]
+    assert saved_labels.timeline_annotations.serialize() == []
+
+    stderr = capsys.readouterr().err
+    assert "annotation tag=identity_note src_id=0 frames=3-4" in stderr
+    assert "Skipping annotation." in stderr
+
+
+def test_remap_labels_for_video_suppresses_duplicate_annotations():
+    """Duplicate remapped annotations should only be written once."""
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+
+    source_pose = _make_pose([0, 1], {0: src_boxes, 1: src_boxes})
+    dest_pose = _make_pose([2], {2: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=3,
+            end=4,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=3,
+            end=4,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=1,
+            display_identity="id-1",
+        )
+    )
+
+    source_project = MagicMock()
+    source_project.video_manager.video_path.return_value = Path("video1.avi")
+    source_project.video_manager.load_video_labels.return_value = source_labels
+    source_project.load_pose_est.return_value = source_pose
+
+    dest_project = MagicMock()
+    dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    dest_project.load_pose_est.return_value = dest_pose
+    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose.remap_labels_for_video(
+        "video1.avi",
+        source_project,
+        dest_project,
+        min_iou=0.5,
+    )
+
+    assert success_count == 0
+    assert skipped_count == 0
+    saved_labels = dest_project.save_annotations.call_args[0][0]
+    assert saved_labels.timeline_annotations.serialize() == [
+        {
+            "start": 3,
+            "end": 4,
+            "tag": "identity_note",
+            "color": "#ff0000",
+            "description": "identity",
+            "identity": 2,
+        }
+    ]
+
+
+def test_remap_labels_for_video_drops_source_timeline_annotations():
+    """Existing source timeline annotations should be discarded when requested."""
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+
+    source_pose = _make_pose([0], {0: src_boxes})
+    dest_pose = _make_pose([1], {1: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=1,
+            end=2,
+            tag="global_note",
+            color="#ffffff",
+            description="global",
+            identity_index=None,
+        )
+    )
+    source_labels.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=3,
+            end=4,
+            tag="identity_note",
+            color="#ff0000",
+            description="identity",
+            identity_index=0,
+            display_identity="id-0",
+        )
+    )
+
+    source_project = MagicMock()
+    source_project.video_manager.video_path.return_value = Path("video1.avi")
+    source_project.video_manager.load_video_labels.return_value = source_labels
+    source_project.load_pose_est.return_value = source_pose
+
+    dest_project = MagicMock()
+    dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    dest_project.load_pose_est.return_value = dest_pose
+    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose.remap_labels_for_video(
+        "video1.avi",
+        source_project,
+        dest_project,
+        min_iou=0.5,
+        drop_timeline_annotations=True,
+    )
+
+    assert success_count == 0
+    assert skipped_count == 0
+    saved_labels = dest_project.save_annotations.call_args[0][0]
+    assert saved_labels.timeline_annotations.serialize() == []
 
 
 def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
