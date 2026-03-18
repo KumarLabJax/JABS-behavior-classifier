@@ -90,6 +90,6 @@ def format_results(
 
 def keypoint_name(index: int, names: Sequence[str] | None) -> str:
     """Return a human-readable name for a keypoint index."""
-    if names is not None and index < len(names):
+    if names is not None and 0 <= index < len(names):
         return names[index]
     return f"keypoint_{index}"

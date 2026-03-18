@@ -20,6 +20,8 @@ class MatchResult:
         tp_flags: Boolean array of shape (N,) indicating true positives.
         scores: Detection confidence scores of shape (N,), sorted descending.
         num_gt: Number of non-crowd ground truths in this image.
+        ignore_flags: Boolean array of shape (N,) indicating detections matched
+            to crowd GTs that should be excluded from AP/AR computation.
         det_indices: Original detection indices in score-descending order, shape (N,).
         gt_assignments: GT index assigned to each detection (-1 if unmatched), shape (N,).
     """
@@ -27,6 +29,9 @@ class MatchResult:
     tp_flags: npt.NDArray[np.bool_]
     scores: npt.NDArray[np.float64]
     num_gt: int
+    ignore_flags: npt.NDArray[np.bool_] = field(
+        default_factory=lambda: np.array([], dtype=np.bool_)
+    )
     det_indices: npt.NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
     gt_assignments: npt.NDArray[np.intp] = field(
         default_factory=lambda: np.array([], dtype=np.intp)
@@ -64,6 +69,7 @@ def greedy_match(
             tp_flags=np.array([], dtype=np.bool_),
             scores=np.array([], dtype=np.float64),
             num_gt=num_non_crowd,
+            ignore_flags=np.array([], dtype=np.bool_),
             det_indices=np.array([], dtype=np.intp),
             gt_assignments=np.array([], dtype=np.intp),
         )
@@ -78,18 +84,19 @@ def greedy_match(
 
     gt_matched = np.zeros(n_gt, dtype=bool)
     tp_flags = np.zeros(n_det, dtype=np.bool_)
+    ignore_flags = np.zeros(n_det, dtype=np.bool_)
     gt_assignments = np.full(n_det, -1, dtype=np.intp)
 
     for det_idx in sorted_det_indices:
         sim_row = similarity_matrix[det_idx]
 
-        # Try non-crowd GTs first
+        # Try non-crowd GTs first (use >= for inclusive threshold matching)
         best_gt = -1
-        best_sim = threshold  # Must exceed threshold
+        best_sim = threshold
         for gt_idx in range(n_gt):
             if gt_matched[gt_idx] or crowd_flags[gt_idx]:
                 continue
-            if sim_row[gt_idx] > best_sim:
+            if sim_row[gt_idx] >= best_sim:
                 best_sim = sim_row[gt_idx]
                 best_gt = gt_idx
 
@@ -99,24 +106,24 @@ def greedy_match(
             gt_assignments[det_idx] = best_gt
             continue
 
-        # Try crowd GTs - absorb detection without FP penalty
+        # Try crowd GTs - absorb detection (excluded from AP/AR computation)
         best_crowd_sim = threshold
         best_crowd_gt = -1
         for gt_idx in range(n_gt):
             if not crowd_flags[gt_idx]:
                 continue
-            if sim_row[gt_idx] > best_crowd_sim:
+            if sim_row[gt_idx] >= best_crowd_sim:
                 best_crowd_sim = sim_row[gt_idx]
                 best_crowd_gt = gt_idx
 
         if best_crowd_gt >= 0:
-            # Matched to crowd: not a TP but also not an FP
-            # Mark as TP so it doesn't count as FP in AP calculation
-            tp_flags[det_idx] = True
+            # Matched to crowd: ignore this detection in AP/AR computation
+            ignore_flags[det_idx] = True
             gt_assignments[det_idx] = best_crowd_gt
 
     # Reorder outputs by descending score
     sorted_tp = tp_flags[sorted_det_indices]
+    sorted_ignore = ignore_flags[sorted_det_indices]
     sorted_scores = scores[sorted_det_indices]
     sorted_gt_assignments = gt_assignments[sorted_det_indices]
 
@@ -124,6 +131,7 @@ def greedy_match(
         tp_flags=sorted_tp,
         scores=sorted_scores,
         num_gt=num_non_crowd,
+        ignore_flags=sorted_ignore,
         det_indices=sorted_det_indices,
         gt_assignments=sorted_gt_assignments,
     )

@@ -43,7 +43,7 @@ class TestGreedyMatch:
         result = greedy_match(sim, [det], [gt], threshold=0.5)
         assert result.num_gt == 1
         assert len(result.tp_flags) == 1
-        assert result.tp_flags[0] is np.bool_(True)
+        assert result.tp_flags[0]
         assert result.scores[0] == pytest.approx(0.9)
 
     def test_below_threshold_is_fp(self) -> None:
@@ -54,7 +54,7 @@ class TestGreedyMatch:
 
         result = greedy_match(sim, [det], [gt], threshold=0.5)
         assert result.num_gt == 1
-        assert result.tp_flags[0] is np.bool_(False)
+        assert not result.tp_flags[0]
 
     def test_score_ordering(self) -> None:
         """Higher-scored detection gets priority for matching."""
@@ -66,8 +66,8 @@ class TestGreedyMatch:
 
         result = greedy_match(sim, [det_high, det_low], [gt], threshold=0.5)
         # First in sorted order (high score) is TP, second is FP
-        assert result.tp_flags[0] is np.bool_(True)  # det_high
-        assert result.tp_flags[1] is np.bool_(False)  # det_low
+        assert result.tp_flags[0]  # det_high
+        assert not result.tp_flags[1]  # det_low
 
     def test_two_dets_two_gts(self) -> None:
         """Two detections match two GTs correctly."""
@@ -83,7 +83,7 @@ class TestGreedyMatch:
         assert np.sum(result.tp_flags) == 2
 
     def test_crowd_absorbs_detection(self) -> None:
-        """Detection matched to crowd GT is not counted as FP."""
+        """Detection matched to crowd GT is ignored, not counted as TP or FP."""
         det = _make_det(0.9)
         crowd_gt = _make_gt(is_crowd=True)
         sim = np.array([[0.95]], dtype=np.float64)
@@ -91,8 +91,9 @@ class TestGreedyMatch:
         result = greedy_match(sim, [det], [crowd_gt], threshold=0.5)
         # Crowd GT does not count toward num_gt
         assert result.num_gt == 0
-        # Detection absorbed by crowd - marked as TP (not FP)
-        assert result.tp_flags[0] is np.bool_(True)
+        # Detection absorbed by crowd - ignored in AP/AR computation
+        assert not result.tp_flags[0]
+        assert result.ignore_flags[0]
 
     def test_crowd_with_non_crowd(self) -> None:
         """Non-crowd GT is preferred over crowd GT."""
@@ -104,7 +105,7 @@ class TestGreedyMatch:
 
         result = greedy_match(sim, [det], [gt, crowd_gt], threshold=0.5)
         assert result.num_gt == 1  # Only non-crowd counts
-        assert result.tp_flags[0] is np.bool_(True)
+        assert result.tp_flags[0]
         # Should be assigned to non-crowd GT (index 0)
         assert result.gt_assignments[0] == 0
 
@@ -125,7 +126,7 @@ class TestGreedyMatch:
 
         result = greedy_match(sim, [det], [], threshold=0.5)
         assert result.num_gt == 0
-        assert result.tp_flags[0] is np.bool_(False)
+        assert not result.tp_flags[0]
 
     def test_gt_matched_only_once(self) -> None:
         """Each GT can only be matched once."""
@@ -153,4 +154,4 @@ class TestMatchImage:
         result = match_image(image, sim, threshold=0.5)
 
         assert result.num_gt == 1
-        assert result.tp_flags[0] is np.bool_(True)
+        assert result.tp_flags[0]

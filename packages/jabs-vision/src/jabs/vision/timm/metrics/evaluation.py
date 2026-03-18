@@ -178,12 +178,12 @@ def evaluate_pck(
     sigmas: npt.NDArray[np.float64],
     threshold: float,
     exclude_keypoint_indices: Sequence[int] | None = None,
-    match_iou_threshold: float = 0.5,
+    match_oks_threshold: float = 0.5,
 ) -> PCKResult:
     """Evaluate Percentage of Correct Keypoints.
 
     First matches detections to ground truths using OKS at the given
-    ``match_iou_threshold``, then computes PCK using bbox diagonal as the
+    ``match_oks_threshold``, then computes PCK using bbox diagonal as the
     reference distance.
 
     Args:
@@ -192,7 +192,7 @@ def evaluate_pck(
         threshold: PCK distance threshold as fraction of bbox diagonal.
         exclude_keypoint_indices: Optional keypoint indices to exclude from
             PCK computation.
-        match_iou_threshold: OKS threshold for matching detections to GTs.
+        match_oks_threshold: OKS threshold for matching detections to GTs.
 
     Returns:
         PCKResult with overall and per-keypoint breakdown.
@@ -219,7 +219,7 @@ def evaluate_pck(
 
         oks_matrix = compute_oks_matrix(img.detections, img.ground_truths, sigmas)
         match_result = greedy_match(
-            oks_matrix, img.detections, img.ground_truths, match_iou_threshold
+            oks_matrix, img.detections, img.ground_truths, match_oks_threshold
         )
 
         # Collect matched pairs

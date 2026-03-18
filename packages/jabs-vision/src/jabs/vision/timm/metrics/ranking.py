@@ -33,12 +33,24 @@ def compute_ap_ar(match_results: list[MatchResult]) -> tuple[float, float]:
     # Concatenate all results, maintaining score-descending order via merge sort
     non_empty_scores = [mr.scores for mr in match_results if len(mr.scores) > 0]
     non_empty_tp = [mr.tp_flags for mr in match_results if len(mr.tp_flags) > 0]
+    non_empty_ignore = [mr.ignore_flags for mr in match_results if len(mr.ignore_flags) > 0]
 
     if len(non_empty_scores) == 0:
         return 0.0, 0.0
 
     all_scores = np.concatenate(non_empty_scores)
     all_tp = np.concatenate(non_empty_tp)
+
+    if len(all_scores) == 0:
+        return 0.0, 0.0
+
+    # Filter out crowd-matched (ignored) detections before building PR curve
+    if len(non_empty_ignore) > 0:
+        all_ignore = np.concatenate(non_empty_ignore)
+        if len(all_ignore) == len(all_scores):
+            keep = ~all_ignore
+            all_scores = all_scores[keep]
+            all_tp = all_tp[keep]
 
     if len(all_scores) == 0:
         return 0.0, 0.0
