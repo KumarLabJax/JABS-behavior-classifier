@@ -1,39 +1,78 @@
 #!/usr/bin/env python
 
-"""Remap behavior labels from a source JABS project to a destination JABS project.
+"""Remap behavior labels in place onto an updated pose set for a JABS project.
 
-The script processes each labeled source block independently. For a given block,
-it scores every destination identity by the median bounding-box IoU over the
-block interval and selects the highest-scoring destination identity. This
-is a per-block best match, not a greedy or one-to-one assignment across the
-whole video, so multiple source identities may map to the same destination
-identity.
+This is intended for keeping existing labels when pose files for the same
+videos have been regenerated or otherwise updated. The script validates the
+updated pose set first, then performs the remap in two disposable staging
+projects so the live project stays unchanged while remapping is underway. The
+updated pose directory must provide the same latest pose version for every
+project video, and only that latest version is copied back into the live
+project. Only after the staged remap succeeds does it copy the staged
+annotations and project metadata back to the live project and swap in the
+updated pose files.
 
-Matches below the requested IoU threshold are skipped. Matched blocks are
-written directly into the destination label track. If a write overlaps labels
-already written for the same destination identity and behavior, the script
-warns. Identical overlaps are reported as mapping collisions, and conflicting
-overlaps are also reported before the incoming block overwrites the previous
-frame values. The saved label file therefore contains only the final resolved
-per-frame labels, not overlapping contradictory intervals.
+Before the live project is modified, the script creates a timestamped backup zip
+under ``<project>/.backup`` containing every live file the update may overwrite
+or delete: pose files, annotations, ``jabs/project.json``, and predictions.
+Cache is never backed up. If a failure occurs after the final live apply
+begins, the script prints the backup path and manual restore instructions
+instead of restoring automatically.
 
-Both projects must use pose files with bounding boxes available.
+The matching behavior is unchanged from the original two-project workflow:
+labels are processed block by block, matched by median bbox IoU, and written
+directly to the destination label track with warnings on label overlap.
 
 Example:
-  python remap_labels.py /path/to/source_proj /path/to/dest_proj --min-iou-thresh 0.5
+  python remap_labels.py /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
+import shutil
 import sys
+import tempfile
+import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
+from jabs.pose_estimation import get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
+from jabs.video_reader import VideoReader
+
+
+def _project_videos(project_dir: Path) -> list[str]:
+    """Return the sorted set of project video filenames."""
+    return sorted(f.name for f in project_dir.glob("*") if f.suffix in {".avi", ".mp4"})
+
+
+def _pose_files_for_video(video: str, pose_dir: Path) -> list[Path]:
+    """Return all pose files in ``pose_dir`` that correspond to ``video``."""
+    video_base = Path(video).with_suffix("").name
+    return sorted(pose_dir.glob(f"{video_base}_pose_est_v*.h5"))
+
+
+def _require_writable_directory(path: Path, description: str) -> None:
+    """Raise if a directory does not permit the writes/removals needed by the live apply step."""
+    if not path.exists():
+        raise ValueError(f"{description} does not exist: {path}")
+    if not path.is_dir():
+        raise ValueError(f"{description} is not a directory: {path}")
+    if not os.access(path, os.W_OK | os.X_OK):
+        raise PermissionError(f"{description} is not writable: {path}")
+
+
+def _require_writable_existing_path(path: Path, description: str) -> None:
+    """Raise if an existing file or directory is not writable."""
+    if path.exists() and not os.access(path, os.W_OK):
+        raise PermissionError(f"{description} is not writable: {path}")
 
 
 def _bboxes_for_identity(pose, identity: int) -> np.ndarray | None:
@@ -290,15 +329,351 @@ def remap_labels_for_video(
     return success_count, skipped_count
 
 
+def _validate_pose_file(
+    video: str,
+    video_path: Path,
+    pose_path: Path,
+    role: str,
+    require_bboxes: bool,
+) -> int:
+    """Validate that a pose file is readable and matches the video frame count."""
+    pose = open_pose_file(pose_path, None)
+    version = getattr(pose, "format_major_version", 0)
+    if require_bboxes and (version < 8 or not getattr(pose, "has_bounding_boxes", False)):
+        raise ValueError(f"{video} {role} pose v{version} lacks bounding boxes")
+
+    pose_frames = pose.num_frames
+    video_frames = VideoReader.get_nframes_from_file(video_path)
+    if pose_frames != video_frames:
+        raise ValueError(
+            f"{video} {role} pose frame count ({pose_frames}) does not match video ({video_frames})"
+        )
+
+    return int(version)
+
+
+def _validate_live_update_targets(
+    project_dir: Path,
+    videos: list[str],
+    live_annotation_videos: set[str],
+) -> None:
+    """Best-effort preflight check that live update targets can be replaced or removed."""
+    jabs_dir = project_dir / "jabs"
+    annotations_dir = jabs_dir / "annotations"
+    backup_dir = project_dir / ".backup"
+
+    _require_writable_directory(project_dir, "live project directory")
+    _require_writable_directory(jabs_dir, "live jabs directory")
+    if annotations_dir.exists():
+        _require_writable_directory(annotations_dir, "live annotations directory")
+
+    if backup_dir.exists():
+        _require_writable_directory(backup_dir, "backup directory")
+
+    _require_writable_existing_path(jabs_dir / "project.json", "live project file")
+
+    for video in videos:
+        for live_pose_path in _pose_files_for_video(video, project_dir):
+            _require_writable_existing_path(live_pose_path, "live pose file")
+
+    for video in live_annotation_videos:
+        annotation_path = annotations_dir / Path(video).with_suffix(".json")
+        _require_writable_existing_path(annotation_path, "live annotation file")
+
+    for derived_dir_name in ("predictions", "cache"):
+        derived_dir = jabs_dir / derived_dir_name
+        if not derived_dir.exists():
+            continue
+
+        _require_writable_directory(derived_dir, f"live {derived_dir_name} directory")
+        for child in derived_dir.rglob("*"):
+            if child.is_dir():
+                _require_writable_directory(child, f"live {derived_dir_name} directory")
+            else:
+                _require_writable_existing_path(child, f"live {derived_dir_name} file")
+
+
+def _preflight_remap_inputs(
+    project_dir: Path,
+    new_pose_dir: Path,
+) -> tuple[list[str], dict[str, Path], set[str]]:
+    """Validate live and replacement inputs before any live mutation occurs."""
+    if not Project.is_valid_project_directory(project_dir):
+        raise ValueError(f"{project_dir} is not a valid JABS project directory")
+    if not new_pose_dir.is_dir():
+        raise ValueError(f"{new_pose_dir} is not a directory")
+
+    videos = _project_videos(project_dir)
+    if not videos:
+        raise ValueError(f"No video files found in {project_dir}")
+
+    replacement_pose_files: dict[str, Path] = {}
+    live_annotations: set[str] = set()
+    annotations_dir = project_dir / "jabs" / "annotations"
+    replacement_version: int | None = None
+
+    for video in videos:
+        video_path = project_dir / video
+        live_pose_path = get_pose_path(video_path)
+        replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+
+        _validate_pose_file(
+            video,
+            video_path,
+            live_pose_path,
+            "source",
+            require_bboxes=True,
+        )
+        video_replacement_version = _validate_pose_file(
+            video,
+            video_path,
+            replacement_pose_path,
+            "replacement",
+            require_bboxes=True,
+        )
+
+        if replacement_version is None:
+            replacement_version = video_replacement_version
+        elif video_replacement_version != replacement_version:
+            raise ValueError(
+                f"{video} replacement pose version v{video_replacement_version} does not match "
+                f"replacement pose version v{replacement_version} used by other videos"
+            )
+
+        replacement_pose_files[video] = replacement_pose_path
+        if (annotations_dir / Path(video).with_suffix(".json")).exists():
+            live_annotations.add(video)
+
+    _validate_live_update_targets(project_dir, videos, live_annotations)
+
+    return videos, replacement_pose_files, live_annotations
+
+
+def _create_backup_archive(project_dir: Path, videos: list[str]) -> Path:
+    """Create a timestamped backup archive of live files that will be replaced or removed."""
+    backup_dir = project_dir / ".backup"
+    backup_dir.mkdir(exist_ok=True)
+    backup_path = backup_dir / f"remap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+
+    files_to_backup: set[Path] = set()
+    for video in videos:
+        files_to_backup.update(_pose_files_for_video(video, project_dir))
+
+    project_file = project_dir / "jabs" / "project.json"
+    if project_file.exists():
+        files_to_backup.add(project_file)
+
+    annotations_dir = project_dir / "jabs" / "annotations"
+    if annotations_dir.exists():
+        files_to_backup.update(path for path in annotations_dir.rglob("*") if path.is_file())
+
+    predictions_dir = project_dir / "jabs" / "predictions"
+    if predictions_dir.exists():
+        files_to_backup.update(path for path in predictions_dir.rglob("*") if path.is_file())
+
+    with zipfile.ZipFile(backup_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(files_to_backup):
+            zf.write(path, arcname=path.relative_to(project_dir))
+
+    return backup_path
+
+
+def _seed_stage_project(stage_root: Path, project_dir: Path, copy_annotations: bool) -> None:
+    """Create a minimal staging project root seeded from the live project."""
+    stage_jabs_dir = stage_root / "jabs"
+    stage_annotations_dir = stage_jabs_dir / "annotations"
+    stage_jabs_dir.mkdir(parents=True, exist_ok=True)
+    stage_annotations_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy2(project_dir / "jabs" / "project.json", stage_jabs_dir / "project.json")
+
+    if copy_annotations:
+        live_annotations_dir = project_dir / "jabs" / "annotations"
+        if live_annotations_dir.exists():
+            shutil.copytree(live_annotations_dir, stage_annotations_dir, dirs_exist_ok=True)
+
+
+def _refresh_project_identity_counts(project: Project) -> None:
+    """Recompute the per-video identity counts stored in project.json."""
+    video_metadata = project.settings_manager.project_settings.get("video_files", {})
+    refreshed = dict(video_metadata)
+
+    for video in project.video_manager.videos:
+        vinfo = dict(refreshed.get(video, {}))
+        pose = project.load_pose_est(project.video_manager.video_path(video))
+        vinfo["identities"] = pose.num_identities
+        refreshed[video] = vinfo
+
+    project.settings_manager.save_project_file({"video_files": refreshed})
+
+
+def _copy_file_atomic(source: Path, destination: Path) -> None:
+    """Copy a file into place via a temporary file and atomic replace."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
+    shutil.copy2(source, tmp_path)
+    tmp_path.replace(destination)
+
+
+def _print_manual_restore(project_dir: Path, backup_path: Path) -> None:
+    """Print manual restore instructions for a previously created backup archive."""
+    restore_zip = backup_path.relative_to(project_dir)
+    command = f"cd {shlex.quote(str(project_dir))} && unzip -o {shlex.quote(str(restore_zip))}"
+    print(f"Backup archive preserved at: {backup_path}", file=sys.stderr)
+    print(f"To restore manually, run: {command}", file=sys.stderr)
+
+
+def _apply_live_update(
+    project_dir: Path,
+    dest_project: Project,
+    videos: list[str],
+    replacement_pose_files: dict[str, Path],
+    live_annotation_videos: set[str],
+    backup_path: Path,
+) -> None:
+    """Apply staged remap output back to the live project."""
+    live_annotations_dir = project_dir / "jabs" / "annotations"
+    staged_annotations_dir = dest_project.project_paths.annotations_dir
+
+    missing_annotations = sorted(
+        video
+        for video in live_annotation_videos
+        if not (staged_annotations_dir / Path(video).with_suffix(".json")).exists()
+    )
+    if missing_annotations:
+        raise RuntimeError(
+            "staged remap did not produce annotations for: " + ", ".join(missing_annotations)
+        )
+
+    try:
+        for video in videos:
+            staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
+            if staged_annotation.exists():
+                _copy_file_atomic(
+                    staged_annotation,
+                    live_annotations_dir / Path(video).with_suffix(".json"),
+                )
+
+        _copy_file_atomic(
+            dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
+        )
+
+        for video in videos:
+            for live_pose_path in _pose_files_for_video(video, project_dir):
+                live_pose_path.unlink()
+
+        for video in videos:
+            replacement_pose_path = replacement_pose_files[video]
+            _copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
+
+        shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
+        shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)
+    except Exception as exc:
+        print(
+            f"ERROR: Failed while applying the remap to the live project: {exc}",
+            file=sys.stderr,
+        )
+        _print_manual_restore(project_dir, backup_path)
+        raise SystemExit(1) from exc
+
+
+def _run_staged_remap(
+    source_project: Project,
+    dest_project: Project,
+    min_iou: float,
+    verbose: bool,
+    annotate_failures: bool,
+) -> tuple[int, int]:
+    """Run the existing per-video remap semantics from source to destination."""
+    total_success = 0
+    total_skipped = 0
+
+    for video in source_project.video_manager.videos:
+        success, skipped = remap_labels_for_video(
+            video,
+            source_project,
+            dest_project,
+            min_iou,
+            verbose=verbose,
+            annotate_failures=annotate_failures,
+        )
+        total_success += success
+        total_skipped += skipped
+
+    return total_success, total_skipped
+
+
+def remap_project_in_place(
+    project_dir: Path,
+    new_pose_dir: Path,
+    min_iou: float,
+    verbose: bool = False,
+    annotate_failures: bool = False,
+) -> tuple[int, int, Path]:
+    """Remap a live project in place using replacement pose files from ``new_pose_dir``."""
+    project_dir = project_dir.resolve()
+    new_pose_dir = new_pose_dir.resolve()
+
+    videos, replacement_pose_files, live_annotation_videos = _preflight_remap_inputs(
+        project_dir,
+        new_pose_dir,
+    )
+    backup_path = _create_backup_archive(project_dir, videos)
+
+    with tempfile.TemporaryDirectory(prefix="jabs-remap-") as temp_root:
+        temp_root_path = Path(temp_root)
+        source_stage = temp_root_path / "source_stage"
+        dest_stage = temp_root_path / "dest_stage"
+
+        _seed_stage_project(source_stage, project_dir, copy_annotations=True)
+        _seed_stage_project(dest_stage, project_dir, copy_annotations=False)
+
+        source_project = Project(
+            source_stage,
+            enable_session_tracker=False,
+            video_dir=project_dir,
+            pose_dir=project_dir,
+            validate_project_dir=False,
+        )
+        dest_project = Project(
+            dest_stage,
+            enable_session_tracker=False,
+            video_dir=project_dir,
+            pose_dir=new_pose_dir,
+            validate_project_dir=False,
+        )
+
+        total_success, total_skipped = _run_staged_remap(
+            source_project,
+            dest_project,
+            min_iou,
+            verbose,
+            annotate_failures,
+        )
+        _refresh_project_identity_counts(dest_project)
+        _apply_live_update(
+            project_dir,
+            dest_project,
+            videos,
+            replacement_pose_files,
+            live_annotation_videos,
+            backup_path,
+        )
+
+    return total_success, total_skipped, backup_path
+
+
 def main():
-    """Main entry point for remapping labels from a source project to a destination project."""
+    """Main entry point for remapping project labels onto a replacement pose set."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("source_project", type=Path, help="Path to source JABS project directory")
+    parser.add_argument("project", type=Path, help="Path to the live JABS project directory")
     parser.add_argument(
-        "dest_project", type=Path, help="Path to destination JABS project directory"
+        "new_pose_dir",
+        type=Path,
+        help="Directory containing updated pose files for the project videos",
     )
     parser.add_argument(
         "--min-iou-thresh",
@@ -315,61 +690,22 @@ def main():
     parser.add_argument(
         "--annotate-failures",
         action="store_true",
-        help="Add timeline annotations in destination for each block that fails conversion",
+        help="Add timeline annotations to the project for each block that fails remap",
     )
 
     args = parser.parse_args()
 
-    source_project = Project(args.source_project)
-    dest_project = Project(args.dest_project)
+    total_success, total_skipped, backup_path = remap_project_in_place(
+        args.project,
+        args.new_pose_dir,
+        args.min_iou,
+        verbose=args.verbose,
+        annotate_failures=args.annotate_failures,
+    )
 
-    # Copy any behavior definitions that exist in the source project but not in the destination.
-    # This keeps label keys consistent even when the destination project is freshly created.
-    source_behaviors = source_project.settings_manager.behavior_names
-    dest_behaviors = set(dest_project.settings_manager.behavior_names)
-    for behavior in source_behaviors:
-        if behavior not in dest_behaviors:
-            data = source_project.settings_manager.get_behavior(behavior)
-            dest_project.settings_manager.save_behavior(behavior, data)
-
-    source_videos = set(source_project.video_manager.videos)
-    dest_videos = set(dest_project.video_manager.videos)
-
-    missing_in_dest = source_videos - dest_videos
-    if missing_in_dest:
-        print(
-            f"WARNING: Videos missing in destination: {', '.join(sorted(missing_in_dest))}",
-            file=sys.stderr,
-        )
-
-    missing_in_source = dest_videos - source_videos
-    if missing_in_source:
-        print(
-            f"WARNING: Videos missing in source: {', '.join(sorted(missing_in_source))}",
-            file=sys.stderr,
-        )
-
-    common_videos = sorted(source_videos & dest_videos)
-    if not common_videos:
-        print("ERROR: No overlapping videos between projects.", file=sys.stderr)
-        sys.exit(1)
-
-    total_success = 0
-    total_skipped = 0
-    for video in common_videos:
-        success, skipped = remap_labels_for_video(
-            video,
-            source_project,
-            dest_project,
-            args.min_iou,
-            verbose=args.verbose,
-            annotate_failures=args.annotate_failures,
-        )
-        total_success += success
-        total_skipped += skipped
-
+    print(f"Backup archive: {backup_path}")
     print(
-        f"Conversion summary: {total_success} blocks assigned, {total_skipped} blocks skipped "
+        f"Remap summary: {total_success} blocks assigned, {total_skipped} blocks skipped "
         f"(IoU threshold={args.min_iou})"
     )
 

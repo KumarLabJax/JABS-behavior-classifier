@@ -37,11 +37,13 @@ def open_pose_file(path: Path, cache_dir: Path | None = None):
         raise ValueError("not a valid pose estimate filename")
 
 
-def get_pose_path(video_path: Path):
+def get_pose_path(video_path: Path, pose_dir: Path | None = None):
     """take a path to a video file and return the path to the corresponding pose_est h5 file
 
     Args:
         video_path: Path to video file in project
+        pose_dir: Optional directory to search for pose files. If omitted,
+            search beside ``video_path``.
 
     Returns:
         Path object representing location of corresponding pose_est h5 file
@@ -50,11 +52,12 @@ def get_pose_path(video_path: Path):
         ValueError: if video_path does not have corresponding pose_est file
     """
     file_base = video_path.with_suffix("")
+    search_dir = pose_dir if pose_dir is not None else video_path.parent
 
     # default to the highest version pose file for a video
     supported_versions = [8, 7, 6, 5, 4, 3, 2]
     for version in supported_versions:
-        pose_file = video_path.with_name(f"{file_base.name}_pose_est_v{version}.h5")
+        pose_file = search_dir / f"{file_base.name}_pose_est_v{version}.h5"
         if pose_file.exists():
             return pose_file
     raise ValueError("Video does not have pose file")

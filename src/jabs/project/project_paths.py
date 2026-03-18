@@ -7,8 +7,16 @@ class ProjectPaths:
     __JABS_DIR = "jabs"
     __PROJECT_FILE = "project.json"
 
-    def __init__(self, base_path: Path, use_cache: bool = True):
+    def __init__(
+        self,
+        base_path: Path,
+        use_cache: bool = True,
+        video_dir: Path | None = None,
+        pose_dir: Path | None = None,
+    ):
         self._base_path = base_path
+        self._video_dir = video_dir if video_dir is not None else base_path
+        self._pose_dir = pose_dir if pose_dir is not None else base_path
 
         self._jabs_dir = base_path / self.__JABS_DIR
         self._annotations_dir = self._jabs_dir / "annotations"
@@ -26,6 +34,16 @@ class ProjectPaths:
     def project_dir(self) -> Path:
         """Get the base path of the project."""
         return self._base_path
+
+    @property
+    def video_dir(self) -> Path:
+        """Get the directory containing project video files."""
+        return self._video_dir
+
+    @property
+    def pose_dir(self) -> Path:
+        """Get the directory containing project pose files."""
+        return self._pose_dir
 
     @property
     def jabs_dir(self) -> Path:
@@ -90,9 +108,9 @@ class ProjectPaths:
         """
         if validate and not self._jabs_dir.exists():
             has_video = any(
-                file for ext in ("*.mp4", "*.avi") for file in self._base_path.glob(ext)
+                file for ext in ("*.mp4", "*.avi") for file in self._video_dir.glob(ext)
             )
-            has_pose = any(self._base_path.glob("*_pose_est_v*.h5"))
+            has_pose = any(self._pose_dir.glob("*_pose_est_v*.h5"))
             if not has_video or not has_pose:
                 raise ValueError(
                     f"{self._base_path} does not appear to be a valid JABS project. "

@@ -1,0 +1,166 @@
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import jabs.scripts.remap_labels as remap_labels
+
+
+def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
+    """Preflight should keep only the latest replacement pose file for each video."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text("{}")
+
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    (new_pose_dir / "video1_pose_est_v7.h5").touch()
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+
+    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        remap_labels.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+
+    videos, replacement_pose_files, live_annotations = remap_labels._preflight_remap_inputs(
+        project_dir, new_pose_dir
+    )
+
+    assert videos == ["video1.avi"]
+    assert replacement_pose_files == {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"}
+    assert live_annotations == {"video1.avi"}
+
+
+def test_preflight_rejects_nonwritable_live_annotation_file(tmp_path, monkeypatch):
+    """Preflight should fail before backup if an existing annotation target is not writable."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    annotation_path = annotations_dir / "video1.json"
+    annotation_path.write_text("{}")
+
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+
+    def fake_access(path, mode):
+        return not (Path(path) == annotation_path and mode & os.W_OK)
+
+    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        remap_labels.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+    monkeypatch.setattr(remap_labels.os, "access", fake_access)
+
+    with pytest.raises(PermissionError, match="live annotation file is not writable"):
+        remap_labels._preflight_remap_inputs(project_dir, new_pose_dir)
+
+
+def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypatch):
+    """Preflight should fail before backup if the annotations target directory is not writable."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text("{}")
+
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+
+    def fake_access(path, mode):
+        return not (Path(path) == annotations_dir and mode & os.W_OK)
+
+    monkeypatch.setattr(remap_labels, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        remap_labels.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+    monkeypatch.setattr(remap_labels.os, "access", fake_access)
+
+    with pytest.raises(PermissionError, match="live annotations directory is not writable"):
+        remap_labels._preflight_remap_inputs(project_dir, new_pose_dir)
+
+
+def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
+    """Applying a staged remap should replace annotations/project metadata and swap the pose set."""
+    project_dir = tmp_path / "project"
+    live_annotations_dir = project_dir / "jabs" / "annotations"
+    live_predictions_dir = project_dir / "jabs" / "predictions"
+    live_cache_dir = project_dir / "jabs" / "cache"
+    live_annotations_dir.mkdir(parents=True)
+    live_predictions_dir.mkdir(parents=True)
+    live_cache_dir.mkdir(parents=True)
+
+    live_annotation = live_annotations_dir / "video1.json"
+    live_annotation.write_text("live-annotation")
+    live_project_file = project_dir / "jabs" / "project.json"
+    live_project_file.write_text("live-project")
+    (project_dir / "video1_pose_est_v8.h5").write_text("old-v8")
+    (project_dir / "video1_pose_est_v6.h5").write_text("old-v6")
+    (live_predictions_dir / "video1.h5").write_text("prediction")
+    (live_cache_dir / "cache.bin").write_text("cache")
+
+    stage_root = tmp_path / "stage"
+    staged_annotations_dir = stage_root / "jabs" / "annotations"
+    staged_annotations_dir.mkdir(parents=True)
+    staged_annotation = staged_annotations_dir / "video1.json"
+    staged_annotation.write_text("staged-annotation")
+    staged_project_file = stage_root / "jabs" / "project.json"
+    staged_project_file.write_text("staged-project")
+
+    new_pose_dir = tmp_path / "new_pose"
+    new_pose_dir.mkdir()
+    replacement_pose = new_pose_dir / "video1_pose_est_v7.h5"
+    replacement_pose.write_text("new-v7")
+
+    dest_project = SimpleNamespace(
+        project_paths=SimpleNamespace(
+            annotations_dir=staged_annotations_dir,
+            project_file=staged_project_file,
+        )
+    )
+
+    remap_labels._apply_live_update(
+        project_dir,
+        dest_project,
+        ["video1.avi"],
+        {"video1.avi": replacement_pose},
+        {"video1.avi"},
+        project_dir / ".backup" / "remap_test.zip",
+    )
+
+    assert live_annotation.read_text() == "staged-annotation"
+    assert live_project_file.read_text() == "staged-project"
+    assert not (project_dir / "video1_pose_est_v8.h5").exists()
+    assert not (project_dir / "video1_pose_est_v6.h5").exists()
+    assert (project_dir / "video1_pose_est_v7.h5").read_text() == "new-v7"
+    assert not live_predictions_dir.exists()
+    assert not live_cache_dir.exists()

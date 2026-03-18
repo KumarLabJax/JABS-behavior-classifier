@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import open_pose_file
 from jabs.video_reader.utilities import get_fps
 
 from .track_labels import TrackLabels
@@ -32,6 +32,7 @@ class FeatureLoadJobSpec(TypedDict):
 
     video: str
     video_path: Path
+    pose_path: Path
     annotations_path: Path
     feature_dir: Path
     cache_dir: Path | None
@@ -88,7 +89,9 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     behavior_settings: dict = job["behavior_settings"]
     behavior_name = job.get("behavior_name")
 
-    pose_est = open_pose_file(get_pose_path(video_path), cache_dir)
+    pose_path = job["pose_path"]
+
+    pose_est = open_pose_file(pose_path, cache_dir)
     fps = get_fps(str(video_path))
 
     # Get labels for video (might be None)
