@@ -13,13 +13,12 @@ the updated pose files.
 Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may
 overwrite or delete: pose files, annotations, ``jabs/project.json``, and
-predictions. Cache is never backed up. If a failure occurs after the final
-live apply begins, the script prints the backup path plus cleanup and manual
-restore instructions instead of restoring automatically.
+predictions. If a failure occurs after the final live apply begins, the
+script prints the backup path plus cleanup and manual restore instructions
+instead of restoring automatically.
 
-The label-remap behavior is unchanged from the original two-project workflow:
-labels are processed block by block, matched by median bbox IoU, and written
-directly to the destination label track with warnings on label overlap.
+Labels are processed block by block, matched by median bbox IoU, and written
+directly to the destination label track.
 Timeline annotations are also carried forward: video-level annotations are
 copied as-is, and identity-scoped annotations are remapped by the same
 interval-matching logic. If ``--drop-timeline-annotations`` is provided,
