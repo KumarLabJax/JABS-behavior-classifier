@@ -409,26 +409,26 @@ def test_remap_labels_for_video_remaps_timeline_annotations():
         )
     )
 
-    source_project = MagicMock()
-    source_project.video_manager.video_path.return_value = Path("video1.avi")
-    source_project.video_manager.load_video_labels.return_value = source_labels
-    source_project.load_pose_est.return_value = source_pose
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
 
-    dest_project = MagicMock()
-    dest_project.video_manager.video_path.return_value = Path("video1.avi")
-    dest_project.load_pose_est.return_value = dest_pose
-    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
     success_count, skipped_count = update_pose.remap_labels_for_video(
         "video1.avi",
-        source_project,
-        dest_project,
+        label_source_project,
+        label_dest_project,
         min_iou=0.5,
     )
 
     assert success_count == 0
     assert skipped_count == 0
-    saved_labels = dest_project.save_annotations.call_args[0][0]
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
     assert saved_labels.timeline_annotations.serialize() == [
         {
             "start": 1,
@@ -469,26 +469,26 @@ def test_remap_labels_for_video_skips_unmatched_identity_annotation(capsys):
         )
     )
 
-    source_project = MagicMock()
-    source_project.video_manager.video_path.return_value = Path("video1.avi")
-    source_project.video_manager.load_video_labels.return_value = source_labels
-    source_project.load_pose_est.return_value = source_pose
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
 
-    dest_project = MagicMock()
-    dest_project.video_manager.video_path.return_value = Path("video1.avi")
-    dest_project.load_pose_est.return_value = dest_pose
-    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
     success_count, skipped_count = update_pose.remap_labels_for_video(
         "video1.avi",
-        source_project,
-        dest_project,
+        label_source_project,
+        label_dest_project,
         min_iou=0.5,
     )
 
     assert success_count == 0
     assert skipped_count == 0
-    saved_labels = dest_project.save_annotations.call_args[0][0]
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
     assert saved_labels.timeline_annotations.serialize() == []
 
     stderr = capsys.readouterr().err
@@ -528,26 +528,26 @@ def test_remap_labels_for_video_suppresses_duplicate_annotations():
         )
     )
 
-    source_project = MagicMock()
-    source_project.video_manager.video_path.return_value = Path("video1.avi")
-    source_project.video_manager.load_video_labels.return_value = source_labels
-    source_project.load_pose_est.return_value = source_pose
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
 
-    dest_project = MagicMock()
-    dest_project.video_manager.video_path.return_value = Path("video1.avi")
-    dest_project.load_pose_est.return_value = dest_pose
-    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
     success_count, skipped_count = update_pose.remap_labels_for_video(
         "video1.avi",
-        source_project,
-        dest_project,
+        label_source_project,
+        label_dest_project,
         min_iou=0.5,
     )
 
     assert success_count == 0
     assert skipped_count == 0
-    saved_labels = dest_project.save_annotations.call_args[0][0]
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
     assert saved_labels.timeline_annotations.serialize() == [
         {
             "start": 3,
@@ -591,27 +591,27 @@ def test_remap_labels_for_video_drops_source_timeline_annotations():
         )
     )
 
-    source_project = MagicMock()
-    source_project.video_manager.video_path.return_value = Path("video1.avi")
-    source_project.video_manager.load_video_labels.return_value = source_labels
-    source_project.load_pose_est.return_value = source_pose
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
 
-    dest_project = MagicMock()
-    dest_project.video_manager.video_path.return_value = Path("video1.avi")
-    dest_project.load_pose_est.return_value = dest_pose
-    dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
     success_count, skipped_count = update_pose.remap_labels_for_video(
         "video1.avi",
-        source_project,
-        dest_project,
+        label_source_project,
+        label_dest_project,
         min_iou=0.5,
         drop_timeline_annotations=True,
     )
 
     assert success_count == 0
     assert skipped_count == 0
-    saved_labels = dest_project.save_annotations.call_args[0][0]
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
     assert saved_labels.timeline_annotations.serialize() == []
 
 
@@ -647,7 +647,7 @@ def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
     replacement_pose = new_pose_dir / "video1_pose_est_v7.h5"
     replacement_pose.write_text("new-v7")
 
-    dest_project = SimpleNamespace(
+    label_dest_project = SimpleNamespace(
         project_paths=SimpleNamespace(
             annotations_dir=staged_annotations_dir,
             project_file=staged_project_file,
@@ -656,7 +656,7 @@ def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
 
     update_pose._apply_live_update(
         project_dir,
-        dest_project,
+        label_dest_project,
         ["video1.avi"],
         {"video1.avi": replacement_pose},
         {"video1.avi"},
@@ -722,7 +722,7 @@ def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
     replacement_pose = new_pose_dir / "video1_pose_est_v7.h5"
     replacement_pose.write_text("new-v7")
 
-    dest_project = SimpleNamespace(
+    label_dest_project = SimpleNamespace(
         project_paths=SimpleNamespace(
             annotations_dir=staged_annotations_dir,
             project_file=staged_project_file,
@@ -737,7 +737,7 @@ def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
     with pytest.raises(SystemExit):
         update_pose._apply_live_update(
             project_dir,
-            dest_project,
+            label_dest_project,
             ["video1.avi"],
             {"video1.avi": replacement_pose},
             set(),

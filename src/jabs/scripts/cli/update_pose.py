@@ -243,8 +243,8 @@ def _warn_on_label_overlap(
 
 def remap_labels_for_video(
     video: str,
-    source_project: Project,
-    dest_project: Project,
+    label_source_project: Project,
+    label_dest_project: Project,
     min_iou: float,
     verbose: bool = False,
     annotate_failures: bool = False,
@@ -261,8 +261,8 @@ def remap_labels_for_video(
 
     Args:
         video: Video filename to remap.
-        source_project: Project providing the current labels and source pose.
-        dest_project: Staging project providing the replacement pose and output location.
+        label_source_project: Project providing the current labels and source pose.
+        label_dest_project: Staging project providing the replacement pose and output location.
         min_iou: Minimum median IoU required to accept a block match.
         verbose: Whether to print successful block matches.
         annotate_failures: Whether to add timeline annotations for failed block matches.
@@ -272,8 +272,12 @@ def remap_labels_for_video(
     Returns:
         Tuple of ``(success_count, skipped_count)``.
     """
-    source_pose = source_project.load_pose_est(source_project.video_manager.video_path(video))
-    dest_pose = dest_project.load_pose_est(dest_project.video_manager.video_path(video))
+    source_pose = label_source_project.load_pose_est(
+        label_source_project.video_manager.video_path(video)
+    )
+    dest_pose = label_dest_project.load_pose_est(
+        label_dest_project.video_manager.video_path(video)
+    )
 
     # Require pose v8+ with bounding boxes
     for name, pose in (("source", source_pose), ("destination", dest_pose)):
@@ -293,7 +297,7 @@ def remap_labels_for_video(
         )
         return 0, 0
 
-    source_labels = source_project.video_manager.load_video_labels(video, pose=source_pose)
+    source_labels = label_source_project.video_manager.load_video_labels(video, pose=source_pose)
     if source_labels is None:
         print(f"INFO: No labels in source for {video}; skipping.")
         return 0, 0
@@ -431,8 +435,10 @@ def remap_labels_for_video(
                 )
             success_count += 1
 
-    dest_project.save_annotations(dest_labels, dest_pose)
-    print(f"Saved staged label remap for {video} -> {dest_project.project_paths.annotations_dir}")
+    label_dest_project.save_annotations(dest_labels, dest_pose)
+    print(
+        f"Saved staged label remap for {video} -> {label_dest_project.project_paths.annotations_dir}"
+    )
     return success_count, skipped_count
 
 
@@ -701,7 +707,7 @@ def _print_manual_restore(project_dir: Path, backup_path: Path, cleanup_paths: l
 
 def _apply_live_update(
     project_dir: Path,
-    dest_project: Project,
+    label_dest_project: Project,
     videos: list[str],
     replacement_pose_files: dict[str, Path],
     live_annotation_videos: set[str],
@@ -709,7 +715,7 @@ def _apply_live_update(
 ) -> None:
     """Apply staged pose-update output back to the live project."""
     live_annotations_dir = project_dir / "jabs" / "annotations"
-    staged_annotations_dir = dest_project.project_paths.annotations_dir
+    staged_annotations_dir = label_dest_project.project_paths.annotations_dir
 
     missing_annotations = sorted(
         video
@@ -738,7 +744,7 @@ def _apply_live_update(
                 )
 
         _copy_file_atomic(
-            dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
+            label_dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
         )
 
         for video in videos:
@@ -801,8 +807,8 @@ def _regenerate_features_after_update(
 
 
 def _run_staged_label_remap(
-    source_project: Project,
-    dest_project: Project,
+    label_source_project: Project,
+    label_dest_project: Project,
     min_iou: float,
     verbose: bool,
     annotate_failures: bool,
@@ -812,11 +818,11 @@ def _run_staged_label_remap(
     total_success = 0
     total_skipped = 0
 
-    for video in source_project.video_manager.videos:
+    for video in label_source_project.video_manager.videos:
         success, skipped = remap_labels_for_video(
             video,
-            source_project,
-            dest_project,
+            label_source_project,
+            label_dest_project,
             min_iou,
             verbose=verbose,
             annotate_failures=annotate_failures,
@@ -871,14 +877,14 @@ def update_project_pose_in_place(
         _seed_stage_project(source_stage, project_dir, copy_annotations=True)
         _seed_stage_project(dest_stage, project_dir, copy_annotations=False)
 
-        source_project = Project(
+        label_source_project = Project(
             source_stage,
             enable_session_tracker=False,
             video_dir=project_dir,
             pose_dir=project_dir,
             validate_project_dir=False,
         )
-        dest_project = Project(
+        label_dest_project = Project(
             dest_stage,
             enable_session_tracker=False,
             video_dir=project_dir,
@@ -887,17 +893,17 @@ def update_project_pose_in_place(
         )
 
         total_success, total_skipped = _run_staged_label_remap(
-            source_project,
-            dest_project,
+            label_source_project,
+            label_dest_project,
             min_iou,
             verbose,
             annotate_failures,
             drop_timeline_annotations,
         )
-        _refresh_project_identity_counts(dest_project)
+        _refresh_project_identity_counts(label_dest_project)
         _apply_live_update(
             project_dir,
-            dest_project,
+            label_dest_project,
             videos,
             replacement_pose_files,
             live_annotation_videos,
