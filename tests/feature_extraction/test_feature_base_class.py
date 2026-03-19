@@ -86,6 +86,23 @@ class TestLinearDetrendNumpy:
         assert result == pytest.approx(expected, rel=1e-10, abs=1e-12)
 
     # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_single_sample_returns_zeros(self) -> None:
+        """A 1-sample segment should return zeros (matches scipy behavior, avoids divide-by-zero)."""
+        x = np.array([[3.0], [7.0], [-1.5]])
+        result = _linear_detrend_numpy(x)
+        assert result == pytest.approx(np.zeros_like(x), abs=1e-15)
+
+    def test_single_sample_matches_scipy(self) -> None:
+        """Single-sample output must match scipy.signal.detrend."""
+        x = np.array([[5.0]])
+        result = _linear_detrend_numpy(x)
+        expected = self._scipy_detrend_rows(x)
+        assert result == pytest.approx(expected, abs=1e-14)
+
+    # ------------------------------------------------------------------
     # End-to-end: STFT output is identical with callable vs detrend="linear"
     # ------------------------------------------------------------------
 

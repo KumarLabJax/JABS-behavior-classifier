@@ -34,6 +34,10 @@ def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
         Detrended array with the same shape as *segment*.
     """
     n = segment.shape[-1]
+    if n < 2:
+        # t_c_sq == 0 for a single sample, so slope is undefined; return mean-subtracted
+        # zeros to match scipy.signal.detrend(..., type='linear') behavior.
+        return segment - segment.mean(axis=-1, keepdims=True)
     t = np.arange(n, dtype=np.float64)
     t_mean = float(t.mean())
     t_c = t - t_mean
