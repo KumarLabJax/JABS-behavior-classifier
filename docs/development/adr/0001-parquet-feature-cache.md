@@ -22,8 +22,8 @@ root dependency — no new packages are needed.
 
 Migrate the feature cache format from HDF5 to Parquet, initially for GUI-facing workflows, while
 preserving HDF5 as the default for HPC CLI tools until such a change can be accommodated by
-existing Nextflow workflows. Both formats coexist indefinitely; the reader auto-detects which
-format is present.
+existing Nextflow workflows. Both formats coexist until possible HDF5 feature cache format
+deprecation; the reader auto-detects which format is present.
 
 ### Design goals
 
@@ -47,13 +47,13 @@ format is present.
 
 ### Write-format decision table
 
-| Entry point                     | Default `cache_format` | Rationale                             |
-|---------------------------------|------------------------|---------------------------------------|
-| GUI (classification / training) | `PARQUET`              | Speed benefit for interactive use     |
-| `jabs-init`                     | `PARQUET`              | Pre-computes for GUI projects         |
-| `jabs-features`                 | `HDF5`                 | HPC batch; preserve existing behavior |
-| `jabs-classify`                 | `HDF5`                 | HPC batch; preserve existing behavior |
-| `jabs-cli` subcommands          | `HDF5`                 | Conservative default                  |
+| Entry point                     | Default `cache_format` | Rationale                                            |
+|---------------------------------|------------------------|------------------------------------------------------|
+| GUI (classification / training) | `PARQUET`              | Speed benefit for interactive use                    |
+| `jabs-init`                     | `PARQUET`              | Pre-computes for GUI projects                        |
+| `jabs-features`                 | `HDF5`                 | HPC batch; preserve existing behavior                |
+| `jabs-classify`                 | `HDF5`                 | HPC batch; preserve existing behavior                |
+| `jabs-cli` subcommands          | `NA`                   | Currently no `jabs-cli` commands write feature files |
 
 ## Consequences
 
@@ -114,9 +114,9 @@ renaming is required.
 
 One row per video frame. All columns are float64:
 
-| Column                                    | Present when |
-|-------------------------------------------|--------------|
-| `{module_name} {window_op} {feature_name}`| always (~4529 columns per window size) |
+| Column                                     | Present when                           |
+|--------------------------------------------|----------------------------------------|
+| `{module_name} {window_op} {feature_name}` | always (~4529 columns per window size) |
 
 Column names are identical to the existing HDF5 dataset key format. One file is written per
 cached window size (e.g. `window_5.parquet`, `window_10.parquet`, `window_15.parquet`).
@@ -178,15 +178,15 @@ def __init__(
 
 ### Files changed
 
-| File | Change |
-|------|--------|
-| `src/jabs/feature_extraction/features.py` | Remove all I/O code; delegate to `jabs-io` backends; add `cache_format` param; keep version constants |
-| `packages/jabs-io/src/jabs/io/feature_cache/hdf5.py` | HDF5 I/O moved here from `features.py` |
-| `packages/jabs-io/src/jabs/io/feature_cache/parquet.py` | New Parquet I/O |
-| `packages/jabs-io/src/jabs/io/feature_cache/base.py` | Abstract base classes |
-| `packages/jabs-io/src/jabs/io/feature_cache/__init__.py` | Public exports + `detect_cache_format` |
-| GUI wiring files (TBD; see open question 1) | Pass `cache_format=CacheFormat.PARQUET` |
-| `packages/jabs-core/src/jabs/core/constants.py` | Keep `COMPRESSION`/`COMPRESSION_OPTS_DEFAULT` (still used by HDF5 writer and pose readers) |
+| File                                                     | Change                                                                                                |
+|----------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `src/jabs/feature_extraction/features.py`                | Remove all I/O code; delegate to `jabs-io` backends; add `cache_format` param; keep version constants |
+| `packages/jabs-io/src/jabs/io/feature_cache/hdf5.py`     | HDF5 I/O moved here from `features.py`                                                                |
+| `packages/jabs-io/src/jabs/io/feature_cache/parquet.py`  | New Parquet I/O                                                                                       |
+| `packages/jabs-io/src/jabs/io/feature_cache/base.py`     | Abstract base classes                                                                                 |
+| `packages/jabs-io/src/jabs/io/feature_cache/__init__.py` | Public exports + `detect_cache_format`                                                                |
+| GUI wiring files (TBD; see open question 1)              | Pass `cache_format=CacheFormat.PARQUET`                                                               |
+| `packages/jabs-core/src/jabs/core/constants.py`          | Keep `COMPRESSION`/`COMPRESSION_OPTS_DEFAULT` (still used by HDF5 writer and pose readers)            |
 
 ### Cache invalidation and migration
 
