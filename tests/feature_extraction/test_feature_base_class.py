@@ -108,7 +108,11 @@ class TestLinearDetrendNumpy:
 
     @pytest.mark.parametrize("fps", [30, 60])
     def test_stft_output_matches_linear_detrend(self, fps: int) -> None:
-        """STFT using _linear_detrend_numpy as a callable must equal detrend='linear'."""
+        """STFT magnitude using _linear_detrend_numpy must match detrend='linear'.
+
+        Only magnitude equivalence is required: downstream PSD calculations
+        depend on |zxx|, not on complex phase.
+        """
         rng = np.random.default_rng(seed=7)
         window_size = 10
         n_frames = 200
