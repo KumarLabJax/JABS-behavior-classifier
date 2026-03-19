@@ -7,6 +7,7 @@ overwrite existing feature H5 files.
 """
 
 import json
+import os
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from jabs.schema.metadata import validate_metadata
 from jabs.video_reader import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5
+DEFAULT_PROCESSES = os.cpu_count() or 1
 
 
 def generate_files_worker(params: dict):
@@ -301,10 +303,10 @@ def run_initialize_project(
 @click.option(
     "-p",
     "--processes",
-    default=4,
+    default=DEFAULT_PROCESSES,
     show_default=True,
-    type=int,
-    help="number of multiprocessing workers",
+    type=click.IntRange(min=1),
+    help="number of multiprocessing workers to use; defaults to the logical CPU count",
 )
 @click.option(
     "-w",

@@ -134,18 +134,18 @@ The `jabs-init` command initializes a JABS project directory and computes featur
 **Usage:**
 
 ```bash
-jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--parallel <N>]
+jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
 ```
 
 - `<project_dir>`: Path to the JABS project directory containing video and pose files.
 - `--metadata <metadata.json>`: Optional path to a JSON metadata file describing the project and videos.
 - `--force`: Overwrite existing features and settings if present.
-- `--parallel <N>`: Number of parallel workers to use for feature computation (default: number of CPUs).
+- `--processes <N>`: Number of parallel workers to use for feature computation. If omitted, this defaults to the logical CPU count.
 
 **Example:**
 
 ```bash
-jabs-init /path/to/project --metadata project_metadata.json --parallel 8
+jabs-init /path/to/project --metadata project_metadata.json --processes 8
 ```
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview.

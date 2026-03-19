@@ -110,7 +110,7 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert captured == {
         "force": False,
-        "processes": 4,
+        "processes": initialize_project.DEFAULT_PROCESSES,
         "window_sizes": (),
         "force_pixel_distances": False,
         "metadata_path": None,
@@ -125,5 +125,15 @@ def test_jabs_init_click_rejects_invalid_window_size(tmp_path):
 
     runner = CliRunner()
     result = runner.invoke(initialize_project.main, ["-w", "0", str(project_dir)])
+
+    assert result.exit_code == 2
+
+
+def test_jabs_init_click_rejects_invalid_process_count(tmp_path):
+    """Process counts smaller than one should still be rejected at parse time."""
+    project_dir = tmp_path / "project"
+
+    runner = CliRunner()
+    result = runner.invoke(initialize_project.main, ["-p", "0", str(project_dir)])
 
     assert result.exit_code == 2
