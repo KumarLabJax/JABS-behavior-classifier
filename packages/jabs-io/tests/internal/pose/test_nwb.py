@@ -343,8 +343,17 @@ def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
     adapter.write(data, path)
 
     # Remove the NOSE series from the written file so the reader sees a missing keypoint.
+    # Walk the behavior processing module to find the NOSE series dynamically so this
+    # test is not coupled to a hard-coded HDF5 path that may change across library versions.
     with h5py.File(str(path), "a") as f:
-        del f["processing/behavior/subject_0/NOSE"]
+        behavior = f["processing/behavior"]
+        nose_path = next(
+            f"{behavior.name}/{identity}/{keypoint}"
+            for identity in behavior
+            for keypoint in behavior[identity]
+            if keypoint == "NOSE"
+        )
+        del f[nose_path]
 
     with caplog.at_level(logging.WARNING):
         loaded = adapter.read(path)
