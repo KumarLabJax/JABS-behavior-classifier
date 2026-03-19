@@ -44,8 +44,7 @@ def _sort_body_parts(names: list[str]) -> list[str]:
     """Return keypoint names sorted by canonical KeypointIndex order.
 
     Names present in KeypointIndex are sorted by their enum value.  Names not
-    found in KeypointIndex are appended at the end in the order received (i.e.
-    the order pynwb returns them from HDF5, which is alphabetical).
+    found in KeypointIndex are appended at the end, sorted alphabetically.
 
     Args:
         names: Keypoint names as returned by pynwb (alphabetical HDF5 order).
@@ -462,6 +461,11 @@ class PoseNWBAdapter(Adapter):
 
             # Use a keypoint that is present in the file to determine num_frames and fps.
             present_body_parts = [bp for bp in body_parts if bp in series_in_file]
+            if not present_body_parts:
+                raise ValueError(
+                    f"NWB file {path} contains no readable PoseEstimationSeries; "
+                    "cannot determine frame count or frame rate."
+                )
             fps_value = first_pe.pose_estimation_series[present_body_parts[0]].rate
 
             # Recover skeleton edges
@@ -477,7 +481,16 @@ class PoseNWBAdapter(Adapter):
 
             for pe_name in ordered_names:
                 pe = identity_pe_containers[pe_name]
-                num_frames = len(pe.pose_estimation_series[present_body_parts[0]].data)
+                identity_present = next(
+                    (bp for bp in present_body_parts if bp in pe.pose_estimation_series),
+                    None,
+                )
+                if identity_present is None:
+                    raise ValueError(
+                        f"NWB file {path}: identity '{pe_name}' has no readable "
+                        "PoseEstimationSeries; cannot determine frame count."
+                    )
+                num_frames = len(pe.pose_estimation_series[identity_present].data)
                 identity_points = np.full((num_frames, num_keypoints, 2), np.nan)
                 identity_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
                 for j, bp in enumerate(body_parts):
