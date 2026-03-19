@@ -104,15 +104,27 @@ def match_to_pose(video: str, project_dir: Path):
     return {"video": video, "okay": True}
 
 
-def window_size_type(_ctx: click.Context, _param: click.Parameter, value: tuple[int, ...]):
-    """Validate one or more window sizes for the Click CLI.
+def validate_window_sizes(window_sizes: tuple[int, ...] | list[int]) -> tuple[int, ...]:
+    """Validate one or more window sizes.
 
     Window size must be at least one frame on each side of the current frame.
     """
-    for window_size in value:
+    normalized: list[int] = []
+    for window_size in window_sizes:
+        if isinstance(window_size, bool) or not isinstance(window_size, int):
+            raise ValueError("window size must be an integer")
         if window_size < 1:
-            raise click.BadParameter("window size must be greater than or equal to 1")
-    return value
+            raise ValueError("window size must be greater than or equal to 1")
+        normalized.append(window_size)
+    return tuple(normalized)
+
+
+def window_size_type(_ctx: click.Context, _param: click.Parameter, value: tuple[int, ...]):
+    """Validate one or more window sizes for the Click CLI."""
+    try:
+        return validate_window_sizes(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
 
 
 def compute_project_features(
@@ -217,12 +229,14 @@ def run_initialize_project(
     """Run project initialization and optional feature generation."""
     pool = Pool(processes)
     try:
+        validated_window_sizes = validate_window_sizes(window_sizes)
+
         # user didn't specify any window sizes, use default
-        if not window_sizes:
+        if not validated_window_sizes:
             resolved_window_sizes = [DEFAULT_WINDOW_SIZE]
         else:
             # make sure there are no duplicates
-            resolved_window_sizes = list(set(window_sizes))
+            resolved_window_sizes = list(set(validated_window_sizes))
 
         click.echo(f"Initializing project directory: {project_dir}")
 

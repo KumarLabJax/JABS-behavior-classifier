@@ -13,9 +13,9 @@ the updated pose files.
 Before the live project is modified, the script creates a timestamped backup
 zip under ``<project>/.backup`` containing every live file the update may
 overwrite or delete: pose files, annotations, ``jabs/project.json``, and
-predictions. If a failure occurs after the final live apply begins, the
-script prints the backup path plus cleanup and manual restore instructions
-instead of restoring automatically.
+predictions. If a failure occurs after the final live apply begins, the script
+prints the backup path plus cleanup and manual restore instructions instead of
+restoring automatically.
 
 Labels are processed block by block, matched by median bbox IoU, and written
 directly to the destination label track.
@@ -23,7 +23,12 @@ Timeline annotations are also carried forward: video-level annotations are
 copied as-is, and identity-scoped annotations are remapped by the same
 interval-matching logic. If ``--drop-timeline-annotations`` is provided,
 existing source timeline annotations are discarded instead of being copied or
-remapped.
+remapped. After a successful live pose update, feature files are regenerated
+automatically only when ``--skip-feature-gen`` is not passed and the existing
+``jabs/project.json`` already contains explicit ``window_sizes``. If the
+project file has no ``window_sizes`` entry, there is nothing to regenerate.
+For more control over feature regeneration, use ``--skip-feature-gen`` and run
+``jabs-init`` manually, or regenerate features from the GUI.
 
 Example:
   jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
@@ -31,6 +36,7 @@ Example:
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -47,6 +53,11 @@ from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
 from jabs.project.video_labels import VideoLabels
+from jabs.scripts.initialize_project import (
+    DEFAULT_PROCESSES,
+    run_initialize_project,
+    validate_window_sizes,
+)
 from jabs.video_reader import VideoReader
 
 
@@ -546,7 +557,39 @@ def _preflight_update_inputs(
     return videos, replacement_pose_files, live_annotations
 
 
-def _create_backup_archive(project_dir: Path, videos: list[str]) -> Path:
+def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
+    """Load explicit window sizes from the existing project file.
+
+    Missing ``window_sizes`` means there is nothing to regenerate.
+    """
+    project_file = project_dir / "jabs" / "project.json"
+    if not project_file.exists():
+        raise ValueError(f"{project_dir} is not a valid JABS project directory")
+
+    try:
+        project_settings = json.loads(project_file.read_text())
+    except OSError as exc:
+        raise ValueError(f"Unable to read project file {project_file}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Project file {project_file} is not valid JSON: {exc}") from exc
+
+    if "window_sizes" not in project_settings:
+        return ()
+
+    window_sizes = project_settings["window_sizes"]
+    if not isinstance(window_sizes, list):
+        raise ValueError(f"Project file {project_file} has invalid window_sizes data")
+
+    try:
+        return validate_window_sizes(window_sizes)
+    except ValueError as exc:
+        raise ValueError(f"Project file {project_file} has invalid window_sizes: {exc}") from exc
+
+
+def _create_backup_archive(
+    project_dir: Path,
+    videos: list[str],
+) -> Path:
     """Create a timestamped backup archive of live files that will be replaced or removed."""
     backup_dir = project_dir / ".backup"
     backup_dir.mkdir(exist_ok=True)
@@ -717,6 +760,46 @@ def _apply_live_update(
         raise SystemExit(1) from exc
 
 
+def _regenerate_features_after_update(
+    project_dir: Path,
+    window_sizes: tuple[int, ...],
+    backup_path: Path,
+    skip_feature_gen: bool,
+) -> str:
+    """Regenerate features after a successful pose update when requested by project settings."""
+    if skip_feature_gen:
+        return "skipped_by_option"
+
+    if not window_sizes:
+        return "skipped_no_window_sizes"
+
+    try:
+        run_initialize_project(
+            force=False,
+            processes=DEFAULT_PROCESSES,
+            window_sizes=validate_window_sizes(window_sizes),
+            force_pixel_distances=False,
+            metadata_path=None,
+            skip_feature_generation=False,
+            project_dir=project_dir,
+        )
+    except Exception as exc:
+        print(
+            f"ERROR: Pose update succeeded, but automatic feature regeneration failed: {exc}",
+            file=sys.stderr,
+        )
+        print(f"Backup archive preserved at: {backup_path}", file=sys.stderr)
+        print(
+            "If you want to retry with more control, rerun update-pose with "
+            "--skip-feature-gen and then run jabs-init manually, or regenerate "
+            "features from the GUI.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+
+    return "regenerated"
+
+
 def _run_staged_label_remap(
     source_project: Project,
     dest_project: Project,
@@ -752,7 +835,8 @@ def update_project_pose_in_place(
     verbose: bool = False,
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
-) -> tuple[int, int, Path]:
+    skip_feature_gen: bool = False,
+) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
     Args:
@@ -763,12 +847,15 @@ def update_project_pose_in_place(
         annotate_failures: Whether to write timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard existing source timeline annotations
             instead of copying or remapping them.
+        skip_feature_gen: Whether to skip feature generation after pose update.
 
     Returns:
-        Tuple of ``(total_success, total_skipped, backup_path)`` for the completed update.
+        Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
+        the completed update.
     """
     project_dir = project_dir.resolve()
     new_pose_dir = new_pose_dir.resolve()
+    preexisting_window_sizes = _load_preexisting_window_sizes(project_dir)
 
     videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
         project_dir,
@@ -817,7 +904,14 @@ def update_project_pose_in_place(
             backup_path,
         )
 
-    return total_success, total_skipped, backup_path
+    feature_regen_status = _regenerate_features_after_update(
+        project_dir,
+        preexisting_window_sizes,
+        backup_path,
+        skip_feature_gen,
+    )
+
+    return total_success, total_skipped, backup_path, feature_regen_status
 
 
 @click.command(
@@ -866,6 +960,15 @@ def update_project_pose_in_place(
     is_flag=True,
     help="Discard existing source timeline annotations instead of copying or remapping them.",
 )
+@click.option(
+    "--skip-feature-gen",
+    is_flag=True,
+    help=(
+        "Skip automatic feature regeneration after a successful pose update. "
+        "By default, features are regenerated only when project.json already "
+        "contains explicit window_sizes."
+    ),
+)
 def update_pose_command(
     project: Path,
     new_pose_dir: Path,
@@ -873,15 +976,17 @@ def update_pose_command(
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
+    skip_feature_gen: bool,
 ) -> None:
     """Update a JABS project in place to use updated pose files while remapping labels."""
-    total_success, total_skipped, backup_path = update_project_pose_in_place(
+    total_success, total_skipped, backup_path, feature_regen_status = update_project_pose_in_place(
         project,
         new_pose_dir,
         min_iou,
         verbose=verbose,
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,
+        skip_feature_gen=skip_feature_gen,
     )
 
     click.echo(f"Backup archive: {backup_path}")
@@ -890,3 +995,15 @@ def update_pose_command(
         f"{total_skipped} label blocks skipped "
         f"(IoU threshold={min_iou})"
     )
+    if feature_regen_status == "regenerated":
+        click.echo("Feature regeneration: completed using window_sizes from jabs/project.json")
+    elif feature_regen_status == "skipped_by_option":
+        click.echo(
+            "Feature regeneration: skipped (--skip-feature-gen). "
+            "Run jabs-init manually or regenerate features from the GUI for more control."
+        )
+    else:
+        click.echo(
+            "Feature regeneration: skipped because jabs/project.json does not contain "
+            "explicit window_sizes"
+        )

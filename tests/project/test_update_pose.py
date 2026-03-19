@@ -191,6 +191,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         verbose,
         annotate_failures,
         drop_timeline_annotations,
+        skip_feature_gen,
     ):
         captured.update(
             {
@@ -200,9 +201,10 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
                 "verbose": verbose,
                 "annotate_failures": annotate_failures,
                 "drop_timeline_annotations": drop_timeline_annotations,
+                "skip_feature_gen": skip_feature_gen,
             }
         )
-        return 3, 1, project_dir / ".backup" / "update_pose_test.zip"
+        return 3, 1, project_dir / ".backup" / "update_pose_test.zip", "skipped_by_option"
 
     monkeypatch.setattr(
         update_pose,
@@ -222,6 +224,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
+            "--skip-feature-gen",
         ],
     )
 
@@ -233,9 +236,146 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
+        "skip_feature_gen": True,
     }
     assert "Backup archive:" in result.output
     assert "Pose update summary: 3 label blocks assigned, 1 label blocks skipped" in result.output
+    assert "Feature regeneration: skipped (--skip-feature-gen)." in result.output
+
+
+def test_load_preexisting_window_sizes_returns_explicit_project_values(tmp_path):
+    """Feature regeneration should use only explicit window sizes already stored on disk."""
+    project_dir = tmp_path / "project"
+    project_file = project_dir / "jabs" / "project.json"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text('{"window_sizes": [2, 5, 10]}')
+
+    assert update_pose._load_preexisting_window_sizes(project_dir) == (2, 5, 10)
+
+
+def test_load_preexisting_window_sizes_returns_empty_when_missing(tmp_path):
+    """Missing window sizes in project.json should mean no automatic feature regeneration."""
+    project_dir = tmp_path / "project"
+    project_file = project_dir / "jabs" / "project.json"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text("{}")
+
+    assert update_pose._load_preexisting_window_sizes(project_dir) == ()
+
+
+def test_regenerate_features_after_update_calls_run_initialize_project(tmp_path, monkeypatch):
+    """Automatic regeneration should call the shared jabs-init implementation directly."""
+    project_dir = tmp_path / "project"
+    backup_path = project_dir / ".backup" / "update_pose_test.zip"
+
+    captured = {}
+
+    def fake_run_initialize_project(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        update_pose,
+        "run_initialize_project",
+        fake_run_initialize_project,
+    )
+
+    status = update_pose._regenerate_features_after_update(
+        project_dir,
+        (2, 5),
+        backup_path,
+        skip_feature_gen=False,
+    )
+
+    assert status == "regenerated"
+    assert captured == {
+        "force": False,
+        "processes": update_pose.DEFAULT_PROCESSES,
+        "window_sizes": (2, 5),
+        "force_pixel_distances": False,
+        "metadata_path": None,
+        "skip_feature_generation": False,
+        "project_dir": project_dir,
+    }
+
+
+def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_regen(
+    tmp_path, monkeypatch
+):
+    """The live update flow should pass raw on-disk window sizes into feature regeneration."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    project_file = project_dir / "jabs" / "project.json"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text('{"window_sizes": [2, 5]}')
+    new_pose_dir.mkdir()
+
+    captured = {}
+
+    monkeypatch.setattr(
+        update_pose,
+        "_preflight_update_inputs",
+        lambda *_args: (
+            ["video1.avi"],
+            {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"},
+            set(),
+        ),
+    )
+
+    def fake_create_backup_archive(project_dir_arg, videos_arg):
+        captured["backup_project_dir"] = project_dir_arg
+        captured["backup_videos"] = videos_arg
+        return project_dir_arg / ".backup" / "update_pose_test.zip"
+
+    monkeypatch.setattr(update_pose, "_create_backup_archive", fake_create_backup_archive)
+    monkeypatch.setattr(update_pose, "_seed_stage_project", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        update_pose,
+        "Project",
+        lambda *args, **kwargs: SimpleNamespace(project_paths=SimpleNamespace()),
+    )
+    monkeypatch.setattr(update_pose, "_run_staged_label_remap", lambda *_args, **_kwargs: (3, 1))
+    monkeypatch.setattr(
+        update_pose, "_refresh_project_identity_counts", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(update_pose, "_apply_live_update", lambda *_args, **_kwargs: None)
+
+    def fake_regenerate_features_after_update(
+        project_dir_arg,
+        window_sizes_arg,
+        backup_path_arg,
+        skip_feature_gen_arg,
+    ):
+        captured["regen_project_dir"] = project_dir_arg
+        captured["regen_window_sizes"] = window_sizes_arg
+        captured["regen_backup_path"] = backup_path_arg
+        captured["regen_skip_feature_gen"] = skip_feature_gen_arg
+        return "regenerated"
+
+    monkeypatch.setattr(
+        update_pose,
+        "_regenerate_features_after_update",
+        fake_regenerate_features_after_update,
+    )
+
+    total_success, total_skipped, backup_path, feature_regen_status = (
+        update_pose.update_project_pose_in_place(
+            project_dir,
+            new_pose_dir,
+            min_iou=0.5,
+        )
+    )
+
+    assert (total_success, total_skipped) == (3, 1)
+    assert backup_path == project_dir / ".backup" / "update_pose_test.zip"
+    assert feature_regen_status == "regenerated"
+    assert captured == {
+        "backup_project_dir": project_dir.resolve(),
+        "backup_videos": ["video1.avi"],
+        "regen_project_dir": project_dir.resolve(),
+        "regen_window_sizes": (2, 5),
+        "regen_backup_path": project_dir.resolve() / ".backup" / "update_pose_test.zip",
+        "regen_skip_feature_gen": False,
+    }
 
 
 def test_remap_labels_for_video_remaps_timeline_annotations():
