@@ -141,7 +141,7 @@ class PoseNWBAdapter(Adapter):
               jabs_bounding_boxes_<identity>  ← TimeSeries per identity, optional (num_frames, 2, 2)
             scratch/
               jabs_metadata           ← JSON: format_version, cm_per_pixel,
-                                        identity_names, body_parts, metadata, …
+                                        identity_names, metadata, …
 
         Args:
             data: The PoseData to write.
