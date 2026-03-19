@@ -21,9 +21,9 @@ root dependency — no new packages are needed.
 ## Decision
 
 Migrate the feature cache format from HDF5 to Parquet, initially for GUI-facing workflows, while
-preserving HDF5 as the default for HPC CLI tools until such a change can be accommodated by 
-existing Nextflow workflows. Both formats coexist indefinitely; the reader auto-detects which 
-format is present. 
+preserving HDF5 as the default for HPC CLI tools until such a change can be accommodated by
+existing Nextflow workflows. Both formats coexist indefinitely; the reader auto-detects which
+format is present.
 
 ### Design goals
 
