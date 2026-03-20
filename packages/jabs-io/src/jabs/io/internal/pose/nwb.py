@@ -430,13 +430,19 @@ class PoseNWBAdapter(Adapter):
 
             # Derive body_parts order from series names using KeypointIndex.
             # pynwb returns PoseEstimationSeries alphabetically from HDF5; _sort_body_parts
-            # restores the canonical order.  Missing canonical keypoints are included and
-            # padded with NaN so the returned array always has a consistent shape.
+            # restores the canonical order.  Missing canonical keypoints are padded with NaN
+            # so the returned array always has a consistent shape.
             first_pe = identity_pe_containers[ordered_names[0]]
             series_in_file = set(first_pe.pose_estimation_series.keys())
             missing_keypoints = [n for n in _KEYPOINT_ORDER if n not in series_in_file]
             canonical_present = [n for n in _KEYPOINT_ORDER if n in series_in_file]
-            if canonical_present and missing_keypoints:
+            if not canonical_present:
+                raise ValueError(
+                    f"NWB file {path} contains no recognised JABS keypoints. "
+                    f"Series found: {sorted(series_in_file)}. "
+                    f"Expected at least one of: {_KEYPOINT_ORDER}."
+                )
+            if missing_keypoints:
                 logger.warning(
                     "NWB file %s is missing %d canonical keypoint(s): %s. "
                     "Missing keypoints will be padded with NaN.",
@@ -444,9 +450,7 @@ class PoseNWBAdapter(Adapter):
                     len(missing_keypoints),
                     missing_keypoints,
                 )
-                body_parts = _sort_body_parts(list(series_in_file) + missing_keypoints)
-            else:
-                body_parts = _sort_body_parts(list(series_in_file))
+            body_parts = _sort_body_parts(list(series_in_file) + missing_keypoints)
 
             unknown_keypoints = [bp for bp in body_parts if bp not in _KEYPOINT_ORDER]
             if unknown_keypoints:
