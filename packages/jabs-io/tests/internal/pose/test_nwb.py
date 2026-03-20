@@ -348,10 +348,17 @@ def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
     with h5py.File(str(path), "a") as f:
         behavior = f["processing/behavior"]
         nose_path = next(
-            f"{behavior.name}/{identity}/{keypoint}"
-            for identity in behavior
-            for keypoint in behavior[identity]
-            if keypoint == "NOSE"
+            (
+                f"{behavior.name}/{identity}/{keypoint}"
+                for identity in behavior
+                for keypoint in behavior[identity]
+                if keypoint == "NOSE"
+            ),
+            None,
+        )
+        assert nose_path is not None, (
+            "Could not find a NOSE PoseEstimationSeries in the NWB file; "
+            f"identities found: {list(behavior.keys())}"
         )
         del f[nose_path]
 
