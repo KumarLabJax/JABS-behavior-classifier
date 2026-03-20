@@ -14,6 +14,8 @@ def test_project_paths_initialization(base_path):
     project_paths = ProjectPaths(base_path)
 
     assert project_paths.project_dir == base_path
+    assert project_paths.video_dir == base_path
+    assert project_paths.pose_dir == base_path
     assert project_paths.jabs_dir == base_path / "jabs"
     assert project_paths.annotations_dir == base_path / "jabs" / "annotations"
     assert project_paths.feature_dir == base_path / "jabs" / "features"
@@ -103,6 +105,25 @@ def test_create_directories_validation_accepts_videos_and_poses(tmp_path):
     project_paths = ProjectPaths(project_dir)
 
     # Should not raise
+    project_paths.create_directories(validate=True)
+
+    assert project_paths.jabs_dir.exists()
+    assert project_paths.annotations_dir.exists()
+
+
+def test_create_directories_validation_accepts_split_video_and_pose_dirs(tmp_path):
+    """Validation should honor custom video_dir and pose_dir."""
+    project_dir = tmp_path / "project_root"
+    video_dir = tmp_path / "videos"
+    pose_dir = tmp_path / "poses"
+    project_dir.mkdir()
+    video_dir.mkdir()
+    pose_dir.mkdir()
+
+    (video_dir / "video1.mp4").touch()
+    (pose_dir / "video1_pose_est_v8.h5").touch()
+
+    project_paths = ProjectPaths(project_dir, video_dir=video_dir, pose_dir=pose_dir)
     project_paths.create_directories(validate=True)
 
     assert project_paths.jabs_dir.exists()

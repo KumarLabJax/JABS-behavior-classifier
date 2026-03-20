@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 
-"""initialize a JABS project directory
+"""Initialize a JABS project directory.
 
-computes features if they do not exist
-optional regenerate and overwrite existing feature h5 files
+Computes features if they do not exist and can optionally regenerate and
+overwrite existing feature H5 files.
 """
 
-import argparse
 import json
-import sys
+import os
 from multiprocessing import Pool
 from pathlib import Path
 
+import click
 from jsonschema.exceptions import ValidationError
 from rich.progress import Progress
 
@@ -24,6 +24,7 @@ from jabs.schema.metadata import validate_metadata
 from jabs.video_reader import VideoReader
 
 DEFAULT_WINDOW_SIZE = 5
+DEFAULT_PROCESSES = os.cpu_count() or 1
 
 
 def generate_files_worker(params: dict):
@@ -103,15 +104,27 @@ def match_to_pose(video: str, project_dir: Path):
     return {"video": video, "okay": True}
 
 
-def window_size_type(x):
-    """argparse type for window size
+def validate_window_sizes(window_sizes: tuple[int, ...] | list[int]) -> tuple[int, ...]:
+    """Validate one or more window sizes.
 
-    We use this instead of an int type because we want to argparse to validate that the window size is valid.
+    Window size must be at least one frame on each side of the current frame.
     """
-    x = int(x)
-    if x < 1:
-        raise argparse.ArgumentTypeError("window size must be greater than or equal to 1")
-    return x
+    normalized: list[int] = []
+    for window_size in window_sizes:
+        if isinstance(window_size, bool) or not isinstance(window_size, int):
+            raise ValueError("window size must be an integer")
+        if window_size < 1:
+            raise ValueError("window size must be greater than or equal to 1")
+        normalized.append(window_size)
+    return tuple(normalized)
+
+
+def window_size_type(_ctx: click.Context, _param: click.Parameter, value: tuple[int, ...]):
+    """Validate one or more window sizes for the Click CLI."""
+    try:
+        return validate_window_sizes(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
 
 
 def compute_project_features(
@@ -142,176 +155,226 @@ def compute_project_features(
             progress.update(task, advance=1)
 
 
-def main():
-    """jabs-init"""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="recompute features even if file already exists",
-    )
-    parser.add_argument(
-        "-p",
-        "--processes",
-        default=4,
-        type=int,
-        help="number of multiprocessing workers",
-    )
-    parser.add_argument(
-        "-w",
-        dest="window_sizes",
-        action="append",
-        type=window_size_type,
-        metavar="WINDOW_SIZE",
-        help="Specify window sizes to use for computing window "
-        "features. Argument can be repeated to specify "
-        "multiple sizes (e.g. -w 2 -w 5). Size is number "
-        "of frames before and after the current frame to "
-        "include in the window. For example, '-w 2' "
-        "results in a window size of 5 (2 frames before, "
-        "2 frames after, plus the current frame). If no "
-        "window size is specified, a default of "
-        f"{DEFAULT_WINDOW_SIZE} will "
-        "be used.",
-    )
-    parser.add_argument(
-        "--force-pixel-distances",
-        action="store_true",
-        help="use pixel distances when computing features even if project supports cm",
-    )
-    parser.add_argument(
-        "--metadata",
-        type=Path,
-        help="path to a JSON file containing project metadata to be validated and injected into the project",
-    )
-    parser.add_argument(
-        "--skip-feature-generation",
-        action="store_true",
-        help="Skip feature calculation and only initialize/validate the project",
-    )
-    parser.add_argument("project_dir", type=Path)
-    args = parser.parse_args()
+def _exit_with_message(message: str) -> None:
+    """Print a user-facing error message and exit with status 1."""
+    click.echo(message)
+    raise click.exceptions.Exit(1)
 
-    # worker pool for computing features in parallel
-    pool = Pool(args.processes)
 
-    # user didn't specify any window sizes, use default
-    if args.window_sizes is None:
-        window_sizes = [DEFAULT_WINDOW_SIZE]
-    else:
-        # make sure there are no duplicates
-        window_sizes = list(set(args.window_sizes))
+def _load_metadata(metadata_path: Path | None) -> dict | None:
+    """Load and validate project metadata if supplied."""
+    if metadata_path is None:
+        return None
 
-    print(f"Initializing project directory: {args.project_dir}")
+    try:
+        metadata = json.loads(metadata_path.read_text())
+        validate_metadata(metadata)
+    except json.JSONDecodeError as e:
+        _exit_with_message(f"Error reading metadata file {metadata_path}: {e}")
+    except OSError as e:
+        _exit_with_message(f"Error opening metadata file {metadata_path}: {e}")
+    except ValidationError as e:
+        _exit_with_message(f"Metadata file {metadata_path} is not valid: {e.message}")
 
-    # first to a quick check to make sure the h5 files exist for each video
-    videos = VideoManager.get_videos(args.project_dir)
+    return metadata
 
-    metadata = None
-    if args.metadata:
-        try:
-            metadata = json.loads(args.metadata.read_text())
-            validate_metadata(metadata)
-        except json.JSONDecodeError as e:
-            print(f"Error reading metadata file {args.metadata}: {e}")
-            sys.exit(1)
-        except OSError as e:
-            print(f"Error opening metadata file {args.metadata}: {e}")
-            sys.exit(1)
-        except ValidationError as e:
-            print(f"Metadata file {args.metadata} is not valid: {e.message}")
-            sys.exit(1)
 
-    project = jabs.project.Project(args.project_dir, enable_session_tracker=False)
-    distance_unit = project.feature_manager.distance_unit
-    if metadata:
-        has_metadata = False
-        replace = True
+def _apply_project_metadata(project: jabs.project.Project, metadata: dict | None) -> None:
+    """Merge or replace project metadata when requested."""
+    if not metadata:
+        return
 
-        if project.settings_manager.project_metadata != {}:
-            has_metadata = True
+    has_metadata = project.settings_manager.project_metadata != {}
 
+    if not has_metadata:
         for video in project.video_manager.videos:
             if project.settings_manager.video_metadata(video) != {}:
                 has_metadata = True
                 break
 
-        if has_metadata:
-            response = (
-                input(
-                    "Metadata already exists. Apply new metadata by [M]erge (default) or [R]eplace (clear existing)? [M/r]: "
-                )
-                .strip()
-                .lower()
+    replace = True
+    if has_metadata:
+        response = (
+            input(
+                "Metadata already exists. Apply new metadata by [M]erge (default) or [R]eplace (clear existing)? [M/r]: "
             )
-            replace = response == "r"
-        project.settings_manager.set_project_metadata(metadata, replace=replace)
+            .strip()
+            .lower()
+        )
+        replace = response == "r"
 
-    # iterate over each video and try to pair it with an h5 file
-    # this test is quick, don't bother to parallelize
-    results = []
-    with Progress() as progress:
-        task = progress.add_task(" Checking for pose files", total=len(videos))
-        for v in videos:
-            results.append(match_to_pose(v, args.project_dir))
-            progress.update(task, advance=1)
+    project.settings_manager.set_project_metadata(metadata, replace=replace)
 
-    failures = [r for r in results if r["okay"] is False]
 
-    if failures:
-        print(" The following errors were encountered, please correct and run this script again:")
-        for f in failures:
-            print(f"  {f['video']}: {f['message']}")
-        sys.exit(1)
+def _exit_on_validation_failures(failures: list[dict]) -> None:
+    """Print validation failures and exit if any were encountered."""
+    if not failures:
+        return
 
-    # check project other errors such as being unable to open pose files,
-    # pose file and video frame number missmatch, etc
+    click.echo(" The following errors were encountered, please correct and run this script again:")
+    for failure in failures:
+        click.echo(f"  {failure['video']}: {failure['message']}")
+    raise click.exceptions.Exit(1)
 
-    def validation_job_producer():
-        for video in videos:
-            yield ({"video": video, "project_dir": args.project_dir})
 
-    # do work in parallel (not really necessary for this test, but we already
-    # have the work pool for generating features)
-    with Progress() as progress:
-        results = []
-        task = progress.add_task(" Validating videos", total=len(videos))
-        for result in pool.imap_unordered(validate_video_worker, validation_job_producer()):
-            # update progress bar
-            progress.update(task, advance=1)
-            results.append(result)
+def run_initialize_project(
+    force: bool,
+    processes: int,
+    window_sizes: tuple[int, ...],
+    force_pixel_distances: bool,
+    metadata_path: Path | None,
+    skip_feature_generation: bool,
+    project_dir: Path,
+) -> None:
+    """Run project initialization and optional feature generation."""
+    pool = Pool(processes)
+    try:
+        validated_window_sizes = validate_window_sizes(window_sizes)
 
-    failures = [r for r in results if r["okay"] is False]
-
-    if failures:
-        print(" The following errors were encountered, please correct and run this script again:")
-        for f in failures:
-            print(f"  {f['video']}: {f['message']}")
-        sys.exit(1)
-
-    # compute features in parallel, this might take a while
-    if not args.skip_feature_generation:
-        compute_project_features(project, window_sizes, args.force, pool)
-
-    pool.close()
-
-    # save window sizes to project settings
-    deduped_window_sizes = set(
-        project.settings_manager.project_settings.get("window_sizes", []) + window_sizes
-    )
-    project.settings_manager.save_project_file({"window_sizes": list(deduped_window_sizes)})
-
-    if not args.skip_feature_generation:
-        print("\n" + "-" * 70)
-        if args.force_pixel_distances:
-            print("Features computed using pixel distances.")
-        elif distance_unit == ProjectDistanceUnit.PIXEL:
-            print("One or more pose files did not have the cm_per_pixel attribute")
-            print(" Falling back to using pixel distances")
+        # user didn't specify any window sizes, use default
+        if not validated_window_sizes:
+            resolved_window_sizes = [DEFAULT_WINDOW_SIZE]
         else:
-            print("Features computed using CM distances")
-        print("-" * 70)
+            # make sure there are no duplicates
+            resolved_window_sizes = list(set(validated_window_sizes))
+
+        click.echo(f"Initializing project directory: {project_dir}")
+
+        # first do a quick check to make sure the h5 files exist for each video
+        videos = VideoManager.get_videos(project_dir)
+        metadata = _load_metadata(metadata_path)
+
+        project = jabs.project.Project(project_dir, enable_session_tracker=False)
+        distance_unit = project.feature_manager.distance_unit
+        _apply_project_metadata(project, metadata)
+
+        # iterate over each video and try to pair it with an h5 file
+        # this test is quick, don't bother to parallelize
+        results = []
+        with Progress() as progress:
+            task = progress.add_task(" Checking for pose files", total=len(videos))
+            for video in videos:
+                results.append(match_to_pose(video, project_dir))
+                progress.update(task, advance=1)
+
+        _exit_on_validation_failures([result for result in results if result["okay"] is False])
+
+        # check project other errors such as being unable to open pose files,
+        # pose file and video frame number mismatch, etc
+
+        def validation_job_producer():
+            for video in videos:
+                yield {"video": video, "project_dir": project_dir}
+
+        # do work in parallel (not really necessary for this test, but we already
+        # have the worker pool for generating features)
+        with Progress() as progress:
+            results = []
+            task = progress.add_task(" Validating videos", total=len(videos))
+            for result in pool.imap_unordered(validate_video_worker, validation_job_producer()):
+                progress.update(task, advance=1)
+                results.append(result)
+
+        _exit_on_validation_failures([result for result in results if result["okay"] is False])
+
+        # compute features in parallel, this might take a while
+        if not skip_feature_generation:
+            compute_project_features(project, resolved_window_sizes, force, pool)
+
+        # save window sizes to project settings
+        deduped_window_sizes = set(
+            project.settings_manager.project_settings.get("window_sizes", [])
+            + resolved_window_sizes
+        )
+        project.settings_manager.save_project_file({"window_sizes": list(deduped_window_sizes)})
+
+        if not skip_feature_generation:
+            click.echo("\n" + "-" * 70)
+            if force_pixel_distances:
+                click.echo("Features computed using pixel distances.")
+            elif distance_unit == ProjectDistanceUnit.PIXEL:
+                click.echo("One or more pose files did not have the cm_per_pixel attribute")
+                click.echo(" Falling back to using pixel distances")
+            else:
+                click.echo("Features computed using CM distances")
+            click.echo("-" * 70)
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
+        pool.close()
+        pool.join()
+
+
+@click.command(name="jabs-init", context_settings={"max_content_width": 120}, help=__doc__)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="recompute features even if file already exists",
+)
+@click.option(
+    "-p",
+    "--processes",
+    default=DEFAULT_PROCESSES,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="number of multiprocessing workers to use; defaults to the logical CPU count",
+)
+@click.option(
+    "-w",
+    "window_sizes",
+    multiple=True,
+    type=int,
+    callback=window_size_type,
+    metavar="WINDOW_SIZE",
+    help="Specify window sizes to use for computing window "
+    "features. Argument can be repeated to specify "
+    "multiple sizes (e.g. -w 2 -w 5). Size is number "
+    "of frames before and after the current frame to "
+    "include in the window. For example, '-w 2' "
+    "results in a window size of 5 (2 frames before, "
+    "2 frames after, plus the current frame). If no "
+    "window size is specified, a default of "
+    f"{DEFAULT_WINDOW_SIZE} will "
+    "be used.",
+)
+@click.option(
+    "--force-pixel-distances",
+    is_flag=True,
+    help="use pixel distances when computing features even if project supports cm",
+)
+@click.option(
+    "--metadata",
+    type=click.Path(path_type=Path),
+    help="path to a JSON file containing project metadata to be validated and injected into the project",
+)
+@click.option(
+    "--skip-feature-generation",
+    is_flag=True,
+    help="Skip feature calculation and only initialize/validate the project",
+)
+@click.argument("project_dir", type=click.Path(path_type=Path))
+def main(
+    force: bool,
+    processes: int,
+    window_sizes: tuple[int, ...],
+    force_pixel_distances: bool,
+    metadata: Path | None,
+    skip_feature_generation: bool,
+    project_dir: Path,
+) -> None:
+    """jabs-init."""
+    run_initialize_project(
+        force=force,
+        processes=processes,
+        window_sizes=window_sizes,
+        force_pixel_distances=force_pixel_distances,
+        metadata_path=metadata,
+        skip_feature_generation=skip_feature_generation,
+        project_dir=project_dir,
+    )
 
 
 if __name__ == "__main__":
