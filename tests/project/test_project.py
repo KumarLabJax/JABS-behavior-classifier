@@ -188,6 +188,34 @@ def test_can_use_social_true(project_with_data):
     assert project_with_data.feature_manager.can_use_social_features
 
 
+def test_project_load_pose_from_custom_pose_dir(tmp_path):
+    """Project.load_pose_est should resolve pose from pose_dir, not project_dir."""
+    project_root = tmp_path / "project"
+    video_dir = tmp_path / "videos"
+    pose_dir = tmp_path / "poses"
+    project_root.mkdir()
+    video_dir.mkdir()
+    pose_dir.mkdir()
+
+    (video_dir / "video1.avi").touch()
+
+    test_data_dir = Path(__file__).parent.parent / "data"
+    shutil.copy(test_data_dir / "sample_pose_est_v4.h5", pose_dir / "video1_pose_est_v4.h5")
+
+    project = Project(
+        project_root,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+        video_dir=video_dir,
+        pose_dir=pose_dir,
+    )
+
+    pose = project.load_pose_est(project.video_manager.video_path("video1.avi"))
+
+    assert Path(pose.pose_file) == pose_dir / "video1_pose_est_v4.h5"
+
+
 def test_rename_behavior_raises_if_new_name_exists(tmp_path) -> None:
     """Test that renaming a behavior to an existing name raises a ValueError."""
     project = Project(

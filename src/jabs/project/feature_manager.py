@@ -67,7 +67,10 @@ class FeatureManager:
             if self._video_manager:
                 pose_path = self._video_manager.get_cached_pose_path(vid)
             else:
-                pose_path = get_pose_path(self._project_paths.project_dir / vid)
+                pose_path = get_pose_path(
+                    self._project_paths.video_dir / vid,
+                    self._project_paths.pose_dir,
+                )
 
             # Get pose version
             pose_versions.append(get_pose_file_major_version(pose_path))

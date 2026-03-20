@@ -23,7 +23,7 @@ def project_paths(tmp_path):
 def settings_manager(project_paths):
     """Fixture to create a SettingsManager instance."""
     # Create a project.json file with a "video_files" field
-    project_json_path = project_paths.project_dir / "project.json"
+    project_json_path = project_paths.project_file
     video_files = {
         "video1.avi": {"identities": 3},
         "video2.mp4": {"identities": 5},
@@ -86,3 +86,30 @@ def test_load_video_labels(video_manager, project_paths):
     labels = video_manager.load_video_labels("video1.avi")
     assert labels is not None
     assert labels.filename == "video1.avi"
+
+
+def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
+    """VideoManager should enumerate videos and resolve pose from the configured dirs."""
+    project_root = tmp_path / "project"
+    video_dir = tmp_path / "videos"
+    pose_dir = tmp_path / "poses"
+    project_root.mkdir()
+    video_dir.mkdir()
+    pose_dir.mkdir()
+
+    paths = ProjectPaths(base_path=project_root, video_dir=video_dir, pose_dir=pose_dir)
+    paths.create_directories(validate=False)
+
+    with paths.project_file.open("w") as f:
+        json.dump({"video_files": {"video1.avi": {"identities": 2}}}, f)
+
+    (video_dir / "video1.avi").touch()
+
+    data_dir = Path(__file__).parent.parent / "data"
+    shutil.copy(data_dir / "sample_pose_est_v6.h5", pose_dir / "video1_pose_est_v6.h5")
+
+    manager = VideoManager(paths, SettingsManager(paths), enable_video_check=False)
+
+    assert manager.videos == ["video1.avi"]
+    assert manager.video_path("video1.avi") == video_dir / "video1.avi"
+    assert manager.get_cached_pose_path("video1.avi") == pose_dir / "video1_pose_est_v6.h5"

@@ -2,8 +2,6 @@ import enum
 import shutil
 from typing import TYPE_CHECKING
 
-from jabs.pose_estimation import get_pose_path
-
 if TYPE_CHECKING:
     from .project import Project
 
@@ -62,12 +60,12 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
         print(f"Copying unique video {video} from source project to destination project...")
         # Copy video file
         source_video_path = source.video_manager.video_path(video)
-        destination_video_path = destination.project_paths.project_dir / source_video_path.name
+        destination_video_path = destination.project_paths.video_dir / source_video_path.name
         shutil.copy2(source_video_path, destination_video_path)
 
         # copy pose file
-        source_pose_path = get_pose_path(source_video_path)
-        destination_pose_path = destination.project_paths.project_dir / source_pose_path.name
+        source_pose_path = source.video_manager.get_cached_pose_path(video)
+        destination_pose_path = destination.project_paths.pose_dir / source_pose_path.name
         shutil.copy2(source_pose_path, destination_pose_path)
 
     # add behaviors that are unique to the source project to the destination project

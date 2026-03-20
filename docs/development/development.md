@@ -690,6 +690,49 @@ Beyond version checking, the cache is also invalidated when:
 
 This versioning system ensures that users never accidentally use stale or incorrect cached features, maintaining data integrity throughout the analysis pipeline.
 
+##### Feature Filtering and Column Ordering
+
+**What the cache stores**
+
+The feature cache always stores **all computed features**, regardless of which feature groups the
+user has enabled or disabled in the GUI or classifier settings. The enabled/disabled state is not
+written to the cache.
+
+**How filtering works**
+
+`op_settings` (the user's enabled/disabled choices for social features, landmark features, signal
+processing features, etc.) is passed to `IdentityFeatures` at construction time. Filtering happens
+on the way *out* of the cache, inside `get_per_frame()` and `get_window_features()`, via the
+private methods `_filter_base_features_by_op()` and `_filter_window_features_by_op()`. These
+operate on the nested feature dict *before* it is converted to a DataFrame and passed to the
+classifier. This means the cache never needs to be invalidated when the user changes which feature
+groups are enabled.
+
+Features that were never computed (e.g., social features when using a pre-v3 pose file) are simply
+absent from both the cache and the nested dict.
+
+**Column ordering**
+
+There is no explicit sorting of feature columns in the feature extraction or training code.
+Column ordering in the DataFrames used for training is determined implicitly by **h5py's
+alphabetical iteration** of HDF5 group keys — iterating `features_h5["features/per_frame"]`
+yields dataset names in alphabetical order, so the nested dict and resulting DataFrame columns
+end up alphabetical. This is an implementation detail of h5py, not an intentional JABS design
+decision.
+
+At classification time, `Classifier.get_features_to_classify()` explicitly reorders the input
+DataFrame to match the column names the classifier was trained on (`feature_names_in_` for
+scikit-learn models, `get_booster().feature_names` for XGBoost). This means the column order
+in the cache does not need to match the training order for correctness — the classifier is the
+authoritative source of column ordering during inference.
+
+**Implication for alternative cache formats**
+
+Any future cache format that does not naturally yield keys in alphabetical order would produce
+different column orderings in training DataFrames than the current HDF5 implementation. This
+would not affect correctness (due to `get_features_to_classify`), but may be worth considering
+for consistency and debuggability.
+
 ##### Testing New Features
 
 Add tests in `tests/feature_tests/`. See existing feature tests for examples of how to:
@@ -1164,11 +1207,17 @@ To create a new release:
    version = "X.Y.Zrc1" # for release candidates
    ```
 
-2. Sync the version to all sub-packages:
+2. Sync the version to all sub-packages and update README URLs:
    ```bash
-   ./dev/sync-versions.sh          # propagate root version to all packages/*
+   ./dev/sync-versions.sh          # propagate root version to all packages/* and rewrite README.md URLs
    # ./dev/sync-versions.sh --dry-run  # preview without writing
+   # ./dev/sync-versions.sh --no-readme  # skip README URL rewrite
    ```
+
+   By default, `sync-versions.sh` also rewrites all GitHub URLs in `README.md` from
+   the previous release tag to `blob/vX.Y.Z/`, so the PyPI README
+   links to files at the exact release tag rather than `main`. This should only be done 
+   immediately prior to releasing a new JABS version, otherwise these will be broken links.
 
 3. Re-lock the uv lock file:
    ```bash
@@ -1177,7 +1226,7 @@ To create a new release:
 
 4. Commit and push the change:
    ```bash
-   git add pyproject.toml packages/*/pyproject.toml uv.lock
+   git add pyproject.toml packages/*/pyproject.toml uv.lock README.md
    git commit -m "Bump version to X.Y.Z"
    ```
 

@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,18 +38,20 @@ def mock_projects_with_labels(tmp_path):
 
     dest.project_paths.project_dir = tmp_path / "dest"
     src.project_paths.project_dir = tmp_path / "src"
+    dest.project_paths.video_dir = dest.project_paths.project_dir
+    dest.project_paths.pose_dir = dest.project_paths.project_dir
+    src.project_paths.video_dir = src.project_paths.project_dir
+    src.project_paths.pose_dir = src.project_paths.project_dir
     dest.project_paths.project_dir.mkdir()
     src.project_paths.project_dir.mkdir()
 
     (src.project_paths.project_dir / "video2.mp4").write_bytes(b"dummy video content")
     (src.project_paths.project_dir / "video2_pose_est_v6.h5").write_bytes(b"dummy pose content")
 
-    dest.video_manager.videos = ["video1"]
-    src.video_manager.videos = ["video1", "video2"]
-    dest.video_manager.video_path.side_effect = (
-        lambda v: dest.project_paths.project_dir / f"{v}.mp4"
-    )
-    src.video_manager.video_path.side_effect = lambda v: src.project_paths.project_dir / f"{v}.mp4"
+    dest.video_manager.videos = ["video1.mp4"]
+    src.video_manager.videos = ["video1.mp4", "video2.mp4"]
+    dest.video_manager.video_path.side_effect = lambda v: dest.project_paths.project_dir / v
+    src.video_manager.video_path.side_effect = lambda v: src.project_paths.project_dir / v
 
     dest.settings_manager.behavior_names = ["foo"]
     src.settings_manager.behavior_names = ["foo", "bar"]
@@ -62,12 +65,9 @@ def mock_projects_with_labels(tmp_path):
 
     dest.load_pose_est.side_effect = lambda p: pose_obj("hash1")
     src.load_pose_est.side_effect = lambda p: pose_obj("hash1")
-
-    patcher = patch(
-        "jabs.project.project_merge.get_pose_path",
-        side_effect=lambda p: p.with_name(p.stem + "_pose_est_v6.h5"),
+    src.video_manager.get_cached_pose_path.side_effect = (
+        lambda v: src.project_paths.pose_dir / f"{Path(v).stem}_pose_est_v6.h5"
     )
-    patcher.start()
 
     dest_label = VideoLabels("video1.mp4", 1000)
     src_label = VideoLabels("video1.mp4", 1000)
@@ -79,16 +79,14 @@ def mock_projects_with_labels(tmp_path):
     src_label.get_track_labels("0", "foo").label_not_behavior(350, 450)
 
     dest.video_manager.load_video_labels.side_effect = (
-        lambda v: dest_label if v == "video1" else None
+        lambda v: dest_label if v == "video1.mp4" else None
     )
     src.video_manager.load_video_labels.side_effect = (
-        lambda v: src_label if v == "video1" else MagicMock()
+        lambda v: src_label if v == "video1.mp4" else MagicMock()
     )
     dest.save_annotations = MagicMock()
 
     yield dest, src, dest_label, src_label
-
-    patcher.stop()
 
 
 @pytest.mark.parametrize(
@@ -147,3 +145,44 @@ def test_merge_projects_label_merging(
         return d
 
     assert sort_blocks(merged_dict) == sort_blocks(expected_dict)
+
+
+def test_merge_projects_copies_unique_video_and_pose_to_split_dirs(tmp_path):
+    """Unique source videos should be copied into the destination's configured video and pose dirs."""
+    dest = MagicMock()
+    src = MagicMock()
+
+    dest.project_paths.project_dir = tmp_path / "dest"
+    dest.project_paths.video_dir = dest.project_paths.project_dir / "videos"
+    dest.project_paths.pose_dir = dest.project_paths.project_dir / "poses"
+    src.project_paths.project_dir = tmp_path / "src"
+    src.project_paths.video_dir = src.project_paths.project_dir / "videos"
+    src.project_paths.pose_dir = src.project_paths.project_dir / "poses"
+
+    for path in (
+        dest.project_paths.video_dir,
+        dest.project_paths.pose_dir,
+        src.project_paths.video_dir,
+        src.project_paths.pose_dir,
+    ):
+        path.mkdir(parents=True)
+
+    (src.project_paths.video_dir / "video2.mp4").write_bytes(b"dummy video content")
+    (src.project_paths.pose_dir / "video2_pose_est_v6.h5").write_bytes(b"dummy pose content")
+
+    dest.video_manager.videos = []
+    src.video_manager.videos = ["video2.mp4"]
+    src.video_manager.video_path.side_effect = lambda v: src.project_paths.video_dir / v
+    src.video_manager.get_cached_pose_path.side_effect = (
+        lambda v: src.project_paths.pose_dir / f"{Path(v).stem}_pose_est_v6.h5"
+    )
+    src.video_manager.load_video_labels.return_value = None
+    dest.settings_manager.behavior_names = []
+    src.settings_manager.behavior_names = []
+
+    merge_projects(dest, src, MergeStrategy.DESTINATION_WINS)
+
+    assert (dest.project_paths.video_dir / "video2.mp4").read_bytes() == b"dummy video content"
+    assert (dest.project_paths.pose_dir / "video2_pose_est_v6.h5").read_bytes() == (
+        b"dummy pose content"
+    )
