@@ -110,11 +110,16 @@ Options:
   --help     Show this message and exit.
 
 Commands:
+  convert-to-nwb    Convert a JABS pose HDF5 file to NWB format.
   cross-validation  Run leave-one-group-out cross-validation for a JABS project.
   export-training   Export training data for a specified behavior and JABS project directory.
   prune             Prune unused videos from a JABS project directory.
   rename-behavior   Rename a behavior in a JABS project.
 ```
+
+For full documentation of the `convert-to-nwb` command, including output modes, subjects
+and session metadata JSON formats, and NWB file structure, see [NWB Export](nwb-export.md).
+
 To get help for a specific command, run:
 
 ```bash

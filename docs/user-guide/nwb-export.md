@@ -173,8 +173,6 @@ For the full format specification — including all field definitions, `jabs_met
 keys, and worked examples for static and dynamic objects — see
 [File Formats — NWB Pose File](file-formats.md#nwb-pose-file).
 
-
-
 The layout below shows a combined file with two animal identities, two static objects
 (`corners`, `lixit`), and one dynamic object (`fecal_boli`).
 
