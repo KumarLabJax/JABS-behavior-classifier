@@ -6,6 +6,7 @@ be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_featu
 """
 
 import json
+import multiprocessing
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
@@ -94,7 +95,7 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     # forked child process.  Switch to the pure-numpy detrend path only on
     # macOS to avoid this.  This flag is process-local so the main process
     # and non-macOS workers are unaffected.
-    if sys.platform == "darwin":
+    if sys.platform == "darwin" and multiprocessing.parent_process() is not None:
         fe.feature_base_class._use_numpy_detrend = True
 
     pose_est = open_pose_file(get_pose_path(video_path), cache_dir)
