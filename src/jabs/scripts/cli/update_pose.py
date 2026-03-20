@@ -118,7 +118,7 @@ def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
     return inter / (area_a + area_b - inter)
 
 
-def interval_cost(
+def _interval_cost(
     src_pose: PoseEstimation,
     dst_pose: PoseEstimation,
     src_identity: int,
@@ -166,7 +166,7 @@ def interval_cost(
     return float(np.median(ious)) if ious else 0.0
 
 
-def find_best_identity(
+def _find_best_identity(
     src_pose: PoseEstimation,
     dst_pose: PoseEstimation,
     src_identity: int,
@@ -194,7 +194,7 @@ def find_best_identity(
     best_score = -float("inf")
 
     for dst_id in dst_pose.identities:
-        iou = interval_cost(src_pose, dst_pose, src_identity, dst_id, start, end)
+        iou = _interval_cost(src_pose, dst_pose, src_identity, dst_id, start, end)
         if iou > best_score:
             best_score = iou
             best_id = dst_id
@@ -241,7 +241,7 @@ def _warn_on_label_overlap(
     print(message, file=sys.stderr)
 
 
-def remap_labels_for_video(
+def _remap_labels_for_video(
     video: str,
     label_source_project: Project,
     label_dest_project: Project,
@@ -327,7 +327,7 @@ def remap_labels_for_video(
                     )
                     continue
 
-                dst_annotation_identity, iou = find_best_identity(
+                dst_annotation_identity, iou = _find_best_identity(
                     source_pose,
                     dest_pose,
                     src_annotation_identity,
@@ -377,7 +377,7 @@ def remap_labels_for_video(
 
         for block in track_labels.get_blocks():
             start, end, present = block["start"], block["end"], block["present"]
-            dst_identity, iou = find_best_identity(
+            dst_identity, iou = _find_best_identity(
                 source_pose, dest_pose, src_identity, start, end
             )
 
@@ -819,7 +819,7 @@ def _run_staged_label_remap(
     total_skipped = 0
 
     for video in label_source_project.video_manager.videos:
-        success, skipped = remap_labels_for_video(
+        success, skipped = _remap_labels_for_video(
             video,
             label_source_project,
             label_dest_project,

@@ -419,7 +419,7 @@ def test_remap_labels_for_video_remaps_timeline_annotations():
     label_dest_project.load_pose_est.return_value = dest_pose
     label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
-    success_count, skipped_count = update_pose.remap_labels_for_video(
+    success_count, skipped_count = update_pose._remap_labels_for_video(
         "video1.avi",
         label_source_project,
         label_dest_project,
@@ -479,7 +479,7 @@ def test_remap_labels_for_video_skips_unmatched_identity_annotation(capsys):
     label_dest_project.load_pose_est.return_value = dest_pose
     label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
-    success_count, skipped_count = update_pose.remap_labels_for_video(
+    success_count, skipped_count = update_pose._remap_labels_for_video(
         "video1.avi",
         label_source_project,
         label_dest_project,
@@ -538,7 +538,7 @@ def test_remap_labels_for_video_suppresses_duplicate_annotations():
     label_dest_project.load_pose_est.return_value = dest_pose
     label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
-    success_count, skipped_count = update_pose.remap_labels_for_video(
+    success_count, skipped_count = update_pose._remap_labels_for_video(
         "video1.avi",
         label_source_project,
         label_dest_project,
@@ -601,7 +601,7 @@ def test_remap_labels_for_video_drops_source_timeline_annotations():
     label_dest_project.load_pose_est.return_value = dest_pose
     label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
 
-    success_count, skipped_count = update_pose.remap_labels_for_video(
+    success_count, skipped_count = update_pose._remap_labels_for_video(
         "video1.avi",
         label_source_project,
         label_dest_project,
