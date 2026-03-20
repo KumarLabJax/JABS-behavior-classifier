@@ -26,7 +26,6 @@ def adapter():
 def _make_pose_data(
     num_identities=2,
     num_frames=10,
-    num_keypoints=3,
     fps=30,
     cm_per_pixel=0.05,
     external_ids=None,
@@ -37,11 +36,12 @@ def _make_pose_data(
     with_dynamic_objects=False,
     edges=None,
 ):
+    body_parts = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    num_keypoints = len(body_parts)
     rng = np.random.default_rng(42)
     points = rng.random((num_identities, num_frames, num_keypoints, 2)) * 100
     point_mask = rng.random((num_identities, num_frames, num_keypoints)) > 0.2
     identity_mask = rng.random((num_identities, num_frames)) > 0.1
-    body_parts = [f"part_{i}" for i in range(num_keypoints)]
     bounding_boxes = (
         rng.random((num_identities, num_frames, 2, 2)) * 100 if with_bounding_boxes else None
     )
