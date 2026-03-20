@@ -434,6 +434,18 @@ class PoseNWBAdapter(Adapter):
             # so the returned array always has a consistent shape.
             first_pe = identity_pe_containers[ordered_names[0]]
             series_in_file = set(first_pe.pose_estimation_series.keys())
+
+            # All identity containers must carry the same keypoint series — they share
+            # a single Skeleton and are written from the same body_parts list.
+            for _name in ordered_names[1:]:
+                _other = set(identity_pe_containers[_name].pose_estimation_series.keys())
+                if _other != series_in_file:
+                    raise ValueError(
+                        f"NWB file {path} has inconsistent keypoints across identities: "
+                        f"'{ordered_names[0]}' has {sorted(series_in_file)}, "
+                        f"'{_name}' has {sorted(_other)}."
+                    )
+
             missing_keypoints = [n for n in _KEYPOINT_ORDER if n not in series_in_file]
             canonical_present = [n for n in _KEYPOINT_ORDER if n in series_in_file]
             if not canonical_present:
