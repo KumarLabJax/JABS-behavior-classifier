@@ -38,7 +38,7 @@ _WINDOW_FILTERS = {
 
 
 class IdentityFeatures:
-    """per frame and window features for a single identity"
+    """per frame and window features for a single identity
 
     Args:
         source_file:
