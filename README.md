@@ -186,7 +186,7 @@ JABS uses four version numbers to track compatibility:
 
 Interested in contributing? Check out our:
 - [Contributing Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.42.0/CONTRIBUTING.md)
-- [Development Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.42.0/docs/DEVELOPMENT.md)
+- [Development Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.42.0/docs/development/development.md)
 
 ## Citation
 
