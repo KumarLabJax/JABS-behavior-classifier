@@ -21,27 +21,27 @@ save(data_instance, 'frames.parquet')
 
 ## Installation extras
 
-`jabs-io` ships several optional extras for format-specific backends:
+`jabs-io` ships optional extras for format-specific backends:
 
-| Extra     | Installs              | Enables                          |
-|-----------|-----------------------|----------------------------------|
-| `nwb`     | `pynwb`, `ndx-pose`   | NWB pose file read/write         |
-| `h5py`    | `h5py`                | HDF5-based pose and feature I/O  |
-| `parquet` | `pyarrow`             | Parquet feature cache read/write |
+| Extra     | Installs            | Enables                   |
+|-----------|---------------------|---------------------------|
+| `nwb`     | `pynwb`, `ndx-pose` | NWB pose file read/write  |
+| `parquet` | `pyarrow`           | Parquet feature cache I/O |
 
-`h5py` and `pyarrow` are direct dependencies of `jabs-behavior-classifier`, so the
-`h5py` and `parquet` backends are available automatically when `jabs-io` is installed
-as part of the full JABS application. The `nwb` extra must always be installed
-explicitly:
+`jabs-io` depends on `jabs-core`, which requires `h5py` directly, so HDF5 support is
+always available with no extra needed. `pyarrow` is also a direct dependency of
+`jabs-behavior-classifier`, so the `parquet` backend is available automatically when
+`jabs-io` is installed as part of the full JABS application. The `nwb` extra must
+always be installed explicitly:
 
 ```bash
 pip install "jabs-behavior-classifier[nwb]"
 ```
 
-When using `jabs-io` as a standalone library, install whichever extras you need:
+When using `jabs-io` as a standalone library:
 
 ```bash
-pip install "jabs-io[nwb,h5py,parquet]"
+pip install "jabs-io[nwb,parquet]"
 ```
 
 ## Development
