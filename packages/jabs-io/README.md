@@ -19,6 +19,31 @@ data_instance = load('frames.json', FrameKeypoints)
 save(data_instance, 'frames.parquet')
 ```
 
+## Installation extras
+
+`jabs-io` ships several optional extras for format-specific backends:
+
+| Extra     | Installs              | Enables                          |
+|-----------|-----------------------|----------------------------------|
+| `nwb`     | `pynwb`, `ndx-pose`   | NWB pose file read/write         |
+| `h5py`    | `h5py`                | HDF5-based pose and feature I/O  |
+| `parquet` | `pyarrow`             | Parquet feature cache read/write |
+
+`h5py` and `pyarrow` are direct dependencies of `jabs-behavior-classifier`, so the
+`h5py` and `parquet` backends are available automatically when `jabs-io` is installed
+as part of the full JABS application. The `nwb` extra must always be installed
+explicitly:
+
+```bash
+pip install "jabs-behavior-classifier[nwb]"
+```
+
+When using `jabs-io` as a standalone library, install whichever extras you need:
+
+```bash
+pip install "jabs-io[nwb,h5py,parquet]"
+```
+
 ## Development
 
 Data models are defined as dataclasses in `jabs-core`: `jabs.core.types`. Some backends
