@@ -1,7 +1,7 @@
 """Custom message dialog for displaying errors, warnings, and information."""
 
 from enum import Enum
-from pathlib import Path
+from importlib.resources import files
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -82,8 +82,8 @@ class MessageDialog(QDialog):
         # Icon
         icon_label = QLabel()
         icon_path, icon_tooltip = self._get_icon_path()
-        if icon_path and icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
+        if icon_path:
+            pixmap = QPixmap(icon_path)
             # Scale the icon to a reasonable size
             scaled_pixmap = pixmap.scaled(
                 128,
@@ -193,13 +193,13 @@ class MessageDialog(QDialog):
 
         self.setLayout(main_layout)
 
-    def _get_icon_path(self) -> tuple[Path | None, str | None]:
+    def _get_icon_path(self) -> tuple[str | None, str | None]:
         """Get the path to the icon and optional tooltip based on message type.
 
         Returns:
-            Tuple of (Path to icon file or None, tooltip text or None)
+            Tuple of (path string to icon file or None, tooltip text or None)
         """
-        resources_dir = Path(__file__).parent.parent / "resources"
+        resources_dir = files("jabs.resources")
 
         # Map message types to (icon_file, tooltip) tuples
         # tooltip is optional - use None if no tooltip desired
@@ -212,8 +212,8 @@ class MessageDialog(QDialog):
         if icon_info:
             icon_file, tooltip = icon_info
             icon_path = resources_dir / icon_file
-            if icon_path.exists():
-                return icon_path, tooltip
+            if icon_path.is_file():
+                return str(icon_path), tooltip
 
         return None, None
 
