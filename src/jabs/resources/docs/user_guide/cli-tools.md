@@ -110,12 +110,13 @@ Options:
   --help     Show this message and exit.
 
 Commands:
-  convert-to-nwb    Convert a JABS pose estimation file to NWB format.
-  cross-validation  Run leave-one-group-out cross-validation for a JABS project.
-  export-training   Export training data for a specified behavior and JABS project directory.
-  prune             Prune unused videos from a JABS project directory.
-  rename-behavior   Rename a behavior in a JABS project.
-  update-pose       Update a JABS project to use updated pose files while remapping labels.
+  convert-to-nwb        Convert a JABS pose estimation file to NWB format.
+  cross-validation      Run leave-one-group-out cross-validation for a JABS project.
+  export-training       Export training data for a specified behavior and JABS project directory.
+  prune                 Prune unused videos from a JABS project directory.
+  rename-behavior       Rename a behavior in a JABS project.
+  sample-pose-intervals Sample contiguous intervals from a batch of JABS pose and video files.
+  update-pose           Update a JABS project to use updated pose files while remapping labels.
 ```
 
 See [NWB Export](nwb-export.md) for full documentation of the `convert-to-nwb` command
@@ -177,3 +178,83 @@ After a successful live pose update, features are regenerated automatically only
 ```bash
 jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 ```
+
+## jabs-cli sample-pose-intervals
+
+The `jabs-cli sample-pose-intervals` command clips a contiguous interval from each
+video and pose file in a batch, writing the results to an output directory. It is
+useful for creating smaller representative subsets of large datasets for annotation
+or testing. The pose file version is inferred automatically from the filename —
+the highest version available for each video is used.
+
+**Usage:**
+
+```bash
+jabs-cli sample-pose-intervals \
+    --batch-file <batch.txt> \
+    --root-dir <root_dir> \
+    --out-dir <out_dir> \
+    --out-frame-count <N> \
+    [--start-frame <F>] \
+    [--only-pose]
+```
+
+- `--batch-file`: Path to a plain-text file listing video filenames to process, one per line (see [Batch file format](#batch-file-format) below).
+- `--root-dir`: Root directory. All filenames in the batch file are interpreted as relative to this directory.
+- `--out-dir`: Output directory for clipped pose and video files. Created automatically if it does not exist.
+- `--out-frame-count`: Number of frames in each clipped output. At 30 fps, 1800 ≈ one minute.
+- `--start-frame`: 1-based start frame index. If omitted, a random start frame is chosen independently for each video.
+- `--only-pose`: Write only the clipped pose HDF5 file; skip video output.
+
+**Example:**
+
+```bash
+jabs-cli sample-pose-intervals \
+    --batch-file batch.txt \
+    --root-dir /data/videos \
+    --out-dir /data/sampled \
+    --out-frame-count 9000 \
+    --start-frame 54000
+```
+
+### Batch file format
+
+The batch file is a plain-text file with one video filename per line, relative to
+`--root-dir`. Blank lines are ignored. Subdirectory separators (`/` or `\`) are
+replaced with `+` in output filenames to keep the output directory flat.
+
+```
+experiment1/mouse_a.avi
+experiment1/mouse_b.avi
+experiment2/mouse_c.avi
+```
+
+For each video, the corresponding pose file is located automatically by searching
+beside the video for `<stem>_pose_est_v*.h5` files and selecting the highest
+version. If no pose file is found the video is skipped with a warning.
+
+### Output files
+
+For each successfully processed video, two files are written to `--out-dir`
+(or one file with `--only-pose`):
+
+- `<flat_video_name>_<start_frame>.h5` — clipped pose HDF5 file
+- `<flat_video_name>_<start_frame>.avi` — clipped video (MJPEG, 30 fps)
+
+where `<flat_video_name>` is the video filename with path separators replaced
+by `+` and the extension removed, and `<start_frame>` is the 1-based index of
+the first frame included in the clip.
+
+### Dynamic object handling
+
+Pose v7+ files may contain dynamic objects (e.g. fecal boli) stored as sparse
+predictions indexed by `sample_indices` rather than by frame. When clipping:
+
+- The last prediction strictly before the clip start is included and clamped to
+  clip-relative frame 0, so the most recent pre-clip state is carried into the clip.
+- All predictions whose `sample_indices` fall within `[start, stop)` are included
+  and rebased by subtracting `start`.
+- Predictions at or after `stop` are excluded.
+
+If no predictions exist within or before the clip window, empty arrays are written
+for that dynamic object.
