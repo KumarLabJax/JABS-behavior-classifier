@@ -10,8 +10,8 @@ Feature cache files are currently stored as compressed HDF5 (gzip level 6). The 
 has two compounding bottlenecks: each of the ~253 per-frame feature columns and ~4529 window
 feature columns is stored as its own HDF5 dataset and must be read individually, and each dataset
 is gzip-compressed — so workers pay both the per-dataset open/seek overhead and the decompression
-cost for every column. During classification of large projects (200+ videos) this leaves CPUs
-underutilized waiting on I/O.
+cost for every column. During classification of large projects this leaves CPUs underutilized
+waiting on I/O.
 
 Parquet with LZ4 compression provides equivalent or better compression ratios with 3–5× faster
 decompression, and pyarrow's columnar reader is a natural fit for the DataFrame-shaped access
@@ -196,7 +196,7 @@ def __init__(
 - **No automatic migration.** Existing HDF5 projects are used as-is when opened in the GUI.
 - **Switching an existing project to Parquet** requires clearing the feature cache:
   - Delete `<project>/jabs/features/` and re-run `jabs-init`, or
-  - Re-run `jabs-init --force` (once `--force` propagates to feature recomputation).
+  - Re-run `jabs-init --force`.
 - **Partial write safety.** `metadata.json` and `per_frame.parquet` are written as separate
   operations. If a crash occurs between them, `metadata.json` may exist without a corresponding
   `per_frame.parquet`. The reader should treat this state as a missing cache (i.e., delete the
@@ -205,8 +205,7 @@ def __init__(
 ### Open questions
 
 1. **GUI wiring depth**: How many layers between the GUI and `IdentityFeatures` construction need
-   to be updated to pass `cache_format`? Needs a search through `ClassificationThread`,
-   `training_workers.py`, and `classify_workers.py`.
+   to be updated to pass `cache_format`? Needs a search through `ClassificationThread`.
 2. **Project setting**: Should `cache_format` be stored in `project.json` so that a project
    consistently uses one format, rather than being set at the call site?
 3. **`compression_opts` param**: The existing `compression_opts: int` parameter on
@@ -216,14 +215,13 @@ def __init__(
    cache directory, collisions on video stem alone are possible if different pose files happen
    to share the same stem. Including the pose hash as an optional path component —
    `<cache_root>/<video_stem>/<pose_hash>/<identity>/` — would make the cache key
-   self-describing and allow safe concurrent use without a locking scheme. For standard GUI
-   projects the video stem is already unique within the project directory, so the hash level
-   is unnecessary overhead. A `use_pose_hash_in_path` flag (or a dedicated `shared_cache`
-   mode) could enable the longer path only for HPC use. The trade-off is that paths become
-   harder to inspect by hand and existing caches (keyed without a hash) would not be found
-   by a reader expecting the hash level. Note that `detect_cache_format` itself would not need
-   a signature change — it operates on the leaf `identity_dir` regardless — but the
-   path-construction logic that derives `identity_dir` from a video stem would need to be
-   aware of the flag. If this is landed, it should be done alongside the Parquet migration
-   rather than as a separate flag day. This is discussed in an existing GitHub issue:
-   https://github.com/KumarLabJax/JABS-behavior-classifier/issues/52.
+   self-describing. For standard GUI projects the video stem is already unique within the
+   project directory, so the hash level is unnecessary overhead. A `use_pose_hash_in_path`
+   flag (or a dedicated `shared_cache` mode) could enable the longer path only for HPC use.
+   The trade-off is that paths become harder to inspect by hand and existing caches (keyed 
+   without a hash) would not be found by a reader expecting the hash level. Note that 
+   `detect_cache_format` itself would not need a signature change — it operates on the leaf 
+   `identity_dir` regardless — but the path-construction logic that derives `identity_dir` from 
+   a video stem would need to be aware of the flag. If this is landed, it should be done
+   alongside the Parquet migration rather than as a separate flag day. This is discussed in an
+   existing GitHub issue: https://github.com/KumarLabJax/JABS-behavior-classifier/issues/52.
