@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from abc import ABC, abstractmethod
 from dataclasses import asdict, is_dataclass
@@ -188,7 +190,7 @@ class HDF5Adapter(Adapter):
     def __init__(self):
         if h5py is None:
             raise ImportError(
-                "h5py is required to use HDF5. Install jabs-io with the 'hdf5' extra."
+                "h5py is required to use HDF5. Install jabs-io with the 'h5py' extra."
             )
 
     @abstractmethod
