@@ -1,11 +1,20 @@
 """Tests for PoseNWBAdapter."""
 
+import datetime
+import json
+import logging
+
+import h5py
 import numpy as np
 import pytest
 from ndx_pose import PoseEstimation
+from pynwb import NWBHDF5IO
 
+from jabs.core.abstract.pose_est import PoseEstimation as JABSPoseEst
+from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData
 from jabs.io.internal.pose.nwb import PoseNWBAdapter
+from jabs.io.registry import get_adapter
 
 
 @pytest.fixture
@@ -17,7 +26,6 @@ def adapter():
 def _make_pose_data(
     num_identities=2,
     num_frames=10,
-    num_keypoints=3,
     fps=30,
     cm_per_pixel=0.05,
     external_ids=None,
@@ -28,11 +36,12 @@ def _make_pose_data(
     with_dynamic_objects=False,
     edges=None,
 ):
+    body_parts = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    num_keypoints = len(body_parts)
     rng = np.random.default_rng(42)
     points = rng.random((num_identities, num_frames, num_keypoints, 2)) * 100
     point_mask = rng.random((num_identities, num_frames, num_keypoints)) > 0.2
     identity_mask = rng.random((num_identities, num_frames)) > 0.1
-    body_parts = [f"part_{i}" for i in range(num_keypoints)]
     bounding_boxes = (
         rng.random((num_identities, num_frames, 2, 2)) * 100 if with_bounding_boxes else None
     )
@@ -242,8 +251,6 @@ def test_static_objects_roundtrip(tmp_path, adapter):
 )
 def test_static_objects_multiple_points(tmp_path, adapter, obj_name, points):
     """Static objects with various point counts roundtrip correctly."""
-    from jabs.core.types import PoseData
-
     path = tmp_path / "pose_static.nwb"
     base = _make_pose_data(with_static_objects=False)
     data = PoseData(
@@ -268,8 +275,6 @@ def test_static_objects_multiple_points(tmp_path, adapter, obj_name, points):
 
 def test_static_objects_nwb_structure(tmp_path, adapter):
     """Static objects are stored as PoseEstimation containers in the behavior module."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_static_struct.nwb"
     data = _make_pose_data(with_static_objects=True)
 
@@ -295,10 +300,6 @@ def test_static_objects_nwb_structure(tmp_path, adapter):
 
 def test_static_object_names_in_jabs_metadata_json(tmp_path, adapter):
     """static_object_names is written to jabs_metadata when static objects are present."""
-    import json
-
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_json_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
@@ -309,6 +310,87 @@ def test_static_object_names_in_jabs_metadata_json(tmp_path, adapter):
         jabs_meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
         assert "static_object_names" in jabs_meta
         assert jabs_meta["static_object_names"] == ["lixit"]
+
+
+def test_body_parts_not_in_jabs_metadata(tmp_path, adapter):
+    """body_parts is not written to jabs_metadata; ordering is derived from series names."""
+    path = tmp_path / "pose_no_bp.nwb"
+    data = _make_pose_data()
+
+    adapter.write(data, path)
+
+    with NWBHDF5IO(str(path), "r") as io:
+        nwb = io.read()
+        meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert "body_parts" not in meta
+
+
+def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
+    """A keypoint absent from the NWB file is padded with NaN and a warning is logged."""
+    # Write with all canonical keypoints, then manually drop one series from the file.
+    canonical_names = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    num_kp = len(canonical_names)
+    rng = np.random.default_rng(2)
+    data = PoseData(
+        points=rng.random((1, 5, num_kp, 2)),
+        point_mask=np.ones((1, 5, num_kp), dtype=bool),
+        identity_mask=np.ones((1, 5), dtype=bool),
+        body_parts=canonical_names,
+        edges=[],
+        fps=30,
+    )
+    path = tmp_path / "pose_missing_kp.nwb"
+    adapter.write(data, path)
+
+    # Remove the NOSE series from the written file so the reader sees a missing keypoint.
+    # Walk the behavior processing module to find the NOSE series dynamically so this
+    # test is not coupled to a hard-coded HDF5 path that may change across library versions.
+    with h5py.File(str(path), "a") as f:
+        behavior = f["processing/behavior"]
+        nose_path = next(
+            (
+                f"{behavior.name}/{identity}/{keypoint}"
+                for identity in behavior
+                for keypoint in behavior[identity]
+                if keypoint == "NOSE"
+            ),
+            None,
+        )
+        assert nose_path is not None, (
+            "Could not find a NOSE PoseEstimationSeries in the NWB file; "
+            f"identities found: {list(behavior.keys())}"
+        )
+        del f[nose_path]
+
+    with caplog.at_level(logging.WARNING):
+        loaded = adapter.read(path)
+
+    assert "NOSE" in caplog.text
+    assert loaded.body_parts == canonical_names
+    nose_idx = canonical_names.index("NOSE")
+    assert np.all(np.isnan(loaded.points[0, :, nose_idx, :]))
+    assert not np.any(loaded.point_mask[0, :, nose_idx])
+
+
+def test_keypoint_ordering_derived_from_series_names(tmp_path, adapter):
+    """Canonical KeypointIndex names are returned in enum order regardless of HDF5 sort."""
+    canonical_names = [kpt.name for kpt in JABSPoseEst.KeypointIndex]
+    num_kp = len(canonical_names)
+    rng = np.random.default_rng(1)
+    data = PoseData(
+        points=rng.random((1, 5, num_kp, 2)),
+        point_mask=rng.random((1, 5, num_kp)) > 0.2,
+        identity_mask=np.ones((1, 5), dtype=bool),
+        body_parts=canonical_names,
+        edges=[(0, 1)],
+        fps=30,
+    )
+
+    path = tmp_path / "pose_order.nwb"
+    adapter.write(data, path)
+    loaded = adapter.read(path)
+
+    assert loaded.body_parts == canonical_names
 
 
 def test_empty_static_objects(tmp_path, adapter):
@@ -324,10 +406,6 @@ def test_empty_static_objects(tmp_path, adapter):
 
 def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
     """1-D static object arrays are skipped with a warning (not stored)."""
-    import logging
-
-    from jabs.core.types import PoseData
-
     base = _make_pose_data(with_static_objects=False)
     data = PoseData(
         points=base.points,
@@ -352,10 +430,6 @@ def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
 
 def test_subjects_roundtrip(tmp_path, adapter):
     """Per-animal subjects metadata survives a single-file roundtrip."""
-    import json
-
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_subjects.nwb"
     subjects = {
         "mouse_a": {"sex": "M", "genotype": "WT", "strain": "C57BL/6", "age": "P60"},
@@ -415,8 +489,6 @@ def test_subjects_per_identity_roundtrip(tmp_path, adapter):
 
 def test_per_identity_nwbfile_subject_populated(tmp_path, adapter):
     """NWBFile.subject is populated from subjects metadata in per-identity mode."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose.nwb"
     subjects = {
         "mouse_a": {"subject_id": "M001", "sex": "M", "genotype": "WT", "species": "Mus musculus"},
@@ -450,8 +522,6 @@ def test_per_identity_nwbfile_subject_populated(tmp_path, adapter):
 
 def test_per_identity_nwbfile_subject_none_without_subjects(tmp_path, adapter):
     """NWBFile.subject is not set when no subjects metadata is provided."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose.nwb"
     data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
 
@@ -464,8 +534,6 @@ def test_per_identity_nwbfile_subject_none_without_subjects(tmp_path, adapter):
 
 def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
     """Bounding boxes are stored as one TimeSeries per identity, not a single combined array."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_bb_struct.nwb"
     data = _make_pose_data(
         num_identities=2,
@@ -587,9 +655,6 @@ def test_per_identity_auto_merge_index_naming(tmp_path, adapter):
 
 def test_adapter_resolves_from_registry():
     """The adapter resolves through the global registry."""
-    from jabs.core.enums import StorageFormat
-    from jabs.io.registry import get_adapter
-
     adapter = get_adapter(StorageFormat.NWB, PoseData)
     assert adapter is not None
     assert isinstance(adapter, PoseNWBAdapter)
@@ -633,16 +698,12 @@ def test_sanitize_identity_name_special_chars():
 
 def test_sanitize_identity_name_empty_raises():
     """Empty string raises ValueError."""
-    import pytest
-
     with pytest.raises(ValueError, match="empty"):
         PoseNWBAdapter._sanitize_identity_name("")
 
 
 def test_sanitize_identity_name_whitespace_only_raises():
     """Whitespace-only string raises ValueError after stripping."""
-    import pytest
-
     with pytest.raises(ValueError, match="empty"):
         PoseNWBAdapter._sanitize_identity_name("   ")
 
@@ -662,8 +723,6 @@ def test_write_sanitizes_external_ids(tmp_path, adapter):
 
 def test_write_raises_on_collision_after_sanitization(tmp_path, adapter):
     """Write raises if two external IDs produce the same sanitized name."""
-    import pytest
-
     path = tmp_path / "pose.nwb"
     # "mouse/A" and "mouse.A" both sanitize to "mouse_A"
     data = _make_pose_data(external_ids=["mouse/A", "mouse.A"])
@@ -701,8 +760,6 @@ def test_dynamic_objects_per_identity_roundtrip(tmp_path, adapter):
 
 def test_dynamic_objects_nwb_structure(tmp_path, adapter):
     """Dynamic objects are stored as PoseEstimation + Skeleton in the behavior module."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_dyn_struct.nwb"
     data = _make_pose_data(with_dynamic_objects=True)
 
@@ -728,10 +785,6 @@ def test_dynamic_objects_nwb_structure(tmp_path, adapter):
 
 def test_dynamic_objects_empty(tmp_path, adapter):
     """Empty dynamic_objects writes no extra containers and reads back as empty dict."""
-    import json
-
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_no_dyn.nwb"
     data = _make_pose_data(with_dynamic_objects=False)
 
@@ -780,8 +833,6 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
     np.testing.assert_array_equal(foo.counts, counts_foo)
     np.testing.assert_array_equal(foo.sample_indices, sample_indices_foo)
 
-    from pynwb import NWBHDF5IO
-
     with NWBHDF5IO(str(path), "r") as io:
         nwb = io.read()
         foo_pe = nwb.processing["behavior"]["foo"]
@@ -792,10 +843,6 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
 
 def test_session_start_time_written_to_nwb(tmp_path, adapter):
     """session_start_time kwarg is written to NWBFile.session_start_time."""
-    import datetime
-
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_time.nwb"
     data = _make_pose_data()
     session_time = datetime.datetime(2024, 3, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
@@ -809,8 +856,6 @@ def test_session_start_time_written_to_nwb(tmp_path, adapter):
 
 def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
     """lab, institution, experimenter, experiment_description, session_id are forwarded."""
-    from pynwb import NWBHDF5IO
-
     path = tmp_path / "pose_meta.nwb"
     data = _make_pose_data()
 
