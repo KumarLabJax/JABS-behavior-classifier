@@ -87,7 +87,7 @@ def _sample_one(
             out_start_frame_index = random.randint(0, max_start)
 
         vid_out_filename = vid_filename.replace("/", "+").replace("\\", "+")
-        vid_out_stem = out_dir / Path(vid_out_filename).with_suffix("").name
+        vid_out_stem = out_dir / Path(vid_out_filename).stem
         frame_tag = f"_{out_start_frame_index + 1}"
         vid_out_path = vid_out_stem.with_name(vid_out_stem.name + frame_tag + ".avi")
         pose_out_path = vid_out_stem.with_name(vid_out_stem.name + frame_tag + pose_suffix)
