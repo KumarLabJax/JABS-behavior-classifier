@@ -293,6 +293,33 @@ def test_dynamic_objects_samples_at_stop_excluded(tmp_path: Path) -> None:
     np.testing.assert_array_equal(si, [10])
 
 
+def test_external_identity_mapping_copied_as_is(tmp_path: Path) -> None:
+    """poseest/external_identity_mapping is identity-level and must be copied without slicing."""
+    pose_path = tmp_path / "video_pose_est_v6.h5"
+    mapping = np.array([b"mouse_a", b"mouse_b"], dtype=h5py.string_dtype())
+    with h5py.File(pose_path, "w") as f:
+        f.create_dataset("poseest/points", data=np.zeros((50, 2, 12, 2), dtype=np.float32))
+        f.create_dataset("poseest/confidence", data=np.zeros((50, 2, 12), dtype=np.float32))
+        f.create_dataset("poseest/external_identity_mapping", data=mapping)
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    _sample_one(
+        vid_filename="video.mp4",
+        root_dir=tmp_path,
+        out_dir=out_dir,
+        out_frame_count=20,
+        start_frame=11,
+        only_pose=True,
+    )
+
+    outputs = list(out_dir.glob("*.h5"))
+    assert len(outputs) == 1
+    with h5py.File(outputs[0], "r") as f:
+        result = f["poseest/external_identity_mapping"][:]
+    assert list(result) == list(mapping)
+
+
 def test_dynamic_objects_axis_order_attr_preserved(tmp_path: Path) -> None:
     """axis_order attribute on points dataset is preserved in output."""
     dyn = {"boli": _make_dyn([15])}

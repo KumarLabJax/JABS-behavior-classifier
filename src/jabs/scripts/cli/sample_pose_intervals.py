@@ -115,9 +115,13 @@ def _sample_one(
                 if dataset_path in pose_in:
                     pose_out[dataset_path] = pose_in[dataset_path][start:stop, ...]
 
-            # instance_id_center is a per-identity array, not per-frame; copy as-is
-            if "poseest/instance_id_center" in pose_in:
-                pose_out["poseest/instance_id_center"] = pose_in["poseest/instance_id_center"][:]
+            # Identity-level datasets (not per-frame) — copy as-is
+            for identity_dataset in [
+                "poseest/instance_id_center",
+                "poseest/external_identity_mapping",
+            ]:
+                if identity_dataset in pose_in:
+                    pose_out[identity_dataset] = pose_in[identity_dataset][:]
 
             if "static_objects" in pose_in:
                 static_group = pose_out.create_group("static_objects")
