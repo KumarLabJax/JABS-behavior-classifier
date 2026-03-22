@@ -238,7 +238,7 @@ version. If no pose file is found the video is skipped with a warning.
 For each successfully processed video, two files are written to `--out-dir`
 (or one file with `--only-pose`):
 
-- `<flat_video_name>_<start_frame>.h5` — clipped pose HDF5 file
+- `<flat_video_name>_<start_frame>_pose_est_v*.h5` — clipped pose HDF5 file
 - `<flat_video_name>_<start_frame>.avi` — clipped video (MJPEG, 30 fps)
 
 where `<flat_video_name>` is the video filename with path separators replaced
