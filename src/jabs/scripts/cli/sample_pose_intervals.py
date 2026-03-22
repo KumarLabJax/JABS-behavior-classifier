@@ -64,19 +64,27 @@ def _sample_one(
     with h5py.File(pose_in_path, "r") as pose_in:
         frame_count = pose_in["poseest"]["confidence"].shape[0]
 
-        last_candidate_frame = frame_count - out_frame_count
-        if last_candidate_frame <= 0:
+        max_start = frame_count - out_frame_count  # inclusive max start index (0-based)
+        if max_start < 0:
             click.echo(
-                f"WARNING: {vid_filename} skipped because it only contains {frame_count} frames",
+                f"WARNING: {vid_filename} skipped: only {frame_count} frames available, "
+                f"need at least {out_frame_count}",
                 err=True,
             )
             return
 
-        out_start_frame_index = (
-            (start_frame - 1)
-            if start_frame is not None
-            else random.randrange(last_candidate_frame)
-        )
+        if start_frame is not None:
+            out_start_frame_index = start_frame - 1
+            if out_start_frame_index < 0 or out_start_frame_index > max_start:
+                click.echo(
+                    f"WARNING: {vid_filename} skipped: --start-frame {start_frame} is out of "
+                    f"range [1, {max_start + 1}] for a {frame_count}-frame video with "
+                    f"--out-frame-count {out_frame_count}",
+                    err=True,
+                )
+                return
+        else:
+            out_start_frame_index = random.randint(0, max_start)
 
         vid_out_filename = vid_filename.replace("/", "+").replace("\\", "+")
         vid_out_stem = out_dir / Path(vid_out_filename).with_suffix("").name
