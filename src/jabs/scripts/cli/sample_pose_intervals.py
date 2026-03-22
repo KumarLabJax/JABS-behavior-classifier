@@ -185,9 +185,8 @@ def _sample_one(
             click.echo(f"WARNING: failed to open {vid_filename}", err=True)
             return
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, out_start_frame_index)
-        if not cap.isOpened():
-            click.echo(f"WARNING: failed to seek to start frame {vid_filename}", err=True)
+        if not cap.set(cv2.CAP_PROP_POS_FRAMES, out_start_frame_index):
+            click.echo(f"WARNING: failed to seek to start frame in {vid_filename}", err=True)
             return
 
         writer = cv2.VideoWriter(
@@ -196,6 +195,9 @@ def _sample_one(
             30,
             (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
         )
+        if not writer.isOpened():
+            click.echo(f"WARNING: failed to open video writer for {vid_filename}", err=True)
+            return
         for _ in range(out_frame_count):
             ret, frame = cap.read()
             if ret:
