@@ -36,3 +36,6 @@ convention = "google"
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click Examples sections look better with a blank line before \b blocks
 ]
+"src/jabs/scripts/cli/sample_pose_intervals.py" = [
+    "D301",  # Click uses \b in docstrings to control help formatting
+]
