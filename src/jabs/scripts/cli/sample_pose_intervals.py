@@ -267,13 +267,13 @@ def sample_pose_intervals(
 )
 @click.option(
     "--out-frame-count",
-    type=int,
+    type=click.IntRange(min=1),
     required=True,
     help="Number of frames to save per interval. At 30 fps, 1800 ≈ one minute.",
 )
 @click.option(
     "--start-frame",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="1-based start frame index. If omitted, a random start frame is chosen.",
 )
