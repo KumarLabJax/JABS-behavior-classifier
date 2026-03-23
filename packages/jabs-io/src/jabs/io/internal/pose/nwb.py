@@ -22,6 +22,7 @@ try:
 except ImportError:
     _NWB_AVAILABLE = False
 
+from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData
 from jabs.io.base import Adapter
@@ -30,6 +31,33 @@ from jabs.io.registry import register_adapter
 logger = logging.getLogger(__name__)
 
 _JABS_NWB_FORMAT_VERSION = 1
+
+# Maps canonical keypoint name → its integer index in KeypointIndex.
+# Used by _sort_body_parts to recover the correct keypoint order from
+# PoseEstimationSeries names, since pynwb returns series alphabetically from HDF5.
+_KEYPOINT_ORDER: dict[str, int] = {
+    kpt.name: kpt.value for kpt in _JABSPoseEstimation.KeypointIndex
+}
+
+
+def _sort_body_parts(names: list[str]) -> list[str]:
+    """Return keypoint names sorted by canonical KeypointIndex order.
+
+    Names present in KeypointIndex are sorted by their enum value.  Names not
+    found in KeypointIndex are appended at the end, sorted alphabetically.
+
+    Args:
+        names: Keypoint names as returned by pynwb (alphabetical HDF5 order).
+
+    Returns:
+        Names reordered so that known keypoints follow KeypointIndex order,
+        with any unrecognised names appended afterward.
+    """
+    known = [n for n in names if n in _KEYPOINT_ORDER]
+    unknown = [n for n in names if n not in _KEYPOINT_ORDER]
+    return sorted(known, key=lambda n: _KEYPOINT_ORDER[n]) + sorted(unknown)
+
+
 _JABS_METADATA_KEY = "jabs_metadata"
 _IDENTITY_MASK_KEY = "jabs_identity_mask"
 _BOUNDING_BOXES_PREFIX = "jabs_bounding_boxes"
@@ -113,7 +141,7 @@ class PoseNWBAdapter(Adapter):
               jabs_bounding_boxes_<identity>  ← TimeSeries per identity, optional (num_frames, 2, 2)
             scratch/
               jabs_metadata           ← JSON: format_version, cm_per_pixel,
-                                        identity_names, body_parts, metadata, …
+                                        identity_names, metadata, …
 
         Args:
             data: The PoseData to write.
@@ -400,17 +428,61 @@ class PoseNWBAdapter(Adapter):
             if not ordered_names:
                 ordered_names = sorted(identity_pe_containers.keys())
 
-            # Extract body_parts in the original written order from jabs_metadata.
-            # pynwb returns PoseEstimationSeries alphabetically from HDF5, so we
-            # cannot rely on pose_estimation_series.values() for ordering.
+            # Derive body_parts order from series names using KeypointIndex.
+            # pynwb returns PoseEstimationSeries alphabetically from HDF5; _sort_body_parts
+            # restores the canonical order.  Missing canonical keypoints are padded with NaN
+            # so the returned array always has a consistent shape.
             first_pe = identity_pe_containers[ordered_names[0]]
-            stored_body_parts = jabs_meta.get("body_parts")
-            if stored_body_parts:
-                body_parts = stored_body_parts
-            else:
-                body_parts = [series.name for series in first_pe.pose_estimation_series.values()]
+            series_in_file = set(first_pe.pose_estimation_series.keys())
+
+            # All identity containers must carry the same keypoint series — they share
+            # a single Skeleton and are written from the same body_parts list.
+            for _name in ordered_names[1:]:
+                _other = set(identity_pe_containers[_name].pose_estimation_series.keys())
+                if _other != series_in_file:
+                    raise ValueError(
+                        f"NWB file {path} has inconsistent keypoints across identities: "
+                        f"'{ordered_names[0]}' has {sorted(series_in_file)}, "
+                        f"'{_name}' has {sorted(_other)}."
+                    )
+
+            missing_keypoints = [n for n in _KEYPOINT_ORDER if n not in series_in_file]
+            canonical_present = [n for n in _KEYPOINT_ORDER if n in series_in_file]
+            if not canonical_present:
+                raise ValueError(
+                    f"NWB file {path} contains no recognised JABS keypoints. "
+                    f"Series found: {sorted(series_in_file)}. "
+                    f"Expected at least one of: {_KEYPOINT_ORDER}."
+                )
+            if missing_keypoints:
+                logger.warning(
+                    "NWB file %s is missing %d canonical keypoint(s): %s. "
+                    "Missing keypoints will be padded with NaN.",
+                    path,
+                    len(missing_keypoints),
+                    missing_keypoints,
+                )
+            body_parts = _sort_body_parts(list(series_in_file) + missing_keypoints)
+
+            unknown_keypoints = [bp for bp in body_parts if bp not in _KEYPOINT_ORDER]
+            if unknown_keypoints:
+                logger.warning(
+                    "NWB file %s contains %d unrecognised keypoint(s): %s.",
+                    path,
+                    len(unknown_keypoints),
+                    unknown_keypoints,
+                )
+
             num_keypoints = len(body_parts)
-            fps_value = first_pe.pose_estimation_series[body_parts[0]].rate
+
+            # Use a keypoint that is present in the file to determine num_frames and fps.
+            present_body_parts = [bp for bp in body_parts if bp in series_in_file]
+            if not present_body_parts:
+                raise ValueError(
+                    f"NWB file {path} contains no readable PoseEstimationSeries; "
+                    "cannot determine frame count or frame rate."
+                )
+            fps_value = first_pe.pose_estimation_series[present_body_parts[0]].rate
 
             # Recover skeleton edges
             skeleton_obj = first_pe.skeleton
@@ -425,14 +497,21 @@ class PoseNWBAdapter(Adapter):
 
             for pe_name in ordered_names:
                 pe = identity_pe_containers[pe_name]
-                identity_points = np.empty(
-                    (len(pe.pose_estimation_series[body_parts[0]].data), num_keypoints, 2)
+                identity_present = next(
+                    (bp for bp in present_body_parts if bp in pe.pose_estimation_series),
+                    None,
                 )
-                identity_mask = np.empty(
-                    (len(pe.pose_estimation_series[body_parts[0]].data), num_keypoints),
-                    dtype=bool,
-                )
+                if identity_present is None:
+                    raise ValueError(
+                        f"NWB file {path}: identity '{pe_name}' has no readable "
+                        "PoseEstimationSeries; cannot determine frame count."
+                    )
+                num_frames = len(pe.pose_estimation_series[identity_present].data)
+                identity_points = np.full((num_frames, num_keypoints, 2), np.nan)
+                identity_mask = np.zeros((num_frames, num_keypoints), dtype=bool)
                 for j, bp in enumerate(body_parts):
+                    if bp not in pe.pose_estimation_series:
+                        continue  # already NaN / False
                     series = pe.pose_estimation_series[bp]
                     identity_points[:, j, :] = np.array(series.data[:])
                     identity_mask[:, j] = np.array(series.confidence[:]) > 0.0
@@ -899,7 +978,6 @@ class PoseNWBAdapter(Adapter):
             "external_ids": data.external_ids,
             "identity_names": identity_names,
             "num_identities": data.points.shape[0],
-            "body_parts": data.body_parts,
             "subjects": data.subjects,
             "metadata": data.metadata,
         }

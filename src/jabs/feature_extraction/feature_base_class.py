@@ -8,6 +8,47 @@ from scipy import signal, stats
 from jabs.feature_extraction.window_operations import signal_stats, window_stats
 from jabs.pose_estimation import PoseEstimation
 
+# Set to True in forked worker processes (e.g. via parallel_workers.py) to avoid
+# calling scipy.linalg.lstsq (Apple Accelerate LAPACK) from a forked child on macOS,
+# which causes a segfault.  The main process and CLI leave this False so they
+# continue to use scipy's built-in "linear" detrend path.
+_use_numpy_detrend: bool = False
+
+
+def _linear_detrend_numpy(segment: np.ndarray) -> np.ndarray:
+    """Linear detrend along axis=-1 using only numpy (no LAPACK).
+
+    When passed to ``scipy.signal.stft`` as the ``detrend`` callable, this
+    function receives a 2-D array of shape ``(n_windows, nperseg)`` and must
+    detrend every row independently.  It produces the same result as
+    ``scipy.signal.detrend(x, type='linear')`` but uses the closed-form
+    OLS solution (pure numpy dot/matmul) instead of ``scipy.linalg.lstsq``,
+    avoiding a segfault that occurs when Accelerate LAPACK is called from a
+    forked child process on macOS arm64.
+
+    Args:
+        segment: Array of shape ``(..., n)``; detrending is applied along the
+            last axis so each row is treated as an independent segment.
+
+    Returns:
+        Detrended array with the same shape as *segment*.
+    """
+    n = segment.shape[-1]
+    if n < 2:
+        # t_c_sq == 0 for a single sample, so slope is undefined; return mean-subtracted
+        # zeros to match scipy.signal.detrend(..., type='linear') behavior.
+        return segment - segment.mean(axis=-1, keepdims=True)
+    t = np.arange(n, dtype=np.float64)
+    t_mean = float(t.mean())
+    t_c = t - t_mean
+    t_c_sq = float(np.dot(t_c, t_c))
+
+    x_mean = segment.mean(axis=-1, keepdims=True)  # (..., 1)
+    slope = (segment - x_mean) @ t_c / t_c_sq  # (...,)
+    intercept = x_mean[..., 0] - slope * t_mean  # (...,)
+    trend = slope[..., np.newaxis] * t + intercept[..., np.newaxis]  # (..., n)
+    return segment - trend
+
 
 class Feature(abc.ABC):
     """Abstract Base Class to define a common interface for classes that implement one or more related features"""
@@ -217,7 +258,13 @@ class Feature(abc.ABC):
                     noverlap=window_size * 2,
                     window="hann",
                     scaling="psd",
-                    detrend="linear",
+                    # When running inside a forked worker process on macOS,
+                    # use a pure-numpy detrend to avoid the segfault caused by
+                    # calling scipy.linalg.lstsq (Accelerate LAPACK) from a
+                    # forked child.  _use_numpy_detrend is set by the worker
+                    # function in parallel_workers.py; the main process and
+                    # CLI leave it False so they use scipy's normal path.
+                    detrend=_linear_detrend_numpy if _use_numpy_detrend else "linear",
                 )
             psd = np.abs(Zxx)
             psd_data[per_frame_key] = psd

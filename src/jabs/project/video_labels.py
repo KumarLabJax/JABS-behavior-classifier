@@ -86,6 +86,12 @@ class VideoLabels:
         # return TrackLabels object for this identity & behavior
         return self._identity_labels[identity][behavior]
 
+    def iter_identity_behavior_labels(self):
+        """Yield ``(identity, behavior, TrackLabels)`` entries for all labeled tracks."""
+        for identity, behaviors in self._identity_labels.items():
+            for behavior, track_labels in behaviors.items():
+                yield identity, behavior, track_labels
+
     def counts(self, behavior):
         """get the count of labeled frames and bouts for each identity in this video for a specified behavior
 

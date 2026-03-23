@@ -47,7 +47,7 @@ class VideoManager:
 
     def _initialize_videos(self, enable_video_check):
         """Initialize video-related data and perform checks."""
-        self._videos = self.get_videos(self._paths.project_dir)
+        self._videos = self.get_videos(self._paths.video_dir)
         self._videos.sort()
 
         self._validate_pose_files()
@@ -160,7 +160,7 @@ class VideoManager:
         """
         if video_name not in self._pose_path_cache:
             video_path = self.video_path(video_name)
-            self._pose_path_cache[video_name] = get_pose_path(video_path)
+            self._pose_path_cache[video_name] = get_pose_path(video_path, self._paths.pose_dir)
         return self._pose_path_cache[video_name]
 
     def _load_video_metadata(self):
@@ -205,7 +205,7 @@ class VideoManager:
         for v in self.videos:
             try:
                 # Populate cache during validation
-                self._pose_path_cache[v] = get_pose_path(self.video_path(v))
+                self._pose_path_cache[v] = get_pose_path(self.video_path(v), self._paths.pose_dir)
             except ValueError:
                 print(f"{v} missing pose file", file=sys.stderr)
                 err = True
@@ -214,7 +214,7 @@ class VideoManager:
 
     def video_path(self, video_file) -> Path:
         """take a video file name and generate the path used to open it"""
-        return Path(self._paths.project_dir, video_file)
+        return Path(self._paths.video_dir, video_file)
 
     def annotations_path(self, video_file) -> Path:
         """take a video file name and generate the path used to save associated annotations"""

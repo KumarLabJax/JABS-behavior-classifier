@@ -28,28 +28,26 @@ jabs-init usage:
 
 
 ```console
-jabs-init [-h] [-f] [-p PROCESSES] [-w WINDOW*SIZE]
-							 [--force-pixel-distances]
-							 project_dir
+jabs-init [OPTIONS] PROJECT_DIR
 ```
 
 ```console
-positional arguments:
-  project_dir
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -f, --force           recompute features even if file already exists
-  -p PROCESSES, --processes PROCESSES
-						number of multiprocessing workers
-  -w WINDOW_SIZE        Specify window sizes to use for computing window features. Argument can
-						be repeated to specify multiple sizes (e.g. -w 2 -w 5). Size is number
-						of frames before and after the current frame to include in the window.
-						For example, '-w 2' results in a window size of 5 (2 frames before, 2
-						frames after, plus the current frame). If no window size is specified,
-						a default of 5 will be used.
-   --force-pixel-distances
-						use pixel distances when computing features even if project supports cm
+Options:
+  -f, --force                recompute features even if file already exists
+  -p, --processes INTEGER    number of multiprocessing workers to use; defaults
+                             to the logical CPU count
+  -w WINDOW_SIZE             Specify window sizes to use for computing window
+                             features. Argument can be repeated to specify
+                             multiple sizes (e.g. -w 2 -w 5). Size is number
+                             of frames before and after the current frame to
+                             include in the window. For example, '-w 2'
+                             results in a window size of 5 (2 frames before, 2
+                             frames after, plus the current frame). If no
+                             window size is specified, a default of 5 will be
+                             used.
+  --force-pixel-distances    use pixel distances when computing features even
+                             if project supports cm
+  --help                     Show this message and exit.
 ```
 
 example jabs-init command
@@ -57,7 +55,7 @@ example jabs-init command
 The following command runs the jabs-init script to compute features
 using window sizes of 2, 5, and 10. The script will use up to 8 processes for
 computing features (-p8). If no -p argument is passed, jabs-init
-will use up to 4 processes.
+defaults to the number of logical CPUs available on the machine.
 
 ```console
 jabs-init -p8 -w2 -w5 -w10 <path/to/project/dir>

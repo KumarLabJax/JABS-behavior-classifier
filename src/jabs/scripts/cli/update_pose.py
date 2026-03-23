@@ -1,0 +1,1015 @@
+"""Update a JABS project in place to use an updated pose set while remapping labels.
+
+This is intended for keeping existing labels when pose files for the same
+videos have been regenerated or otherwise updated. The script validates the
+updated pose set first, then performs the label remap in two disposable
+staging projects so the live project stays unchanged while the update is
+underway. The updated pose directory must provide the same latest pose version
+for every project video, and only that latest version is copied back into the
+live project. Only after the staged label remap succeeds does it copy the
+staged annotations and project metadata back to the live project and swap in
+the updated pose files.
+
+Before the live project is modified, the script creates a timestamped backup
+zip under ``<project>/.backup`` containing every live file the update may
+overwrite or delete: pose files, annotations, ``jabs/project.json``, and
+predictions. If a failure occurs after the final live apply begins, the script
+prints the backup path plus cleanup and manual restore instructions instead of
+restoring automatically.
+
+Labels are processed block by block, matched by median bbox IoU, and written
+directly to the destination label track.
+Timeline annotations are also carried forward: video-level annotations are
+copied as-is, and identity-scoped annotations are remapped by the same
+interval-matching logic. If ``--drop-timeline-annotations`` is provided,
+existing source timeline annotations are discarded instead of being copied or
+remapped. After a successful live pose update, feature files are regenerated
+automatically only when ``--skip-feature-gen`` is not passed and the existing
+``jabs/project.json`` already contains explicit ``window_sizes``. If the
+project file has no ``window_sizes`` entry, there is nothing to regenerate.
+For more control over feature regeneration, use ``--skip-feature-gen`` and run
+``jabs-init`` manually, or regenerate features from the GUI.
+
+Example:
+  jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import sys
+import tempfile
+import zipfile
+from datetime import datetime
+from pathlib import Path
+
+import click
+import numpy as np
+
+from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
+from jabs.project import Project
+from jabs.project.timeline_annotations import TimelineAnnotations
+from jabs.project.video_labels import VideoLabels
+from jabs.scripts.initialize_project import (
+    DEFAULT_PROCESSES,
+    run_initialize_project,
+    validate_window_sizes,
+)
+from jabs.video_reader import VideoReader
+
+
+def _project_videos(project_dir: Path) -> list[str]:
+    """Return the sorted set of project video filenames."""
+    return sorted(f.name for f in project_dir.glob("*") if f.suffix in {".avi", ".mp4"})
+
+
+def _pose_files_for_video(video: str, pose_dir: Path) -> list[Path]:
+    """Return all pose files in ``pose_dir`` that correspond to ``video``."""
+    video_base = Path(video).with_suffix("").name
+    return sorted(pose_dir.glob(f"{video_base}_pose_est_v*.h5"))
+
+
+def _require_writable_directory(path: Path, description: str) -> None:
+    """Raise if a directory does not permit the writes/removals needed by the live apply step."""
+    if not path.exists():
+        raise ValueError(f"{description} does not exist: {path}")
+    if not path.is_dir():
+        raise ValueError(f"{description} is not a directory: {path}")
+    if not os.access(path, os.W_OK | os.X_OK):
+        raise PermissionError(f"{description} is not writable: {path}")
+
+
+def _require_writable_existing_path(path: Path, description: str) -> None:
+    """Raise if an existing file or directory is not writable."""
+    if path.exists() and not os.access(path, os.W_OK):
+        raise PermissionError(f"{description} is not writable: {path}")
+
+
+def _bboxes_for_identity(pose: PoseEstimation, identity: int) -> np.ndarray | None:
+    """Return per-frame bboxes for an identity as [x1,y1,x2,y2], or None if unavailable."""
+    bbox_getter = getattr(pose, "get_bounding_boxes", None)
+    if bbox_getter is None or not getattr(pose, "has_bounding_boxes", False):
+        return None
+    bboxes = bbox_getter(identity)
+    if bboxes is None:
+        return None
+    # flatten [frames,2,2] -> [frames,4]
+    return bboxes.reshape(bboxes.shape[0], 4)
+
+
+def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    """Compute IoU for two boxes shaped (4,) = [x1,y1,x2,y2]."""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter_w = x2 - x1
+    inter_h = y2 - y1
+    if inter_w <= 0 or inter_h <= 0:
+        return 0.0
+    inter = inter_w * inter_h
+    area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
+    area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
+    if area_a <= 0 or area_b <= 0:
+        return 0.0
+    return inter / (area_a + area_b - inter)
+
+
+def _interval_cost(
+    src_pose: PoseEstimation,
+    dst_pose: PoseEstimation,
+    src_identity: int,
+    dst_identity: int,
+    start: int,
+    end: int,
+) -> float:
+    """Compute the median bbox IoU across one source-identity/destination-identity interval.
+
+    Only frames where both boxes are finite and have positive area contribute to
+    the score. If no such frames exist, returns 0.0.
+
+    Args:
+        src_pose: Source pose object.
+        dst_pose: Destination pose object.
+        src_identity: Source identity index.
+        dst_identity: Destination identity index.
+        start: Inclusive start frame for the interval.
+        end: Inclusive end frame for the interval.
+
+    Returns:
+        Median IoU across valid overlapping boxes in the interval, or ``0.0`` if none exist.
+    """
+    src_b = _bboxes_for_identity(src_pose, src_identity)
+    dst_b = _bboxes_for_identity(dst_pose, dst_identity)
+    if src_b is None or dst_b is None:
+        return 0.0
+
+    src_slice = src_b[start : end + 1]
+    dst_slice = dst_b[start : end + 1]
+
+    # valid boxes: finite coords and positive width/height
+    def _valid_boxes(boxes):
+        finite = np.isfinite(boxes).all(axis=1)
+        widths = boxes[:, 2] - boxes[:, 0]
+        heights = boxes[:, 3] - boxes[:, 1]
+        positive = (widths > 0) & (heights > 0)
+        return finite & positive
+
+    mask = _valid_boxes(src_slice) & _valid_boxes(dst_slice)
+    if not np.any(mask):
+        return 0.0
+
+    ious = [_bbox_iou(a, b) for a, b in zip(src_slice[mask], dst_slice[mask], strict=True)]
+    return float(np.median(ious)) if ious else 0.0
+
+
+def _find_best_identity(
+    src_pose: PoseEstimation,
+    dst_pose: PoseEstimation,
+    src_identity: int,
+    start: int,
+    end: int,
+) -> tuple[int | None, float]:
+    """Find the single best destination identity for one source block interval.
+
+    Destination identities are compared independently and the highest-IoU match
+    is returned. The chosen identity is not reserved, so later blocks may match
+    to the same destination identity.
+
+    Args:
+        src_pose: Source pose object.
+        dst_pose: Destination pose object.
+        src_identity: Source identity index.
+        start: Inclusive start frame for the interval.
+        end: Inclusive end frame for the interval.
+
+    Returns:
+        Tuple of ``(best_identity, best_iou)``. ``best_identity`` is ``None`` only if no
+        destination identities are available.
+    """
+    best_id: int | None = None
+    best_score = -float("inf")
+
+    for dst_id in dst_pose.identities:
+        iou = _interval_cost(src_pose, dst_pose, src_identity, dst_id, start, end)
+        if iou > best_score:
+            best_score = iou
+            best_id = dst_id
+
+    return best_id, best_score
+
+
+def _warn_on_label_overlap(
+    video: str,
+    behavior: str,
+    src_identity: int,
+    dst_identity: int,
+    start: int,
+    end: int,
+    present: bool,
+    dst_track_labels,
+) -> None:
+    """Warn when a converted block overlaps labels already written to the destination track.
+
+    Reports both identical overlaps and conflicting overlaps for the same
+    destination identity and behavior. Conflicting overlaps are still allowed;
+    the later write replaces the previous frame values.
+    """
+    desired_label = (
+        dst_track_labels.Label.BEHAVIOR if present else dst_track_labels.Label.NOT_BEHAVIOR
+    )
+    existing = dst_track_labels.get_labels()[start : end + 1]
+    labeled = existing != dst_track_labels.Label.NONE
+    if not np.any(labeled):
+        return
+
+    same_count = int(np.count_nonzero(existing[labeled] == desired_label))
+    conflict_count = int(np.count_nonzero(existing[labeled] != desired_label))
+    if same_count == 0 and conflict_count == 0:
+        return
+
+    message = (
+        f"WARNING: {video} behavior={behavior} src_id={src_identity} -> dst_id={dst_identity} "
+        f"frames={start}-{end} overlaps existing destination labels "
+        f"({same_count} identical, {conflict_count} conflicting frame(s)); identity mapping collision."
+    )
+    if conflict_count:
+        message += " Conflicting frames will be overwritten."
+    print(message, file=sys.stderr)
+
+
+def _remap_labels_for_video(
+    video: str,
+    label_source_project: Project,
+    label_dest_project: Project,
+    min_iou: float,
+    verbose: bool = False,
+    annotate_failures: bool = False,
+    drop_timeline_annotations: bool = False,
+):
+    """Remap labels for a single video.
+
+    Source labels are read as contiguous blocks per source identity and
+    behavior. Each block is matched independently to the destination identity
+    with the highest median bbox IoU over that interval. The destination label
+    track is updated immediately after each successful match, so later overlapping
+    writes for the same destination identity and behavior replace earlier frame
+    values. Overlaps are warned before the write occurs.
+
+    Args:
+        video: Video filename to remap.
+        label_source_project: Project providing the current labels and source pose.
+        label_dest_project: Staging project providing the replacement pose and output location.
+        min_iou: Minimum median IoU required to accept a block match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to add timeline annotations for failed block matches.
+        drop_timeline_annotations: Whether to discard existing source timeline annotations
+            instead of copying or remapping them.
+
+    Returns:
+        Tuple of ``(success_count, skipped_count)``.
+    """
+    source_pose = label_source_project.load_pose_est(
+        label_source_project.video_manager.video_path(video)
+    )
+    dest_pose = label_dest_project.load_pose_est(
+        label_dest_project.video_manager.video_path(video)
+    )
+
+    # Require pose v8+ with bounding boxes
+    for name, pose in (("source", source_pose), ("destination", dest_pose)):
+        version = getattr(pose, "format_major_version", 0)
+        if version < 8 or not getattr(pose, "has_bounding_boxes", False):
+            print(
+                f"WARNING: {video} {name} pose v{version} lacks bounding boxes; skipping.",
+                file=sys.stderr,
+            )
+            return 0, 0
+
+    if source_pose.num_frames != dest_pose.num_frames:
+        print(
+            f"WARNING: Frame count mismatch for {video} (source={source_pose.num_frames}, "
+            f"dest={dest_pose.num_frames}). Skipping.",
+            file=sys.stderr,
+        )
+        return 0, 0
+
+    source_labels = label_source_project.video_manager.load_video_labels(video, pose=source_pose)
+    if source_labels is None:
+        print(f"INFO: No labels in source for {video}; skipping.")
+        return 0, 0
+
+    dest_labels = VideoLabels(video, dest_pose.num_frames)
+
+    if not drop_timeline_annotations:
+        for annotation in source_labels.timeline_annotations.serialize():
+            start = annotation["start"]
+            end = annotation["end"]
+            tag = annotation["tag"]
+            color = annotation["color"]
+            description = annotation.get("description")
+            src_annotation_identity = annotation.get("identity")
+
+            if src_annotation_identity is None:
+                dst_annotation_identity = None
+                display_identity = None
+            else:
+                try:
+                    src_annotation_identity = int(src_annotation_identity)
+                except (TypeError, ValueError):
+                    print(
+                        f"WARNING: {video} annotation tag={tag} frames={start}-{end} has non-integer "
+                        f"identity {src_annotation_identity!r}; skipping annotation.",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                dst_annotation_identity, iou = _find_best_identity(
+                    source_pose,
+                    dest_pose,
+                    src_annotation_identity,
+                    start,
+                    end,
+                )
+                if dst_annotation_identity is None or not np.isfinite(iou) or iou < min_iou:
+                    print(
+                        f"WARNING: {video} annotation tag={tag} src_id={src_annotation_identity} "
+                        f"frames={start}-{end} no match meeting IoU ≥ {min_iou:.2f} "
+                        f"(best {iou:.2f}). Skipping annotation.",
+                        file=sys.stderr,
+                    )
+                    continue
+                display_identity = dest_pose.identity_index_to_display(dst_annotation_identity)
+
+            if not dest_labels.timeline_annotations.annotation_exists(
+                start=start,
+                end=end,
+                tag=tag,
+                identity_index=dst_annotation_identity,
+            ):
+                dest_labels.add_annotation(
+                    TimelineAnnotations.Annotation(
+                        start=start,
+                        end=end,
+                        tag=tag,
+                        color=color,
+                        description=description,
+                        identity_index=dst_annotation_identity,
+                        display_identity=display_identity,
+                    )
+                )
+
+    success_count = 0
+    skipped_count = 0
+
+    for src_identity_str, behavior, track_labels in source_labels.iter_identity_behavior_labels():
+        try:
+            src_identity = int(src_identity_str)
+        except ValueError:
+            print(
+                f"WARNING: Non-integer identity '{src_identity_str}' in {video}; skipping.",
+                file=sys.stderr,
+            )
+            continue
+
+        for block in track_labels.get_blocks():
+            start, end, present = block["start"], block["end"], block["present"]
+            dst_identity, iou = _find_best_identity(
+                source_pose, dest_pose, src_identity, start, end
+            )
+
+            if dst_identity is None or not np.isfinite(iou) or iou < min_iou:
+                print(
+                    f"WARNING: {video} behavior={behavior} src_id={src_identity} frames={start}-{end} "
+                    f"no match meeting IoU ≥ {min_iou:.2f} (best {iou:.2f}). Skipping block.",
+                    file=sys.stderr,
+                )
+                skipped_count += 1
+
+                tag = (
+                    "update-pose-behavior-remap-failed"
+                    if present
+                    else "update-pose-not-behavior-remap-failed"
+                )
+                if annotate_failures and not dest_labels.timeline_annotations.annotation_exists(
+                    start=start, end=end, tag=tag, identity_index=None
+                ):
+                    dest_labels.timeline_annotations.add_annotation(
+                        TimelineAnnotations.Annotation(
+                            start=start,
+                            end=end,
+                            tag=tag,
+                            color="#FF8800" if present else "#8888FF",
+                            description=(
+                                f"label remap failed during pose update: behavior={behavior}, "
+                                f"present={present}, "
+                                f"src_id={src_identity}, best_iou={iou:.2f}"
+                            ),
+                            identity_index=None,
+                        )
+                    )
+                continue
+
+            dst_track_labels = dest_labels.get_track_labels(str(dst_identity), behavior)
+            _warn_on_label_overlap(
+                video,
+                behavior,
+                src_identity,
+                dst_identity,
+                start,
+                end,
+                present,
+                dst_track_labels,
+            )
+            if present:
+                dst_track_labels.label_behavior(start, end)
+            else:
+                dst_track_labels.label_not_behavior(start, end)
+            if verbose:
+                print(
+                    f"MATCH: {video} behavior={behavior} src_id={src_identity} -> "
+                    f"dst_id={dst_identity} frames={start}-{end} iou={iou:.2f}"
+                )
+            success_count += 1
+
+    label_dest_project.save_annotations(dest_labels, dest_pose)
+    print(
+        f"Saved staged label remap for {video} -> {label_dest_project.project_paths.annotations_dir}"
+    )
+    return success_count, skipped_count
+
+
+def _validate_pose_file(
+    video: str,
+    video_path: Path,
+    pose_path: Path,
+    role: str,
+    require_bboxes: bool,
+) -> int:
+    """Validate that a pose file is readable and matches the video frame count."""
+    pose = open_pose_file(pose_path, None)
+    version = getattr(pose, "format_major_version", 0)
+    if require_bboxes and (version < 8 or not getattr(pose, "has_bounding_boxes", False)):
+        raise ValueError(f"{video} {role} pose v{version} lacks bounding boxes")
+
+    pose_frames = pose.num_frames
+    video_frames = VideoReader.get_nframes_from_file(video_path)
+    if pose_frames != video_frames:
+        raise ValueError(
+            f"{video} {role} pose frame count ({pose_frames}) does not match video ({video_frames})"
+        )
+
+    return int(version)
+
+
+def _validate_live_update_targets(
+    project_dir: Path,
+    videos: list[str],
+    live_annotation_videos: set[str],
+) -> None:
+    """Best-effort preflight check that live update targets can be replaced or removed."""
+    jabs_dir = project_dir / "jabs"
+    annotations_dir = jabs_dir / "annotations"
+    backup_dir = project_dir / ".backup"
+
+    _require_writable_directory(project_dir, "live project directory")
+    _require_writable_directory(jabs_dir, "live jabs directory")
+    if annotations_dir.exists():
+        _require_writable_directory(annotations_dir, "live annotations directory")
+
+    if backup_dir.exists():
+        _require_writable_directory(backup_dir, "backup directory")
+
+    _require_writable_existing_path(jabs_dir / "project.json", "live project file")
+
+    for video in videos:
+        for live_pose_path in _pose_files_for_video(video, project_dir):
+            _require_writable_existing_path(live_pose_path, "live pose file")
+
+    for video in live_annotation_videos:
+        annotation_path = annotations_dir / Path(video).with_suffix(".json")
+        _require_writable_existing_path(annotation_path, "live annotation file")
+
+    for derived_dir_name in ("predictions", "cache"):
+        derived_dir = jabs_dir / derived_dir_name
+        if not derived_dir.exists():
+            continue
+
+        _require_writable_directory(derived_dir, f"live {derived_dir_name} directory")
+        for child in derived_dir.rglob("*"):
+            if child.is_dir():
+                _require_writable_directory(child, f"live {derived_dir_name} directory")
+            else:
+                _require_writable_existing_path(child, f"live {derived_dir_name} file")
+
+
+def _preflight_update_inputs(
+    project_dir: Path,
+    new_pose_dir: Path,
+) -> tuple[list[str], dict[str, Path], set[str]]:
+    """Validate live and replacement inputs before any live mutation occurs."""
+    if not Project.is_valid_project_directory(project_dir):
+        raise ValueError(f"{project_dir} is not a valid JABS project directory")
+    if not new_pose_dir.is_dir():
+        raise ValueError(f"{new_pose_dir} is not a directory")
+
+    videos = _project_videos(project_dir)
+    if not videos:
+        raise ValueError(f"No video files found in {project_dir}")
+
+    replacement_pose_files: dict[str, Path] = {}
+    live_annotations: set[str] = set()
+    annotations_dir = project_dir / "jabs" / "annotations"
+    replacement_version: int | None = None
+
+    for video in videos:
+        video_path = project_dir / video
+        live_pose_path = get_pose_path(video_path)
+        replacement_pose_path = get_pose_path(video_path, new_pose_dir)
+
+        _validate_pose_file(
+            video,
+            video_path,
+            live_pose_path,
+            "source",
+            require_bboxes=True,
+        )
+        video_replacement_version = _validate_pose_file(
+            video,
+            video_path,
+            replacement_pose_path,
+            "replacement",
+            require_bboxes=True,
+        )
+
+        if replacement_version is None:
+            replacement_version = video_replacement_version
+        elif video_replacement_version != replacement_version:
+            raise ValueError(
+                f"{video} replacement pose version v{video_replacement_version} does not match "
+                f"replacement pose version v{replacement_version} used by other videos"
+            )
+
+        replacement_pose_files[video] = replacement_pose_path
+        annotation_path = annotations_dir / Path(video).with_suffix(".json")
+        if annotation_path.exists():
+            live_annotations.add(video)
+
+    _validate_live_update_targets(project_dir, videos, live_annotations)
+
+    return videos, replacement_pose_files, live_annotations
+
+
+def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
+    """Load explicit window sizes from the existing project file.
+
+    Missing ``window_sizes`` means there is nothing to regenerate.
+    """
+    project_file = project_dir / "jabs" / "project.json"
+    if not project_file.exists():
+        raise ValueError(f"{project_dir} is not a valid JABS project directory")
+
+    try:
+        project_settings = json.loads(project_file.read_text())
+    except OSError as exc:
+        raise ValueError(f"Unable to read project file {project_file}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Project file {project_file} is not valid JSON: {exc}") from exc
+
+    if "window_sizes" not in project_settings:
+        return ()
+
+    window_sizes = project_settings["window_sizes"]
+    if not isinstance(window_sizes, list):
+        raise ValueError(f"Project file {project_file} has invalid window_sizes data")
+
+    try:
+        return validate_window_sizes(window_sizes)
+    except ValueError as exc:
+        raise ValueError(f"Project file {project_file} has invalid window_sizes: {exc}") from exc
+
+
+def _create_backup_archive(
+    project_dir: Path,
+    videos: list[str],
+) -> Path:
+    """Create a timestamped backup archive of live files that will be replaced or removed."""
+    backup_dir = project_dir / ".backup"
+    backup_dir.mkdir(exist_ok=True)
+    backup_path = backup_dir / f"update_pose_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+
+    files_to_backup: set[Path] = set()
+    for video in videos:
+        files_to_backup.update(_pose_files_for_video(video, project_dir))
+
+    project_file = project_dir / "jabs" / "project.json"
+    if project_file.exists():
+        files_to_backup.add(project_file)
+
+    annotations_dir = project_dir / "jabs" / "annotations"
+    if annotations_dir.exists():
+        files_to_backup.update(path for path in annotations_dir.rglob("*") if path.is_file())
+
+    predictions_dir = project_dir / "jabs" / "predictions"
+    if predictions_dir.exists():
+        files_to_backup.update(path for path in predictions_dir.rglob("*") if path.is_file())
+
+    with zipfile.ZipFile(backup_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(files_to_backup):
+            zf.write(path, arcname=path.relative_to(project_dir))
+
+    return backup_path
+
+
+def _seed_stage_project(stage_root: Path, project_dir: Path, copy_annotations: bool) -> None:
+    """Create a minimal staging project root seeded from the live project."""
+    stage_jabs_dir = stage_root / "jabs"
+    stage_annotations_dir = stage_jabs_dir / "annotations"
+    stage_jabs_dir.mkdir(parents=True, exist_ok=True)
+    stage_annotations_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy2(project_dir / "jabs" / "project.json", stage_jabs_dir / "project.json")
+
+    if copy_annotations:
+        live_annotations_dir = project_dir / "jabs" / "annotations"
+        if live_annotations_dir.exists():
+            shutil.copytree(live_annotations_dir, stage_annotations_dir, dirs_exist_ok=True)
+
+
+def _refresh_project_identity_counts(project: Project) -> None:
+    """Recompute the per-video identity counts stored in project.json."""
+    video_metadata = project.settings_manager.project_settings.get("video_files", {})
+    refreshed = dict(video_metadata)
+
+    for video in project.video_manager.videos:
+        vinfo = dict(refreshed.get(video, {}))
+        pose = project.load_pose_est(project.video_manager.video_path(video))
+        vinfo["identities"] = pose.num_identities
+        refreshed[video] = vinfo
+
+    project.settings_manager.save_project_file({"video_files": refreshed})
+
+
+def _copy_file_atomic(source: Path, destination: Path) -> None:
+    """Copy a file into place via a temporary file and atomic replace."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
+    shutil.copy2(source, tmp_path)
+    tmp_path.replace(destination)
+
+
+def _restore_cleanup_paths(
+    project_dir: Path,
+    videos: list[str],
+    replacement_pose_files: dict[str, Path],
+    staged_annotations_dir: Path,
+) -> list[Path]:
+    """Return live-project files that may have been created during the failed apply step."""
+    cleanup_paths: set[Path] = set()
+    for video in videos:
+        cleanup_paths.add(project_dir / replacement_pose_files[video].name)
+
+        staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
+        if staged_annotation.exists():
+            cleanup_paths.add(project_dir / "jabs" / "annotations" / staged_annotation.name)
+
+    return sorted(cleanup_paths)
+
+
+def _print_manual_restore(project_dir: Path, backup_path: Path, cleanup_paths: list[Path]) -> None:
+    """Print cleanup and restore instructions for a previously created backup archive."""
+    restore_zip = backup_path.relative_to(project_dir)
+    print(f"Backup archive preserved at: {backup_path}", file=sys.stderr)
+
+    if cleanup_paths:
+        cleanup_targets = " ".join(
+            shlex.quote(str(path.relative_to(project_dir))) for path in cleanup_paths
+        )
+        cleanup_command = f"cd {shlex.quote(str(project_dir))} && rm -f {cleanup_targets}"
+        print(
+            "Before restoring, remove files that may have been created during the failed apply:",
+            file=sys.stderr,
+        )
+        print(cleanup_command, file=sys.stderr)
+
+    restore_command = (
+        f"cd {shlex.quote(str(project_dir))} && unzip -o {shlex.quote(str(restore_zip))}"
+    )
+    print(f"Then restore the backup archive: {restore_command}", file=sys.stderr)
+    print(
+        "If you prefer, restore into a clean copy of the project directory instead.",
+        file=sys.stderr,
+    )
+
+
+def _apply_live_update(
+    project_dir: Path,
+    label_dest_project: Project,
+    videos: list[str],
+    replacement_pose_files: dict[str, Path],
+    live_annotation_videos: set[str],
+    backup_path: Path,
+) -> None:
+    """Apply staged pose-update output back to the live project."""
+    live_annotations_dir = project_dir / "jabs" / "annotations"
+    staged_annotations_dir = label_dest_project.project_paths.annotations_dir
+
+    missing_annotations = sorted(
+        video
+        for video in live_annotation_videos
+        if not (staged_annotations_dir / Path(video).with_suffix(".json")).exists()
+    )
+    if missing_annotations:
+        raise RuntimeError(
+            "staged pose update did not produce annotations for: " + ", ".join(missing_annotations)
+        )
+
+    cleanup_paths = _restore_cleanup_paths(
+        project_dir,
+        videos,
+        replacement_pose_files,
+        staged_annotations_dir,
+    )
+
+    try:
+        for video in videos:
+            staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
+            if staged_annotation.exists():
+                _copy_file_atomic(
+                    staged_annotation,
+                    live_annotations_dir / Path(video).with_suffix(".json"),
+                )
+
+        _copy_file_atomic(
+            label_dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
+        )
+
+        for video in videos:
+            for live_pose_path in _pose_files_for_video(video, project_dir):
+                live_pose_path.unlink()
+
+        for video in videos:
+            replacement_pose_path = replacement_pose_files[video]
+            _copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
+
+        shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
+        shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)
+    except Exception as exc:
+        print(
+            f"ERROR: Failed while applying the pose update to the live project: {exc}",
+            file=sys.stderr,
+        )
+        _print_manual_restore(project_dir, backup_path, cleanup_paths)
+        raise SystemExit(1) from exc
+
+
+def _regenerate_features_after_update(
+    project_dir: Path,
+    window_sizes: tuple[int, ...],
+    backup_path: Path,
+    skip_feature_gen: bool,
+) -> str:
+    """Regenerate features after a successful pose update when requested by project settings."""
+    if skip_feature_gen:
+        return "skipped_by_option"
+
+    if not window_sizes:
+        return "skipped_no_window_sizes"
+
+    try:
+        run_initialize_project(
+            force=False,
+            processes=DEFAULT_PROCESSES,
+            window_sizes=validate_window_sizes(window_sizes),
+            force_pixel_distances=False,
+            metadata_path=None,
+            skip_feature_generation=False,
+            project_dir=project_dir,
+        )
+    except Exception as exc:
+        print(
+            f"ERROR: Pose update succeeded, but automatic feature regeneration failed: {exc}",
+            file=sys.stderr,
+        )
+        print(f"Backup archive preserved at: {backup_path}", file=sys.stderr)
+        print(
+            "If you want to retry with more control, rerun update-pose with "
+            "--skip-feature-gen and then run jabs-init manually, or regenerate "
+            "features from the GUI.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+
+    return "regenerated"
+
+
+def _run_staged_label_remap(
+    label_source_project: Project,
+    label_dest_project: Project,
+    min_iou: float,
+    verbose: bool,
+    annotate_failures: bool,
+    drop_timeline_annotations: bool,
+) -> tuple[int, int]:
+    """Run the existing per-video label-remap semantics from source to destination."""
+    total_success = 0
+    total_skipped = 0
+
+    for video in label_source_project.video_manager.videos:
+        success, skipped = _remap_labels_for_video(
+            video,
+            label_source_project,
+            label_dest_project,
+            min_iou,
+            verbose=verbose,
+            annotate_failures=annotate_failures,
+            drop_timeline_annotations=drop_timeline_annotations,
+        )
+        total_success += success
+        total_skipped += skipped
+
+    return total_success, total_skipped
+
+
+def update_project_pose_in_place(
+    project_dir: Path,
+    new_pose_dir: Path,
+    min_iou: float,
+    verbose: bool = False,
+    annotate_failures: bool = False,
+    drop_timeline_annotations: bool = False,
+    skip_feature_gen: bool = False,
+) -> tuple[int, int, Path, str]:
+    """Update a live project in place using replacement pose files from ``new_pose_dir``.
+
+    Args:
+        project_dir: Path to the live project directory to update.
+        new_pose_dir: Directory containing replacement pose files.
+        min_iou: Minimum median IoU required to accept a label remap match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to write timeline annotations for failed block matches.
+        drop_timeline_annotations: Whether to discard existing source timeline annotations
+            instead of copying or remapping them.
+        skip_feature_gen: Whether to skip feature generation after pose update.
+
+    Returns:
+        Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
+        the completed update.
+    """
+    project_dir = project_dir.resolve()
+    new_pose_dir = new_pose_dir.resolve()
+    preexisting_window_sizes = _load_preexisting_window_sizes(project_dir)
+
+    videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
+        project_dir,
+        new_pose_dir,
+    )
+    backup_path = _create_backup_archive(project_dir, videos)
+
+    with tempfile.TemporaryDirectory(prefix="jabs-update-pose-") as temp_root:
+        temp_root_path = Path(temp_root)
+        source_stage = temp_root_path / "source_stage"
+        dest_stage = temp_root_path / "dest_stage"
+
+        _seed_stage_project(source_stage, project_dir, copy_annotations=True)
+        _seed_stage_project(dest_stage, project_dir, copy_annotations=False)
+
+        label_source_project = Project(
+            source_stage,
+            enable_session_tracker=False,
+            video_dir=project_dir,
+            pose_dir=project_dir,
+            validate_project_dir=False,
+        )
+        label_dest_project = Project(
+            dest_stage,
+            enable_session_tracker=False,
+            video_dir=project_dir,
+            pose_dir=new_pose_dir,
+            validate_project_dir=False,
+        )
+
+        total_success, total_skipped = _run_staged_label_remap(
+            label_source_project,
+            label_dest_project,
+            min_iou,
+            verbose,
+            annotate_failures,
+            drop_timeline_annotations,
+        )
+        _refresh_project_identity_counts(label_dest_project)
+        _apply_live_update(
+            project_dir,
+            label_dest_project,
+            videos,
+            replacement_pose_files,
+            live_annotation_videos,
+            backup_path,
+        )
+
+    feature_regen_status = _regenerate_features_after_update(
+        project_dir,
+        preexisting_window_sizes,
+        backup_path,
+        skip_feature_gen,
+    )
+
+    return total_success, total_skipped, backup_path, feature_regen_status
+
+
+@click.command(
+    name="update-pose",
+    context_settings={"max_content_width": 120},
+    help=__doc__,
+)
+@click.argument(
+    "project",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.argument(
+    "new_pose_dir",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+    ),
+)
+@click.option(
+    "--min-iou-thresh",
+    "min_iou",
+    type=float,
+    default=0.5,
+    show_default=True,
+    help="Minimum acceptable median IoU for a label remap match.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Print successful label remap assignments in addition to warnings.",
+)
+@click.option(
+    "--annotate-failures",
+    is_flag=True,
+    help="Add timeline annotations to the project for each block whose label remap fails.",
+)
+@click.option(
+    "--drop-timeline-annotations",
+    is_flag=True,
+    help="Discard existing source timeline annotations instead of copying or remapping them.",
+)
+@click.option(
+    "--skip-feature-gen",
+    is_flag=True,
+    help=(
+        "Skip automatic feature regeneration after a successful pose update. "
+        "By default, features are regenerated only when project.json already "
+        "contains explicit window_sizes."
+    ),
+)
+def update_pose_command(
+    project: Path,
+    new_pose_dir: Path,
+    min_iou: float,
+    verbose: bool,
+    annotate_failures: bool,
+    drop_timeline_annotations: bool,
+    skip_feature_gen: bool,
+) -> None:
+    """Update a JABS project in place to use updated pose files while remapping labels."""
+    total_success, total_skipped, backup_path, feature_regen_status = update_project_pose_in_place(
+        project,
+        new_pose_dir,
+        min_iou,
+        verbose=verbose,
+        annotate_failures=annotate_failures,
+        drop_timeline_annotations=drop_timeline_annotations,
+        skip_feature_gen=skip_feature_gen,
+    )
+
+    click.echo(f"Backup archive: {backup_path}")
+    click.echo(
+        f"Pose update summary: {total_success} label blocks assigned, "
+        f"{total_skipped} label blocks skipped "
+        f"(IoU threshold={min_iou})"
+    )
+    if feature_regen_status == "regenerated":
+        click.echo("Feature regeneration: completed using window_sizes from jabs/project.json")
+    elif feature_regen_status == "skipped_by_option":
+        click.echo(
+            "Feature regeneration: skipped (--skip-feature-gen). "
+            "Run jabs-init manually or regenerate features from the GUI for more control."
+        )
+    else:
+        click.echo(
+            "Feature regeneration: skipped because jabs/project.json does not contain "
+            "explicit window_sizes"
+        )

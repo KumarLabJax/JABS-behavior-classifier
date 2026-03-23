@@ -6,6 +6,8 @@ be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_featu
 """
 
 import json
+import multiprocessing
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -13,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.pose_estimation import get_pose_path, open_pose_file
+from jabs.pose_estimation import open_pose_file
 from jabs.video_reader.utilities import get_fps
 
 from .track_labels import TrackLabels
@@ -32,6 +34,7 @@ class FeatureLoadJobSpec(TypedDict):
 
     video: str
     video_path: Path
+    pose_path: Path
     annotations_path: Path
     feature_dir: Path
     cache_dir: Path | None
@@ -82,13 +85,22 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     """
     video: str = job["video"]
     video_path = job["video_path"]
+    pose_path = job["pose_path"]
     annotations_path = job["annotations_path"]
     feature_dir = job["feature_dir"]
     cache_dir = job["cache_dir"]
     behavior_settings: dict = job["behavior_settings"]
     behavior_name = job.get("behavior_name")
 
-    pose_est = open_pose_file(get_pose_path(video_path), cache_dir)
+    # On macOS, scipy.linalg.lstsq (called by signal.stft's "linear" detrend)
+    # uses Apple's Accelerate LAPACK, which segfaults when invoked from a
+    # forked child process.  Switch to the pure-numpy detrend path only on
+    # macOS to avoid this.  This flag is process-local so the main process
+    # and non-macOS workers are unaffected.
+    if sys.platform == "darwin" and multiprocessing.parent_process() is not None:
+        fe.feature_base_class._use_numpy_detrend = True
+
+    pose_est = open_pose_file(pose_path, cache_dir)
     fps = get_fps(str(video_path))
 
     # Get labels for video (might be None)

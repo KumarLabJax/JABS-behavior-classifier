@@ -16,7 +16,7 @@ import pandas as pd
 
 import jabs.feature_extraction as fe
 from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
-from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
+from jabs.pose_estimation import PoseEstimation, open_pose_file
 
 from .feature_manager import FeatureManager
 from .parallel_workers import FeatureLoadJobSpec, collect_labeled_features
@@ -56,6 +56,8 @@ class Project:
         enable_video_check: Whether to check for video file validity.
         enable_session_tracker: Whether to enable session tracking for this project.
         validate_project_dir: Whether to validate the project directory structure on creation.
+        video_dir: Optional directory containing video files. Defaults to `project_path`.
+        pose_dir: Optional directory containing pose files. Defaults to `project_path`.
 
     Properties:
         dir: Project directory path.
@@ -79,8 +81,15 @@ class Project:
         enable_video_check=True,
         enable_session_tracker=True,
         validate_project_dir=True,
+        video_dir: Path | None = None,
+        pose_dir: Path | None = None,
     ):
-        self._paths = ProjectPaths(Path(project_path), use_cache=use_cache)
+        self._paths = ProjectPaths(
+            Path(project_path),
+            use_cache=use_cache,
+            video_dir=Path(video_dir) if video_dir is not None else None,
+            pose_dir=Path(pose_dir) if pose_dir is not None else None,
+        )
         self._paths.create_directories(validate=validate_project_dir)
         self._total_project_identities = 0
         self._enabled_extended_features = {}
@@ -285,7 +294,10 @@ class Project:
         video_filename = Path(video_path).name
         self._video_manager.check_video_name(video_filename)
 
-        return open_pose_file(get_pose_path(video_path), self._paths.cache_dir)
+        return open_pose_file(
+            self._video_manager.get_cached_pose_path(video_filename),
+            self._paths.cache_dir,
+        )
 
     def save_annotations(self, annotations: VideoLabels, pose: PoseEstimation):
         """save state of a VideoLabels object to the project directory
@@ -621,6 +633,7 @@ class Project:
             job: FeatureLoadJobSpec = {
                 "video": video,
                 "video_path": self._video_manager.video_path(video),
+                "pose_path": self._video_manager.get_cached_pose_path(video),
                 "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
                 "feature_dir": self.feature_dir,
                 "cache_dir": self._paths.cache_dir,
@@ -770,10 +783,8 @@ class Project:
 
     def __has_pose(self, vid: str):
         """check to see if a video has a corresponding pose file"""
-        path = self._paths.project_dir / vid
-
         try:
-            get_pose_path(path)
+            self._video_manager.get_cached_pose_path(vid)
         except ValueError:
             return False
         return True

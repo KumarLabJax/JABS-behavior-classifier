@@ -1,6 +1,8 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.behavior_search import SearchHit
+from jabs.ui.dialogs.message_dialog import MessageDialog
+from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
 
 
 class _VideoListWidget(QtWidgets.QListWidget):
@@ -63,6 +65,20 @@ class _VideoListWidget(QtWidgets.QListWidget):
         # when the user is intending to skip forward/back frames
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
+        self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        """Override to prevent right-clicks from changing the selection.
+
+        We use right mouse click to open a context menu, we don't want that to
+        change the selection.
+        """
+        if event.button() == QtCore.Qt.MouseButton.RightButton:
+            return
+
+        # left clicks get the default event handler, which will change selection
+        super().mousePressEvent(event)
+
     def selectionCommand(self, index, event=None):
         """Override to prevent deselection of the current row."""
         if self.selectedIndexes() and self.selectedIndexes()[0].row() == index.row():
@@ -107,6 +123,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
 
         self._file_list.currentItemChanged.connect(self._selection_changed)
         self._video_filter_box.textChanged.connect(self._filter_list)
+        self._file_list.customContextMenuRequested.connect(self._show_context_menu)
 
     def _selection_changed(self, current, _):
         """Handle video selection change with debouncing.
@@ -149,6 +166,42 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
                 self._suppress_selection_event = False
 
             item.setHidden(is_hidden)
+
+    def _show_context_menu(self, pos: QtCore.QPoint) -> None:
+        """Show a context menu for the item under the cursor.
+
+        Args:
+            pos: The position of the right-click in widget coordinates.
+        """
+        item = self._file_list.itemAt(pos)
+        if item is None:
+            return
+
+        # create and show the context menu at the mouse position
+        menu = QtWidgets.QMenu(self)
+        get_info_action = menu.addAction("Get Info")
+        action = menu.exec(self._file_list.mapToGlobal(pos))
+
+        if action == get_info_action:
+            self._show_video_info(item.data(QtCore.Qt.ItemDataRole.UserRole))
+
+    def _show_video_info(self, video_name: str) -> None:
+        """Open the VideoInfoDialog for the given video.
+
+        Args:
+            video_name: The video filename key used in the project.
+        """
+        if self._project is None:
+            return
+        video_path = self._project.video_manager.video_path(video_name)
+        identity_count = self._project.video_manager.get_video_identity_count(video_name)
+        try:
+            pose_path = self._project.video_manager.get_cached_pose_path(video_name)
+        except ValueError:
+            MessageDialog.error(self, "No pose file found for this video.")
+            return
+        dialog = VideoInfoDialog(video_path, pose_path, identity_count=identity_count, parent=self)
+        dialog.exec()
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""

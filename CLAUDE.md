@@ -16,6 +16,10 @@ For comprehensive developer documentation, see `docs/development/development.md`
 process) and `docs/development/contributing.md` (contribution guidelines, copyright
 assignment, PR process).
 
+## File Protection Rules
+
+- Never modify, overwrite, or delete the `LICENSE` file under any circumstances.
+
 ## Build & Development Commands
 
 ```bash
@@ -152,6 +156,8 @@ cache invalidation logic (version mismatch, pose hash, distance scale).
 - **Naming**: `PascalCase` classes, `snake_case` functions/methods/files,
   `UPPER_SNAKE_CASE` constants, `_` prefix for private members
 - Prefer American English spelling (e.g., "behavior" not "behaviour").
+- Prefer importing at the top of the module. It is acceptable to import within
+  functions/methods if an expensive import is only needed in specific code paths.
 
 ## Coding Standards
 

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
 
 
@@ -33,7 +32,7 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
     videos_to_remove = []
     for video in project.video_manager.videos:
         video_path = project.video_manager.video_path(video)
-        pose_path = get_pose_path(video_path)
+        pose_path = project.video_manager.get_cached_pose_path(video)
         annotation_path = project.project_paths.annotations_dir / Path(video).with_suffix(".json")
 
         has_labels = False
