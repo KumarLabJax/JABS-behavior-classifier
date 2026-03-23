@@ -51,29 +51,48 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata se
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
 `"mouse_a"`), or `subject_0`, `subject_1`, … when the pose file has no external IDs.
-All fields are optional.
+
+**DANDI requires `species`, `sex`, and either `age` or `date_of_birth` on every
+subject.** All other fields are optional.
 
 ```json
 {
   "subject_0": {
     "subject_id": "M123",
     "sex": "M",
-    "genotype": "WT",
-    "strain": "C57BL/6J",
-    "age": "P70D",
-    "weight": null,
     "species": "Mus musculus",
-    "description": null
+    "age": "P70D",
+    "genotype": "WT",
+    "strain": "C57BL/6J"
+  },
+  "subject_1": {
+    "subject_id": "M124",
+    "sex": "F",
+    "species": "Mus musculus",
+    "age": "P72D",
+    "genotype": "Shank3+/-",
+    "strain": "C57BL/6J"
   }
 }
 ```
 
-Supported fields: `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`,
-`species`, `description`.
+| Field            | Type   | Notes                                                                                  |
+|------------------|--------|----------------------------------------------------------------------------------------|
+| `subject_id`     | string | Lab identifier for the animal                                                          |
+| `sex`            | string | **Required by DANDI.** `"M"`, `"F"`, `"U"`, or `"O"`                                   |
+| `species`        | string | **Required by DANDI.** Latin binomial, e.g. `"Mus musculus"`                           |
+| `age`            | string | **Required by DANDI** (or `date_of_birth`). ISO 8601 duration, e.g. `"P70D"` (70 days) |
+| `date_of_birth`  | string | Alternative to `age`. ISO 8601 datetime, e.g. `"2024-01-15T00:00:00+00:00"`            |
+| `genotype`       | string | Genetic background, e.g. `"Shank3B+/-"`                                                |
+| `strain`         | string | Inbred strain, e.g. `"C57BL/6J"`                                                       |
+| `weight`         | string | Body weight, e.g. `"25g"`                                                              |
+| `description`    | string | Free-text notes                                                                        |
 
 In per-identity mode, subject metadata is written to both the standard `NWBFile.subject`
-field and the `jabs_metadata` scratch field. In combined mode, subject metadata is
-written only to `jabs_metadata` (see [below](#subject-metadata-and-nwbfilesubject)).
+field and the `jabs_metadata` scratch field. If no `--subjects` file is provided, a
+minimal subject with `subject_id` set to the identity name is written automatically. In 
+combined mode, subject metadata is written only to `jabs_metadata` (see
+[below](#subject-metadata-and-nwbfilesubject)).
 
 ---
 
@@ -94,14 +113,14 @@ files and otherwise defaults to the time the export was run.
 }
 ```
 
-| Key                      | Type                      | Description                                                                                                                              |
-|--------------------------|---------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| Key                      | Type                      | Description                                                                                                                                                                               |
+|--------------------------|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `session_start_time`     | ISO 8601 string           | Recording start time. Should include a UTC offset (e.g. `-05:00`, `+00:00`, or `Z`). If no offset is provided, the time is assumed UTC and a warning is emitted. Defaults to export time. |
-| `experimenter`           | string or list of strings | Name(s) of the experimenter(s).                                                                                                          |
-| `lab`                    | string                    | Lab name.                                                                                                                                |
-| `institution`            | string                    | Institution name.                                                                                                                        |
-| `experiment_description` | string                    | Free-text description of the experiment.                                                                                                 |
-| `session_id`             | string                    | Lab-specific session identifier.                                                                                                         |
+| `experimenter`           | string or list of strings | Name(s) of the experimenter(s).                                                                                                                                                           |
+| `lab`                    | string                    | Lab name.                                                                                                                                                                                 |
+| `institution`            | string                    | Institution name.                                                                                                                                                                         |
+| `experiment_description` | string                    | Free-text description of the experiment.                                                                                                                                                  |
+| `session_id`             | string                    | Lab-specific session identifier.                                                                                                                                                          |
 
 All fields are optional. Unknown keys are ignored with a warning.
 
@@ -172,8 +191,6 @@ complete subject metadata from any sibling without loading the others.
 For the full format specification — including all field definitions, `jabs_metadata`
 keys, and worked examples for static and dynamic objects — see
 [File Formats — NWB Pose File](file-formats.md#nwb-pose-file).
-
-
 
 The layout below shows a combined file with two animal identities, two static objects
 (`corners`, `lixit`), and one dynamic object (`fecal_boli`).
@@ -294,6 +311,21 @@ Each static object is a `PoseEstimation` container with a **single timestamp
 (`t = 0.0 s`)**, one `PoseEstimationSeries` per keypoint, and a dedicated `Skeleton`.
 Nodes are named `{object_name}_{i}` (zero-indexed).
 
+Each `PoseEstimationSeries` for a static object has data shape `(1, 2)` — one row for
+the single timestamp and two columns for `(x, y)`. Because the time dimension (1) is
+shorter than the spatial dimension (2), the DANDI validator will emit a
+`NWBI.check_data_orientation` warning for each static keypoint:
+
+```
+[NWBI.check_data_orientation] — Data may be in the wrong orientation. Time should be
+in the first dimension, and is usually the longest dimension. Here, another dimension
+is longer.
+```
+
+**These warnings are expected and can be ignored.** The check is a heuristic designed
+to catch transposed animal pose arrays; it fires a false positive for static objects,
+which legitimately have only one timestamp by definition.
+
 ---
 
 ### Dynamic objects
@@ -342,7 +374,7 @@ keypoint names, identity ordering, subject metadata, and object classification.
 | `body_parts`            | `list[str]`               | Always                       | Ordered list of keypoint names for animal skeletons.                                                                                                                                                                |
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                                          |
 | `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file. `null` if the pose file had no external IDs.                                                                                                                   |
-| `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`, `species`, `description`. |
+| `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `species`, `age`, `date_of_birth`, `genotype`, `strain`, `weight`, `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. |
 | `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                                      |
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                                             |
 | `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                                            |
@@ -367,21 +399,21 @@ keypoint names, identity ordering, subject metadata, and object classification.
     "subject_0": {
       "subject_id": "M123",
       "sex": "M",
+      "species": "Mus musculus",
+      "age": "P70D",
       "genotype": "WT",
       "strain": "C57BL/6J",
-      "age": "P70D",
       "weight": null,
-      "species": "Mus musculus",
       "description": null
     },
     "subject_1": {
       "subject_id": "M124",
       "sex": "F",
+      "species": "Mus musculus",
+      "age": "P72D",
       "genotype": "Shank3+/-",
       "strain": "C57BL/6J",
-      "age": "P72D",
       "weight": null,
-      "species": "Mus musculus",
       "description": null
     }
   },

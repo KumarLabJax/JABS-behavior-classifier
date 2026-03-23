@@ -369,8 +369,9 @@ def cross_validation(
         "Keys are identity names: use the external IDs from the pose file "
         "if present (e.g. 'mouse_a'), or 'subject_0', 'subject_1', … if the "
         "pose file has no external IDs. "
-        "Standard fields: subject_id, sex, genotype, strain, age, weight, "
-        "species, description."
+        "DANDI requires species, sex, and age (ISO 8601 duration, e.g. 'P70D') "
+        "or date_of_birth (ISO 8601 datetime) on every subject. "
+        "Additional fields: subject_id, genotype, strain, weight, description."
     ),
 )
 @click.option(

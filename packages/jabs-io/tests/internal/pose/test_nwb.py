@@ -520,8 +520,8 @@ def test_per_identity_nwbfile_subject_populated(tmp_path, adapter):
         assert nwb_b.subject.genotype == "KO"
 
 
-def test_per_identity_nwbfile_subject_none_without_subjects(tmp_path, adapter):
-    """NWBFile.subject is not set when no subjects metadata is provided."""
+def test_per_identity_nwbfile_subject_minimal_without_subjects(tmp_path, adapter):
+    """NWBFile.subject is set to a minimal subject (subject_id=identity_name) when no subjects metadata is provided."""
     path = tmp_path / "pose.nwb"
     data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
 
@@ -529,7 +529,8 @@ def test_per_identity_nwbfile_subject_none_without_subjects(tmp_path, adapter):
 
     with NWBHDF5IO(str(tmp_path / "pose_mouse_a.nwb"), mode="r") as io:
         nwb = io.read()
-        assert nwb.subject is None
+        assert nwb.subject is not None
+        assert nwb.subject.subject_id == "mouse_a"
 
 
 def test_bounding_boxes_per_identity_containers(tmp_path, adapter):

@@ -307,9 +307,9 @@ class PoseNWBAdapter(Adapter):
             identity_name = self._identity_name(data, i)
             identity_path = self._identity_file_path(path, identity_name)
 
-            subject_meta = (data.subjects or {}).get(identity_name)
-            subject = self._make_subject(subject_meta) if subject_meta else None
-            nwbfile = self._make_nwb_file(subject=subject, **kwargs)
+            raw_meta = (data.subjects or {}).get(identity_name, {})
+            subject_meta = {**raw_meta, "subject_id": raw_meta.get("subject_id", identity_name)}
+            nwbfile = self._make_nwb_file(subject=self._make_subject(subject_meta), **kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
             # Rebuild static/dynamic skeletons each iteration: HDMF objects can
             # only belong to one container, so they cannot be shared across files.
@@ -677,10 +677,17 @@ class PoseNWBAdapter(Adapter):
     def _make_subject(subject_meta: dict) -> Subject:
         """Build a pynwb Subject from a subject metadata dict.
 
+        DANDI requires ``species``, ``sex``, and either ``age`` or
+        ``date_of_birth`` on every Subject.  ``age`` should be an ISO 8601
+        duration string (e.g. ``"P70D"``).  ``date_of_birth`` should be an
+        ISO 8601 datetime string (e.g. ``"2024-01-15T00:00:00+00:00"``); it
+        is parsed to a timezone-aware :class:`datetime.datetime` before being
+        passed to pynwb.
+
         Args:
-            subject_meta: Dict with optional keys subject_id, sex, genotype,
-                strain, age, weight, species, description.  None values are
-                omitted so pynwb uses its own defaults.
+            subject_meta: Dict with optional keys subject_id, sex, species,
+                age, date_of_birth, genotype, strain, weight, description.
+                None values are omitted so pynwb uses its own defaults.
 
         Returns:
             A pynwb Subject object populated from the non-None fields.
@@ -688,14 +695,22 @@ class PoseNWBAdapter(Adapter):
         _SUBJECT_FIELDS = (
             "subject_id",
             "sex",
+            "species",
+            "age",
             "genotype",
             "strain",
-            "age",
             "weight",
-            "species",
             "description",
         )
-        kwargs = {k: v for k, v in subject_meta.items() if k in _SUBJECT_FIELDS and v is not None}
+        kwargs: dict = {
+            k: v for k, v in subject_meta.items() if k in _SUBJECT_FIELDS and v is not None
+        }
+        dob_raw = subject_meta.get("date_of_birth")
+        if dob_raw is not None:
+            dob = datetime.datetime.fromisoformat(dob_raw)
+            if dob.tzinfo is None:
+                dob = dob.replace(tzinfo=datetime.timezone.utc)
+            kwargs["date_of_birth"] = dob
         return Subject(**kwargs)
 
     @staticmethod
