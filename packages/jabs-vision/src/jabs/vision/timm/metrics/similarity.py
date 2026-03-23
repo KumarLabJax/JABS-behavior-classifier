@@ -71,9 +71,9 @@ def compute_oks(
     dy = det_kps[:, 1] - gt_kps[:, 1]
     d_squared = dx**2 + dy**2
 
-    # OKS per keypoint: exp(-d^2 / (2 * sigma^2 * area * 2))
-    # The factor of 2 * area accounts for the COCO convention
-    variance = (sigmas**2) * 2 * area * 2
+    # OKS per keypoint: exp(-d^2 / (2 * s^2 * k^2))
+    # where s^2 = area and k = 2*sigma, matching the canonical COCO formula
+    variance = (2 * sigmas) ** 2 * 2 * area
     oks_per_kp = np.exp(-d_squared / (variance + np.finfo(np.float64).eps))
 
     return float(np.sum(oks_per_kp[visible]) / num_visible)

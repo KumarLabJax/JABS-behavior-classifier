@@ -79,16 +79,6 @@ class TestEvaluatePose:
             assert 0.0 <= pt.ap <= 1.0
             assert 0.0 <= pt.ar <= 1.0
 
-    def test_custom_thresholds(self) -> None:
-        """Custom thresholds are respected."""
-        images = [_make_perfect_image()]
-        sigmas = np.full(5, 0.05, dtype=np.float64)
-        thresholds = np.array([0.5, 0.75], dtype=np.float64)
-
-        result = evaluate_pose(images, sigmas, thresholds=thresholds)
-
-        assert len(result.per_threshold) == 2
-
     def test_empty_images_raises(self) -> None:
         """Empty images list raises ValueError."""
         sigmas = np.full(5, 0.05, dtype=np.float64)

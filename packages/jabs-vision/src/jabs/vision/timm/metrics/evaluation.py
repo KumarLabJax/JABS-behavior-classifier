@@ -23,32 +23,30 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DEFAULT_THRESHOLDS",
+    "THRESHOLDS",
     "evaluate_detection",
     "evaluate_pck",
     "evaluate_pose",
 ]
 
-DEFAULT_THRESHOLDS = np.arange(0.50, 1.00, 0.05)
+THRESHOLDS = np.arange(0.50, 1.00, 0.05)
+"""Standard COCO IoU/OKS thresholds: [0.50, 0.55, ..., 0.95]."""
 
 
 def evaluate_pose(
     images: Sequence[ImageEvalData],
     sigmas: npt.NDArray[np.float64],
-    thresholds: npt.NDArray[np.float64] | None = None,
 ) -> PoseAPResult:
     """Evaluate pose estimation using OKS-based COCO metrics.
 
-    Computes AP and AR across multiple IoU/OKS thresholds using COCO-style
-    101-point precision-recall interpolation.
+    Computes AP and AR across the standard COCO OKS thresholds
+    [0.50, 0.55, ..., 0.95] using 101-point precision-recall interpolation.
 
     Args:
         images: Sequence of per-image evaluation data.
         sigmas: Per-keypoint OKS standard deviations, shape (K,). No default
             values are provided; the caller must supply sigmas appropriate
             for their keypoint definition.
-        thresholds: OKS thresholds for evaluation. Defaults to
-            [0.50, 0.55, ..., 0.95].
 
     Returns:
         PoseAPResult with AP, AR, and per-threshold breakdown.
@@ -64,10 +62,7 @@ def evaluate_pose(
     if len(sigmas) == 0:
         raise ValueError("sigmas must not be empty")
 
-    if thresholds is None:
-        thresholds = DEFAULT_THRESHOLDS
-    if len(thresholds) == 0:
-        raise ValueError("thresholds must not be empty")
+    thresholds = THRESHOLDS
 
     logger.info(
         "Evaluating pose AP across %d images at %d thresholds", len(images), len(thresholds)
@@ -94,17 +89,14 @@ def evaluate_pose(
         all_ars.append(ar)
         per_threshold_results.append(PerThresholdResult(threshold=float(thresh), ap=ap, ar=ar))
 
-    # Find AP/AR at specific thresholds (0.50, 0.75)
-    ap_50, ar_50 = threshold_result(per_threshold_results, 0.50)
-    ap_75, ar_75 = threshold_result(per_threshold_results, 0.75)
-
+    # AP/AR at the standard 0.50 and 0.75 thresholds (indices 0 and 5)
     result = PoseAPResult(
         ap=float(np.mean(all_aps)),
-        ap_50=ap_50,
-        ap_75=ap_75,
+        ap_50=per_threshold_results[0].ap,
+        ap_75=per_threshold_results[5].ap,
         ar=float(np.mean(all_ars)),
-        ar_50=ar_50,
-        ar_75=ar_75,
+        ar_50=per_threshold_results[0].ar,
+        ar_75=per_threshold_results[5].ar,
         per_threshold=per_threshold_results,
     )
 
@@ -114,17 +106,14 @@ def evaluate_pose(
 
 def evaluate_detection(
     images: Sequence[ImageEvalData],
-    thresholds: npt.NDArray[np.float64] | None = None,
 ) -> DetectionAPResult:
     """Evaluate detection using bbox IoU-based COCO metrics.
 
-    Computes AP and AR across multiple IoU thresholds using COCO-style
-    101-point precision-recall interpolation.
+    Computes AP and AR across the standard COCO IoU thresholds
+    [0.50, 0.55, ..., 0.95] using 101-point precision-recall interpolation.
 
     Args:
         images: Sequence of per-image evaluation data.
-        thresholds: IoU thresholds for evaluation. Defaults to
-            [0.50, 0.55, ..., 0.95].
 
     Returns:
         DetectionAPResult with AP, AR, and per-threshold breakdown.
@@ -135,10 +124,7 @@ def evaluate_detection(
     if len(images) == 0:
         raise ValueError("images must not be empty")
 
-    if thresholds is None:
-        thresholds = DEFAULT_THRESHOLDS
-    if len(thresholds) == 0:
-        raise ValueError("thresholds must not be empty")
+    thresholds = THRESHOLDS
 
     logger.info(
         "Evaluating detection AP across %d images at %d thresholds",
@@ -165,16 +151,14 @@ def evaluate_detection(
         all_ars.append(ar)
         per_threshold_results.append(PerThresholdResult(threshold=float(thresh), ap=ap, ar=ar))
 
-    ap_50, ar_50 = threshold_result(per_threshold_results, 0.50)
-    ap_75, ar_75 = threshold_result(per_threshold_results, 0.75)
-
+    # AP/AR at the standard 0.50 and 0.75 thresholds (indices 0 and 5)
     result = DetectionAPResult(
         ap=float(np.mean(all_aps)),
-        ap_50=ap_50,
-        ap_75=ap_75,
+        ap_50=per_threshold_results[0].ap,
+        ap_75=per_threshold_results[5].ap,
         ar=float(np.mean(all_ars)),
-        ar_50=ar_50,
-        ar_75=ar_75,
+        ar_50=per_threshold_results[0].ar,
+        ar_75=per_threshold_results[5].ar,
         per_threshold=per_threshold_results,
     )
 
@@ -252,20 +236,3 @@ def evaluate_pck(
 
     logger.info("PCK evaluation complete: PCK=%.4f", result.pck)
     return result
-
-
-def threshold_result(
-    results: list[PerThresholdResult],
-    target: float,
-) -> tuple[float, float]:
-    """Get AP and AR for a specific threshold value.
-
-    Args:
-        results: Per-threshold results to search.
-        target: Target threshold value.
-
-    Returns:
-        Tuple of (ap, ar) at the closest matching threshold.
-    """
-    best = min(results, key=lambda r: abs(r.threshold - target))
-    return best.ap, best.ar
