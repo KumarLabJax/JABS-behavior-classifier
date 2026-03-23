@@ -7,11 +7,11 @@ The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file 
 !!! note "Optional dependency"
     NWB support is not installed by default. Install the `nwb` extra before use:
 
-    ```bash
-    pip install "jabs-behavior-classifier[nwb]"
-    ```
+```bash
+pip install "jabs-behavior-classifier[nwb]"
+```
 
-    The extra adds `pynwb` and `ndx-pose` as dependencies.
+The extra adds `pynwb` and `ndx-pose` as dependencies.
 
 Two output modes are available. **Choose the mode based on how the files will be used:**
 
