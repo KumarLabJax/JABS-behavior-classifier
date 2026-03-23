@@ -1,11 +1,10 @@
 """Dialog for displaying JABS update check results."""
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
+from jabs.resources import ICON_PATH
 from jabs.utils import is_pypi_install
 
 
@@ -40,9 +39,9 @@ class UpdateCheckDialog(QDialog):
 
         # Use the JABS application icon
         icon_label = QLabel()
-        icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
-        if icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
+        if ICON_PATH.is_file():
+            pixmap = QPixmap()
+            pixmap.loadFromData(ICON_PATH.read_bytes())
             # Scale the icon to a reasonable size for display in the dialog
             scaled_pixmap = pixmap.scaled(
                 64,
