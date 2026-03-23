@@ -431,7 +431,7 @@ otherwise scramble the keypoint ordering.
 | `body_parts`            | `list[str]`             | Always                       | Ordered list of keypoint names for animal skeletons. Preserves original write order, since HDF5 returns groups alphabetically. |
 | `cm_per_pixel`          | `float \| null`         | Always                       | Pixel-to-centimetre scale factor. `null` if not available in the source pose file. |
 | `external_ids`          | `list[str] \| null`     | Always                       | Original external identity names from the pose file (e.g. mouse cage IDs). `null` if the pose file had no external IDs. |
-| `subjects`              | `dict[str, dict] \| null` | Always                     | Per-identity subject metadata keyed by identity name. `null` if no subject metadata is available. Inner dict may contain `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`, `species`, and `description`. Values are `null` when not available. |
+| `subjects`              | `dict[str, dict] \| null` | Always                     | Per-identity subject metadata keyed by identity name. `null` if no subject metadata is available. Inner dict may contain `subject_id`, `sex`, `species`, `age` (ISO 8601 duration), `date_of_birth` (ISO 8601 datetime), `genotype`, `strain`, `weight`, and `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. Values are `null` when not available. |
 | `metadata`              | `dict`                  | Always                       | Provenance metadata from the source pose file. Includes `source_file`, `pose_format_version`, and optionally `source_file_hash`. |
 | `static_object_names`   | `list[str]`             | When static objects present  | Names of all `PoseEstimation` containers that are static objects. |
 | `dynamic_object_names`  | `list[str]`             | When dynamic objects present | Names of all `PoseEstimation` containers that are dynamic objects. |
@@ -456,21 +456,21 @@ otherwise scramble the keypoint ordering.
     "subject_0": {
       "subject_id": "M123",
       "sex": "M",
+      "species": "Mus musculus",
+      "age": "P70D",
       "genotype": "WT",
       "strain": "C57BL/6J",
-      "age": "P70D",
       "weight": null,
-      "species": "Mus musculus",
       "description": null
     },
     "subject_1": {
       "subject_id": "M124",
       "sex": "F",
+      "species": "Mus musculus",
+      "age": "P72D",
       "genotype": "Shank3+/-",
       "strain": "C57BL/6J",
-      "age": "P72D",
       "weight": null,
-      "species": "Mus musculus",
       "description": null
     }
   },
@@ -498,9 +498,9 @@ otherwise scramble the keypoint ordering.
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": { "subject_id": "M123", "sex": "M", "genotype": "WT", "..." : "..." },
-    "subject_1": { "subject_id": "M124", "sex": "F", "genotype": "Shank3+/-", "..." : "..." },
-    "subject_2": { "subject_id": "M125", "sex": "M", "genotype": "WT", "..." : "..." }
+    "subject_0": { "subject_id": "M123", "sex": "M", "species": "Mus musculus", "age": "P70D", "genotype": "WT" },
+    "subject_1": { "subject_id": "M124", "sex": "F", "species": "Mus musculus", "age": "P72D", "genotype": "Shank3+/-" },
+    "subject_2": { "subject_id": "M125", "sex": "M", "species": "Mus musculus", "age": "P68D", "genotype": "WT" }
   },
   "metadata": { "source_file": "...", "pose_format_version": 7 },
   "static_object_names": ["corners", "lixit"],
@@ -590,8 +590,10 @@ yet occurred. Since JABS NWB support is itself under active development, taking 
 dependency on an immature extension adds unnecessary coupling at this stage.
 
 **What JABS does instead.**
-Per-animal biological metadata (`subject_id`, `sex`, `genotype`, `strain`, `age`,
-`weight`, `species`, `description`) can be stored in the `subjects` key of `jabs_metadata`.
+Per-animal biological metadata (`subject_id`, `sex`, `species`, `age`, `date_of_birth`,
+`genotype`, `strain`, `weight`, `description`) can be stored in the `subjects` key of
+`jabs_metadata`. DANDI requires `species`, `sex`, and either `age` (ISO 8601 duration,
+e.g. `"P70D"`) or `date_of_birth` (ISO 8601 datetime) on every subject.
 This keeps the file readable by any standard NWB tool while preserving the metadata in
 a structured, machine-readable form. If ndx-multisubjects stabilises and achieves
 broader adoption, migrating to it would be straightforward since all the underlying
