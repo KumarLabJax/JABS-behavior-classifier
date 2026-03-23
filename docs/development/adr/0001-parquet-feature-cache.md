@@ -35,11 +35,11 @@ HDF5 feature cache format deprecation; the reader auto-detects which format is p
   updated to write Parquet feature caches by default. If there are any incompatibilities with
   existing Nextflow workflows they will be addressed by updating the pipelines.
 - **`cache_format` persisted in `project.json`.** Each project stores its intended cache format
-  so that every read and write operation within that project uses a consistent format. New
-  projects are created with `"cache_format": "parquet"`; projects opened for the first time after
-  this change is deployed have `"cache_format": "hdf5"` written to `project.json` on open (inferred
-  from the presence of existing `features.h5` files, or defaulted to `"hdf5"` when no cache exists
-  yet but the project predates this change).
+  so that every write operation within that project uses a consistent format. New projects are
+  created with `"cache_format": "parquet"`; projects opened for the first time after this change
+  is deployed have `"cache_format": "hdf5"` written to `project.json` on open (inferred from the
+  presence of existing `features.h5` files, or defaulted to `"hdf5"` when no cache exists yet but
+  the project predates this change).
 - **Auto-detect on read.** `IdentityFeatures` checks for `metadata.json` (Parquet cache marker)
   first; if absent it falls back to `features.h5`. The `cache_format` parameter only controls
   what is written when no cache exists yet.
@@ -302,8 +302,8 @@ jabs-init --force --cache-format parquet /path/to/project
 `--cache-format` updates `project.json` before feature extraction begins; `--force` overwrites the
 existing cache. The combined invocation replaces steps 1–3 above in a single command.
 
-`--cache-format` without `--force` updates `project.json` but does not regenerate previously cached 
-features (regardless of format) — the new format takes effect on the next cache miss (i.e., after 
+`--cache-format` without `--force` updates `project.json` but does not regenerate previously cached
+features (regardless of format) — the new format takes effect on the next cache miss (i.e., after
 the cache is cleared or invalidated by a version bump).
 
 **Clearing the cache without changing the format setting** regenerates features in whatever format
