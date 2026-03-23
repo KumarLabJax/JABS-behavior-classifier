@@ -45,8 +45,10 @@ HDF5 feature cache format deprecation; the reader auto-detects which format is p
   what is written when no cache exists yet.
 - **Format-agnostic `features.py`.** All format-specific I/O moves to `jabs-io`, making
   `features.py` a pure orchestrator.
-- **Diverged version spaces.** HDF5 and Parquet caches maintain separate version constants
-  (`HDF5_FEATURE_VERSION`, `PARQUET_FEATURE_VERSION`) so they can evolve independently.
+- **Split version ownership.** Cache invalidation is driven by two independent constants:
+  `FEATURE_VERSION` (owned by `features.py`, bumped when calculations change) and
+  `PARQUET_FORMAT_VERSION` (owned by `jabs-io`, bumped when the Parquet schema changes).
+  This prevents false invalidations and keeps each layer's version history meaningful.
 
 ## Consequences
 
@@ -63,7 +65,7 @@ HDF5 feature cache format deprecation; the reader auto-detects which format is p
 
 ```
 <project>/jabs/features/<video_stem>/<identity>/
-├── metadata.json        # version, pose_hash, scalars, list of cached window sizes
+├── metadata.json        # feature_version, format_version, pose_hash, scalars, cached window sizes
 ├── per_frame.parquet    # N rows × (auxiliary cols + ~253 feature cols), LZ4
 └── window_{size}.parquet  # N rows × ~4529 feature cols, LZ4 (one per cached window size)
 ```
@@ -221,20 +223,20 @@ def __init__(
 
 ### Files changed
 
-| File                                                     | Change                                                                                                     |
-|----------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `src/jabs/feature_extraction/features.py`                | Remove all I/O code; delegate to `jabs-io` backends; add `cache_format` param; keep version constants      |
-| `packages/jabs-io/src/jabs/io/feature_cache/hdf5.py`     | HDF5 I/O moved here from `features.py`                                                                     |
-| `packages/jabs-io/src/jabs/io/feature_cache/parquet.py`  | New Parquet I/O                                                                                            |
-| `packages/jabs-io/src/jabs/io/feature_cache/base.py`     | Abstract base classes                                                                                      |
-| `packages/jabs-io/src/jabs/io/feature_cache/__init__.py` | Public exports + `detect_cache_format`                                                                     |
-| `project.json` schema                                    | Add `cache_format` field (`"parquet"` for new projects, `"hdf5"` for existing)                             |
-| `src/jabs/project/project.py` (or equivalent)            | Read `cache_format` from `project.json`; pass `CacheFormat` to `IdentityFeatures`; write default on open   |
-| GUI settings dialog                                      | Expose `cache_format` as a user-editable field                                                             |
-| GUI menu / `MainWindow`                                  | Move *Clear Project Cache* → File menu as *Clear Pose Cache*; add *Clear Feature Cache…* action            |
-| GUI wiring files (TBD; see open question 1)              | Thread `cache_format` from `Project` down to `IdentityFeatures` construction                               |
-| `src/jabs/scripts/jabs_init.py` (or equivalent)          | Add `--cache-format` option; update `project.json` before feature extraction                               |
-| `packages/jabs-core/src/jabs/core/constants.py`          | Keep `COMPRESSION`/`COMPRESSION_OPTS_DEFAULT` (still used by HDF5 writer and pose readers)                 |
+| File                                                     | Change                                                                                                                                          |
+|----------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/jabs/feature_extraction/features.py`                | Remove all I/O code; delegate to `jabs-io` backends; add `cache_format` param; remove `compression_opts` param; keep `FEATURE_VERSION` constant |
+| `packages/jabs-io/src/jabs/io/feature_cache/hdf5.py`     | HDF5 I/O moved here from `features.py`                                                                                                          |
+| `packages/jabs-io/src/jabs/io/feature_cache/parquet.py`  | New Parquet I/O                                                                                                                                 |
+| `packages/jabs-io/src/jabs/io/feature_cache/base.py`     | Abstract base classes                                                                                                                           |
+| `packages/jabs-io/src/jabs/io/feature_cache/__init__.py` | Public exports + `detect_cache_format`                                                                                                          |
+| `project.json` schema                                    | Add `cache_format` field (`"parquet"` for new projects, `"hdf5"` for existing)                                                                  |
+| `src/jabs/project/project.py` (or equivalent)            | Read `cache_format` from `project.json`; pass `CacheFormat` to `IdentityFeatures`; write default on open                                        |
+| GUI settings dialog                                      | Expose `cache_format` as a user-editable field                                                                                                  |
+| GUI menu / `MainWindow`                                  | Move *Clear Project Cache* → File menu as *Clear Pose Cache*; add *Clear Feature Cache…* action                                                 |
+| GUI wiring files (TBD; see open question 1)              | Thread `cache_format` from `Project` down to `IdentityFeatures` construction                                                                    |
+| `src/jabs/scripts/jabs_init.py` (or equivalent)          | Add `--cache-format` option; update `project.json` before feature extraction                                                                    |
+| `packages/jabs-core/src/jabs/core/constants.py`          | Keep `COMPRESSION`/`COMPRESSION_OPTS_DEFAULT` (still used by HDF5 writer and pose readers)                                                      |
 
 ### Project configuration
 
