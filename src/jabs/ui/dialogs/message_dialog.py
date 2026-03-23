@@ -1,7 +1,6 @@
 """Custom message dialog for displaying errors, warnings, and information."""
 
 from enum import Enum
-from importlib.resources import files
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -14,6 +13,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from jabs.resources import FAIL_WHALE_PATH
 
 
 class MessageType(Enum):
@@ -81,9 +82,10 @@ class MessageDialog(QDialog):
 
         # Icon
         icon_label = QLabel()
-        icon_path, icon_tooltip = self._get_icon_path()
-        if icon_path:
-            pixmap = QPixmap(icon_path)
+        icon_data, icon_tooltip = self._get_icon_data()
+        if icon_data:
+            pixmap = QPixmap()
+            pixmap.loadFromData(icon_data)
             # Scale the icon to a reasonable size
             scaled_pixmap = pixmap.scaled(
                 128,
@@ -193,27 +195,27 @@ class MessageDialog(QDialog):
 
         self.setLayout(main_layout)
 
-    def _get_icon_path(self) -> tuple[str | None, str | None]:
-        """Get the path to the icon and optional tooltip based on message type.
+    def _get_icon_data(self) -> tuple[bytes | None, str | None]:
+        """Get the icon image bytes and optional tooltip based on message type.
+
+        Loads the icon via ``importlib.resources`` so it works reliably when
+        the package is loaded from a zip/wheel (non-filesystem) loader.
 
         Returns:
-            Tuple of (path string to icon file or None, tooltip text or None)
+            Tuple of (raw image bytes or None, tooltip text or None)
         """
-        resources_dir = files("jabs.resources")
-
-        # Map message types to (icon_file, tooltip) tuples
+        # Map message types to (traversable, tooltip) tuples
         # tooltip is optional - use None if no tooltip desired
         # Note: currently WARNING and INFO use fallback emoji, so no image icon specified
         icon_map = {
-            MessageType.ERROR: ("fail_whale.png", "Fail Whale"),
+            MessageType.ERROR: (FAIL_WHALE_PATH, "Fail Whale"),
         }
 
         icon_info = icon_map.get(self._message_type)
         if icon_info:
-            icon_file, tooltip = icon_info
-            icon_path = resources_dir / icon_file
+            icon_path, tooltip = icon_info
             if icon_path.is_file():
-                return str(icon_path), tooltip
+                return icon_path.read_bytes(), tooltip
 
         return None, None
 
