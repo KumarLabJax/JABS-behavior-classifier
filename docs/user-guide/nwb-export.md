@@ -4,6 +4,15 @@ The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file 
 [NWB (Neurodata Without Borders)](https://www.nwb.org/) format using the
 [ndx-pose](https://github.com/rly/ndx-pose) extension.
 
+!!! note "Optional dependency"
+    NWB support is not installed by default. Install the `nwb` extra before use:
+
+```bash
+pip install "jabs-behavior-classifier[nwb]"
+```
+
+The extra adds `pynwb` and `ndx-pose` as dependencies.
+
 Two output modes are available. **Choose the mode based on how the files will be used:**
 
 | Mode                            | When to use                                                                   |

@@ -73,7 +73,7 @@ class AdapterRegistry:
 
     @staticmethod
     def _insert_by_priority(
-        adapter_list: list[tuple[int, Adapter]], priority: int, adapter: Adapter
+        adapter_list: list[tuple[int, type[Adapter]]], priority: int, adapter: type[Adapter]
     ) -> None:
         """Insert an adapter into a priority-sorted list (highest first)."""
         insert_pos = 0
@@ -120,7 +120,7 @@ class AdapterRegistry:
         self,
         storage_format: StorageFormat,
         domain_type: type,
-    ) -> list[Adapter]:
+    ) -> list[type[Adapter]]:
         """Retrieve all adapters for a format-type combination, ordered by priority.
 
         Combines both exact matches and compatible polymorphic adapters.
@@ -130,7 +130,7 @@ class AdapterRegistry:
             domain_type: The domain type to convert to or from.
 
         Returns:
-            List of adapters ordered by priority (highest first).
+            List of adapter classes ordered by priority (highest first).
         """
         key = (storage_format, domain_type)
         exact_matches = self._adapters.get(key, [])
