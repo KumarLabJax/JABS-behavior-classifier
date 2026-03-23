@@ -59,8 +59,15 @@ def evaluate_pose(
     if len(images) == 0:
         raise ValueError("images must not be empty")
 
+    if sigmas.ndim != 1:
+        raise ValueError(f"sigmas must be 1D, got shape {sigmas.shape}")
+    if len(sigmas) == 0:
+        raise ValueError("sigmas must not be empty")
+
     if thresholds is None:
         thresholds = DEFAULT_THRESHOLDS
+    if len(thresholds) == 0:
+        raise ValueError("thresholds must not be empty")
 
     logger.info(
         "Evaluating pose AP across %d images at %d thresholds", len(images), len(thresholds)
@@ -130,6 +137,8 @@ def evaluate_detection(
 
     if thresholds is None:
         thresholds = DEFAULT_THRESHOLDS
+    if len(thresholds) == 0:
+        raise ValueError("thresholds must not be empty")
 
     logger.info(
         "Evaluating detection AP across %d images at %d thresholds",
@@ -202,6 +211,11 @@ def evaluate_pck(
     """
     if len(images) == 0:
         raise ValueError("images must not be empty")
+
+    if sigmas.ndim != 1:
+        raise ValueError(f"sigmas must be 1D, got shape {sigmas.shape}")
+    if len(sigmas) == 0:
+        raise ValueError("sigmas must not be empty")
 
     logger.info("Evaluating PCK across %d images at threshold=%.2f", len(images), threshold)
 

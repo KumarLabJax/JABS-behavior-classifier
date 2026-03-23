@@ -45,6 +45,16 @@ def compute_oks(
     det_kps = detection.keypoints
     num_keypoints = gt_kps.shape[0]
 
+    if sigmas.ndim != 1 or sigmas.shape[0] != num_keypoints:
+        raise ValueError(
+            f"sigmas must be 1D with length {num_keypoints} (matching GT keypoints), "
+            f"got shape {sigmas.shape}"
+        )
+    if det_kps.shape[0] != num_keypoints:
+        raise ValueError(
+            f"Detection has {det_kps.shape[0]} keypoints but ground truth has {num_keypoints}"
+        )
+
     # Determine visibility mask
     visible = gt_kps[:, 2] > 0 if gt_kps.shape[1] == 3 else np.ones(num_keypoints, dtype=bool)
 
@@ -119,8 +129,8 @@ def compute_bbox_iou(
 
     intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
-    area_a = (bbox_a[2] - bbox_a[0]) * (bbox_a[3] - bbox_a[1])
-    area_b = (bbox_b[2] - bbox_b[0]) * (bbox_b[3] - bbox_b[1])
+    area_a = max(0.0, bbox_a[2] - bbox_a[0]) * max(0.0, bbox_a[3] - bbox_a[1])
+    area_b = max(0.0, bbox_b[2] - bbox_b[0]) * max(0.0, bbox_b[3] - bbox_b[1])
     union = area_a + area_b - intersection
 
     if union <= 0:

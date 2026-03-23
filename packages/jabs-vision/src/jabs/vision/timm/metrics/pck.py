@@ -68,6 +68,15 @@ def compute_pck(
         )
 
     num_keypoints = matched_detections[0].keypoints.shape[0]
+    for i, (det, gt) in enumerate(zip(matched_detections, matched_ground_truths, strict=True)):
+        if det.keypoints.shape[0] != num_keypoints:
+            raise ValueError(
+                f"Detection {i} has {det.keypoints.shape[0]} keypoints, expected {num_keypoints}"
+            )
+        if gt.keypoints.shape[0] != num_keypoints:
+            raise ValueError(
+                f"Ground truth {i} has {gt.keypoints.shape[0]} keypoints, expected {num_keypoints}"
+            )
 
     # Per-keypoint accumulators
     correct_per_kp = np.zeros(num_keypoints, dtype=np.int64)

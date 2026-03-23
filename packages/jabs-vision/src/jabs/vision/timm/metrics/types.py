@@ -35,13 +35,16 @@ class KeypointDetection:
     bbox: npt.NDArray[np.float64]
 
     def __post_init__(self) -> None:
-        """Validate array shapes."""
+        """Validate array shapes and bbox ordering."""
         if self.keypoints.ndim != 2 or self.keypoints.shape[1] not in (2, 3):
             raise ValueError(
                 f"keypoints must have shape (K, 2) or (K, 3), got {self.keypoints.shape}"
             )
         if self.bbox.shape != (4,):
             raise ValueError(f"bbox must have shape (4,), got {self.bbox.shape}")
+        x1, y1, x2, y2 = self.bbox
+        if x2 < x1 or y2 < y1:
+            raise ValueError(f"bbox must have x2 >= x1 and y2 >= y1, got [{x1}, {y1}, {x2}, {y2}]")
 
 
 @dataclass(frozen=True)
@@ -67,13 +70,16 @@ class KeypointGroundTruth:
     num_keypoints: int | None = None
 
     def __post_init__(self) -> None:
-        """Validate array shapes and compute defaults."""
+        """Validate array shapes, bbox ordering, and compute defaults."""
         if self.keypoints.ndim != 2 or self.keypoints.shape[1] not in (2, 3):
             raise ValueError(
                 f"keypoints must have shape (K, 2) or (K, 3), got {self.keypoints.shape}"
             )
         if self.bbox.shape != (4,):
             raise ValueError(f"bbox must have shape (4,), got {self.bbox.shape}")
+        x1, y1, x2, y2 = self.bbox
+        if x2 < x1 or y2 < y1:
+            raise ValueError(f"bbox must have x2 >= x1 and y2 >= y1, got [{x1}, {y1}, {x2}, {y2}]")
 
         # Compute area from bbox if not provided
         if self.area is None:

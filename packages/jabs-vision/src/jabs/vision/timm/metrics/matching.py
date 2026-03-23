@@ -37,6 +37,27 @@ class MatchResult:
         default_factory=lambda: np.array([], dtype=np.intp)
     )
 
+    def __post_init__(self) -> None:
+        """Validate that all arrays have consistent lengths."""
+        n = len(self.tp_flags)
+        if len(self.scores) != n:
+            raise ValueError(
+                f"scores length ({len(self.scores)}) must match tp_flags length ({n})"
+            )
+        if len(self.ignore_flags) > 0 and len(self.ignore_flags) != n:
+            raise ValueError(
+                f"ignore_flags length ({len(self.ignore_flags)}) must match tp_flags length ({n})"
+            )
+        if len(self.det_indices) > 0 and len(self.det_indices) != n:
+            raise ValueError(
+                f"det_indices length ({len(self.det_indices)}) must match tp_flags length ({n})"
+            )
+        if len(self.gt_assignments) > 0 and len(self.gt_assignments) != n:
+            raise ValueError(
+                f"gt_assignments length ({len(self.gt_assignments)}) must match "
+                f"tp_flags length ({n})"
+            )
+
 
 def greedy_match(
     similarity_matrix: npt.NDArray[np.float64],
@@ -63,6 +84,13 @@ def greedy_match(
     n_det = len(detections)
     n_gt = len(ground_truths)
 
+    expected_shape = (n_det, n_gt)
+    if similarity_matrix.shape != expected_shape:
+        raise ValueError(
+            f"similarity_matrix shape {similarity_matrix.shape} does not match "
+            f"expected ({n_det}, {n_gt}) from detections and ground_truths"
+        )
+
     if n_det == 0:
         num_non_crowd = sum(1 for gt in ground_truths if not gt.is_crowd)
         return MatchResult(
@@ -76,7 +104,7 @@ def greedy_match(
 
     # Sort detections by score descending
     scores = np.array([d.score for d in detections], dtype=np.float64)
-    sorted_det_indices = np.argsort(-scores)
+    sorted_det_indices = np.argsort(-scores, kind="stable")
 
     # Separate crowd and non-crowd GTs
     crowd_flags = np.array([gt.is_crowd for gt in ground_truths], dtype=bool)
