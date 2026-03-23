@@ -135,6 +135,10 @@ jabs/io/feature_cache/
 
 `CacheFormat` is an enum: `CacheFormat.HDF5` | `CacheFormat.PARQUET`.
 
+Note: We won't use the generic StorageFormat enum from jabs.core since we want only two specific
+formats to be valid for the feature cache. By using a dedicated CacheFormat enum we get stronger
+type safety and clearer intent.
+
 Auto-detection helper:
 
 ```python
