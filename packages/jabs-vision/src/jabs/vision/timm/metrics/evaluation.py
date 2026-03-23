@@ -29,8 +29,8 @@ __all__ = [
     "evaluate_pose",
 ]
 
+# Standard COCO IoU/OKS thresholds: [0.50, 0.55, ..., 0.95]
 THRESHOLDS = np.arange(0.50, 1.00, 0.05)
-"""Standard COCO IoU/OKS thresholds: [0.50, 0.55, ..., 0.95]."""
 
 
 def evaluate_pose(
