@@ -324,10 +324,21 @@ explicit user action.
   - Either mismatch raises `FeatureVersionException`.
 - **Mixed directories**: if both `metadata.json` and `features.h5` exist in the same identity
   directory, Parquet takes precedence (this state should not arise in normal use).
-- **Partial write safety.** `metadata.json` and `per_frame.parquet` are written as separate
-  operations. If a crash occurs between them, `metadata.json` may exist without a corresponding
-  `per_frame.parquet`. The reader should treat this state as a missing cache (i.e., delete the
-  stale `metadata.json` and recompute), not as a read error.
+- **Write ordering.** `metadata.json` is written last, after all Parquet files have been
+  successfully flushed to disk. Because `metadata.json` is the sentinel that triggers the Parquet
+  read path, writing it last makes the cache write effectively atomic from the reader's
+  perspective: a crash at any earlier point leaves no `metadata.json`, so `detect_cache_format`
+  returns `None` and the cache is cleanly treated as absent.
+- **Read error handling.** Any failure to read a Parquet cache file — missing file, truncated
+  write, schema mismatch at the data level — is handled the same way as a corrupt `features.h5`:
+  log a warning, delete the stale files, and recompute. This is consistent with existing HDF5
+  behavior and avoids surfacing low-level I/O errors to the user for a condition that can be
+  silently self-healed.
+  - `per_frame.parquet` missing or unreadable → total cache loss; delete all cache files
+    (including `metadata.json`) and recompute from pose.
+  - `window_{size}.parquet` missing or unreadable → partial loss; `per_frame.parquet` and other
+    window files remain valid. Remove the affected size from `cached_window_sizes` in
+    `metadata.json` and recompute only the missing window.
 
 ### Open questions
 
