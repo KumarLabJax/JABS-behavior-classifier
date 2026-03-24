@@ -5,6 +5,7 @@
 | Action                      | Shortcut      |
 | --------------------------- | ------------- |
 | Quit JABS                   | Ctrl+Q / ⌘Q   |
+| Export current frame        | Ctrl+E / ⌘E   |
 | Export training data        | Ctrl+T / ⌘T   |
 | Open behavior search dialog | Ctrl+F / ⌘F   |
 

@@ -58,6 +58,7 @@ class PlayerWidget(QtWidgets.QWidget):
     playback_finished = QtCore.Signal()
     eof_reached = QtCore.Signal()
     id_label_clicked = QtCore.Signal(int)
+    playing_changed = QtCore.Signal(bool)
 
     PoseOverlayMode = FrameWithOverlaysWidget.PoseOverlayMode
     IdentityOverlayMode = FrameWithOverlaysWidget.IdentityOverlayMode
@@ -72,6 +73,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._playing = False
         self._resume_playing = False
         self._video_stream = None
+        self._video_path: Path | None = None
         self._pose_est = None
         self._playback_range: PlaybackRange | None = None
 
@@ -234,6 +236,7 @@ class PlayerWidget(QtWidgets.QWidget):
     def reset(self) -> None:
         """reset video player before loading a new video"""
         self._video_stream = None
+        self._video_path = None
         self._identities = None
         self._pose_est = None
         self._active_identity = None
@@ -265,6 +268,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self.reset()
 
         self._video_stream = VideoReader(path)
+        self._video_path = path
         self._pose_est = pose_est
         self._identities = pose_est.identities
         self._frame_widget.set_pose(pose_est)
@@ -295,6 +299,13 @@ class PlayerWidget(QtWidgets.QWidget):
 
     def stop(self) -> None:
         """stop playing and reset the play button to its initial state"""
+        # capture before wait() so we emit only on a true play→stop transition;
+        # this prevents spurious signals when stop() is called while already paused
+        # (e.g. during load_video).  The thread is fully joined via wait() before
+        # _playing is set to False, so _video_stream is safe to read from the main
+        # thread as soon as playing_changed(False) is received.
+        was_playing = self._playing
+
         # if we have an active player thread, terminate
         if self._player_thread:
             self._player_thread.stop_playback()
@@ -311,6 +322,9 @@ class PlayerWidget(QtWidgets.QWidget):
         self._enable_frame_buttons()
         self._playing = False
         self._playback_range = None
+
+        if was_playing:
+            self.playing_changed.emit(False)
 
     def play_range(self, start: int, end: int) -> None:
         """play a range of frames in the video
@@ -353,6 +367,42 @@ class PlayerWidget(QtWidgets.QWidget):
         """get frames per second from loaded video"""
         assert self._video_stream is not None
         return self._video_stream.fps
+
+    @property
+    def current_video_path(self) -> Path | None:
+        """Return the path of the currently loaded video file, or None if no video is loaded."""
+        return self._video_path
+
+    def get_raw_frame(self) -> QtGui.QPixmap | None:
+        """Return a clean pixmap of the current frame at original video resolution.
+
+        Reads directly from the video stream without any numpy-level overlays (track,
+        segmentation, landmarks).  Must only be called when the video is not playing;
+        calling it during playback is undefined behaviour due to shared VideoReader state.
+
+        Returns:
+            A QPixmap at native video resolution, or None if no video is loaded.
+        """
+        if self._video_stream is None:
+            return None
+        self._video_stream.seek(self.current_frame)
+        frame = self._video_stream.load_next_frame()
+        if frame["data"] is None:
+            return None
+        img = frame["data"]
+        if img.dtype != np.uint8:
+            img = img.astype(np.uint8)
+        img_rgb = np.ascontiguousarray(img[..., ::-1])  # BGR → RGB
+        height, width, channels = img_rgb.shape
+        return QtGui.QPixmap.fromImage(
+            QtGui.QImage(
+                img_rgb.data,
+                width,
+                height,
+                channels * width,
+                QtGui.QImage.Format.Format_RGB888,
+            )
+        )
 
     def _set_overlay_attr(
         self, attr: str, signal: QtCore.Signal | None, enabled: bool | None
@@ -605,6 +655,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """start video playback in player thread"""
         self._player_thread.start()
         self._playing = True
+        self.playing_changed.emit(True)
 
     def _on_playback_speed_changed(self, speed: float) -> None:
         """Handle playback speed changes."""
