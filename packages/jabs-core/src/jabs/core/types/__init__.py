@@ -1,5 +1,6 @@
 """Type definitions for JABS data structures."""
 
+from .feature_cache import FeatureCacheMetadata, PerFrameCacheData
 from .inference import AggregationSpec, InferenceSampling
 from .keypoints import FrameKeypoints, FrameKeypointsData, KeypointAnnotation
 from .model import ModelInfo
@@ -13,6 +14,7 @@ __all__ = [
     "BehaviorPrediction",
     "ClassifierMetadata",
     "DynamicObjectData",
+    "FeatureCacheMetadata",
     "FrameKeypoints",
     "FrameKeypointsData",
     "InferenceRunMetadata",
@@ -20,6 +22,7 @@ __all__ = [
     "KeypointAnnotation",
     "KeypointInferenceResult",
     "ModelInfo",
+    "PerFrameCacheData",
     "PoseData",
     "VideoInfo",
 ]

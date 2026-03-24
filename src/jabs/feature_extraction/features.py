@@ -1,13 +1,13 @@
+import logging
 from pathlib import Path
 from typing import cast
 
-import h5py
 import numpy as np
-import pandas as pd
 
 import jabs.project.track_labels
-from jabs.core.constants import COMPRESSION, COMPRESSION_OPTS_DEFAULT
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup
@@ -17,6 +17,8 @@ from .feature_base_class import Feature
 from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
 from .social_features import SocialFeatureGroup
+
+logger = logging.getLogger(__name__)
 
 FEATURE_VERSION = 16
 
@@ -66,8 +68,6 @@ class IdentityFeatures:
         cache_window:
           bool to indicate saving the window features in the cache
           directory
-        compression_opts: int to indicate the compression level for
-          saving features
     """
 
     _version = FEATURE_VERSION
@@ -82,7 +82,6 @@ class IdentityFeatures:
         fps: int = 30,
         op_settings: dict | None = None,
         cache_window: bool = True,
-        compression_opts: int = COMPRESSION_OPTS_DEFAULT,
     ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
@@ -94,7 +93,6 @@ class IdentityFeatures:
         self._distance_scale_factor = (
             pose_est.cm_per_pixel if op_settings.get("cm_units", False) else None
         )
-        self._compression_opts = compression_opts
 
         self._identity_feature_dir = (
             None
@@ -139,6 +137,13 @@ class IdentityFeatures:
             }
         }
 
+        self._reader = HDF5FeatureCacheReader(
+            FEATURE_VERSION,
+            self._pose_hash,
+            self._distance_scale_factor,
+        )
+        self._writer = HDF5FeatureCacheWriter()
+
         # load or compute remaining per frame features
         if force or self._identity_feature_dir is None:
             self.__initialize_from_pose_estimation(pose_est)
@@ -146,13 +151,22 @@ class IdentityFeatures:
             try:
                 # try to load from a h5 file if it exists
                 self.__load_from_file()
+                logger.debug(
+                    "Loaded per-frame features from cache for identity %d", self._identity
+                )
             except (
                 OSError,
                 FeatureVersionException,
                 DistanceScaleException,
                 PoseHashException,
-            ):
+            ) as e:
                 # otherwise compute the per frame features and save
+                logger.info(
+                    "Cache miss for identity %d per-frame features (%s); recomputing",
+                    self._identity,
+                    type(e).__name__,
+                    exc_info=True,
+                )
                 self.__initialize_from_pose_estimation(pose_est)
 
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
@@ -175,253 +189,108 @@ class IdentityFeatures:
             self.__save_per_frame()
 
     def __load_from_file(self) -> None:
-        """initialize from state previously saved in a h5 file on disk
-
-        This method will throw an exception if this object was constructed with a value of None for directory
+        """Initialize from state previously saved in a cache file on disk.
 
         Raises:
-            OSError: if unable to open h5 file
-            TypeError: if this object was constructed with a value of None for directory
-            FeatureVersionException: if file version differs from current feature version
-            AssertionError: if metadata shape doesn't match feature shape
-
-        Returns:
-            None
+            OSError: If unable to open the cache file.
+            FeatureVersionException: If the cached feature version differs from
+                the current ``FEATURE_VERSION``.
+            PoseHashException: If the pose file contents changed since the
+                cache was written.
+            DistanceScaleException: If the distance scale factor differs from
+                the cached value.
         """
-        path = self._identity_feature_dir / "features.h5"
-        self._per_frame = {}
-
-        with h5py.File(path, "r") as features_h5:
-            # if the version of the pose file is not the expected pose file,
-            # then bail and it will get recomputed
-            if features_h5.attrs["version"] != FEATURE_VERSION:
-                raise FeatureVersionException
-
-            # if the contents of the pose file changed since these features
-            # were computed, then we will raise an exception and recompute
-            if features_h5.attrs["pose_hash"] != self._pose_hash:
-                raise PoseHashException
-
-            # make sure distances are using the expected scale
-            # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get("distance_scale_factor", None):
-                raise DistanceScaleException
-
-            self._frame_valid = features_h5["frame_valid"][:]
-            assert len(self._frame_valid) == self._num_frames
-
-            # TODO
-            # These class variables only exist here and are not provided elsewhere
-            if self._compute_social_features:
-                self._closest_identities = features_h5["closest_identities"][:]
-                self._closest_fov_identities = features_h5["closest_fov_identities"][:]
-
-            if "closest_corners" in features_h5:
-                self._closest_corner = features_h5["closest_corners"][:]
-
-            if "wall_distances" in features_h5:
-                wall_distances = {}
-                for key in features_h5["wall_distances"]:
-                    wall_distances[key] = features_h5["wall_distances"][key][:]
-                self._wall_distances = wall_distances
-
-            if "avg_wall_length" in features_h5:
-                self._avg_wall_length = features_h5["avg_wall_length"][...]
-
-            if "closest_lixit" in features_h5:
-                self._closest_lixit = features_h5["closest_lixit"][:]
-
-            # Cache uses a space to distinguish module_name from feature_name
-            for feature_key in features_h5["features/per_frame"]:
-                module_name, feature_name = feature_key.split(" ", 1)
-                cur_module = self._per_frame.get(module_name, {})
-                cur_module[feature_name] = features_h5[f"features/per_frame/{feature_key}"][:]
-                assert len(cur_module[feature_name]) == self._num_frames
-                self._per_frame[module_name] = cur_module
+        cache_data = self._reader.read_per_frame(self._identity_feature_dir)
+        self._frame_valid = cache_data.frame_valid
+        assert len(self._frame_valid) == self._num_frames
+        self._per_frame = self._unflatten_per_frame(cache_data.features)
 
     def __save_per_frame(self) -> None:
-        """save per frame features to a h5 file
+        """Save per-frame features to the cache."""
+        closest_identities = None
+        closest_fov_identities = None
+        if self._compute_social_features:
+            closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
+            closest_identities = closest_data.closest_identities
+            closest_fov_identities = closest_data.closest_fov_identities
 
-        This method will throw an exception if this object was constructed with a value of None for directory
-        """
-        self._identity_feature_dir.mkdir(mode=0o775, exist_ok=True, parents=True)
-
-        file_path = self._identity_feature_dir / "features.h5"
-
-        with h5py.File(file_path, "w") as features_h5:
-            features_h5.attrs["num_frames"] = self._num_frames
-            features_h5.attrs["identity"] = self._identity
-            features_h5.attrs["version"] = self._version
-            if self._distance_scale_factor is not None:
-                features_h5.attrs["distance_scale_factor"] = self._distance_scale_factor
-            features_h5.attrs["pose_hash"] = self._pose_hash
-            features_h5.create_dataset(
-                "frame_valid",
-                data=self._frame_valid,
-                compression=COMPRESSION,
-                compression_opts=self._compression_opts,
+        closest_corners = None
+        wall_distances: dict = {}
+        avg_wall_length = None
+        closest_lixit = None
+        if LandmarkFeatureGroup.name() in self._feature_modules:
+            corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(
+                self._identity
             )
-
-            if self._compute_social_features:
-                closest_data = self._feature_modules[SocialFeatureGroup.name()].closest_identities
-
-                features_h5.create_dataset(
-                    "closest_identities",
-                    data=closest_data.closest_identities,
-                    compression=COMPRESSION,
-                    compression_opts=self._compression_opts,
-                )
-                features_h5.create_dataset(
-                    "closest_fov_identities",
-                    data=closest_data.closest_fov_identities,
-                    compression=COMPRESSION,
-                    compression_opts=self._compression_opts,
-                )
-
-            if LandmarkFeatureGroup.name() in self._feature_modules:
-                corner_info = self._feature_modules[LandmarkFeatureGroup.name()].get_corner_info(
-                    self._identity
-                )
-                corner_data = corner_info.get_closest_corner(self._identity)
+            closest_corners = corner_info.get_closest_corner(self._identity)
+            if closest_corners is not None:
                 wall_distances = corner_info.get_wall_distances(self._identity)
-                avg_wall_length = corner_info.get_avg_wall_length(self._identity)
-                if corner_data is not None:
-                    features_h5.create_dataset(
-                        "closest_corners",
-                        data=corner_data,
-                        compression=COMPRESSION,
-                        compression_opts=self._compression_opts,
-                    )
-                    features_h5.create_dataset("avg_wall_length", data=avg_wall_length)
-                    wall_dist_grp = features_h5.require_group("wall_distances")
-                    for key, value in wall_distances.items():
-                        wall_dist_grp.create_dataset(
-                            key,
-                            data=value,
-                            compression=COMPRESSION,
-                            compression_opts=self._compression_opts,
-                        )
+                avg_wall_length = float(corner_info.get_avg_wall_length(self._identity))
+            lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(
+                self._identity
+            )
+            closest_lixit = lixit_info.get_closest_lixit(self._identity)
 
-                lixit_info = self._feature_modules[LandmarkFeatureGroup.name()].get_lixit_info(
-                    self._identity
-                )
-                lixit_data = lixit_info.get_closest_lixit(self._identity)
-                if lixit_data is not None:
-                    features_h5.create_dataset(
-                        "closest_lixit",
-                        data=lixit_data,
-                        compression=COMPRESSION,
-                        compression_opts=self._compression_opts,
-                    )
+        metadata = FeatureCacheMetadata(
+            feature_version=self._version,
+            identity=self._identity,
+            num_frames=self._num_frames,
+            pose_hash=self._pose_hash,
+            distance_scale_factor=self._distance_scale_factor,
+            avg_wall_length=avg_wall_length,
+        )
+        cache_data = PerFrameCacheData(
+            frame_valid=self._frame_valid,
+            features=self.merge_per_frame_features(self._per_frame),
+            closest_identities=closest_identities,
+            closest_fov_identities=closest_fov_identities,
+            closest_corners=closest_corners,
+            closest_lixit=closest_lixit,
+            wall_distances=wall_distances,
+        )
+        self._writer.write_per_frame(self._identity_feature_dir, metadata, cache_data)
 
-            feature_group = features_h5.require_group("features")
-            per_frame_group = feature_group.require_group("per_frame")
-
-            per_frame_as_pd = self.merge_per_frame_features(self._per_frame)
-            per_frame_as_pd = pd.DataFrame(per_frame_as_pd)
-            for feature, data in per_frame_as_pd.items():
-                per_frame_group.create_dataset(
-                    feature,
-                    data=data,
-                    compression=COMPRESSION,
-                    compression_opts=self._compression_opts,
-                )
-
-    def __save_window_features(self, features, window_size: int) -> None:
-        """save window features to an h5 file
-
-        This method will throw an exception if this object was constructed with a value of None for directory
+    def __save_window_features(self, features: dict, window_size: int) -> None:
+        """Save window features to the cache.
 
         Args:
-            features: window features returned from `get_window_features()` to save
-            window_size: window size used
-
-        Returns:
-            None
+            features: Window features as returned by ``__compute_window_features()``.
+            window_size: Window size used to compute the features.
         """
-        path = self._identity_feature_dir / "features.h5"
-
-        with h5py.File(path, "a") as features_h5:
-            features_h5.attrs["num_frames"] = self._num_frames
-            features_h5.attrs["identity"] = self._identity
-            features_h5.attrs["version"] = self._version
-            if self._distance_scale_factor is not None:
-                features_h5.attrs["distance_scale_factor"] = self._distance_scale_factor
-            features_h5.attrs["pose_hash"] = self._pose_hash
-
-            feature_group = features_h5.require_group("features")
-            window_group = feature_group.require_group(f"window_features_{window_size}")
-            window_as_pd = self.merge_window_features(features)
-            window_as_pd = pd.DataFrame(window_as_pd)
-            for feature, data in window_as_pd.items():
-                window_group.create_dataset(
-                    feature,
-                    data=data,
-                    compression=COMPRESSION,
-                    compression_opts=self._compression_opts,
-                )
+        metadata = FeatureCacheMetadata(
+            feature_version=self._version,
+            identity=self._identity,
+            num_frames=self._num_frames,
+            pose_hash=self._pose_hash,
+            distance_scale_factor=self._distance_scale_factor,
+        )
+        self._writer.write_window(
+            self._identity_feature_dir,
+            metadata,
+            window_size,
+            self.merge_window_features(features),
+        )
 
     def __load_window_features(self, window_size: int) -> dict:
-        """load window features from an h5 file
+        """Load window features from the cache.
 
         Args:
-            window_size: window size specified as the number of frames
-                on each side of current frame, in addition to the current frame, to
-                include in the window (so if size=5, the total number of frames in the window is actually 11)
+            window_size: Window size to load.
 
         Raises:
-            OSError: if unable to open h5 file
-            AttributeError: if h5 file exists but doesn't contain cached window features
-            TypeError: if this object was constructed with a value of Nonefor directory
-            FeatureVersionException: if file version differs from current feature version
+            OSError: If unable to open the cache file.
+            AttributeError: If the cache does not contain features for
+                ``window_size``.
+            FeatureVersionException: If the cached feature version differs.
+            PoseHashException: If the pose file contents changed.
+            DistanceScaleException: If the distance scale factor differs.
 
         Returns:
-            window feature dict
+            Window feature dict in the nested format produced by
+            ``__compute_window_features()``.
         """
-        path = self._identity_feature_dir / "features.h5"
-
-        window_features = {}
-        with h5py.File(path, "r") as features_h5:
-            # if the version of the feature file is not what we expect for
-            # this version of JABS raise an exception and it will be
-            # regenerated
-            if features_h5.attrs["version"] != FEATURE_VERSION:
-                raise FeatureVersionException
-
-            # if the contents of the pose file changed since these features
-            # were computed, then we will raise an exception and recompute
-            if features_h5.attrs["pose_hash"] != self._pose_hash:
-                raise PoseHashException
-
-            # make sure distances are using the expected scale
-            # if they don't match, we will need to recompute
-            if self._distance_scale_factor != features_h5.attrs.get("distance_scale_factor", None):
-                raise DistanceScaleException
-
-            assert features_h5.attrs["num_frames"] == self._num_frames
-            assert features_h5.attrs["identity"] == self._identity
-            available_window_sizes = [
-                int(x[len("window_features_") :])
-                for x in features_h5["features"]
-                if x.startswith("window_features_")
-            ]
-            if window_size not in available_window_sizes:
-                raise AttributeError
-
-            window_features = {}
-            # Cache uses a space to distinguish module_name, window_name, and feature_name
-            for feature_key in features_h5[f"features/window_features_{window_size}"]:
-                module_name, window_name, feature_name = feature_key.split(" ", 2)
-                cur_module = window_features.get(module_name, {})
-                cur_window = cur_module.get(window_name, {})
-                cur_window[feature_name] = features_h5[
-                    f"features/window_features_{window_size}/{feature_key}"
-                ][:]
-                assert len(cur_window[feature_name]) == self._num_frames
-                cur_module[window_name] = cur_window
-                window_features[module_name] = cur_module
-
-        return window_features
+        flat = self._reader.read_window(self._identity_feature_dir, window_size)
+        return self._unflatten_window(flat)
 
     def get_window_features(
         self, window_size: int, labels: np.ndarray | None = None, force: bool = False
@@ -455,16 +324,28 @@ class IdentityFeatures:
             try:
                 # h5 file exists for this window size, load it
                 features = self.__load_window_features(window_size)
+                logger.debug(
+                    "Loaded window-%d features from cache for identity %d",
+                    window_size,
+                    self._identity,
+                )
             except (
                 OSError,
                 AttributeError,
                 FeatureVersionException,
                 DistanceScaleException,
                 PoseHashException,
-            ):
+            ) as e:
                 # h5 file does not exist for this window size, the version
                 # is not compatible, or the pose file changes.
                 # compute the features and return after saving
+                logger.info(
+                    "Cache miss for identity %d window-%d features (%s); recomputing",
+                    self._identity,
+                    window_size,
+                    type(e).__name__,
+                    exc_info=True,
+                )
                 features = self.__compute_window_features(window_size)
 
                 if self._identity_feature_dir is not None and self._cache_window:
@@ -692,7 +573,7 @@ class IdentityFeatures:
 
         for feature_module_name, feature_module in features.items():
             if feature_module is None:
-                print(f"Feature module: {feature_module_name} contains no features...")
+                logger.warning("Feature module '%s' contains no features", feature_module_name)
                 continue
             for feature_name, feature_vector in feature_module.items():
                 merged_features[f"{feature_module_name} {feature_name}"] = feature_vector
@@ -726,6 +607,47 @@ class IdentityFeatures:
                     )
 
         return merged_features
+
+    @staticmethod
+    def _unflatten_per_frame(flat: dict) -> dict:
+        """Reconstruct a nested per-frame feature dict from a flat merged dict.
+
+        Inverse of `merge_per_frame_features`. Splits
+        ``"module_name feature_name"`` keys on the first space to recover the
+        two-level nested structure expected by the rest of ``IdentityFeatures``.
+
+        Args:
+            flat: Flat dict as returned by the cache reader.
+
+        Returns:
+            Nested dict ``{module_name: {feature_name: array}}``.
+        """
+        nested: dict = {}
+        for key, values in flat.items():
+            module_name, feature_name = key.split(" ", 1)
+            nested.setdefault(module_name, {})[feature_name] = values
+        return nested
+
+    @staticmethod
+    def _unflatten_window(flat: dict) -> dict:
+        """Reconstruct a nested window feature dict from a flat merged dict.
+
+        Inverse of `merge_window_features`. Splits
+        ``"module_name window_op feature_name"`` keys on the first two spaces
+        to recover the three-level nested structure expected by the rest of
+        ``IdentityFeatures``.
+
+        Args:
+            flat: Flat dict as returned by the cache reader.
+
+        Returns:
+            Nested dict ``{module_name: {window_op: {feature_name: array}}}``.
+        """
+        nested: dict = {}
+        for key, values in flat.items():
+            module_name, window_op, feature_name = key.split(" ", 2)
+            nested.setdefault(module_name, {}).setdefault(window_op, {})[feature_name] = values
+        return nested
 
     @classmethod
     def get_available_extended_features(
