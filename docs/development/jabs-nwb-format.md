@@ -34,13 +34,13 @@ combined file is never created. Static and dynamic objects are written to every
 per-identity file identically (they are session-level, not animal-level data).
 
 ```
-session_subject_0.nwb   ← identity 0 + all objects
-session_subject_1.nwb   ← identity 1 + all objects
-session_subject_2.nwb   ← identity 2 + all objects
+session_subject_1.nwb   ← identity 0 + all objects
+session_subject_2.nwb   ← identity 1 + all objects
+session_subject_3.nwb   ← identity 2 + all objects
 ```
 
 Identity names in the filenames come from `external_ids` in the pose file (sanitized
-for HDF5 compatibility) or fall back to `subject_0`, `subject_1`, … when no external
+for HDF5 compatibility) or fall back to `subject_1`, `subject_2`, … when no external
 IDs are present.
 
 **When to use:** downstream workflows that require one NWB file per animal (e.g. tools
@@ -51,13 +51,13 @@ that expect a single `Subject` in each file).
 The JABS reader re-assembles per-identity files transparently. Point it at **any one**
 sibling file; it detects the `per_identity_files` flag in `jabs_metadata`, globs for
 siblings matching `{base_stem}_*.nwb` in the same directory, filters to those that
-share the same `total_identities` count, sorts by `source_identity_index`, and
+share the same `split_subject_count` count, sorts by `source_identity_index`, and
 concatenates them into a single `PoseData` with all identities in their original order.
 
 ```
 # read any sibling — result is identical
-pose_data = load("session_subject_0.nwb", PoseData)
-pose_data = load("session_subject_2.nwb", PoseData)
+pose_data = load("session_subject_1.nwb", PoseData)
+pose_data = load("session_subject_3.nwb", PoseData)
 ```
 
 Validation ensures the expected number of sibling files are present before merging; a
@@ -80,12 +80,12 @@ NWBFile
 │       │   ├── lixit/                     Skeleton — static object (1 or 3 nodes)
 │       │   └── fecal_boli/                Skeleton — dynamic object (max_count nodes)
 │       │
-│       ├── subject_0/                     [PoseEstimation] animal identity 0
+│       ├── subject_1/                     [PoseEstimation] animal identity 0
 │       │   ├── nose/                      [PoseEstimationSeries] num_frames timestamps
 │       │   ├── left_ear/
 │       │   └── ...
 │       │
-│       ├── subject_1/                     [PoseEstimation] animal identity 1
+│       ├── subject_2/                     [PoseEstimation] animal identity 1
 │       │   ├── nose/
 │       │   └── ...
 │       │
@@ -104,8 +104,8 @@ NWBFile
 │       │   └── ...
 │       │
 │       ├── jabs_identity_mask             [TimeSeries] uint8 identity presence mask
-│       ├── jabs_bounding_boxes_subject_0  [TimeSeries] optional, one per identity
-│       └── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       ├── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       └── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
 │
 └── scratch/
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
@@ -120,8 +120,8 @@ that identity only.
 ## Animal pose
 
 Each animal identity is a `PoseEstimation` container in `processing/behavior`. The
-container name is the sanitized external ID from the pose file, or `subject_{i}` when
-no external IDs are available.
+container name is the sanitized external ID from the pose file, or `subject_1`,
+`subject_2`, … (1-based) when no external IDs are available.
 
 A single `Skeleton` named `subject` (or overridden via `skeleton_name`) is shared by
 all animal identities and stored in the `Skeletons` container.
@@ -427,7 +427,7 @@ otherwise scramble the keypoint ordering.
 |-------------------------|-------------------------|------------------------------|-------------|
 | `format_version`        | `int`                   | Always                       | JABS NWB format version. Currently `1`. |
 | `identity_names`        | `list[str]`             | Always                       | Ordered list of `PoseEstimation` container names that are animal identities. Defines identity order on read. |
-| `num_identities`        | `int`                   | Always                       | Total number of animal identities in the recording session. In per-identity mode this equals `total_identities`; the file itself contains only one identity. |
+| `num_identities`        | `int`                   | Always                       | Total number of animal identities in the recording session. In per-identity mode this equals `split_subject_count`; the file itself contains only one identity. |
 | `body_parts`            | `list[str]`             | Always                       | Ordered list of keypoint names for animal skeletons. Preserves original write order, since HDF5 returns groups alphabetically. |
 | `cm_per_pixel`          | `float \| null`         | Always                       | Pixel-to-centimetre scale factor. `null` if not available in the source pose file. |
 | `external_ids`          | `list[str] \| null`     | Always                       | Original external identity names from the pose file (e.g. mouse cage IDs). `null` if the pose file had no external IDs. |
@@ -438,14 +438,14 @@ otherwise scramble the keypoint ordering.
 | `dynamic_object_shapes` | `dict[str, [int, int]]` | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D `points` array `(n_predictions, max_count, n_keypoints, 2)` from the flat series list on read. |
 | `per_identity_files`    | `bool`                  | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files. |
 | `source_identity_index` | `int`                   | Per-identity mode only       | Zero-based index of the identity in this file within the original multi-identity dataset. Used to restore original identity order when merging siblings. |
-| `total_identities`      | `int`                   | Per-identity mode only       | Total number of identity files in the set. Used to validate that all siblings are present before merging. |
+| `split_subject_count`      | `int`                   | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate that all sibling files are present before merging. |
 
 ### Example — combined file with two identities, static objects, and dynamic objects
 
 ```json
 {
   "format_version": 1,
-  "identity_names": ["subject_0", "subject_1"],
+  "identity_names": ["subject_1", "subject_2"],
   "num_identities": 2,
   "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
                  "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
@@ -453,7 +453,7 @@ otherwise scramble the keypoint ordering.
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": {
+    "subject_1": {
       "subject_id": "M123",
       "sex": "M",
       "species": "Mus musculus",
@@ -463,7 +463,7 @@ otherwise scramble the keypoint ordering.
       "weight": null,
       "description": null
     },
-    "subject_1": {
+    "subject_2": {
       "subject_id": "M124",
       "sex": "F",
       "species": "Mus musculus",
@@ -492,15 +492,15 @@ otherwise scramble the keypoint ordering.
 ```json
 {
   "format_version": 1,
-  "identity_names": ["subject_1"],
+  "identity_names": ["subject_2"],
   "num_identities": 3,
   "body_parts": ["nose", "left_ear", "..."],
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": { "subject_id": "M123", "sex": "M", "species": "Mus musculus", "age": "P70D", "genotype": "WT" },
-    "subject_1": { "subject_id": "M124", "sex": "F", "species": "Mus musculus", "age": "P72D", "genotype": "Shank3+/-" },
-    "subject_2": { "subject_id": "M125", "sex": "M", "species": "Mus musculus", "age": "P68D", "genotype": "WT" }
+    "subject_1": { "subject_id": "M123", "sex": "M", "species": "Mus musculus", "age": "P70D", "genotype": "WT" },
+    "subject_2": { "subject_id": "M124", "sex": "F", "species": "Mus musculus", "age": "P72D", "genotype": "Shank3+/-" },
+    "subject_3": { "subject_id": "M125", "sex": "M", "species": "Mus musculus", "age": "P68D", "genotype": "WT" }
   },
   "metadata": { "source_file": "...", "pose_format_version": 7 },
   "static_object_names": ["corners", "lixit"],
@@ -508,7 +508,7 @@ otherwise scramble the keypoint ordering.
   "dynamic_object_shapes": { "fecal_boli": [3, 1] },
   "per_identity_files": true,
   "source_identity_index": 1,
-  "total_identities": 3
+  "split_subject_count": 3
 }
 ```
 

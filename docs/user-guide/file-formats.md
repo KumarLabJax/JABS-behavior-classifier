@@ -153,12 +153,12 @@ NWBFile
 │       │   ├── lixit/                     Skeleton — static object (1 or 3 nodes)
 │       │   └── fecal_boli/                Skeleton — dynamic object (max_count nodes)
 │       │
-│       ├── subject_0/                     [PoseEstimation] animal identity 0
+│       ├── subject_1/                     [PoseEstimation] animal identity 0
 │       │   ├── nose/                      [PoseEstimationSeries] num_frames timestamps
 │       │   ├── left_ear/
 │       │   └── ...
 │       │
-│       ├── subject_1/                     [PoseEstimation] animal identity 1
+│       ├── subject_2/                     [PoseEstimation] animal identity 1
 │       │   ├── nose/
 │       │   └── ...
 │       │
@@ -177,8 +177,8 @@ NWBFile
 │       │   └── ...
 │       │
 │       ├── jabs_identity_mask             [TimeSeries] uint8 identity presence mask
-│       ├── jabs_bounding_boxes_subject_0  [TimeSeries] optional, one per identity
-│       └── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       ├── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       └── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
 │
 └── scratch/
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
@@ -430,14 +430,14 @@ object classification.
 | `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D points array on read.                                                                                  |
 | `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                      |
 | `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file. Used to restore original order when merging siblings.                                                                                                |
-| `total_identities`      | `int`                     | Per-identity mode only       | Total number of identity files in the set. Used to validate all siblings are present before merging.                                                                                                |
+| `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate all siblings are present before merging.                                                                           |
 
 #### Example — combined file
 
 ```json
 {
   "format_version": 1,
-  "identity_names": ["subject_0", "subject_1"],
+  "identity_names": ["subject_1", "subject_2"],
   "num_identities": 2,
   "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
                  "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
@@ -445,7 +445,7 @@ object classification.
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": {
+    "subject_1": {
       "subject_id": "M123",
       "sex": "M",
       "genotype": "WT",
@@ -455,7 +455,7 @@ object classification.
       "species": "Mus musculus",
       "description": null
     },
-    "subject_1": {
+    "subject_2": {
       "subject_id": "M124",
       "sex": "F",
       "genotype": "Shank3+/-",
@@ -492,9 +492,9 @@ object classification.
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": { "subject_id": "M123", "sex": "M", "genotype": "WT" },
-    "subject_1": { "subject_id": "M124", "sex": "F", "genotype": "Shank3+/-" },
-    "subject_2": { "subject_id": "M125", "sex": "M", "genotype": "WT" }
+    "subject_1": { "subject_id": "M123", "sex": "M", "genotype": "WT" },
+    "subject_2": { "subject_id": "M124", "sex": "F", "genotype": "Shank3+/-" },
+    "subject_3": { "subject_id": "M125", "sex": "M", "genotype": "WT" }
   },
   "metadata": { "source_file": "...", "pose_format_version": 7 },
   "static_object_names": ["corners", "lixit"],
@@ -502,7 +502,7 @@ object classification.
   "dynamic_object_shapes": { "fecal_boli": [3, 1] },
   "per_identity_files": true,
   "source_identity_index": 1,
-  "total_identities": 3
+  "split_subject_count": 3
 }
 ```
 

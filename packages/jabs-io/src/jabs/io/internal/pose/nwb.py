@@ -183,7 +183,7 @@ class PoseNWBAdapter(Adapter):
         files.  The reader detects the per-identity flag in the embedded
         ``jabs_metadata``, then globs for siblings matching
         ``{base_stem}_*.nwb`` in the same directory, filters to those that
-        belong to the same write session (matching ``total_identities``), sorts
+        belong to the same write session (matching ``split_subject_count``), sorts
         by ``source_identity_index``, and concatenates them into a single
         ``PoseData`` with all identities restored in their original order.
 
@@ -373,7 +373,7 @@ class PoseNWBAdapter(Adapter):
                 [identity_name],
                 per_identity_files=True,
                 source_identity_index=i,
-                total_identities=num_identities,
+                split_subject_count=num_identities,
             )
             nwbfile.add_scratch(
                 ScratchData(
@@ -580,7 +580,7 @@ class PoseNWBAdapter(Adapter):
 
     def _read_merged(self, path: Path, jabs_meta: dict) -> PoseData:
         """Auto-detect and merge sibling per-identity NWB files."""
-        total = jabs_meta["total_identities"]
+        total = jabs_meta["split_subject_count"]
         stem = path.stem
 
         # Find the base stem by removing the identity suffix
@@ -590,13 +590,13 @@ class PoseNWBAdapter(Adapter):
 
         # Glob for candidate siblings, then filter to only those whose
         # jabs_metadata identifies them as belonging to this specific file set
-        # (same base_stem and total_identities). This prevents stale files from
+        # (same base_stem and split_subject_count). This prevents stale files from
         # prior runs matching the glob pattern and producing extra identities.
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
             pd, meta = self._read_single(sibling_path)
-            if meta.get("per_identity_files") and meta.get("total_identities") == total:
+            if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
                 idx = meta.get("source_identity_index", 0)
                 parts.append((idx, pd, meta))
 
