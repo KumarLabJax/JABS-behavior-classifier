@@ -183,6 +183,21 @@ def test_hdf5_window_size_not_cached(
 # ---------------------------------------------------------------------------
 
 
+def test_hdf5_closest_corners_without_avg_wall_length_raises(
+    tmp_path, writer: HDF5FeatureCacheWriter
+) -> None:
+    """ValueError raised when closest_corners is present but avg_wall_length is missing."""
+    rng = np.random.default_rng(10)
+    identity_dir = tmp_path / "identity_0"
+    data = PerFrameCacheData(
+        frame_valid=rng.integers(0, 2, size=_N_FRAMES, dtype=np.uint8),
+        features=_flat_features(rng),
+        closest_corners=rng.standard_normal(_N_FRAMES),
+    )
+    with pytest.raises(ValueError, match="avg_wall_length"):
+        writer.write_per_frame(identity_dir, _metadata(), data)
+
+
 def test_hdf5_closest_identities_without_fov_raises(
     tmp_path, writer: HDF5FeatureCacheWriter
 ) -> None:

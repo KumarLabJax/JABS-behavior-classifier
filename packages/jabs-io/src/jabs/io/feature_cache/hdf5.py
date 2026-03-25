@@ -249,6 +249,10 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
                 )
 
             if data.closest_corners is not None:
+                if metadata.avg_wall_length is None:
+                    raise ValueError(
+                        "metadata.avg_wall_length must be set when data.closest_corners is present"
+                    )
                 f.create_dataset(
                     "closest_corners",
                     data=data.closest_corners,
