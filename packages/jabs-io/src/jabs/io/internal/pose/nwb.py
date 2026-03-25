@@ -467,7 +467,7 @@ class PoseNWBAdapter(Adapter):
             unknown_keypoints = [bp for bp in body_parts if bp not in _KEYPOINT_ORDER]
             if unknown_keypoints:
                 logger.warning(
-                    "NWB file %s contains %d unrecognised keypoint(s): %s.",
+                    "NWB file %s contains %d unrecognized keypoint(s): %s.",
                     path,
                     len(unknown_keypoints),
                     unknown_keypoints,
