@@ -313,7 +313,10 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
 
         with h5py.File(path, "a") as f:
             self._write_attrs(f, metadata)
-            window_grp = f.require_group(f"features/window_features_{window_size}")
+            group_key = f"features/window_features_{window_size}"
+            if group_key in f:
+                del f[group_key]
+            window_grp = f.create_group(group_key)
             for feature_key, values in data.items():
                 window_grp.create_dataset(
                     feature_key,

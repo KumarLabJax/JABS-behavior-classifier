@@ -110,6 +110,26 @@ def test_hdf5_per_frame_write_read_round_trip(
     assert result.wall_distances == {}
 
 
+def test_hdf5_window_overwrite_does_not_raise(
+    tmp_path, writer: HDF5FeatureCacheWriter, reader: HDF5FeatureCacheReader
+) -> None:
+    """Writing the same window size twice replaces the data without raising."""
+    rng = np.random.default_rng(11)
+    identity_dir = tmp_path / "identity_0"
+    window_size = 5
+
+    first_data = {f"mod op feat_{i}": rng.standard_normal(_N_FRAMES) for i in range(4)}
+    second_data = {f"mod op feat_{i}": rng.standard_normal(_N_FRAMES) for i in range(4)}
+
+    writer.write_per_frame(identity_dir, _metadata(), _per_frame_data(rng))
+    writer.write_window(identity_dir, _metadata(), window_size, first_data)
+    writer.write_window(identity_dir, _metadata(), window_size, second_data)
+
+    result = reader.read_window(identity_dir, window_size)
+    for key in second_data:
+        np.testing.assert_array_equal(result[key], second_data[key], err_msg=key)
+
+
 def test_hdf5_window_write_read_round_trip(
     tmp_path, writer: HDF5FeatureCacheWriter, reader: HDF5FeatureCacheReader
 ) -> None:
