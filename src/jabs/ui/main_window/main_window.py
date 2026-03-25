@@ -104,6 +104,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.bbox_overlay_supported.connect(
             self.menu_handlers.on_bbox_overlay_support_changed
         )
+        # noinspection PyProtectedMember
+        self._central_widget._player_widget.playing_changed.connect(self._on_playing_changed)
 
     def _setup_dock_widgets(self) -> None:
         """Setup playlist and other dock widgets."""
@@ -280,11 +282,24 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         self.statusBar().clearMessage()
 
+    def _on_playing_changed(self, playing: bool) -> None:
+        """Enable or disable the export-frame action based on playback state.
+
+        Only fires on true play↔pause transitions (not during video loading), so it is
+        safe to enable the action whenever playing is False and a video is loaded.
+        """
+        # noinspection PyProtectedMember
+        self._menu_refs.export_frame.setEnabled(
+            not playing and self._central_widget._player_widget.num_frames > 0
+        )
+
     def _video_list_selection(self, filename: str) -> None:
         """handle a click on a new video in the list loaded into the main window dock"""
         try:
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
+            self._menu_refs.export_frame.setEnabled(True)
         except OSError as e:
+            self._menu_refs.export_frame.setEnabled(False)
             self.display_status_message(f"Unable to load video: {e}")
             self._project_load_error_callback(e)
 
@@ -298,6 +313,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_list.set_project(self._project)
 
         # Update which controls should be available
+        self._menu_refs.export_frame.setEnabled(False)
         self._menu_refs.archive_behavior.setEnabled(True)
         self._menu_refs.prune_action.setEnabled(True)
         self._menu_refs.settings_action.setEnabled(True)

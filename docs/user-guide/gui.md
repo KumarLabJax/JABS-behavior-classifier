@@ -99,6 +99,7 @@ Clicking the Brightness or Contrast controls will reset the brightness or contra
 - **JABS→Quit JABS:** Quit Program
 - **File→Open Project:** Select a project directory to open. If a project is already opened, it will be closed and the newly selected project will be opened.
 - **File→Open Recent:** Submenu to open recently opened projects.
+- **File→Export Frame:** Export the current paused video frame as a PNG image. The export uses the original video resolution with no overlays, is disabled during playback, and remembers the last export directory. Shortcut: Ctrl+E / ⌘E.
 - **File→Export Training Data:** Create a file with the information needed to share a classifier. This exported file is written to the project directory and has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is used as one input for the `jabs-classify` script.
 - **File→Archive Behavior:** Remove behavior and its labels from project. Labels are archived in the `jabs/archive` directory.
 - **File→Prune Project:** Remove videos and pose files that are not labeled.

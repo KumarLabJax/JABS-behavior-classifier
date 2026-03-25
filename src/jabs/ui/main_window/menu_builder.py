@@ -38,6 +38,7 @@ class MenuReferences:
     clear_cache: QtGui.QAction
 
     # File menu actions
+    export_frame: QtGui.QAction
     export_training: QtGui.QAction
     archive_behavior: QtGui.QAction
     prune_action: QtGui.QAction
@@ -222,6 +223,18 @@ class MenuBuilder:
         open_recent_menu = QtWidgets.QMenu("Open Recent", self.main_window)
         menu.addMenu(open_recent_menu)
 
+        menu.addSeparator()
+
+        # Export frame action
+        export_frame = QtGui.QAction("Export Frame…", self.main_window)
+        export_frame.setShortcut(QtGui.QKeySequence("Ctrl+E"))
+        export_frame.setStatusTip("Export the current video frame as a PNG image")
+        export_frame.setEnabled(False)
+        export_frame.triggered.connect(self.handlers.export_frame)
+        menu.addAction(export_frame)
+
+        menu.addSeparator()
+
         # Export training data action
         export_training = QtGui.QAction("Export Training Data", self.main_window)
         export_training.setShortcut(QtGui.QKeySequence("Ctrl+T"))
@@ -246,6 +259,7 @@ class MenuBuilder:
 
         return {
             "open_recent_menu": open_recent_menu,
+            "export_frame": export_frame,
             "export_training": export_training,
             "archive_behavior": archive_behavior,
             "prune_action": prune_action,

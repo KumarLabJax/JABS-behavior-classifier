@@ -41,6 +41,9 @@ from .constants import USE_NATIVE_FILE_DIALOG
 if TYPE_CHECKING:
     from .main_window import MainWindow
 
+# Keep the existing key so users retain the last-used directory across the rename.
+_SETTINGS_EXPORT_FRAME_DIR = "ui/save_frame_last_dir"
+
 
 class UpdateCheckThread(QtCore.QThread):
     """Background thread for checking PyPI for updates.
@@ -92,6 +95,60 @@ class MenuHandlers:
 
         if project_path:
             self.window.open_project(project_path)
+
+    def export_frame(self) -> None:
+        """Export the current video frame as a PNG image.
+
+        Opens a file-save dialog pre-populated with a suggested filename derived from
+        the current video name and frame number.  The last-used directory is persisted
+        in QSettings and restored on the next invocation; if that directory no longer
+        exists the dialog falls back to OS-default behaviour.  If the user cancels, no
+        action is taken.
+        """
+        # noinspection PyProtectedMember
+        player = self.window._central_widget._player_widget
+        frame_number = player.current_frame
+        video_path = player.current_video_path
+        if video_path is not None:
+            suggested_name = f"{video_path.stem}_frame{frame_number:06d}.png"
+        else:
+            suggested_name = f"frame{frame_number:06d}.png"
+
+        last_dir = self.window._settings.value(_SETTINGS_EXPORT_FRAME_DIR, "", type=str)
+        if last_dir and Path(last_dir).is_dir():
+            initial_path = str(Path(last_dir) / suggested_name)
+        else:
+            initial_path = suggested_name
+
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.window,
+            "Export Frame",
+            initial_path,
+            "PNG Images (*.png)",
+            options=(
+                QtWidgets.QFileDialog.Option(0)
+                if USE_NATIVE_FILE_DIALOG
+                else QtWidgets.QFileDialog.Option.DontUseNativeDialog
+            ),
+        )
+
+        if not save_path:
+            return  # user cancelled
+
+        pixmap = player.get_raw_frame(frame_number)
+        if pixmap is None:
+            MessageDialog.warning(self.window, message="No frame available to export.")
+            return
+
+        if not save_path.lower().endswith(".png"):
+            save_path += ".png"
+
+        if not pixmap.save(save_path, "PNG"):
+            MessageDialog.error(self.window, message=f"Failed to export frame to:\n{save_path}")
+            return
+
+        self.window._settings.setValue(_SETTINGS_EXPORT_FRAME_DIR, str(Path(save_path).parent))
+        self.window.display_status_message(f"Frame exported: {save_path}", 5000)
 
     def export_training_data(self) -> None:
         """Export training data for the current classifier."""
