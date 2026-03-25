@@ -120,21 +120,17 @@ class MenuHandlers:
         else:
             initial_path = suggested_name
 
-        if USE_NATIVE_FILE_DIALOG:
-            save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self.window,
-                "Export Frame",
-                initial_path,
-                "PNG Images (*.png)",
-            )
-        else:
-            save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self.window,
-                "Export Frame",
-                initial_path,
-                "PNG Images (*.png)",
-                options=QtWidgets.QFileDialog.Option.DontUseNativeDialog,
-            )
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.window,
+            "Export Frame",
+            initial_path,
+            "PNG Images (*.png)",
+            options=(
+                QtWidgets.QFileDialog.Option(0)
+                if USE_NATIVE_FILE_DIALOG
+                else QtWidgets.QFileDialog.Option.DontUseNativeDialog
+            ),
+        )
 
         if not save_path:
             return  # user cancelled
