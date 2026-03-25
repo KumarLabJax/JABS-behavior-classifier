@@ -107,11 +107,6 @@ class MenuHandlers:
         """
         # noinspection PyProtectedMember
         player = self.window._central_widget._player_widget
-        pixmap = player.get_raw_frame()
-        if pixmap is None:
-            MessageDialog.warning(self.window, message="No frame available to export.")
-            return
-
         frame_number = player.current_frame
         video_path = player.current_video_path
         if video_path is not None:
@@ -143,6 +138,11 @@ class MenuHandlers:
 
         if not save_path:
             return  # user cancelled
+
+        pixmap = player.get_raw_frame(frame_number)
+        if pixmap is None:
+            MessageDialog.warning(self.window, message="No frame available to export.")
+            return
 
         if not save_path.lower().endswith(".png"):
             save_path += ".png"

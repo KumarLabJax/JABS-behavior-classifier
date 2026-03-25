@@ -373,19 +373,23 @@ class PlayerWidget(QtWidgets.QWidget):
         """Return the path of the currently loaded video file, or None if no video is loaded."""
         return self._video_path
 
-    def get_raw_frame(self) -> QtGui.QPixmap | None:
-        """Return a clean pixmap of the current frame at original video resolution.
+    def get_raw_frame(self, frame_number: int | None = None) -> QtGui.QPixmap | None:
+        """Return a clean pixmap of a frame at original video resolution.
 
         Reads directly from the video stream without any numpy-level overlays (track,
         segmentation, landmarks).  Must only be called when the video is not playing;
         calling it during playback is undefined behaviour due to shared VideoReader state.
+
+        Args:
+            frame_number: Frame index to export. Defaults to the currently selected frame.
 
         Returns:
             A QPixmap at native video resolution, or None if no video is loaded.
         """
         if self._video_stream is None:
             return None
-        self._video_stream.seek(self.current_frame)
+        target_frame = self.current_frame if frame_number is None else frame_number
+        self._video_stream.seek(target_frame)
         frame = self._video_stream.load_next_frame()
         if frame["data"] is None:
             return None

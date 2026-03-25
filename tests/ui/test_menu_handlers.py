@@ -73,6 +73,7 @@ def test_export_frame_success(monkeypatch, handler_setup):
 
     assert captured["title"] == "Export Frame"
     assert captured["initial_path"] == "video_frame000042.png"
+    player.get_raw_frame.assert_called_once_with(42)
     pixmap.save.assert_called_once_with("/tmp/video_frame000042.png", "PNG")
     window._settings.setValue.assert_called_once_with(_SETTINGS_EXPORT_FRAME_DIR, "/tmp")
     window.display_status_message.assert_called_once_with(
@@ -96,6 +97,7 @@ def test_export_frame_cancelled_does_not_save(monkeypatch, handler_setup):
 
     handler.export_frame()
 
+    player.get_raw_frame.assert_not_called()
     pixmap.save.assert_not_called()
     window._settings.setValue.assert_not_called()
     window.display_status_message.assert_not_called()
@@ -107,10 +109,17 @@ def test_export_frame_no_frame_uses_warning_message(monkeypatch, handler_setup):
     player.get_raw_frame.return_value = None
     warning = MagicMock()
 
+    monkeypatch.setattr(
+        menu_handlers_module.QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: ("/tmp/video_frame000042.png", "PNG Images (*.png)"),
+    )
     monkeypatch.setattr(menu_handlers_module.MessageDialog, "warning", warning)
+    monkeypatch.setattr(menu_handlers_module, "USE_NATIVE_FILE_DIALOG", True)
 
     handler.export_frame()
 
+    player.get_raw_frame.assert_called_once_with(42)
     warning.assert_called_once_with(handler.window, message="No frame available to export.")
 
 
