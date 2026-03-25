@@ -51,7 +51,7 @@ def _sort_body_parts(names: list[str]) -> list[str]:
 
     Returns:
         Names reordered so that known keypoints follow KeypointIndex order,
-        with any unrecognised names appended afterward.
+        with any unrecognized names appended afterward.
     """
     known = [n for n in names if n in _KEYPOINT_ORDER]
     unknown = [n for n in names if n not in _KEYPOINT_ORDER]
@@ -106,7 +106,7 @@ class PoseNWBAdapter(Adapter):
         *not* created; instead, each identity is written to a sibling file whose
         stem is ``{path.stem}_{identity_name}``.  Identity names come from
         ``data.external_ids`` (sanitized for HDF5 compatibility) or fall back to
-        ``identity_0``, ``identity_1``, … when ``external_ids`` is ``None``.
+        ``subject_1``, ``subject_2``, … when ``external_ids`` is ``None``.
 
         Example — single file::
 
@@ -124,8 +124,8 @@ class PoseNWBAdapter(Adapter):
 
             save(pose_data, "session.nwb", per_identity_files=True)
             # pose_data.external_ids = None
-            # → session_subject_0.nwb
             # → session_subject_1.nwb
+            # → session_subject_2.nwb
 
         The NWB layout written by this adapter (ndx-pose 0.2)::
 
@@ -1023,7 +1023,7 @@ class PoseNWBAdapter(Adapter):
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
             return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
-        return f"subject_{index}"
+        return f"subject_{index + 1}"
 
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:
