@@ -300,6 +300,11 @@ class IdentityFeatures:
             ``__compute_window_features()``.
         """
         flat = self._reader.read_window(self._identity_feature_dir, window_size)
+
+        # validate cache returned expected number of frames
+        if flat:
+            first = next(iter(flat.values()))
+            assert len(first) == self._num_frames
         return self._unflatten_window(flat)
 
     def get_window_features(
