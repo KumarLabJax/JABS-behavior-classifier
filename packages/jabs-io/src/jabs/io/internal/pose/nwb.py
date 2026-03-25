@@ -51,7 +51,7 @@ def _sort_body_parts(names: list[str]) -> list[str]:
 
     Returns:
         Names reordered so that known keypoints follow KeypointIndex order,
-        with any unrecognised names appended afterward.
+        with any unrecognized names appended afterward.
     """
     known = [n for n in names if n in _KEYPOINT_ORDER]
     unknown = [n for n in names if n not in _KEYPOINT_ORDER]
@@ -106,7 +106,7 @@ class PoseNWBAdapter(Adapter):
         *not* created; instead, each identity is written to a sibling file whose
         stem is ``{path.stem}_{identity_name}``.  Identity names come from
         ``data.external_ids`` (sanitized for HDF5 compatibility) or fall back to
-        ``identity_0``, ``identity_1``, … when ``external_ids`` is ``None``.
+        ``subject_1``, ``subject_2``, … when ``external_ids`` is ``None``.
 
         Example — single file::
 
@@ -124,8 +124,8 @@ class PoseNWBAdapter(Adapter):
 
             save(pose_data, "session.nwb", per_identity_files=True)
             # pose_data.external_ids = None
-            # → session_subject_0.nwb
             # → session_subject_1.nwb
+            # → session_subject_2.nwb
 
         The NWB layout written by this adapter (ndx-pose 0.2)::
 
@@ -183,7 +183,7 @@ class PoseNWBAdapter(Adapter):
         files.  The reader detects the per-identity flag in the embedded
         ``jabs_metadata``, then globs for siblings matching
         ``{base_stem}_*.nwb`` in the same directory, filters to those that
-        belong to the same write session (matching ``total_identities``), sorts
+        belong to the same write session (matching ``split_subject_count``), sorts
         by ``source_identity_index``, and concatenates them into a single
         ``PoseData`` with all identities restored in their original order.
 
@@ -373,7 +373,7 @@ class PoseNWBAdapter(Adapter):
                 [identity_name],
                 per_identity_files=True,
                 source_identity_index=i,
-                total_identities=num_identities,
+                split_subject_count=num_identities,
             )
             nwbfile.add_scratch(
                 ScratchData(
@@ -467,7 +467,7 @@ class PoseNWBAdapter(Adapter):
             unknown_keypoints = [bp for bp in body_parts if bp not in _KEYPOINT_ORDER]
             if unknown_keypoints:
                 logger.warning(
-                    "NWB file %s contains %d unrecognised keypoint(s): %s.",
+                    "NWB file %s contains %d unrecognized keypoint(s): %s.",
                     path,
                     len(unknown_keypoints),
                     unknown_keypoints,
@@ -580,7 +580,7 @@ class PoseNWBAdapter(Adapter):
 
     def _read_merged(self, path: Path, jabs_meta: dict) -> PoseData:
         """Auto-detect and merge sibling per-identity NWB files."""
-        total = jabs_meta["total_identities"]
+        total = jabs_meta["split_subject_count"]
         stem = path.stem
 
         # Find the base stem by removing the identity suffix
@@ -590,13 +590,13 @@ class PoseNWBAdapter(Adapter):
 
         # Glob for candidate siblings, then filter to only those whose
         # jabs_metadata identifies them as belonging to this specific file set
-        # (same base_stem and total_identities). This prevents stale files from
+        # (same base_stem and split_subject_count). This prevents stale files from
         # prior runs matching the glob pattern and producing extra identities.
         candidates = sorted(path.parent.glob(f"{base_stem}_*.nwb"))
         parts: list[tuple[int, PoseData, dict]] = []
         for sibling_path in candidates:
             pd, meta = self._read_single(sibling_path)
-            if meta.get("per_identity_files") and meta.get("total_identities") == total:
+            if meta.get("per_identity_files") and meta.get("split_subject_count") == total:
                 idx = meta.get("source_identity_index", 0)
                 parts.append((idx, pd, meta))
 
@@ -1023,7 +1023,7 @@ class PoseNWBAdapter(Adapter):
     def _identity_name(data: PoseData, index: int) -> str:
         if data.external_ids is not None:
             return PoseNWBAdapter._sanitize_identity_name(data.external_ids[index])
-        return f"subject_{index}"
+        return f"subject_{index + 1}"
 
     @staticmethod
     def _identity_file_path(base_path: Path, identity_name: str) -> Path:

@@ -59,14 +59,14 @@ jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --session-metadata se
 
 Pass a JSON file to `--subjects` to attach per-animal biological metadata to the NWB
 output. Keys are identity names: use external IDs from the pose file when present (e.g.
-`"mouse_a"`), or `subject_0`, `subject_1`, … when the pose file has no external IDs.
+`"mouse_a"`), or `subject_1`, `subject_2`, … when the pose file has no external IDs.
 
 **DANDI requires `species`, `sex`, and either `age` or `date_of_birth` on every
 subject.** All other fields are optional.
 
 ```json
 {
-  "subject_0": {
+  "subject_1": {
     "subject_id": "M123",
     "sex": "M",
     "species": "Mus musculus",
@@ -74,7 +74,7 @@ subject.** All other fields are optional.
     "genotype": "WT",
     "strain": "C57BL/6J"
   },
-  "subject_1": {
+  "subject_2": {
     "subject_id": "M124",
     "sex": "F",
     "species": "Mus musculus",
@@ -160,9 +160,9 @@ One NWB file is written per animal. The `OUTPUT` path is used as a naming templa
 files are written as `{output_stem}_{identity_name}.nwb` in the same directory.
 
 ```
-session_subject_0.nwb   ← identity 0 + all objects
-session_subject_1.nwb   ← identity 1 + all objects
-session_subject_2.nwb   ← identity 2 + all objects
+session_subject_1.nwb   ← identity 0 + all objects
+session_subject_2.nwb   ← identity 1 + all objects
+session_subject_3.nwb   ← identity 2 + all objects
 ```
 
 **This is the more standard output.** Each file contains exactly one animal, so
@@ -171,7 +171,7 @@ via `--subjects`). Any standard NWB tool — including the DANDI archive — can
 the subject field directly without knowing anything about JABS.
 
 Identity names in the filenames come from `external_ids` in the pose file (sanitized
-for filesystem compatibility), or fall back to `subject_0`, `subject_1`, … when no
+for filesystem compatibility), or fall back to `subject_1`, `subject_2`, … when no
 external IDs are present. Static and dynamic objects are written to every per-identity
 file identically, since they are session-level data.
 
@@ -215,12 +215,12 @@ NWBFile
 │       │   ├── lixit/                     Skeleton — static object (1 or 3 nodes)
 │       │   └── fecal_boli/                Skeleton — dynamic object (max_count nodes)
 │       │
-│       ├── subject_0/                     [PoseEstimation] animal identity 0
+│       ├── subject_1/                     [PoseEstimation] animal identity 0
 │       │   ├── nose/                      [PoseEstimationSeries] num_frames timestamps
 │       │   ├── left_ear/
 │       │   └── ...
 │       │
-│       ├── subject_1/                     [PoseEstimation] animal identity 1
+│       ├── subject_2/                     [PoseEstimation] animal identity 1
 │       │   ├── nose/
 │       │   └── ...
 │       │
@@ -239,8 +239,8 @@ NWBFile
 │       │   └── ...
 │       │
 │       ├── jabs_identity_mask             [TimeSeries] uint8 identity presence mask
-│       ├── jabs_bounding_boxes_subject_0  [TimeSeries] optional, one per identity
-│       └── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       ├── jabs_bounding_boxes_subject_1  [TimeSeries] optional, one per identity
+│       └── jabs_bounding_boxes_subject_2  [TimeSeries] optional, one per identity
 │
 └── scratch/
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
@@ -256,8 +256,8 @@ In a per-identity file the layout is identical, except:
 ### Animal pose
 
 Each animal identity is a `PoseEstimation` container in `processing/behavior`. The
-container name is the sanitized external ID from the pose file, or `subject_{i}` when
-no external IDs are available.
+container name is the sanitized external ID from the pose file, or `subject_1`,
+`subject_2`, … (1-based) when no external IDs are available.
 
 A single `Skeleton` named `subject` is shared by all animal identities and stored in
 the `Skeletons` container.
@@ -390,14 +390,14 @@ keypoint names, identity ordering, subject metadata, and object classification.
 | `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`.                                                                                                                                                        |
 | `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                                      |
 | `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file.                                                                                                                                                                      |
-| `total_identities`      | `int`                     | Per-identity mode only       | Total number of identity files in the set.                                                                                                                                                                          |
+| `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files.                                                                                                                                                     |
 
 #### Example — combined file
 
 ```json
 {
   "format_version": 1,
-  "identity_names": ["subject_0", "subject_1"],
+  "identity_names": ["subject_1", "subject_2"],
   "num_identities": 2,
   "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
                  "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
@@ -405,7 +405,7 @@ keypoint names, identity ordering, subject metadata, and object classification.
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
-    "subject_0": {
+    "subject_1": {
       "subject_id": "M123",
       "sex": "M",
       "species": "Mus musculus",
@@ -415,7 +415,7 @@ keypoint names, identity ordering, subject metadata, and object classification.
       "weight": null,
       "description": null
     },
-    "subject_1": {
+    "subject_2": {
       "subject_id": "M124",
       "sex": "F",
       "species": "Mus musculus",

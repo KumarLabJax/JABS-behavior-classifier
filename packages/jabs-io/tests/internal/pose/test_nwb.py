@@ -606,8 +606,8 @@ def test_per_identity_files_index_naming(tmp_path, adapter):
 
     adapter.write(data, path, per_identity_files=True)
 
-    assert (tmp_path / "pose_subject_0.nwb").exists()
     assert (tmp_path / "pose_subject_1.nwb").exists()
+    assert (tmp_path / "pose_subject_2.nwb").exists()
 
 
 def test_per_identity_roundtrip_single_file(tmp_path, adapter):
@@ -644,7 +644,7 @@ def test_per_identity_auto_merge_index_naming(tmp_path, adapter):
     data = _make_pose_data(external_ids=None)
 
     adapter.write(data, path, per_identity_files=True)
-    loaded = adapter.read(tmp_path / "pose_subject_0.nwb")
+    loaded = adapter.read(tmp_path / "pose_subject_1.nwb")
 
     _assert_pose_data_equal(data, loaded)
 
