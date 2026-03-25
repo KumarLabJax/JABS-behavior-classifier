@@ -1,8 +1,9 @@
 import logging
 from pathlib import Path
-from typing import cast
+from typing import TypeAlias, cast
 
 import numpy as np
+import numpy.typing as npt
 
 import jabs.project.track_labels
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
@@ -19,6 +20,15 @@ from .segmentation_features import SegmentationFeatureGroup
 from .social_features import SocialFeatureGroup
 
 logger = logging.getLogger(__name__)
+
+# Type aliases for the nested feature dict structures used throughout this module.
+# FlatFeatureMap: merged flat dict produced by merge_per_frame_features() /
+#     merge_window_features() and consumed by the cache readers/writers.
+# PerFrameFeatureMap: module_name → feature_name → per-frame array.
+# WindowFeatureMap: module_name → window_op → feature_name → per-frame array.
+FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.float64]]
+PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.float64]]]
+WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.float64]]]]
 
 FEATURE_VERSION = 16
 
@@ -215,7 +225,7 @@ class IdentityFeatures:
             closest_fov_identities = closest_data.closest_fov_identities
 
         closest_corners = None
-        wall_distances: dict = {}
+        wall_distances: dict[str, npt.NDArray[np.float64]] = {}
         avg_wall_length = None
         closest_lixit = None
         if LandmarkFeatureGroup.name() in self._feature_modules:
@@ -250,7 +260,7 @@ class IdentityFeatures:
         )
         self._writer.write_per_frame(self._identity_feature_dir, metadata, cache_data)
 
-    def __save_window_features(self, features: dict, window_size: int) -> None:
+    def __save_window_features(self, features: WindowFeatureMap, window_size: int) -> None:
         """Save window features to the cache.
 
         Args:
@@ -271,7 +281,7 @@ class IdentityFeatures:
             self.merge_window_features(features),
         )
 
-    def __load_window_features(self, window_size: int) -> dict:
+    def __load_window_features(self, window_size: int) -> WindowFeatureMap:
         """Load window features from the cache.
 
         Args:
@@ -294,7 +304,7 @@ class IdentityFeatures:
 
     def get_window_features(
         self, window_size: int, labels: np.ndarray | None = None, force: bool = False
-    ) -> dict:
+    ) -> WindowFeatureMap:
         """get window features for a given window size, computing if not previously computed and saved as h5 file
 
         Args:
@@ -378,7 +388,7 @@ class IdentityFeatures:
 
         return final_features
 
-    def get_per_frame(self, labels: np.ndarray | None = None) -> dict:
+    def get_per_frame(self, labels: np.ndarray | None = None) -> PerFrameFeatureMap:
         """get per frame features
 
         Args:
@@ -455,7 +465,7 @@ class IdentityFeatures:
             "frame_indexes": indexes,
         }
 
-    def _filter_base_features_by_op(self, features: dict) -> dict:
+    def _filter_base_features_by_op(self, features: PerFrameFeatureMap) -> PerFrameFeatureMap:
         """filter either per_frame or window features by the self._op_settings
 
         Args:
@@ -480,7 +490,7 @@ class IdentityFeatures:
                 names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
         return {k: v for k, v in features.items() if k not in names_to_remove}
 
-    def _filter_window_features_by_op(self, features: dict) -> dict:
+    def _filter_window_features_by_op(self, features: WindowFeatureMap) -> WindowFeatureMap:
         """filter window features by the self._op_settings
 
         Args:
@@ -509,7 +519,7 @@ class IdentityFeatures:
 
         return filtered_features
 
-    def __compute_window_features(self, window_size: int) -> dict:
+    def __compute_window_features(self, window_size: int) -> WindowFeatureMap:
         """compute all window features using a given window size
 
         Args:
@@ -553,7 +563,7 @@ class IdentityFeatures:
         return window_features
 
     @classmethod
-    def merge_per_frame_features(cls, features: dict) -> dict:
+    def merge_per_frame_features(cls, features: PerFrameFeatureMap) -> FlatFeatureMap:
         """merge a dict of per-frame features
 
         Each element in the dict is a set of per-frame features computed for an individual animal.
@@ -581,7 +591,7 @@ class IdentityFeatures:
         return merged_features
 
     @classmethod
-    def merge_window_features(cls, features: dict) -> dict:
+    def merge_window_features(cls, features: WindowFeatureMap) -> FlatFeatureMap:
         """merge a dict of window features where each element in the dict is the set of window features computed for an individual animal
 
         Args:
@@ -609,7 +619,7 @@ class IdentityFeatures:
         return merged_features
 
     @staticmethod
-    def _unflatten_per_frame(flat: dict) -> dict:
+    def _unflatten_per_frame(flat: FlatFeatureMap) -> PerFrameFeatureMap:
         """Reconstruct a nested per-frame feature dict from a flat merged dict.
 
         Inverse of `merge_per_frame_features`. Splits
@@ -622,14 +632,14 @@ class IdentityFeatures:
         Returns:
             Nested dict ``{module_name: {feature_name: array}}``.
         """
-        nested: dict = {}
+        nested: PerFrameFeatureMap = {}
         for key, values in flat.items():
             module_name, feature_name = key.split(" ", 1)
             nested.setdefault(module_name, {})[feature_name] = values
         return nested
 
     @staticmethod
-    def _unflatten_window(flat: dict) -> dict:
+    def _unflatten_window(flat: FlatFeatureMap) -> WindowFeatureMap:
         """Reconstruct a nested window feature dict from a flat merged dict.
 
         Inverse of `merge_window_features`. Splits
@@ -643,7 +653,7 @@ class IdentityFeatures:
         Returns:
             Nested dict ``{module_name: {window_op: {feature_name: array}}}``.
         """
-        nested: dict = {}
+        nested: WindowFeatureMap = {}
         for key, values in flat.items():
             module_name, window_op, feature_name = key.split(" ", 2)
             nested.setdefault(module_name, {}).setdefault(window_op, {})[feature_name] = values
