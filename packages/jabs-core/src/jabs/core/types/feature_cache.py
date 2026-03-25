@@ -10,11 +10,6 @@ import numpy.typing as npt
 class FeatureCacheMetadata:
     """Versioning and validation metadata for a single identity's feature cache.
 
-    Stores the fields written to HDF5 file attributes or to ``metadata.json``
-    in the Parquet cache layout. Both ``distance_scale_factor`` and
-    ``avg_wall_length`` are omitted (left as ``None``) when the corresponding
-    features were not computed.
-
     ``cached_window_sizes`` uses ``frozenset`` to enforce uniqueness and allow
     O(1) membership testing. When serializing to JSON, convert to a sorted list
     for a stable, human-readable representation and reconstruct with
