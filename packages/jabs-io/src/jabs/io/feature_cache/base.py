@@ -117,7 +117,7 @@ class FeatureCacheReader(ABC):
     @abstractmethod
     def read_window(
         self, identity_dir: Path, window_size: int
-    ) -> dict[str, npt.NDArray[np.float64]]:
+    ) -> dict[str, npt.NDArray[np.generic]]:
         """Read window features for a specific window size.
 
         Returns a flat dict mapping ``"module_name window_op feature_name"``
@@ -162,7 +162,7 @@ class FeatureCacheWriter(ABC):
         identity_dir: Path,
         metadata: FeatureCacheMetadata,
         window_size: int,
-        data: dict[str, npt.NDArray[np.float64]],
+        data: dict[str, npt.NDArray[np.generic]],
     ) -> None:
         """Write window features for one window size.
 

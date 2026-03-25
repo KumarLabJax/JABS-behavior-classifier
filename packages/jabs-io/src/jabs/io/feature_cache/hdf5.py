@@ -113,7 +113,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
             if "closest_lixit" in f:
                 closest_lixit = f["closest_lixit"][:]
 
-            features: dict[str, npt.NDArray[np.float64]] = {}
+            features: dict[str, npt.NDArray[np.generic]] = {}
             for feature_key in f["features/per_frame"]:
                 values = f[f"features/per_frame/{feature_key}"][:]
                 assert len(values) == metadata.num_frames
@@ -132,7 +132,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
 
     def read_window(
         self, identity_dir: Path, window_size: int
-    ) -> dict[str, npt.NDArray[np.float64]]:
+    ) -> dict[str, npt.NDArray[np.generic]]:
         """Read window features for a specific window size.
 
         Args:
@@ -157,7 +157,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
                 raise AttributeError(f"Window size {window_size} not found in cache at {path}")
 
             group_key = f"features/window_features_{window_size}"
-            window_features: dict[str, npt.NDArray[np.float64]] = {}
+            window_features: dict[str, npt.NDArray[np.generic]] = {}
             for feature_key in f[group_key]:
                 values = f[f"{group_key}/{feature_key}"][:]
                 assert len(values) == metadata.num_frames
@@ -284,7 +284,7 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
         identity_dir: Path,
         metadata: FeatureCacheMetadata,
         window_size: int,
-        data: dict[str, npt.NDArray[np.float64]],
+        data: dict[str, npt.NDArray[np.generic]],
     ) -> None:
         """Append window features for one window size to ``features.h5``.
 

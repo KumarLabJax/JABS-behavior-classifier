@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # operations (mean, std, etc.) produce float64 regardless of input dtype.
 FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
-WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.float64]]]]
+WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
 FEATURE_VERSION = 16
 
