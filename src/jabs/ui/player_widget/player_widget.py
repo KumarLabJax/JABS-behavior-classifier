@@ -377,15 +377,19 @@ class PlayerWidget(QtWidgets.QWidget):
         """Return a clean pixmap of a frame at original video resolution.
 
         Reads directly from the video stream without any numpy-level overlays (track,
-        segmentation, landmarks).  Must only be called when the video is not playing;
-        calling it during playback is undefined behaviour due to shared VideoReader state.
+        segmentation, landmarks).  Must only be called when the video is not playing.
 
         Args:
             frame_number: Frame index to export. Defaults to the currently selected frame.
 
         Returns:
             A QPixmap at native video resolution, or None if no video is loaded.
+
+        Raises:
+            RuntimeError: If called while the video is playing.
         """
+        if self._playing:
+            raise RuntimeError("get_raw_frame() must not be called while the video is playing")
         if self._video_stream is None:
             return None
         target_frame = self.current_frame if frame_number is None else frame_number
