@@ -22,12 +22,12 @@ from .social_features import SocialFeatureGroup
 logger = logging.getLogger(__name__)
 
 # Type aliases for the nested feature dict structures used throughout this module.
-# FlatFeatureMap: merged flat dict produced by merge_per_frame_features() /
-#     merge_window_features() and consumed by the cache readers/writers.
-# PerFrameFeatureMap: module_name → feature_name → per-frame array.
-# WindowFeatureMap: module_name → window_op → feature_name → per-frame array.
-FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.float64]]
-PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.float64]]]
+# PerFrameFeatureMap / FlatFeatureMap use np.generic because per-frame features
+# contain mixed dtypes: most columns are float64, but auxiliary columns such as
+# point_mask are uint16. WindowFeatureMap stays float64 because all window
+# operations (mean, std, etc.) produce float64 regardless of input dtype.
+FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
+PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.float64]]]]
 
 FEATURE_VERSION = 16

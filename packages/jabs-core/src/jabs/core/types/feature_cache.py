@@ -65,7 +65,10 @@ class PerFrameCacheData:
         frame_valid: Boolean presence mask, shape ``(n_frames,)``, dtype uint8.
         features: Flat dict mapping ``"module_name feature_name"`` to a
             shape-``(n_frames,)`` array. Produced by
-            ``IdentityFeatures.merge_per_frame_features()``.
+            ``IdentityFeatures.merge_per_frame_features()``. Dtype varies by
+            column — most features are ``float64``, but auxiliary columns such
+            as ``point_mask`` are ``uint16``; ``np.generic`` is used to reflect
+            the mixed-dtype reality.
         closest_identities: Nearest-neighbor identity index per frame, shape
             ``(n_frames,)``. Present for pose v3+ (social features),
             ``None`` otherwise.
@@ -82,7 +85,7 @@ class PerFrameCacheData:
     """
 
     frame_valid: npt.NDArray[np.uint8]
-    features: dict[str, npt.NDArray[np.float64]]
+    features: dict[str, npt.NDArray[np.generic]]
     closest_identities: npt.NDArray[np.int64] | None = None
     closest_fov_identities: npt.NDArray[np.int64] | None = None
     closest_corners: npt.NDArray[np.float64] | None = None
