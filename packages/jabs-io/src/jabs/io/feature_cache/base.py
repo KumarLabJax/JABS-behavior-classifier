@@ -166,13 +166,18 @@ class FeatureCacheWriter(ABC):
     ) -> None:
         """Write window features for one window size.
 
-        Appends ``window_size`` to the persisted ``cached_window_sizes`` after
-        writing the feature data.
+        Implementations must store the features for this window size in a way
+        that allows them to be discovered and loaded later. Backends that
+        persist an explicit ``cached_window_sizes`` field should append
+        ``window_size`` to it after writing the feature data; backends that
+        instead infer window sizes from their storage layout (for example,
+        from group or path names) may update whatever metadata is appropriate
+        for that representation.
 
         Args:
             identity_dir: Directory for this identity's cache.
-            metadata: Current cache metadata; used to update
-                ``cached_window_sizes`` on disk.
+            metadata: Current cache metadata; backends may use this to update
+                any persisted window-size bookkeeping or perform validation.
             window_size: Window size these features were computed for.
             data: Flat dict mapping ``"module_name window_op feature_name"``
                 to shape-``(n_frames,)`` arrays.
