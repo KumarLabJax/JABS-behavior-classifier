@@ -179,6 +179,43 @@ def test_hdf5_window_size_not_cached(
 
 
 # ---------------------------------------------------------------------------
+# Social identity array pairing validation
+# ---------------------------------------------------------------------------
+
+
+def test_hdf5_closest_identities_without_fov_raises(
+    tmp_path, writer: HDF5FeatureCacheWriter
+) -> None:
+    """ValueError raised when closest_identities is provided without closest_fov_identities."""
+    rng = np.random.default_rng(8)
+    identity_dir = tmp_path / "identity_0"
+    data = PerFrameCacheData(
+        frame_valid=rng.integers(0, 2, size=_N_FRAMES, dtype=np.uint8),
+        features=_flat_features(rng),
+        closest_identities=rng.integers(0, 3, size=_N_FRAMES, dtype=np.int64),
+        closest_fov_identities=None,
+    )
+    with pytest.raises(ValueError, match="closest_identities and closest_fov_identities"):
+        writer.write_per_frame(identity_dir, _metadata(), data)
+
+
+def test_hdf5_closest_fov_identities_without_identities_raises(
+    tmp_path, writer: HDF5FeatureCacheWriter
+) -> None:
+    """ValueError raised when closest_fov_identities is provided without closest_identities."""
+    rng = np.random.default_rng(9)
+    identity_dir = tmp_path / "identity_0"
+    data = PerFrameCacheData(
+        frame_valid=rng.integers(0, 2, size=_N_FRAMES, dtype=np.uint8),
+        features=_flat_features(rng),
+        closest_identities=None,
+        closest_fov_identities=rng.integers(0, 3, size=_N_FRAMES, dtype=np.int64),
+    )
+    with pytest.raises(ValueError, match="closest_identities and closest_fov_identities"):
+        writer.write_per_frame(identity_dir, _metadata(), data)
+
+
+# ---------------------------------------------------------------------------
 # Auxiliary field tests
 # ---------------------------------------------------------------------------
 

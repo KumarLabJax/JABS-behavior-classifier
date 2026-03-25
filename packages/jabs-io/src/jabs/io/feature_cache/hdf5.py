@@ -229,6 +229,11 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
                 compression_opts=COMPRESSION_OPTS_DEFAULT,
             )
 
+            if (data.closest_identities is None) != (data.closest_fov_identities is None):
+                raise ValueError(
+                    "closest_identities and closest_fov_identities must both be provided "
+                    "or both be None; got one without the other"
+                )
             if data.closest_identities is not None:
                 f.create_dataset(
                     "closest_identities",
