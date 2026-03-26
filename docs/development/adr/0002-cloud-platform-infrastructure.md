@@ -5,7 +5,7 @@
 | **Status**    | Proposed                                                                                    |
 | **Date**      | 2026-03-24                                                                                  |
 | **Review By** | 2026-09-24 (6 months post-adoption)                                                         |
-| **Deciders**  | JABS Hub Development Team                                                                   |
+| **Deciders**  | JABS Engineering Team                                                                       |
 | **Category**  | Infrastructure & Deployment                                                                 |
 | **Scope**     | Development environment; production sizing and hardening to be revisited in a follow-up ADR |
 
@@ -430,6 +430,163 @@ services. Terraform state is stored in a dedicated GCS bucket (
 `jabs-hub-terraform-state`) with state locking via Cloud Storage's generation-based
 locking. Environment-specific configuration is managed through Terraform `.tfvars`
 files.
+
+### 12. Async Compute: Cloud Batch + Pub/Sub Job State Events
+
+Decision: **Use Google Cloud Batch for compute-intensive long-running tasks, with Cloud
+Batch's native Pub/Sub notifications driving job state updates via a Cloud Function
+subscriber.**
+
+#### Context
+
+JABS Hub requires the ability to run compute-intensive, long-running tasks outside the
+request/response cycle of the FastAPI API. Examples include pose estimation, classifier
+training, and feature extraction. Pose estimation in particular is a GPU-dependent
+workload — running a pose model across a full video can take minutes to hours depending
+on video length and model complexity, and is the primary driver of the GPU compute
+requirement. These tasks cannot be handled within a Cloud Run request (which has a
+maximum timeout of 60 minutes and is optimized for short-lived, concurrent request
+handling, not sustained single-threaded compute).
+
+#### Architecture
+
+```
+ ┌─────────────────────────────────────────────────────────────────┐
+ │                        Job Lifecycle                            │
+ │                                                                 │
+ │  Client Request                                                 │
+ │       │                                                         │
+ │       ▼                                                         │
+ │  ┌─────────────┐   creates job record    ┌──────────────────┐   │
+ │  │  FastAPI    │ ──────────────────────► │   Cloud SQL      │   │
+ │  │  (Cloud Run)│                         │  (jobs table)    │   │
+ │  └─────────────┘                         └──────────────────┘   │
+ │       │                                                         │
+ │       │ submits job                                             │
+ │       ▼                                                         │
+ │  ┌─────────────┐                                                │
+ │  │ Cloud Batch │                                                │
+ │  │    Job      │                                                │
+ │  └─────────────┘                                                │
+ │       │                                                         │
+ │       │ native state change notifications                       │
+ │       ▼                                                         │
+ │  ┌─────────────┐   triggers              ┌──────────────────┐   │
+ │  │   Pub/Sub   │ ──────────────────────► │ Cloud Function   │   │
+ │  │   Topic     │                         │ (state handler)  │   │
+ │  └─────────────┘                         └────────┬─────────┘   │
+ │                                                   │             │
+ │                                          updates job record     │
+ │                                                   │             │
+ │                                                   ▼             │
+ │                                          ┌──────────────────┐   │
+ │                                          │   Cloud SQL      │   │
+ │                                          │  (jobs table)    │   │
+ │                                          └──────────────────┘   │
+ └─────────────────────────────────────────────────────────────────┘
+ ```
+
+#### Why Cloud Batch
+
+Cloud Batch is GCP's managed batch computing service. It handles job scheduling, VM
+provisioning and teardown, retries, and logging without requiring a persistent cluster.
+
+##### Key properties that make it a good fit:
+
+- Supports CPU and GPU machine types, selectable per job
+- VMs are provisioned on demand and torn down after the job completes — no idle compute
+  cost
+- Jobs run in containers, consistent with the rest of the JABS Hub stack
+- Native integration with GCS for reading input data and writing output artifacts
+- Emits job lifecycle events to Pub/Sub natively — no instrumentation required in job
+  code
+
+#### Why Pub/Sub for state change handling (over alternatives):
+
+Two alternatives were considered for propagating job state back into JABS Hub:
+
+- Option A — HTTP callback from job process: The job itself calls a FastAPI endpoint (
+  e.g. POST /internal/jobs/{id}/status) on completion. Rejected because the notification
+  is emitted by the job process, meaning a crash, OOM kill, or preemption before the
+  callback executes silently loses the state update. Reliability is tied to job process
+  health, which is exactly the failure mode you most need to handle.
+- Option B — Periodic polling via Cloud Scheduler: A Cloud Scheduler job periodically
+  triggers the FastAPI service to poll Cloud Batch for job status. Rejected because
+  Cloud Run is not designed for background work, polling introduces unnecessary latency
+  between job completion and status update, and it generates API calls against Cloud
+  Batch regardless of whether any jobs are running. It provides no reliability advantage
+  over the callback approach.
+- Option C (chosen) — Cloud Batch native Pub/Sub notifications: Cloud Batch emits state
+  change events from its control plane, not from the job process itself. This means
+  state transitions are reported reliably regardless of how the job exits — including
+  crashes, OOM kills, and preemptions. The Cloud Function subscriber is a narrow, stable
+  piece of logic responsible only for translating Cloud Batch state vocabulary into JABS
+  Hub job states and writing the update to the database.
+
+#### Job state mapping:
+
+Cloud Batch emits several lifecycle states.
+
+The Cloud Function should handle at minimum:
+
+- Cloud Batch StateJABS Hub Job StateNotesQUEUEDqueuedJob accepted, not yet
+  scheduledRUNNINGrunningRecord start timeSUCCEEDEDsucceededTrigger result registration
+  if applicableFAILEDfailedCapture failure reason from event
+  payloadDELETION_IN_PROGRESS(no-op)Internal GCP cleanup; no application state change
+- Intermediate states not listed above should be logged and ignored. Pub/Sub
+  subscription filters should be used to restrict delivery to the states the Cloud
+  Function actually handles, avoiding unnecessary invocations.
+
+#### Job submission flow:
+
+1. Client requests a compute task via the FastAPI API (e.g. POST /projects/{id}/jobs)
+2. FastAPI creates a job record in Cloud SQL with state queued and a generated job_id
+3. FastAPI submits a Cloud Batch job, passing the job_id as an environment variable or
+   job label so it can be correlated in state change events
+4. FastAPI returns the job_id to the client immediately; the client polls GET
+   /jobs/{job_id} for status
+5. Cloud Batch emits state change events to the Pub/Sub topic as the job progresses
+6. The Cloud Function receives each event, extracts the job_id from the event payload,
+   and updates the job record in Cloud SQL
+
+#### Infrastructure considerations:
+
+- The Cloud Function requires the same VPC connector and Secret Manager access as the
+  Cloud Run service in order to reach Cloud SQL on its private IP. This is not optional
+  and should be provisioned as part of the same Terraform module to avoid it being
+  overlooked.
+- The Pub/Sub topic and subscription should be provisioned in the same GCP project as
+  the Cloud Batch jobs and Cloud Function, and managed via Terraform alongside the rest
+  of the infrastructure.
+- Cloud Batch jobs should run with a dedicated service account scoped to the minimum
+  permissions required: read access to the GCS input bucket, write access to the GCS
+  output bucket, and Pub/Sub publish rights if the job itself needs to emit custom
+  progress events (distinct from the native state change notifications).
+- Cloud Batch supports NVIDIA GPU attachment via machine type selection. Pose estimation
+  is the first GPU-dependent workload anticipated in JABS Hub and should be used as the
+  basis for determining the appropriate GPU machine type (e.g. n1-standard-4 + NVIDIA T4
+  as a cost-effective starting point for inference workloads). GPU quota must be
+  requested in advance in the target GCP region — this is a non-trivial lead-time item,
+  often requiring a quota increase request through GCP support, and should be addressed
+  well before any GPU-dependent features are scheduled for development.
+
+#### Unresolved / deferred:
+
+- Progress reporting within a running job: Cloud Batch native notifications cover coarse
+  lifecycle states. If the UI needs fine-grained progress (e.g. "processing frame 4,200
+  of 18,000"), the job process will need to write intermediate progress to Cloud SQL
+  directly or via a separate lightweight mechanism. This is distinct from the state
+  change architecture described here and should be addressed when the first long-running
+  job type is designed.
+- Result registration on success: When a job completes successfully, derived outputs (
+  feature files, classifier artifacts) written to GCS need to be registered in the JABS
+  Hub database. Whether this registration is triggered by the Cloud Function on
+  SUCCEEDED or by a separate API call from the job before exit is a design decision
+  deferred to the individual job type's implementation ADR.
+- Job cancellation: Cloud Batch supports job cancellation via the API. The FastAPI
+  service should expose a cancel endpoint, but the interaction between a cancel request,
+  in-flight Pub/Sub events, and final state reconciliation needs to be designed
+  carefully to avoid race conditions. Deferred to implementation.
 
 ---
 
