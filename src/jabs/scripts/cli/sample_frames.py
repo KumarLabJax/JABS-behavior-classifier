@@ -2,7 +2,7 @@
 
 Extracts PNG frames from videos in a JABS project for frames annotated with a
 given behavior label. Two sampling modes are available: a fixed number of
-frames per individual or a fixed total number of frames across the whole project.
+frames per bout or a fixed total number of frames across the whole project.
 """
 
 from __future__ import annotations
