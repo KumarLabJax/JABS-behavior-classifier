@@ -115,6 +115,7 @@ Commands:
   export-training       Export training data for a specified behavior and JABS project directory.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
+  sample-frames         Sample PNG frames from a JABS project filtered by a behavior label.
   sample-pose-intervals Sample contiguous intervals from a batch of JABS pose and video files.
   update-pose           Update a JABS project to use updated pose files while remapping labels.
 ```
@@ -177,6 +178,56 @@ After a successful live pose update, features are regenerated automatically only
 
 ```bash
 jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
+```
+
+## jabs-cli sample-frames
+
+The `jabs-cli sample-frames` command extracts individual video frames as PNG images
+from a JABS project, filtered to frames annotated with a specific behavior label.
+The primary use case is building targeted training datasets for the keypoint/pose
+model — particularly for behaviors where pose estimation quality is known to be
+degraded.
+
+**Usage:**
+
+```bash
+jabs-cli sample-frames --behavior <label> \
+    (--num-frames N | --frames-per-bout N) \
+    [--out-dir <path>] \
+    <project_dir>
+```
+
+- `<project_dir>`: Path to the JABS project directory.
+- `--behavior`: Behavior label name to sample frames for (required). Must match a behavior defined in the project.
+- `--num-frames N`: Sample a total of N frames distributed uniformly at random across all labeled bouts in the project. Mutually exclusive with `--frames-per-bout`.
+- `--frames-per-bout N`: Sample up to N frames from each individual labeled bout. If a bout contains fewer than N frames, all frames in that bout are used. Mutually exclusive with `--num-frames`.
+- `--out-dir`: Directory to write PNG files. Defaults to the current working directory. Created (including intermediate directories) if it does not exist.
+
+Exactly one of `--num-frames` or `--frames-per-bout` must be provided.
+
+**Output filenames** follow the JABS GUI "Export Frame" convention:
+
+```
+{video_stem}_frame{frame_number:06d}.png
+```
+
+For example, frame 1234 from `session_2024.mp4` is written as `session_2024_frame001234.png`.
+
+Frames are deduplicated across identities: if multiple identities overlap in the
+same bout, each unique video frame is written only once.
+
+**Examples:**
+
+```bash
+# Sample 200 frames total, distributed uniformly across all walking bouts
+jabs-cli sample-frames --behavior walking --num-frames 200 /path/to/project
+
+# Sample up to 10 frames from each individual walking bout
+jabs-cli sample-frames --behavior walking --frames-per-bout 10 /path/to/project
+
+# Write frames to a specific output directory
+jabs-cli sample-frames --behavior walking --num-frames 100 \
+    --out-dir /data/frames /path/to/project
 ```
 
 ## jabs-cli sample-pose-intervals

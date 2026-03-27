@@ -39,3 +39,6 @@ convention = "google"
 "src/jabs/scripts/cli/sample_pose_intervals.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
 ]
+"src/jabs/scripts/cli/sample_frames.py" = [
+    "D301",  # Click uses \b in docstrings to control help formatting
+]
