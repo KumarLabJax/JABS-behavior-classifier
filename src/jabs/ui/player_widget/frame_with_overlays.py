@@ -504,9 +504,12 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
         arr = arr.reshape((height, width, bytes_per_pixel))
 
-        # adjust the RGB channels only, leave alpha channel unchanged
+        # Adjust the RGB channels only, leave alpha channel unchanged.
+        # Apply contrast first (scale around midpoint 128), then brightness as an
+        # independent additive offset so the two controls do not interact.
+        rgb = arr[..., :3].astype(np.float32)
         arr[..., :3] = np.clip(
-            (arr[..., :3] * self._brightness - 128) * self._contrast + 128, 0, 255
+            (rgb - 128) * self._contrast + 128 + (self._brightness - 1.0) * 128, 0, 255
         )
 
         return QtGui.QPixmap.fromImage(
