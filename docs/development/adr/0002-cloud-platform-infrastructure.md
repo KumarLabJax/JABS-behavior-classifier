@@ -529,10 +529,14 @@ Cloud Batch emits several lifecycle states.
 
 The Cloud Function should handle at minimum:
 
-- Cloud Batch StateJABS Hub Job StateNotesQUEUEDqueuedJob accepted, not yet
-  scheduledRUNNINGrunningRecord start timeSUCCEEDEDsucceededTrigger result registration
-  if applicableFAILEDfailedCapture failure reason from event
-  payloadDELETION_IN_PROGRESS(no-op)Internal GCP cleanup; no application state change
+
+| Cloud Batch State    | JABS Hub Job State | Notes                                             |
+|----------------------|--------------------|---------------------------------------------------|
+| QUEUED               | queued             | Job accepted, not yet scheduled                   |
+| RUNNING              | running            | Record start time                                 | 
+| SUCCEEDED            | succeeded          | Trigger result registration if applicable         |
+| FAILED               | failed             | Capture failure reason from event payload         |
+| DELETION_IN_PROGRESS | (no-op)            | Internal GCP cleanup; no application state change |
 - Intermediate states not listed above should be logged and ignored. Pub/Sub
   subscription filters should be used to restrict delivery to the states the Cloud
   Function actually handles, avoiding unnecessary invocations.
