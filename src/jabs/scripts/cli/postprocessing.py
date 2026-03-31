@@ -121,10 +121,13 @@ def _serialize_config(
         )
 
     use_dict = behaviors is not None and len(behaviors) > 1
-    stage_list = _stage_template_list()
 
     if suffix == ".json":
-        config: list | dict = dict.fromkeys(behaviors, stage_list) if use_dict else stage_list
+        config: list | dict = (
+            {beh: _stage_template_list() for beh in behaviors}  # type: ignore[union-attr]
+            if use_dict
+            else _stage_template_list()
+        )
         return json.dumps(config, indent=2) + "\n"
 
     # --- YAML (constructed manually to include comments) ---------------------
@@ -350,7 +353,10 @@ def run_apply_postprocessing(
 
     # --- Prepare output file -------------------------------------------------
     if output_path != prediction_file:
-        shutil.copy2(prediction_file, output_path)
+        try:
+            shutil.copy2(prediction_file, output_path)
+        except OSError as exc:
+            raise click.ClickException(f"Cannot write output file: {exc}") from exc
         logger.info("Copied '%s' to '%s'", prediction_file, output_path)
 
     # --- Process each behavior -----------------------------------------------
@@ -363,7 +369,15 @@ def run_apply_postprocessing(
                 f"Invalid pipeline config for behavior '{behavior}': {exc}"
             ) from exc
 
-        pred: BehaviorPrediction = io.load(prediction_file, BehaviorPrediction, behavior=behavior)
+        try:
+            pred: BehaviorPrediction = io.load(
+                prediction_file, BehaviorPrediction, behavior=behavior
+            )
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to read predictions for behavior '{behavior}' "
+                f"from '{prediction_file}': {exc}"
+            ) from exc
 
         n_identities, _n_frames = pred.predicted_class.shape
         postprocessed = pred.predicted_class.copy()
@@ -384,7 +398,13 @@ def run_apply_postprocessing(
             identity_to_track=pred.identity_to_track,
             external_identity_mapping=pred.external_identity_mapping,
         )
-        io.save(updated_pred, output_path)
+        try:
+            io.save(updated_pred, output_path)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Failed to write postprocessed predictions for behavior '{behavior}' "
+                f"to '{output_path}': {exc}"
+            ) from exc
         logger.info("Wrote postprocessed predictions for behavior '%s'", behavior)
         processed.append(behavior)
 
