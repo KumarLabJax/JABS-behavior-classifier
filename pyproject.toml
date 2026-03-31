@@ -1,6 +1,6 @@
 [project]
 name = "jabs-behavior-classifier"
-version = "0.42.1a1"
+version = "0.42.1a2"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10,<3.15"

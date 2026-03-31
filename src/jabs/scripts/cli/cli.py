@@ -20,6 +20,7 @@ from jabs.project import Project, export_training_data, get_videos_to_prune
 from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
 from .postprocessing import apply_postprocessing_command
+from .sample_frames import sample_frames_command
 from .sample_pose_intervals import sample_pose_intervals_command
 from .update_pose import update_pose_command
 
@@ -44,6 +45,7 @@ def cli(ctx: click.Context, verbose):
 cli.add_command(apply_postprocessing_command)
 cli.add_command(update_pose_command)
 cli.add_command(sample_pose_intervals_command)
+cli.add_command(sample_frames_command)
 
 
 @cli.command(name="export-training")

@@ -43,3 +43,6 @@ convention = "google"
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click preformatted blocks look better with a blank line before \b
 ]
+"src/jabs/scripts/cli/sample_frames.py" = [
+    "D301",  # Click uses \b in docstrings to control help formatting
+]
