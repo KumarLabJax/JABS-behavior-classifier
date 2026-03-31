@@ -63,6 +63,7 @@ class BoutStitchingStage(PostprocessingStage):
                 "max_stitch_gap": KwargHelp(
                     description="Maximum gap duration (in frames) allowed between bouts to be stitched together.",
                     type="int",
+                    default=3,
                 ),
             },
         )

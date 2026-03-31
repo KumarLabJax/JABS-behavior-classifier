@@ -1,15 +1,24 @@
 import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
 
 @dataclass(frozen=True)
 class KwargHelp:
-    """Dataclass for kwarg help information."""
+    """Dataclass for kwarg help information.
+
+    Attributes:
+        description: Human-readable description of the parameter.
+        type: Type name string (e.g. ``"int"``).
+        default: Suggested default value, or ``None`` if no default is defined.
+            Used by config generators to populate template files.
+    """
 
     description: str
     type: str
+    default: Any = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

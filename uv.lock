@@ -1082,6 +1082,7 @@ wheels = [
 name = "griffelib"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/06/eccbd311c9e2b3ca45dbc063b93134c57a1ccc7607c5e545264ad092c4a9/griffelib-2.0.0.tar.gz", hash = "sha256:e504d637a089f5cab9b5daf18f7645970509bf4f53eda8d79ed71cce8bd97934", size = 166312, upload-time = "2026-03-23T21:06:55.954Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/51/c936033e16d12b627ea334aaaaf42229c37620d0f15593456ab69ab48161/griffelib-2.0.0-py3-none-any.whl", hash = "sha256:01284878c966508b6d6f1dbff9b6fa607bc062d8261c5c7253cb285b06422a7f", size = 142004, upload-time = "2026-02-09T19:09:40.561Z" },
 ]
@@ -1420,6 +1421,9 @@ dependencies = [
 nwb = [
     { name = "jabs-io", extra = ["nwb"] },
 ]
+yaml = [
+    { name = "pyyaml" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1461,6 +1465,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.2,<3.0.0" },
     { name = "pyarrow", specifier = ">=20.0.0,<23.0.0" },
     { name = "pyside6", specifier = ">=6.8.0,!=6.9.0" },
+    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0.0" },
     { name = "qt-material-icons", specifier = ">=0.2.0,<0.3.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
     { name = "rich-argparse", specifier = ">=1.7.1,<2.0.0" },
@@ -1470,7 +1475,7 @@ requires-dist = [
     { name = "toml", specifier = ">=0.10.2,<0.11.0" },
     { name = "xgboost", specifier = ">=2.0.0,<3.0.0" },
 ]
-provides-extras = ["nwb"]
+provides-extras = ["nwb", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [
