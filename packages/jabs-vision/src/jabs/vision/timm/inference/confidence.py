@@ -52,19 +52,23 @@ def sample_confidence_at_coords(
     grid_x = (coords[..., 0] / (W - 1)) * 2 - 1
     grid_y = (coords[..., 1] / (H - 1)) * 2 - 1
 
-    # Sample each keypoint channel
-    conf_logits = torch.zeros((B, K), device=confidence_maps.device, dtype=confidence_maps.dtype)
-    for k in range(K):
-        grid = torch.stack([grid_x[:, k], grid_y[:, k]], dim=-1).view(B, 1, 1, 2)
-        sampled = F.grid_sample(
-            confidence_maps[:, k : k + 1],
-            grid,
-            mode="bilinear",
-            align_corners=True,
-            padding_mode="border",
-        )
-        conf_logits[:, k] = sampled.view(B)
+    # Vectorized sampling over all keypoints with a single grid_sample call
+    # confidence_maps: (B, K, H, W) -> (B*K, 1, H, W)
+    flat_conf_maps = confidence_maps.view(B * K, 1, H, W)
 
+    # Build grid: (B, K, 2) -> (B*K, 1, 1, 2)
+    grid = torch.stack([grid_x, grid_y], dim=-1).view(B * K, 1, 1, 2)
+
+    sampled = F.grid_sample(
+        flat_conf_maps,
+        grid,
+        mode="bilinear",
+        align_corners=True,
+        padding_mode="border",
+    )
+
+    # sampled: (B*K, 1, 1, 1) -> (B, K)
+    conf_logits = sampled.view(B, K)
     return conf_logits
 
 
