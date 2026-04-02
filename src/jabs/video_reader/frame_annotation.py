@@ -5,6 +5,7 @@ from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 
 _ID_COLOR = (215, 222, 0)
 _ACTIVE_COLOR = (0, 0, 255)
+_INACTIVE_COLOR = (255, 0, 0)
 
 _FUTURE_TRACK_COLOR = (61, 61, 255)
 _PAST_TRACK_COLOR = (135, 135, 255)
@@ -172,8 +173,12 @@ def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: tuple[int, i
 
 
 def overlay_segmentation(
-    img: np.ndarray, pose_est: PoseEstimationV6, identity: int, frame_index: int
-):
+    img: np.ndarray,
+    pose_est: PoseEstimationV6,
+    identity: int,
+    frame_index: int,
+    active: bool,
+) -> None:
     """overlay the segmentation on a frame for a given identity
 
     Args:
@@ -183,6 +188,8 @@ def overlay_segmentation(
             will be applied to.
         frame_index: This integer identifies the current video frame
             index.
+        active: Whether this identity is the active identity in the GUI.
+             If True, segmentation contours will be drawn in red, otherwise blue.
 
     Returns:
         None
@@ -197,7 +204,7 @@ def overlay_segmentation(
         # No segmentation data available to render.
         return
 
-    draw_all_contours(img, contours, _ACTIVE_COLOR)
+    draw_all_contours(img, contours, _ACTIVE_COLOR if active else _INACTIVE_COLOR)
 
 
 def overlay_landmarks(img: np.ndarray, pose_est: PoseEstimation):

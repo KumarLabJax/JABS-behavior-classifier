@@ -4,7 +4,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui
 
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
-from jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.video_reader import (
     VideoReader,
     draw_track,
@@ -127,13 +127,15 @@ class PlayerThread(QtCore.QThread):
             if self._show_track:
                 draw_track(frame["data"], self._pose_est, self._identity, frame["index"])
 
-            if self._overlay_segmentation:
-                overlay_segmentation(
-                    frame["data"],
-                    self._pose_est,
-                    identity=self._identity,
-                    frame_index=frame["index"],
-                )
+            if self._overlay_segmentation and isinstance(self._pose_est, PoseEstimationV6):
+                for ident in range(self._pose_est.num_identities):
+                    overlay_segmentation(
+                        frame["data"],
+                        self._pose_est,
+                        identity=ident,
+                        frame_index=frame["index"],
+                        active=(ident == self._identity),
+                    )
 
             if self._label_closest:
                 closest_fov_id = self._get_closest_animal_id(
