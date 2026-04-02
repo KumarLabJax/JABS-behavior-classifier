@@ -37,6 +37,14 @@ def sample_confidence_at_coords(
     Returns:
         (B, K) confidence logits sampled at each coordinate.
     """
+    if confidence_maps.ndim != 4:
+        raise ValueError(
+            f"Expected confidence_maps to have shape (B, K, H, W), "
+            f"but got {tuple(confidence_maps.shape)}"
+        )
+    if coords.ndim != 3 or coords.shape[-1] != 2:
+        raise ValueError(f"Expected coords to have shape (B, K, 2), but got {tuple(coords.shape)}")
+
     B, K, H, W = confidence_maps.shape
 
     if H < 2 or W < 2:
@@ -44,7 +52,7 @@ def sample_confidence_at_coords(
         return confidence_maps.mean(dim=(-2, -1))
 
     # Clamp coordinates to valid range
-    coords = coords.to(confidence_maps.dtype).clone()
+    coords = coords.to(device=confidence_maps.device, dtype=confidence_maps.dtype).clone()
     coords[..., 0] = coords[..., 0].clamp(0, W - 1)
     coords[..., 1] = coords[..., 1].clamp(0, H - 1)
 
@@ -52,20 +60,17 @@ def sample_confidence_at_coords(
     grid_x = (coords[..., 0] / (W - 1)) * 2 - 1
     grid_y = (coords[..., 1] / (H - 1)) * 2 - 1
 
-    # Sample each keypoint channel
-    conf_logits = torch.zeros((B, K), device=confidence_maps.device, dtype=confidence_maps.dtype)
-    for k in range(K):
-        grid = torch.stack([grid_x[:, k], grid_y[:, k]], dim=-1).view(B, 1, 1, 2)
-        sampled = F.grid_sample(
-            confidence_maps[:, k : k + 1],
-            grid,
-            mode="bilinear",
-            align_corners=True,
-            padding_mode="border",
-        )
-        conf_logits[:, k] = sampled.view(B)
+    flat_conf_maps = confidence_maps.reshape(B * K, 1, H, W)
+    grid = torch.stack([grid_x, grid_y], dim=-1).reshape(B * K, 1, 1, 2)
 
-    return conf_logits
+    sampled = F.grid_sample(
+        flat_conf_maps,
+        grid,
+        mode="bilinear",
+        align_corners=True,
+        padding_mode="border",
+    )
+    return sampled.reshape(B, K)
 
 
 def compute_confidence_labels(
@@ -95,6 +100,14 @@ def compute_confidence_labels(
         H, W = image_size
         image_diagonal = (H**2 + W**2) ** 0.5
 
-    threshold = threshold_fraction * image_diagonal
     distances = torch.norm(predictions - ground_truth, dim=-1)
+    threshold = torch.as_tensor(
+        threshold_fraction,
+        device=distances.device,
+        dtype=distances.dtype,
+    ) * torch.as_tensor(
+        image_diagonal,
+        device=distances.device,
+        dtype=distances.dtype,
+    )
     return (distances <= threshold).float()

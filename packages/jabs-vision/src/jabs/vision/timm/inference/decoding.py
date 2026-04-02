@@ -14,22 +14,33 @@ def get_max_preds(heatmaps: Tensor) -> tuple[Tensor, Tensor]:
 
     Returns:
         Tuple of (coords, maxvals) where:
-            - coords: (B, K, 2) integer coordinates (x, y)
+            - coords: (B, K, 2) floating-point pixel coordinates (x, y)
+              whose values are integer-valued argmax indices
             - maxvals: (B, K, 1) maximum values
     """
-    B, K, H, W = heatmaps.shape
+    if heatmaps.ndim != 4:
+        raise ValueError(
+            f"Expected heatmaps to have 4 dimensions (B, K, H, W), "
+            f"but got shape {tuple(heatmaps.shape)}"
+        )
+
+    B, K, _, W = heatmaps.shape
 
     # Flatten spatial dimensions: (B, K, H*W)
-    heatmaps_flat = heatmaps.view(B, K, -1)
+    heatmaps_flat = heatmaps.reshape(B, K, -1)
 
     # Get max values and indices
     maxvals, idx = torch.max(heatmaps_flat, dim=2)
     maxvals = maxvals.unsqueeze(-1)
 
     # Convert flat index to (x, y) coordinates
-    preds = torch.zeros((B, K, 2), device=heatmaps.device, dtype=heatmaps.dtype)
-    preds[..., 0] = idx % W  # x coordinate
-    preds[..., 1] = idx // W  # y coordinate
+    preds = torch.stack(
+        [
+            (idx % W).to(dtype=heatmaps.dtype),
+            torch.div(idx, W, rounding_mode="floor").to(dtype=heatmaps.dtype),
+        ],
+        dim=-1,
+    )
 
     return preds, maxvals
 
@@ -54,13 +65,18 @@ def decode_heatmaps(
         Taylor expansion to achieve sub-pixel accuracy. Reference:
         https://arxiv.org/abs/1910.06278
     """
-    B, K, H, W = heatmaps.shape
-    device = heatmaps.device
+    if heatmaps.ndim != 4:
+        raise ValueError(
+            f"Expected heatmaps to have 4 dimensions (B, K, H, W), "
+            f"but got shape {tuple(heatmaps.shape)}"
+        )
 
-    # Get integer argmax coordinates
+    B, K, H, W = heatmaps.shape
+
+    # Get argmax coordinates in floating point so DARK can refine them in place.
     coords, _ = get_max_preds(heatmaps)
 
-    if not use_dark:
+    if not use_dark or H < 5 or W < 5:
         return coords
 
     # DARK refinement using Taylor expansion
@@ -95,17 +111,21 @@ def decode_heatmaps(
                 + val[cy - 1, cx - 1]
             )
 
-            # Hessian matrix and gradient vector
-            H = torch.tensor([[dxx, dxy], [dxy, dyy]], device=device, dtype=val.dtype)
-            g = torch.tensor([dx, dy], device=device, dtype=val.dtype)
+            # Build the local quadratic approximation without materializing Python scalars.
+            hessian = torch.stack(
+                [
+                    torch.stack([dxx, dxy]),
+                    torch.stack([dxy, dyy]),
+                ]
+            )
+            grad = torch.stack([dx, dy])
 
             try:
-                H_inv = torch.inverse(H)
-                delta = -torch.matmul(H_inv, g)
+                delta = torch.linalg.solve(hessian, -grad)
                 refined_coords[b, k, 0] += delta[0]
                 refined_coords[b, k, 1] += delta[1]
             except RuntimeError:
-                # Singular matrix, skip refinement for this keypoint
+                # Singular matrix or solve failure, skip refinement for this keypoint.
                 continue
 
     return refined_coords
