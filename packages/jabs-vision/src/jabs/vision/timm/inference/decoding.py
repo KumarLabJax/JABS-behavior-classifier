@@ -17,10 +17,16 @@ def get_max_preds(heatmaps: Tensor) -> tuple[Tensor, Tensor]:
             - coords: (B, K, 2) integer coordinates (x, y)
             - maxvals: (B, K, 1) maximum values
     """
+    if heatmaps.ndim != 4:
+        raise ValueError(
+            f"Expected heatmaps to have 4 dimensions (B, K, H, W), "
+            f"but got shape {tuple(heatmaps.shape)}"
+        )
+
     B, K, H, W = heatmaps.shape
 
     # Flatten spatial dimensions: (B, K, H*W)
-    heatmaps_flat = heatmaps.view(B, K, -1)
+    heatmaps_flat = heatmaps.reshape(B, K, -1)
 
     # Get max values and indices
     maxvals, idx = torch.max(heatmaps_flat, dim=2)
