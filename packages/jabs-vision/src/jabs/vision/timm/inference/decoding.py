@@ -102,12 +102,12 @@ def decode_heatmaps(
             )
 
             # Hessian matrix and gradient vector
-            H = torch.tensor([[dxx, dxy], [dxy, dyy]], device=device, dtype=val.dtype)
+            hessian = torch.tensor([[dxx, dxy], [dxy, dyy]], device=device, dtype=val.dtype)
             g = torch.tensor([dx, dy], device=device, dtype=val.dtype)
 
             try:
-                H_inv = torch.inverse(H)
-                delta = -torch.matmul(H_inv, g)
+                hessian_inv = torch.inverse(hessian)
+                delta = -torch.matmul(hessian_inv, g)
                 refined_coords[b, k, 0] += delta[0]
                 refined_coords[b, k, 1] += delta[1]
             except RuntimeError:
