@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Sync all workspace sub-package versions to match the root package version.
+# Also rewrites the exact-version pins for jabs-* dependencies in the root
+# pyproject.toml so that a published jabs-behavior-classifier==X.Y.Z always
+# pulls exactly jabs-core==X.Y.Z, jabs-io==X.Y.Z, and jabs-behavior==X.Y.Z.
 #
 # Usage:
 #   ./dev/sync-versions.sh                     # apply root version to all sub-packages and update README.md
@@ -33,6 +36,23 @@ for toml in packages/*/pyproject.toml; do
         uv version "$ROOT_VERSION" --package "$pkg_name" --frozen $DRY_RUN
     fi
 done
+
+# Rewrite exact-version pins for jabs-* workspace packages in root pyproject.toml.
+# Matches lines like "jabs-behavior==1.2.3" or "jabs-behavior" (no pin yet).
+echo ""
+echo "Root pyproject.toml jabs-* pin rewrite: -> ==${ROOT_VERSION}"
+if [ -n "$DRY_RUN" ]; then
+    echo "  Lines in pyproject.toml that would be updated:"
+    grep -nE '"(jabs-behavior|jabs-core|jabs-io)(==[^"]*)?"' pyproject.toml \
+        | sed "s/^/    /" \
+        || echo "    (no matching lines found)"
+else
+    sed -i.bak -E \
+        's/"(jabs-behavior|jabs-core|jabs-io)(==[^"]*)?"$/"\1=='"${ROOT_VERSION}"'",/' \
+        pyproject.toml
+    rm -f pyproject.toml.bak
+    echo "  pyproject.toml updated."
+fi
 
 if [ -n "$UPDATE_README" ]; then
     echo ""
