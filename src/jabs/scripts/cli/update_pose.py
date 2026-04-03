@@ -47,6 +47,7 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+import h5py
 import numpy as np
 
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
@@ -653,6 +654,81 @@ def _refresh_project_identity_counts(project: Project) -> None:
     project.settings_manager.save_project_file({"video_files": refreshed})
 
 
+def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
+    """Return parsed model metadata from a pose file, or ``None`` if it is absent."""
+    try:
+        with h5py.File(pose_path, "r") as pose_h5:
+            raw_json = pose_h5["poseest"].attrs.get("model_metadata_json")
+    except OSError as exc:
+        raise ValueError(f"Could not read pose file metadata from {pose_path}: {exc}") from exc
+    except KeyError as exc:
+        raise ValueError(f"Pose file is missing the poseest group: {pose_path}") from exc
+
+    if raw_json is None:
+        return None
+    if isinstance(raw_json, np.ndarray) and raw_json.shape == ():
+        raw_json = raw_json.item()
+    if isinstance(raw_json, bytes):
+        raw_json = raw_json.decode("utf-8")
+    if isinstance(raw_json, str):
+        raw_json = raw_json.strip()
+        if raw_json == "":
+            return None
+
+    try:
+        metadata = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Pose file model metadata is not valid JSON in {pose_path}: {exc}"
+        ) from exc
+
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Pose file model metadata must be a JSON object in {pose_path}")
+
+    return metadata
+
+
+def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object] | None:
+    """Merge shared replacement-pose model metadata into staged project metadata."""
+    metadata_by_video: dict[str, dict[str, object]] = {}
+    missing_videos: list[str] = []
+
+    for video in project.video_manager.videos:
+        pose_path = project.video_manager.get_cached_pose_path(video)
+        metadata = _load_pose_file_model_metadata(pose_path)
+        if metadata is None:
+            missing_videos.append(video)
+            continue
+        metadata_by_video[video] = metadata
+
+    if not metadata_by_video:
+        print(
+            "WARNING: Replacement pose files are missing model_metadata_json; "
+            "destination project metadata was not updated.",
+            file=sys.stderr,
+        )
+        return None
+
+    if missing_videos:
+        present_videos = sorted(metadata_by_video)
+        raise ValueError(
+            "Replacement pose files have inconsistent model metadata presence: "
+            f"missing for {', '.join(sorted(missing_videos))}; "
+            f"present for {', '.join(present_videos)}"
+        )
+
+    first_video, first_metadata = next(iter(metadata_by_video.items()))
+    for video, metadata in metadata_by_video.items():
+        if metadata != first_metadata:
+            raise ValueError(
+                "Replacement pose files have inconsistent model metadata: "
+                f"{video} does not match {first_video}"
+            )
+
+    project.settings_manager.set_project_metadata({"project": first_metadata}, replace=False)
+    return first_metadata
+
+
 def _copy_file_atomic(source: Path, destination: Path) -> None:
     """Copy a file into place via a temporary file and atomic replace."""
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -891,6 +967,7 @@ def update_project_pose_in_place(
             pose_dir=new_pose_dir,
             validate_project_dir=False,
         )
+        _inject_consistent_pose_model_metadata(label_dest_project)
 
         total_success, total_skipped = _run_staged_label_remap(
             label_source_project,
