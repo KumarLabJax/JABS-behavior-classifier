@@ -1,8 +1,10 @@
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import h5py
 import numpy as np
 import pytest
 from click.testing import CliRunner
@@ -22,6 +24,32 @@ def _make_pose(identities, boxes_by_identity):
         identities=list(identities),
         get_bounding_boxes=lambda identity: boxes_by_identity[identity],
         identity_index_to_display=lambda identity: f"id-{identity}",
+    )
+
+
+def _write_pose_file_with_metadata(
+    pose_path: Path,
+    metadata: dict[str, object] | None = None,
+    *,
+    raw_json: str | None = None,
+) -> None:
+    """Create a minimal pose H5 file with optional model metadata."""
+    with h5py.File(pose_path, "w") as pose_h5:
+        pose_grp = pose_h5.create_group("poseest")
+        if raw_json is not None:
+            pose_grp.attrs["model_metadata_json"] = raw_json
+        elif metadata is not None:
+            pose_grp.attrs["model_metadata_json"] = json.dumps(metadata)
+
+
+def _make_metadata_project(pose_paths: dict[str, Path]) -> SimpleNamespace:
+    """Build a minimal project stub for metadata injection tests."""
+    return SimpleNamespace(
+        video_manager=SimpleNamespace(
+            videos=list(pose_paths),
+            get_cached_pose_path=lambda video: pose_paths[video],
+        ),
+        settings_manager=MagicMock(),
     )
 
 
@@ -298,6 +326,128 @@ def test_regenerate_features_after_update_calls_run_initialize_project(tmp_path,
     }
 
 
+def test_inject_consistent_pose_model_metadata_merges_into_project(tmp_path):
+    """Consistent replacement pose metadata should be merged into project metadata."""
+    metadata = {
+        "detection_model_name": "detector:backbone",
+        "detection_max_instances": 4,
+        "pose_model_name": "pose:backbone",
+    }
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_a, metadata)
+    _write_pose_file_with_metadata(pose_b, metadata)
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    returned = update_pose._inject_consistent_pose_model_metadata(project)
+
+    assert returned == metadata
+    project.settings_manager.set_project_metadata.assert_called_once_with(
+        {"project": metadata},
+        replace=False,
+    )
+
+
+def test_inject_consistent_pose_model_metadata_warns_when_missing(tmp_path, capsys):
+    """Missing metadata across the whole replacement pose set should only warn."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_a)
+    _write_pose_file_with_metadata(pose_b)
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    returned = update_pose._inject_consistent_pose_model_metadata(project)
+
+    assert returned is None
+    project.settings_manager.set_project_metadata.assert_not_called()
+    assert "missing model_metadata_json" in capsys.readouterr().err
+
+
+def test_inject_consistent_pose_model_metadata_rejects_mixed_presence(tmp_path):
+    """Replacement pose metadata must be present for every video or none of them."""
+    metadata = {"pose_model_name": "pose:backbone"}
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_a, metadata)
+    _write_pose_file_with_metadata(pose_b)
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    with pytest.raises(ValueError, match="inconsistent model metadata presence"):
+        update_pose._inject_consistent_pose_model_metadata(project)
+
+
+def test_inject_consistent_pose_model_metadata_rejects_mismatch(tmp_path):
+    """Replacement pose metadata should fail when files disagree."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(pose_a, {"pose_model_name": "pose:a"})
+    _write_pose_file_with_metadata(pose_b, {"pose_model_name": "pose:b"})
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    with pytest.raises(ValueError, match="inconsistent model metadata"):
+        update_pose._inject_consistent_pose_model_metadata(project)
+
+
+def test_inject_consistent_pose_model_metadata_allows_non_whitelist_differences(tmp_path):
+    """Differences outside the whitelist should not block metadata injection."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    metadata_a = {
+        "pose_model_name": "pose:a",
+        "pose_model_version": "1.0.0",
+        "detection_model_name": "detector:a",
+        "detection_model_version": "2.0.0",
+        "config_files": ["a.yaml"],
+    }
+    metadata_b = {
+        "pose_model_name": "pose:a",
+        "pose_model_version": "1.0.0",
+        "detection_model_name": "detector:a",
+        "detection_model_version": "2.0.0",
+        "config_files": ["b.yaml"],
+    }
+    _write_pose_file_with_metadata(pose_a, metadata_a)
+    _write_pose_file_with_metadata(pose_b, metadata_b)
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    returned = update_pose._inject_consistent_pose_model_metadata(project)
+
+    assert returned == metadata_a
+    project.settings_manager.set_project_metadata.assert_called_once_with(
+        {"project": metadata_a},
+        replace=False,
+    )
+
+
+def test_inject_consistent_pose_model_metadata_rejects_inconsistent_missing_whitelist_key(
+    tmp_path,
+):
+    """A whitelisted key must be either present for every file or absent for every file."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(
+        pose_a,
+        {
+            "pose_model_name": "pose:a",
+            "detection_model_name": "detector:a",
+            "detection_model_version": "2.0.0",
+        },
+    )
+    _write_pose_file_with_metadata(
+        pose_b,
+        {
+            "pose_model_name": "pose:a",
+            "pose_model_version": "1.0.0",
+            "detection_model_name": "detector:a",
+            "detection_model_version": "2.0.0",
+        },
+    )
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    with pytest.raises(ValueError, match="pose_model_version"):
+        update_pose._inject_consistent_pose_model_metadata(project)
+
+
 def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_regen(
     tmp_path, monkeypatch
 ):
@@ -332,6 +482,9 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
         update_pose,
         "Project",
         lambda *args, **kwargs: SimpleNamespace(project_paths=SimpleNamespace()),
+    )
+    monkeypatch.setattr(
+        update_pose, "_inject_consistent_pose_model_metadata", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(update_pose, "_run_staged_label_remap", lambda *_args, **_kwargs: (3, 1))
     monkeypatch.setattr(
