@@ -388,6 +388,66 @@ def test_inject_consistent_pose_model_metadata_rejects_mismatch(tmp_path):
         update_pose._inject_consistent_pose_model_metadata(project)
 
 
+def test_inject_consistent_pose_model_metadata_allows_non_whitelist_differences(tmp_path):
+    """Differences outside the whitelist should not block metadata injection."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    metadata_a = {
+        "pose_model_name": "pose:a",
+        "pose_model_version": "1.0.0",
+        "detection_model_name": "detector:a",
+        "detection_model_version": "2.0.0",
+        "config_files": ["a.yaml"],
+    }
+    metadata_b = {
+        "pose_model_name": "pose:a",
+        "pose_model_version": "1.0.0",
+        "detection_model_name": "detector:a",
+        "detection_model_version": "2.0.0",
+        "config_files": ["b.yaml"],
+    }
+    _write_pose_file_with_metadata(pose_a, metadata_a)
+    _write_pose_file_with_metadata(pose_b, metadata_b)
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    returned = update_pose._inject_consistent_pose_model_metadata(project)
+
+    assert returned == metadata_a
+    project.settings_manager.set_project_metadata.assert_called_once_with(
+        {"project": metadata_a},
+        replace=False,
+    )
+
+
+def test_inject_consistent_pose_model_metadata_rejects_inconsistent_missing_whitelist_key(
+    tmp_path,
+):
+    """A whitelisted key must be either present for every file or absent for every file."""
+    pose_a = tmp_path / "video1_pose_est_v8.h5"
+    pose_b = tmp_path / "video2_pose_est_v8.h5"
+    _write_pose_file_with_metadata(
+        pose_a,
+        {
+            "pose_model_name": "pose:a",
+            "detection_model_name": "detector:a",
+            "detection_model_version": "2.0.0",
+        },
+    )
+    _write_pose_file_with_metadata(
+        pose_b,
+        {
+            "pose_model_name": "pose:a",
+            "pose_model_version": "1.0.0",
+            "detection_model_name": "detector:a",
+            "detection_model_version": "2.0.0",
+        },
+    )
+    project = _make_metadata_project({"video1.avi": pose_a, "video2.avi": pose_b})
+
+    with pytest.raises(ValueError, match="pose_model_version"):
+        update_pose._inject_consistent_pose_model_metadata(project)
+
+
 def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_regen(
     tmp_path, monkeypatch
 ):

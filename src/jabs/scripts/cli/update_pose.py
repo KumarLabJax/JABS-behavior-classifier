@@ -690,6 +690,12 @@ def _load_pose_file_model_metadata(pose_path: Path) -> dict[str, object] | None:
 
 def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object] | None:
     """Merge shared replacement-pose model metadata into staged project metadata."""
+    consistency_keys = (
+        "pose_model_name",
+        "pose_model_version",
+        "detection_model_name",
+        "detection_model_version",
+    )
     metadata_by_video: dict[str, dict[str, object]] = {}
     missing_videos: list[str] = []
 
@@ -718,12 +724,15 @@ def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object
         )
 
     first_video, first_metadata = next(iter(metadata_by_video.items()))
-    for video, metadata in metadata_by_video.items():
-        if metadata != first_metadata:
-            raise ValueError(
-                "Replacement pose files have inconsistent model metadata: "
-                f"{video} does not match {first_video}"
-            )
+    missing_sentinel = object()
+    for key in consistency_keys:
+        first_value = first_metadata.get(key, missing_sentinel)
+        for video, metadata in metadata_by_video.items():
+            if metadata.get(key, missing_sentinel) != first_value:
+                raise ValueError(
+                    "Replacement pose files have inconsistent model metadata for "
+                    f"{key}: {video} does not match {first_video}"
+                )
 
     project.settings_manager.set_project_metadata({"project": first_metadata}, replace=False)
     return first_metadata
