@@ -200,6 +200,24 @@ class IdentityFeatures:
                 )
                 self.__initialize_from_pose_estimation(pose_est)
 
+        # If _reader is still None after the load/compute step, per-frame features
+        # were just written to disk for the first time.  Initialize the reader now
+        # so that subsequent get_window_features() calls within this instance can
+        # load from cache instead of always falling through to recompute.
+        if self._reader is None and self._identity_feature_dir is not None:
+            if cache_format == CacheFormat.PARQUET:
+                self._reader = ParquetFeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            else:
+                self._reader = HDF5FeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
         """Initialize from a PoseEstimation object and save them in an h5 file
 
