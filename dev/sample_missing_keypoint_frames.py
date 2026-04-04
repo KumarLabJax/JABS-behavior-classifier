@@ -128,7 +128,9 @@ def _collect_candidates(
 
         # Open and validate pose file.
         pose_path = project.video_manager.get_cached_pose_path(video_name)
-        pose = open_pose_file(pose_path)
+        pose = open_pose_file(
+            pose_path, cache_dir=project.project_paths.cache_dir
+        )
         if pose.format_major_version <= 2:
             raise click.ClickException(
                 f"Pose file for '{video_name}' is v{pose.format_major_version}. "
