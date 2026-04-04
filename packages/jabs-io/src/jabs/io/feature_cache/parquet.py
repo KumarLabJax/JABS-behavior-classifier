@@ -171,9 +171,10 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
         Args:
             identity_dir: Directory for this identity's cache.
             metadata: Current cache metadata. The ``cached_window_sizes`` field
-                is not used directly; the on-disk ``metadata.json`` is read
-                instead to capture any sizes written since ``metadata`` was
-                constructed.
+                is ignored; ``metadata.json`` is read from disk to obtain the
+                accumulated set of previously written window sizes, because
+                callers construct metadata fresh for each call without carrying
+                that set forward.
             window_size: Window size these features were computed for.
             data: Flat dict mapping ``"module_name window_op feature_name"``
                 to shape-``(n_frames,)`` arrays.
@@ -190,8 +191,9 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
             parquet_path,
         )
 
-        # Update cached_window_sizes in metadata.json from the on-disk state so
-        # that concurrent window writes accumulate correctly.
+        # Read cached_window_sizes from disk rather than from the caller-supplied
+        # metadata, because callers construct metadata fresh for each call and do
+        # not carry forward the accumulated set of previously written window sizes.
         metadata_path = identity_dir / _METADATA_FILENAME
         with metadata_path.open() as f:
             raw: dict[str, object] = json.load(f)
