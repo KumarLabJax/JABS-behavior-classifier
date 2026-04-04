@@ -6,9 +6,13 @@ import numpy as np
 import numpy.typing as npt
 
 import jabs.project.track_labels
+from jabs.core.enums import CacheFormat
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+from jabs.io.feature_cache import detect_cache_format
+from jabs.io.feature_cache.base import FeatureCacheReader, FeatureCacheWriter
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
+from jabs.io.feature_cache.parquet import ParquetFeatureCacheReader, ParquetFeatureCacheWriter
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup
@@ -92,6 +96,7 @@ class IdentityFeatures:
         fps: int = 30,
         op_settings: dict | None = None,
         cache_window: bool = True,
+        cache_format: CacheFormat = CacheFormat.HDF5,
     ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
@@ -147,19 +152,35 @@ class IdentityFeatures:
             }
         }
 
-        self._reader = HDF5FeatureCacheReader(
-            FEATURE_VERSION,
-            self._pose_hash,
-            self._distance_scale_factor,
-        )
-        self._writer = HDF5FeatureCacheWriter()
+        # Select writer based on cache_format; reader is auto-detected from disk.
+        self._writer: FeatureCacheWriter
+        if cache_format == CacheFormat.PARQUET:
+            self._writer = ParquetFeatureCacheWriter()
+        else:
+            self._writer = HDF5FeatureCacheWriter()
+
+        self._reader: FeatureCacheReader | None = None
+        if self._identity_feature_dir is not None:
+            detected = detect_cache_format(self._identity_feature_dir)
+            if detected == CacheFormat.PARQUET:
+                self._reader = ParquetFeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            elif detected == CacheFormat.HDF5:
+                self._reader = HDF5FeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
 
         # load or compute remaining per frame features
-        if force or self._identity_feature_dir is None:
+        if force or self._identity_feature_dir is None or self._reader is None:
             self.__initialize_from_pose_estimation(pose_est)
         else:
             try:
-                # try to load from a h5 file if it exists
+                # try to load from cache if it exists
                 self.__load_from_file()
                 logger.debug(
                     "Loaded per-frame features from cache for identity %d", self._identity
