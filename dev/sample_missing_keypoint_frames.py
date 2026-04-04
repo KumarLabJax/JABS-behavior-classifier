@@ -27,6 +27,7 @@ from pathlib import Path
 
 import click
 import cv2
+import numpy as np
 from rich.console import Console
 from rich.table import Table
 
@@ -128,9 +129,7 @@ def _collect_candidates(
 
         # Open and validate pose file.
         pose_path = project.video_manager.get_cached_pose_path(video_name)
-        pose = open_pose_file(
-            pose_path, cache_dir=project.project_paths.cache_dir
-        )
+        pose = open_pose_file(pose_path, cache_dir=project.project_paths.cache_dir)
         if pose.format_major_version <= 2:
             raise click.ClickException(
                 f"Pose file for '{video_name}' is v{pose.format_major_version}. "
@@ -146,8 +145,10 @@ def _collect_candidates(
             )
             continue
 
-        # _point_mask shape for v3+: (n_identities, n_frames, 12), 1=valid, 0=missing.
-        point_mask = pose._point_mask
+        # Stack per-identity masks into (n_identities, n_frames, 12), 1=valid, 0=missing.
+        point_mask = np.stack(
+            [pose.get_identity_point_mask(i) for i in range(pose.num_identities)]
+        )
 
         console.print(f"  [dim]{video_name}[/dim]")
 
