@@ -162,18 +162,8 @@ class IdentityFeatures:
         self._reader: FeatureCacheReader | None = None
         if self._identity_feature_dir is not None:
             detected = detect_cache_format(self._identity_feature_dir)
-            if detected == CacheFormat.PARQUET:
-                self._reader = ParquetFeatureCacheReader(
-                    FEATURE_VERSION,
-                    self._pose_hash,
-                    self._distance_scale_factor,
-                )
-            elif detected == CacheFormat.HDF5:
-                self._reader = HDF5FeatureCacheReader(
-                    FEATURE_VERSION,
-                    self._pose_hash,
-                    self._distance_scale_factor,
-                )
+            if detected is not None:
+                self._reader = self.__make_reader(detected)
 
         # load or compute remaining per frame features
         if force or self._identity_feature_dir is None or self._reader is None:
@@ -205,18 +195,28 @@ class IdentityFeatures:
         # so that subsequent get_window_features() calls within this instance can
         # load from cache instead of always falling through to recompute.
         if self._reader is None and self._identity_feature_dir is not None:
-            if cache_format == CacheFormat.PARQUET:
-                self._reader = ParquetFeatureCacheReader(
-                    FEATURE_VERSION,
-                    self._pose_hash,
-                    self._distance_scale_factor,
-                )
-            else:
-                self._reader = HDF5FeatureCacheReader(
-                    FEATURE_VERSION,
-                    self._pose_hash,
-                    self._distance_scale_factor,
-                )
+            self._reader = self.__make_reader(cache_format)
+
+    def __make_reader(self, fmt: CacheFormat) -> FeatureCacheReader:
+        """Instantiate a cache reader for the given format using this instance's validation params.
+
+        Args:
+            fmt: The cache format to read.
+
+        Returns:
+            A configured ``FeatureCacheReader`` for ``fmt``.
+        """
+        if fmt == CacheFormat.PARQUET:
+            return ParquetFeatureCacheReader(
+                FEATURE_VERSION,
+                self._pose_hash,
+                self._distance_scale_factor,
+            )
+        return HDF5FeatureCacheReader(
+            FEATURE_VERSION,
+            self._pose_hash,
+            self._distance_scale_factor,
+        )
 
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
         """Initialize from a PoseEstimation object and save them in an h5 file
