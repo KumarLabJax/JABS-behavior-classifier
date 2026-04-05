@@ -62,6 +62,7 @@ class BoutDurationFilterStage(PostprocessingStage):
                 "min_duration": KwargHelp(
                     description="Minimum duration (in frames) for a prediction to be kept.",
                     type="int",
+                    default=5,
                 ),
             },
         )

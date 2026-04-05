@@ -26,7 +26,9 @@ class InterpolationStageSettingsGroup(SettingsGroup):
 
         self._interpolation_max_frames_spinbox = QSpinBox()
         self._interpolation_max_frames_spinbox.setRange(1, 100)
-        self._interpolation_max_frames_spinbox.setValue(5)
+        self._interpolation_max_frames_spinbox.setValue(
+            stage_help.kwargs["max_interpolation_gap"].default
+        )
         self._interpolation_max_frames_spinbox.setToolTip(
             stage_help.kwargs["max_interpolation_gap"].description
         )
@@ -76,7 +78,10 @@ class InterpolationStageSettingsGroup(SettingsGroup):
         stage_config = values.get(GapInterpolationStage.__name__, {})
         self._interpolation_checkbox.setChecked(stage_config.get("enabled", False))
         self._interpolation_max_frames_spinbox.setValue(
-            stage_config.get("parameters", {}).get("max_interpolation_gap", 5)
+            stage_config.get("parameters", {}).get(
+                "max_interpolation_gap",
+                GapInterpolationStage.help().kwargs["max_interpolation_gap"].default,
+            )
         )
 
 
@@ -96,7 +101,7 @@ class StitchingStageSettingsGroup(SettingsGroup):
 
         self._stitching_max_gap = QSpinBox()
         self._stitching_max_gap.setRange(1, 100)
-        self._stitching_max_gap.setValue(3)
+        self._stitching_max_gap.setValue(stage_help.kwargs["max_stitch_gap"].default)
         self._stitching_max_gap.setToolTip(stage_help.kwargs["max_stitch_gap"].description)
         self.add_control_row("Max Stitch Gap:", self._stitching_max_gap)
 
@@ -168,7 +173,7 @@ class DurationStageSettingsGroup(SettingsGroup):
 
         self._duration_min_frames_spinbox = QSpinBox()
         self._duration_min_frames_spinbox.setRange(1, 100)
-        self._duration_min_frames_spinbox.setValue(5)
+        self._duration_min_frames_spinbox.setValue(stage_help.kwargs["min_duration"].default)
         self._duration_min_frames_spinbox.setToolTip(stage_help.kwargs["min_duration"].description)
         self.add_control_row("Minimum Bout Duration:", self._duration_min_frames_spinbox)
 
@@ -216,5 +221,8 @@ class DurationStageSettingsGroup(SettingsGroup):
         stage_config = values.get(BoutDurationFilterStage.__name__, {})
         self._duration_checkbox.setChecked(stage_config.get("enabled", False))
         self._duration_min_frames_spinbox.setValue(
-            stage_config.get("parameters", {}).get("min_duration", 3)
+            stage_config.get("parameters", {}).get(
+                "min_duration",
+                BoutDurationFilterStage.help().kwargs["min_duration"].default,
+            )
         )

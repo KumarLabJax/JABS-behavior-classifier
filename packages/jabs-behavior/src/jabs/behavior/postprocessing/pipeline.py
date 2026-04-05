@@ -59,6 +59,11 @@ class PostprocessingPipeline:
             stage_instance = stage_class(**params) if params else stage_class()
             self._stages.append(stage_instance)
 
+    @property
+    def stages(self) -> list[PostprocessingStage]:
+        """Return the active (enabled) pipeline stages in execution order."""
+        return list(self._stages)
+
     def run(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Run the post-processing pipeline on the predicted classes.
 

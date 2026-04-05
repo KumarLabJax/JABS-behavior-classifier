@@ -1486,6 +1486,9 @@ dependencies = [
 nwb = [
     { name = "jabs-io", extra = ["nwb"] },
 ]
+yaml = [
+    { name = "pyyaml" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1527,6 +1530,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.2,<3.0.0" },
     { name = "pyarrow", specifier = ">=20.0.0,<23.0.0" },
     { name = "pyside6", specifier = ">=6.8.0,!=6.9.0" },
+    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0.0" },
     { name = "qt-material-icons", specifier = ">=0.2.0,<0.3.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
     { name = "rich-argparse", specifier = ">=1.7.1,<2.0.0" },
@@ -1536,7 +1540,7 @@ requires-dist = [
     { name = "toml", specifier = ">=0.10.2,<0.11.0" },
     { name = "xgboost", specifier = ">=2.0.0,<3.0.0" },
 ]
-provides-extras = ["nwb"]
+provides-extras = ["nwb", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [

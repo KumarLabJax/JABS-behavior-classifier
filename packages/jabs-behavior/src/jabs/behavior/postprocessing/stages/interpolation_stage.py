@@ -64,6 +64,7 @@ class GapInterpolationStage(PostprocessingStage):
                 "max_interpolation_gap": KwargHelp(
                     description="Maximum gap (in frames) that will be filled using interpolation.",
                     type="int",
+                    default=5,
                 ),
             },
         )

@@ -110,6 +110,7 @@ Options:
   --help     Show this message and exit.
 
 Commands:
+  postprocess           Apply a postprocessing pipeline to a JABS prediction HDF5 file.
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
   export-training       Export training data for a specified behavior and JABS project directory.
@@ -309,3 +310,116 @@ predictions indexed by `sample_indices` rather than by frame. When clipping:
 
 If no predictions exist within or before the clip window, empty arrays are written
 for that dynamic object.
+
+## jabs-cli postprocess
+
+The `jabs-cli postprocess` command applies a postprocessing pipeline to an
+existing JABS prediction HDF5 file. It reads the raw predicted classes, runs the
+configured pipeline stages, and writes the results back as
+`predicted_class_postprocessed` datasets alongside the original predictions. The raw
+predictions are never modified.
+
+**Usage:**
+
+```bash
+jabs-cli postprocess PREDICTION_FILE \
+    --config CONFIG_FILE \
+    [--behavior BEHAVIOR] \
+    [--output OUTPUT_FILE]
+```
+
+- `PREDICTION_FILE`: Path to the JABS prediction HDF5 file to process.
+- `--config CONFIG_FILE`: Path to a JSON or YAML pipeline config file (see [Config file format](#config-file-format) below). Required unless `--list-behaviors` is used.
+- `--behavior BEHAVIOR`: Restrict processing to a single named behavior. Required when the config file is a list of stages. When the config is a dict, filters to only the specified behavior.
+- `--output OUTPUT_FILE`: Path for the output file. If omitted, the input file is updated in place.
+- `--list-behaviors`: Print the behavior names present in the prediction file and exit. Useful for finding the correct behavior names to use in a config dict.
+
+To inspect which behaviors are stored in a prediction file before writing a config:
+
+```bash
+jabs-cli postprocess /path/to/predictions.h5 --list-behaviors
+```
+
+**Examples:**
+
+Apply a single-behavior pipeline (config is a list of stages):
+
+```bash
+jabs-cli postprocess /path/to/predictions.h5 \
+    --config grooming_pipeline.json \
+    --behavior grooming
+```
+
+Apply a multi-behavior pipeline and write to a new file:
+
+```bash
+jabs-cli postprocess /path/to/predictions.h5 \
+    --config all_behaviors_pipeline.yaml \
+    --output /path/to/predictions_postprocessed.h5
+```
+
+### Config file format
+
+The config file is a JSON or YAML file in one of two formats.
+
+> **Note:** YAML support requires the `yaml` extra:
+> `pip install 'jabs-behavior-classifier[yaml]'`
+
+#### List format (single behavior)
+
+A top-level list of stage configurations applied in order to a single behavior.
+`--behavior` is required when this format is used.
+
+```json
+[
+  {
+    "stage_name": "GapInterpolationStage",
+    "parameters": {"max_interpolation_gap": 5}
+  },
+  {
+    "stage_name": "BoutDurationFilterStage",
+    "parameters": {"min_duration": 10},
+    "enabled": true
+  }
+]
+```
+
+#### Dict format (multiple behaviors)
+
+A top-level object mapping behavior names to lists of stage configurations.
+Behavior names must match the safe names stored in the HDF5 file (special characters
+are replaced with underscores). Use `--list-behaviors` to check the names in a file.
+
+```json
+{
+  "grooming": [
+    {"stage_name": "GapInterpolationStage", "parameters": {"max_interpolation_gap": 5}},
+    {"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 10}}
+  ],
+  "rearing": [
+    {"stage_name": "BoutStitchingStage", "parameters": {"max_stitch_gap": 3}}
+  ]
+}
+```
+
+#### Stage schema
+
+Each stage entry has the following fields:
+
+| Field | Required | Description |
+|---|---|---|
+| `stage_name` | Yes | Name of the postprocessing stage class (see [Available stages](#available-stages) below). |
+| `parameters` | Yes | Object of stage-specific parameters, or `null` if the stage takes no parameters. |
+| `enabled` | No | Boolean; defaults to `true`. Set to `false` to skip the stage without removing it from the config. |
+
+#### Available stages
+
+| Stage name | Parameter | Description |
+|---|---|---|
+| `GapInterpolationStage` | `max_interpolation_gap` (int > 0) | Fill short gaps of no-prediction frames between behavior bouts. Gaps up to this length (inclusive) are filled in. |
+| `BoutStitchingStage` | `max_stitch_gap` (int > 0) | Merge behavior bouts separated by short not-behavior gaps. Gaps up to this length (inclusive) are stitched over. |
+| `BoutDurationFilterStage` | `min_duration` (int > 0) | Remove behavior bouts shorter than the specified duration (in frames). |
+
+Stages are applied in the order they appear in the list. A typical pipeline runs
+`GapInterpolationStage` or `BoutStitchingStage` before `BoutDurationFilterStage` so
+that short gaps are merged prior to duration filtering.
