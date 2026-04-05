@@ -9,8 +9,13 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-import pyarrow as pa
-import pyarrow.parquet as pq
+
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+except ImportError:
+    pa = None  # type: ignore[assignment]
+    pq = None  # type: ignore[assignment]
 
 from jabs.core.exceptions import FeatureVersionException
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
@@ -70,6 +75,16 @@ def _write_metadata_json(identity_dir: Path, metadata: FeatureCacheMetadata) -> 
     path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2))
 
 
+def _require_pyarrow() -> None:
+    """Raise ``ImportError`` with an actionable message if pyarrow is not installed."""
+    if pa is None or pq is None:
+        raise ImportError(
+            "pyarrow is required to use the Parquet feature cache. "
+            "Install jabs-io with the 'parquet' extra: "
+            "pip install 'jabs-io[parquet]'"
+        )
+
+
 class ParquetFeatureCacheWriter(FeatureCacheWriter):
     """Writes per-frame and window features to Parquet files with LZ4 compression.
 
@@ -86,6 +101,10 @@ class ParquetFeatureCacheWriter(FeatureCacheWriter):
       with the new window size. A crash between the two steps leaves an
       unregistered window file that is simply ignored on the next read.
     """
+
+    def __init__(self) -> None:
+        """Initialize the writer, raising ``ImportError`` if pyarrow is absent."""
+        _require_pyarrow()
 
     def write_per_frame(
         self,
@@ -227,6 +246,29 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
       ``cached_window_sizes`` in ``metadata.json`` and ``AttributeError`` is
       raised so only that window size is recomputed.
     """
+
+    def __init__(
+        self,
+        expected_feature_version: int,
+        expected_pose_hash: str,
+        expected_distance_scale_factor: float | None,
+    ) -> None:
+        """Initialize the reader, raising ``ImportError`` if pyarrow is absent.
+
+        Args:
+            expected_feature_version: Value of ``FEATURE_VERSION`` from
+                ``features.py``; used to detect stale caches.
+            expected_pose_hash: Hash of the pose file at the time features were
+                requested; used to detect caches built from a different pose file.
+            expected_distance_scale_factor: Pixels-to-cm scale factor, or ``None``
+                when not using cm units.
+        """
+        _require_pyarrow()
+        super().__init__(
+            expected_feature_version,
+            expected_pose_hash,
+            expected_distance_scale_factor,
+        )
 
     @staticmethod
     def _read_raw_metadata(identity_dir: Path) -> dict[str, object]:
