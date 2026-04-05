@@ -146,6 +146,11 @@ def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> Non
     # First call with no existing cache — writes per-frame cache and initializes reader.
     instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
 
+    # The regression: _reader was left None after the first compute.  The fix
+    # initializes it inside __init__ so this assertion catches a regression before
+    # get_window_features is even called.
+    assert instance._reader is not None, "_reader must be set after first compute"
+
     # First get_window_features call: computes and writes window cache.
     first = instance.get_window_features(_WINDOW_SIZE)
 
