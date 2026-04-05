@@ -239,11 +239,16 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
             Parsed JSON content as a plain dict.
 
         Raises:
-            OSError: If ``metadata.json`` cannot be read.
+            OSError: If ``metadata.json`` cannot be opened or contains invalid JSON.
         """
         path = identity_dir / _METADATA_FILENAME
-        with path.open() as f:
-            return json.load(f)  # type: ignore[return-value]
+        try:
+            with path.open() as f:
+                return json.load(f)  # type: ignore[return-value]
+        except ValueError as exc:
+            # json.JSONDecodeError is a subclass of ValueError; normalize to OSError
+            # so callers treat malformed metadata the same as a missing file.
+            raise OSError(f"Invalid JSON in cache metadata at {path}") from exc
 
     @staticmethod
     def _metadata_from_dict(raw: dict[str, object]) -> FeatureCacheMetadata:
@@ -254,21 +259,29 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
 
         Returns:
             Populated ``FeatureCacheMetadata`` instance.
+
+        Raises:
+            FeatureVersionException: A required key is missing or has an
+                incompatible type, indicating a schema change or corrupt file.
         """
-        scale = raw["distance_scale_factor"]
-        wall = raw["avg_wall_length"]
-        return FeatureCacheMetadata(
-            feature_version=int(raw["feature_version"]),  # type: ignore[arg-type]
-            identity=int(raw["identity"]),  # type: ignore[arg-type]
-            num_frames=int(raw["num_frames"]),  # type: ignore[arg-type]
-            pose_hash=str(raw["pose_hash"]),
-            distance_scale_factor=float(scale) if scale is not None else None,  # type: ignore[arg-type]
-            avg_wall_length=float(wall) if wall is not None else None,  # type: ignore[arg-type]
-            cached_window_sizes=frozenset(
-                int(s)
-                for s in raw["cached_window_sizes"]  # type: ignore[union-attr]
-            ),
-        )
+        try:
+            scale = raw["distance_scale_factor"]
+            wall = raw["avg_wall_length"]
+            return FeatureCacheMetadata(
+                feature_version=int(raw["feature_version"]),  # type: ignore[arg-type]
+                identity=int(raw["identity"]),  # type: ignore[arg-type]
+                num_frames=int(raw["num_frames"]),  # type: ignore[arg-type]
+                pose_hash=str(raw["pose_hash"]),
+                distance_scale_factor=float(scale) if scale is not None else None,  # type: ignore[arg-type]
+                avg_wall_length=float(wall) if wall is not None else None,  # type: ignore[arg-type]
+                cached_window_sizes=frozenset(
+                    int(s)
+                    for s in raw["cached_window_sizes"]  # type: ignore[union-attr]
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.debug("Failed to parse cache metadata: %s", exc)
+            raise FeatureVersionException from exc
 
     @staticmethod
     def _check_format_version(raw: dict[str, object]) -> None:
@@ -278,10 +291,14 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
             raw: Dict as returned by ``_read_raw_metadata``.
 
         Raises:
-            FeatureVersionException: ``format_version`` does not equal
-                ``PARQUET_FORMAT_VERSION``.
+            FeatureVersionException: ``format_version`` is missing, has an
+                incompatible type, or does not equal ``PARQUET_FORMAT_VERSION``.
         """
-        stored = int(raw["format_version"])  # type: ignore[arg-type]
+        try:
+            stored = int(raw["format_version"])  # type: ignore[arg-type]
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.debug("Missing or invalid format_version in cache metadata: %s", exc)
+            raise FeatureVersionException from exc
         if stored != PARQUET_FORMAT_VERSION:
             logger.debug(
                 "Parquet format version mismatch: expected %d, got %d",
