@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -5,6 +6,8 @@ import h5py
 import numpy as np
 
 from .pose_est_v5 import PoseEstimationV5
+
+logger = logging.getLogger(__name__)
 
 
 class PoseEstimationV6(PoseEstimationV5):
@@ -41,18 +44,29 @@ class PoseEstimationV6(PoseEstimationV5):
         }
 
         # open the hdf5 pose file and extract segmentation data, this is not cached
+        logger.debug("Opening v6 pose file for segmentation data: %s", self._path)
         with h5py.File(self._path, "r") as pose_h5:
-            for seg_key in set(pose_h5["poseest"].keys()) & set(self._segmentation_dict.keys()):
+            available_keys = set(pose_h5["poseest"].keys()) & set(self._segmentation_dict.keys())
+            logger.debug("Segmentation keys found in file: %s", sorted(available_keys))
+            for seg_key in available_keys:
                 self._segmentation_dict[seg_key] = pose_h5[f"poseest/{seg_key}"][:]
+                logger.debug(
+                    "Loaded %s: shape=%s dtype=%s",
+                    seg_key,
+                    self._segmentation_dict[seg_key].shape,
+                    self._segmentation_dict[seg_key].dtype,
+                )
             # transpose seg_data similar to the way the points are transposed.
 
         # sort the segmentation data
         if self._segmentation_dict["seg_data"] is not None:
+            logger.debug("Sorting seg_data...")
             self._segmentation_dict["seg_data"] = self._segmentation_sort(
                 self._segmentation_dict["seg_data"],
                 self._segmentation_dict["longterm_seg_id"],
             )
         if self._segmentation_dict["seg_external_flag"] is not None:
+            logger.debug("Sorting seg_external_flag...")
             self._segmentation_dict["seg_external_flag"] = self._segmentation_sort(
                 self._segmentation_dict["seg_external_flag"],
                 self._segmentation_dict["longterm_seg_id"],
@@ -78,6 +92,11 @@ class PoseEstimationV6(PoseEstimationV5):
         Returns:
             sorted segmentation data
         """
+        logger.debug(
+            "_segmentation_sort: seg_data shape=%s, longterm_seg_id shape=%s",
+            seg_data.shape,
+            longterm_seg_id.shape,
+        )
         # Copy the data into the new array, sorted
         # Note that the -1 is the default for missing data
         sorted_seg_data = np.zeros_like(seg_data) - 1
@@ -86,6 +105,25 @@ class PoseEstimationV6(PoseEstimationV5):
             # Detect which frames have valid data
             detected_idxs = longterm_seg_id == animal_idx + 1
             animal_preset_frames = np.any(detected_idxs, axis=1)
+            n_dest = int(animal_preset_frames.sum())
+            n_src = int(detected_idxs.sum())
+            logger.debug(
+                "animal_idx=%d: detected_idxs sum=%d, animal_preset_frames sum=%d",
+                animal_idx,
+                n_src,
+                n_dest,
+            )
+            if n_src != n_dest:
+                # Find the frames where multiple detections exist for this animal
+                multi_frames = np.where(detected_idxs.sum(axis=1) > 1)[0]
+                logger.debug(
+                    "animal_idx=%d: shape mismatch (src=%d, dest=%d); "
+                    "frames with >1 detection: %s",
+                    animal_idx,
+                    n_src,
+                    n_dest,
+                    multi_frames,
+                )
             # Sort the data
             sorted_seg_data[animal_preset_frames, animal_idx, ...] = seg_data[
                 np.where(detected_idxs)
