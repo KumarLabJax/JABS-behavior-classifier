@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from jabs.core.enums import CacheFormat
+
+logger = logging.getLogger(__name__)
 
 
 def detect_cache_format(identity_dir: Path) -> CacheFormat | None:
@@ -33,3 +36,22 @@ def detect_cache_format(identity_dir: Path) -> CacheFormat | None:
     if (identity_dir / "features.h5").exists():
         return CacheFormat.HDF5
     return None
+
+
+def clear_cache(identity_dir: Path) -> None:
+    """Delete all feature cache files from ``identity_dir``, regardless of format.
+
+    Removes ``metadata.json``, ``per_frame.parquet``, ``window_*.parquet``, and
+    ``features.h5`` if present. The directory itself is not removed.
+
+    This is the correct way to discard a cache before writing in a different
+    format, and is also used by the "Clear Feature Cache" GUI action.
+
+    Args:
+        identity_dir: Per-identity cache directory to clear.
+    """
+    for path in identity_dir.glob("*.parquet"):
+        path.unlink(missing_ok=True)
+    (identity_dir / "metadata.json").unlink(missing_ok=True)
+    (identity_dir / "features.h5").unlink(missing_ok=True)
+    logger.debug("Cleared feature cache in %s", identity_dir)

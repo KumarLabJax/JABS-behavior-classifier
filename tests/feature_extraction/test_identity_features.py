@@ -160,3 +160,30 @@ def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> Non
     assert set(first_flat) == set(second_flat)
     for key in first_flat:
         np.testing.assert_array_equal(second_flat[key], first_flat[key], err_msg=key)
+
+
+def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) -> None:
+    """force=True with a different cache_format removes the old sentinel before writing.
+
+    Regression test: when an existing Parquet cache (metadata.json) was present
+    and force=True + cache_format=HDF5 wrote a new features.h5, the stale
+    metadata.json remained. Subsequent force=False runs would find metadata.json
+    first and read the stale Parquet cache instead of the freshly written HDF5 one.
+    """
+    # Write an initial Parquet cache.
+    _make_identity_features(pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.PARQUET)
+    identity_dir = tmp_path / Path(_SOURCE_FILE).stem / str(_IDENTITY)
+    assert (identity_dir / "metadata.json").exists()
+
+    # Force-recompute into HDF5 format.
+    _make_identity_features(pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.HDF5)
+
+    # The stale Parquet sentinel must be gone; only the HDF5 file should remain.
+    assert not (identity_dir / "metadata.json").exists()
+    assert not any(identity_dir.glob("*.parquet"))
+    assert (identity_dir / "features.h5").exists()
+
+    # A subsequent force=False run must read the HDF5 cache, not a stale Parquet one.
+    from jabs.io.feature_cache import detect_cache_format
+
+    assert detect_cache_format(identity_dir) == CacheFormat.HDF5

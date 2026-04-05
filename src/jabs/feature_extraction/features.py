@@ -9,7 +9,7 @@ import jabs.project.track_labels
 from jabs.core.enums import CacheFormat
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
-from jabs.io.feature_cache import detect_cache_format
+from jabs.io.feature_cache import clear_cache, detect_cache_format
 from jabs.io.feature_cache.base import FeatureCacheReader, FeatureCacheWriter
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
 from jabs.io.feature_cache.parquet import ParquetFeatureCacheReader, ParquetFeatureCacheWriter
@@ -161,6 +161,26 @@ class IdentityFeatures:
         detected: CacheFormat | None = None
         if self._identity_feature_dir is not None:
             detected = detect_cache_format(self._identity_feature_dir)
+
+        # When force=True and the on-disk format differs from the requested
+        # cache_format, remove the old sentinel and data files before writing.
+        # Without this, the old sentinel (e.g. metadata.json from a Parquet
+        # cache) would remain after writing features.h5, causing subsequent
+        # force=False runs to read the stale cache instead of the new one.
+        if (
+            force
+            and detected is not None
+            and detected != cache_format
+            and self._identity_feature_dir is not None
+        ):
+            logger.info(
+                "Clearing stale %s cache for identity %d (switching to %s)",
+                detected.value,
+                self._identity,
+                cache_format.value,
+            )
+            clear_cache(self._identity_feature_dir)
+            detected = None
 
         write_format = detected if (not force and detected is not None) else cache_format
 
