@@ -21,6 +21,12 @@ def detect_cache_format(identity_dir: Path) -> CacheFormat | None:
         ``CacheFormat.PARQUET`` if ``metadata.json`` exists,
         ``CacheFormat.HDF5`` if ``features.h5`` exists,
         ``None`` if no cache is present.
+
+    Note:
+        The sentinel filenames are written as literals here rather
+        than imported from the backend modules. They are stable on-disk format
+        contracts; changing either name constitutes a format-breaking change that
+        requires a versioned migration, so drift is not a practical risk.
     """
     if (identity_dir / "metadata.json").exists():
         return CacheFormat.PARQUET

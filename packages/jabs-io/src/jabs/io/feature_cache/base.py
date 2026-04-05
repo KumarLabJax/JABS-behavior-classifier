@@ -174,6 +174,13 @@ class FeatureCacheWriter(ABC):
         from group or path names) may update whatever metadata is appropriate
         for that representation.
 
+        **Precondition:** ``write_per_frame()`` must have been called for
+        ``identity_dir`` before calling this method. The directory and any
+        backend-specific sentinel files (e.g. ``metadata.json``) must already
+        exist. Calling ``write_window()`` without a prior ``write_per_frame()``
+        produces undefined behavior and will typically raise
+        ``FileNotFoundError``.
+
         Args:
             identity_dir: Directory for this identity's cache.
             metadata: Current cache metadata; backends may use this to update

@@ -134,3 +134,29 @@ def test_identity_features_parquet_window_round_trip(tmp_path, pose_est_v5) -> N
     assert set(computed_flat) == set(cached_flat)
     for key in computed_flat:
         np.testing.assert_array_almost_equal(cached_flat[key], computed_flat[key], err_msg=key)
+
+
+def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> None:
+    """A single IdentityFeatures instance can load window features it just wrote.
+
+    Regression test: when no cache exists at construction time, _reader was left
+    as None after writing the per-frame cache, causing every get_window_features()
+    call on the same instance to recompute instead of loading from disk.
+    """
+    # First call with no existing cache — writes per-frame cache and initializes reader.
+    instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
+
+    # First get_window_features call: computes and writes window cache.
+    first = instance.get_window_features(_WINDOW_SIZE)
+
+    # Second call on the same instance: should load from cache, not recompute.
+    # If _reader were still None this would silently recompute; results are
+    # identical either way, but the cache file must exist.
+    second = instance.get_window_features(_WINDOW_SIZE)
+
+    first_flat = IdentityFeatures.merge_window_features(first)
+    second_flat = IdentityFeatures.merge_window_features(second)
+
+    assert set(first_flat) == set(second_flat)
+    for key in first_flat:
+        np.testing.assert_array_equal(second_flat[key], first_flat[key], err_msg=key)

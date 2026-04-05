@@ -152,18 +152,27 @@ class IdentityFeatures:
             }
         }
 
-        # Select writer based on cache_format; reader is auto-detected from disk.
+        # Detect the on-disk format so that reader and writer always agree.
+        # When an existing cache is found and force=False, use its format for
+        # writing too — mixing formats within one identity directory causes
+        # write_window() to fail (e.g. Parquet writer requires metadata.json,
+        # HDF5 writer requires features.h5).  When force=True or no cache
+        # exists yet, use the caller-supplied cache_format.
+        detected: CacheFormat | None = None
+        if self._identity_feature_dir is not None:
+            detected = detect_cache_format(self._identity_feature_dir)
+
+        write_format = detected if (not force and detected is not None) else cache_format
+
         self._writer: FeatureCacheWriter
-        if cache_format == CacheFormat.PARQUET:
+        if write_format == CacheFormat.PARQUET:
             self._writer = ParquetFeatureCacheWriter()
         else:
             self._writer = HDF5FeatureCacheWriter()
 
         self._reader: FeatureCacheReader | None = None
-        if self._identity_feature_dir is not None:
-            detected = detect_cache_format(self._identity_feature_dir)
-            if detected is not None:
-                self._reader = self.__make_reader(detected)
+        if not force and detected is not None:
+            self._reader = self.__make_reader(detected)
 
         # load or compute remaining per frame features
         if force or self._identity_feature_dir is None or self._reader is None:
@@ -195,7 +204,7 @@ class IdentityFeatures:
         # so that subsequent get_window_features() calls within this instance can
         # load from cache instead of always falling through to recompute.
         if self._reader is None and self._identity_feature_dir is not None:
-            self._reader = self.__make_reader(cache_format)
+            self._reader = self.__make_reader(write_format)
 
     def __make_reader(self, fmt: CacheFormat) -> FeatureCacheReader:
         """Instantiate a cache reader for the given format using this instance's validation params.
