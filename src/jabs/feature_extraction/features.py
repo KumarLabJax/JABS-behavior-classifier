@@ -235,17 +235,21 @@ class IdentityFeatures:
         Returns:
             A configured ``FeatureCacheReader`` for ``fmt``.
         """
-        if fmt == CacheFormat.PARQUET:
-            return ParquetFeatureCacheReader(
-                FEATURE_VERSION,
-                self._pose_hash,
-                self._distance_scale_factor,
-            )
-        return HDF5FeatureCacheReader(
-            FEATURE_VERSION,
-            self._pose_hash,
-            self._distance_scale_factor,
-        )
+        match fmt:
+            case CacheFormat.PARQUET:
+                return ParquetFeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            case CacheFormat.HDF5:
+                return HDF5FeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            case _:
+                raise NotImplementedError(f"Unsupported cache format: {fmt}")
 
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
         """Initialize from a PoseEstimation object and save them in an h5 file
