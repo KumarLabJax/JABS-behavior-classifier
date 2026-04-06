@@ -72,7 +72,8 @@ def _write_metadata_json(identity_dir: Path, metadata: FeatureCacheMetadata) -> 
         metadata: Metadata to serialize and write.
     """
     path = identity_dir / _METADATA_FILENAME
-    path.write_text(json.dumps(_metadata_to_dict(metadata), indent=2))
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(_metadata_to_dict(metadata), f, indent=2)
 
 
 def _require_pyarrow() -> None:
@@ -285,7 +286,7 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
         """
         path = identity_dir / _METADATA_FILENAME
         try:
-            with path.open() as f:
+            with path.open(encoding="utf-8") as f:
                 return json.load(f)  # type: ignore[return-value]
         except ValueError as exc:
             # json.JSONDecodeError is a subclass of ValueError; normalize to OSError
