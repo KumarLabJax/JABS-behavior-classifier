@@ -6,9 +6,13 @@ import numpy as np
 import numpy.typing as npt
 
 import jabs.project.track_labels
+from jabs.core.enums import CacheFormat
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+from jabs.io.feature_cache import clear_cache, detect_cache_format
+from jabs.io.feature_cache.base import FeatureCacheReader, FeatureCacheWriter
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
+from jabs.io.feature_cache.parquet import ParquetFeatureCacheReader, ParquetFeatureCacheWriter
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashException
 
 from .base_features import BaseFeatureGroup
@@ -92,6 +96,7 @@ class IdentityFeatures:
         fps: int = 30,
         op_settings: dict | None = None,
         cache_window: bool = True,
+        cache_format: CacheFormat = CacheFormat.HDF5,
     ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
@@ -147,19 +152,54 @@ class IdentityFeatures:
             }
         }
 
-        self._reader = HDF5FeatureCacheReader(
-            FEATURE_VERSION,
-            self._pose_hash,
-            self._distance_scale_factor,
-        )
-        self._writer = HDF5FeatureCacheWriter()
+        # Detect the on-disk format so that reader and writer always agree.
+        # When an existing cache is found and force=False, use its format for
+        # writing too — mixing formats within one identity directory causes
+        # write_window() to fail (e.g. Parquet writer requires metadata.json,
+        # HDF5 writer requires features.h5).  When force=True or no cache
+        # exists yet, use the caller-supplied cache_format.
+        detected: CacheFormat | None = None
+        if self._identity_feature_dir is not None:
+            detected = detect_cache_format(self._identity_feature_dir)
+
+        # When force=True and the on-disk format differs from the requested
+        # cache_format, remove the old sentinel and data files before writing.
+        # Without this, the old sentinel (e.g. metadata.json from a Parquet
+        # cache) would remain after writing features.h5, causing subsequent
+        # force=False runs to read the stale cache instead of the new one.
+        if (
+            force
+            and detected is not None
+            and detected != cache_format
+            and self._identity_feature_dir is not None
+        ):
+            logger.info(
+                "Clearing stale %s cache for identity %d (switching to %s)",
+                detected.value,
+                self._identity,
+                cache_format.value,
+            )
+            clear_cache(self._identity_feature_dir)
+            detected = None
+
+        write_format = detected if (not force and detected is not None) else cache_format
+
+        self._writer: FeatureCacheWriter
+        if write_format == CacheFormat.PARQUET:
+            self._writer = ParquetFeatureCacheWriter()
+        else:
+            self._writer = HDF5FeatureCacheWriter()
+
+        self._reader: FeatureCacheReader | None = None
+        if not force and detected is not None:
+            self._reader = self.__make_reader(detected)
 
         # load or compute remaining per frame features
-        if force or self._identity_feature_dir is None:
+        if force or self._identity_feature_dir is None or self._reader is None:
             self.__initialize_from_pose_estimation(pose_est)
         else:
             try:
-                # try to load from a h5 file if it exists
+                # try to load from cache if it exists
                 self.__load_from_file()
                 logger.debug(
                     "Loaded per-frame features from cache for identity %d", self._identity
@@ -178,6 +218,38 @@ class IdentityFeatures:
                     exc_info=True,
                 )
                 self.__initialize_from_pose_estimation(pose_est)
+
+        # If _reader is still None after the load/compute step, per-frame features
+        # were just written to disk for the first time.  Initialize the reader now
+        # so that subsequent get_window_features() calls within this instance can
+        # load from cache instead of always falling through to recompute.
+        if self._reader is None and self._identity_feature_dir is not None:
+            self._reader = self.__make_reader(write_format)
+
+    def __make_reader(self, fmt: CacheFormat) -> FeatureCacheReader:
+        """Instantiate a cache reader for the given format using this instance's validation params.
+
+        Args:
+            fmt: The cache format to read.
+
+        Returns:
+            A configured ``FeatureCacheReader`` for ``fmt``.
+        """
+        match fmt:
+            case CacheFormat.PARQUET:
+                return ParquetFeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            case CacheFormat.HDF5:
+                return HDF5FeatureCacheReader(
+                    FEATURE_VERSION,
+                    self._pose_hash,
+                    self._distance_scale_factor,
+                )
+            case _:
+                raise NotImplementedError(f"Unsupported cache format: {fmt}")
 
     def __initialize_from_pose_estimation(self, pose_est: PoseEstimation):
         """Initialize from a PoseEstimation object and save them in an h5 file
