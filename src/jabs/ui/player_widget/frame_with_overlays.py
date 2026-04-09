@@ -503,8 +503,11 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         bytes_per_pixel = img.depth() // 8
         bytes_per_line = img.bytesPerLine()
 
-        # Read the full image buffer including any per-row alignment padding bytes, then
-        # copy to make the array writable (frombuffer produces a read-only view).
+        # Read the full image buffer including any per-row alignment padding bytes.
+        # .copy() is required: as_strided bypasses numpy's writeable=False flag, so
+        # without it the in-place assignment would write directly into the QImage's
+        # internal memory, and the new QImage would alias the same Qt-owned buffer —
+        # both leading to undefined behavior and image corruption.
         arr = np.frombuffer(img.bits(), dtype=np.uint8, count=height * bytes_per_line).copy()
 
         # Use as_strided to create a view that correctly skips any row-padding bytes.
