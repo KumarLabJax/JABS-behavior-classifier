@@ -501,19 +501,35 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         img = pixmap.toImage()
         width, height = img.width(), img.height()
         bytes_per_pixel = img.depth() // 8
-        arr = np.frombuffer(img.bits(), dtype=np.uint8, count=width * height * bytes_per_pixel)
-        arr = arr.reshape((height, width, bytes_per_pixel))
+        bytes_per_line = img.bytesPerLine()
+
+        # Read the full image buffer including any per-row alignment padding bytes, then
+        # copy to make the array writable (frombuffer produces a read-only view).
+        arr = np.frombuffer(img.bits(), dtype=np.uint8, count=height * bytes_per_line).copy()
+
+        # Use as_strided to create a view that correctly skips any row-padding bytes.
+        # Without this, reshaping a flat buffer with count=width*height*bpp incorrectly
+        # shifts row boundaries whenever bytesPerLine > width * bytes_per_pixel, causing
+        # image corruption at certain window/frame sizes.
+        pixel_data = np.lib.stride_tricks.as_strided(
+            arr,
+            shape=(height, width, bytes_per_pixel),
+            strides=(bytes_per_line, bytes_per_pixel, 1),
+        )
 
         # Adjust the RGB channels only, leave alpha channel unchanged.
         # Apply contrast first (scale around midpoint 128), then brightness as an
         # independent additive offset so the two controls do not interact.
         # Cast scalars to float32 so all arithmetic stays in float32 and avoids
         # promoting the entire computation to float64.
-        rgb = arr[..., :3].astype(np.float32)
         contrast = np.float32(self._contrast)
         offset = np.float32(128.0 + (self._brightness - 1.0) * 128.0)
-        arr[..., :3] = np.clip((rgb - np.float32(128.0)) * contrast + offset, 0, 255)
+        pixel_data[..., :3] = np.clip(
+            (pixel_data[..., :3].astype(np.float32) - np.float32(128.0)) * contrast + offset,
+            0,
+            255,
+        )
 
         return QtGui.QPixmap.fromImage(
-            QtGui.QImage(arr.data, width, height, img.bytesPerLine(), img.format())
+            QtGui.QImage(arr.data, width, height, bytes_per_line, img.format())
         )
