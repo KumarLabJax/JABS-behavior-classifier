@@ -510,8 +510,9 @@ class ControlOverlay(Overlay):
             return
 
         container = QtWidgets.QWidget(self.parent)
+        container.setObjectName("brightnessSliderContainer")
         container.setStyleSheet(
-            "QWidget { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
+            "#brightnessSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
         )
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -570,8 +571,9 @@ class ControlOverlay(Overlay):
             return
 
         container = QtWidgets.QWidget(self.parent)
+        container.setObjectName("contrastSliderContainer")
         container.setStyleSheet(
-            "QWidget { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
+            "#contrastSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
         )
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
