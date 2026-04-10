@@ -46,6 +46,38 @@ def test_sample_confidence_at_coords_validates_shape() -> None:
         )
 
 
+def test_sample_confidence_at_coords_validates_leading_dims() -> None:
+    """Coords with mismatched (B, K) should fail early."""
+    confidence_maps = torch.zeros((2, 3, 4, 4), dtype=torch.float32)
+    coords = torch.zeros((1, 3, 2), dtype=torch.float32)  # B mismatch
+
+    with pytest.raises(ValueError, match="leading dimensions"):
+        sample_confidence_at_coords(confidence_maps, coords)
+
+    coords_k = torch.zeros((2, 5, 2), dtype=torch.float32)  # K mismatch
+
+    with pytest.raises(ValueError, match="leading dimensions"):
+        sample_confidence_at_coords(confidence_maps, coords_k)
+
+
+def test_compute_confidence_labels_validates_shape_mismatch() -> None:
+    """Mismatched prediction and ground_truth shapes should fail."""
+    predictions = torch.zeros((1, 3, 2), dtype=torch.float32)
+    ground_truth = torch.zeros((1, 4, 2), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="same shape"):
+        compute_confidence_labels(predictions, ground_truth, image_size=(100, 100))
+
+
+def test_compute_confidence_labels_validates_last_dim() -> None:
+    """Last dimension != 2 should fail."""
+    predictions = torch.zeros((1, 3, 3), dtype=torch.float32)
+    ground_truth = torch.zeros((1, 3, 3), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="last dimension to be 2"):
+        compute_confidence_labels(predictions, ground_truth, image_size=(100, 100))
+
+
 def test_compute_confidence_labels_accepts_tensor_diagonal() -> None:
     """Tensor diagonals with a different dtype should be normalized before comparison."""
     predictions = torch.tensor([[[3.0, 4.0], [0.0, 0.0]]], dtype=torch.float32)

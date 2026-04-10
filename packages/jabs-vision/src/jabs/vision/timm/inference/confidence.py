@@ -18,8 +18,9 @@ def compute_heatmap_confidence(heatmaps: Tensor) -> Tensor:
     """
     if heatmaps.ndim != 4:
         raise ValueError(f"Expected 4D tensor, got shape {heatmaps.shape}")
-    probs = torch.sigmoid(heatmaps)
-    return probs.flatten(start_dim=2).max(dim=-1).values
+    # sigmoid is monotonic, so max-then-sigmoid == sigmoid-then-max but cheaper.
+    max_logits = heatmaps.flatten(start_dim=2).max(dim=-1).values
+    return torch.sigmoid(max_logits)
 
 
 def sample_confidence_at_coords(
@@ -46,6 +47,12 @@ def sample_confidence_at_coords(
         raise ValueError(f"Expected coords to have shape (B, K, 2), but got {tuple(coords.shape)}")
 
     B, K, H, W = confidence_maps.shape
+
+    if coords.shape[0] != B or coords.shape[1] != K:
+        raise ValueError(
+            f"Expected coords to have leading dimensions {(B, K)} to match "
+            f"confidence_maps, but got {tuple(coords.shape[:2])}"
+        )
 
     if H < 2 or W < 2:
         # Fallback for tiny maps
@@ -99,6 +106,16 @@ def compute_confidence_labels(
             raise ValueError("Must provide image_diagonal or image_size")
         H, W = image_size
         image_diagonal = (H**2 + W**2) ** 0.5
+
+    if predictions.shape != ground_truth.shape:
+        raise ValueError(
+            f"predictions and ground_truth must have the same shape, "
+            f"got {tuple(predictions.shape)} and {tuple(ground_truth.shape)}"
+        )
+    if predictions.shape[-1] != 2:
+        raise ValueError(
+            f"Expected last dimension to be 2 (x, y coordinates), got {predictions.shape[-1]}"
+        )
 
     distances = torch.norm(predictions - ground_truth, dim=-1)
     threshold = torch.as_tensor(

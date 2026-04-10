@@ -48,14 +48,12 @@ def get_max_preds(heatmaps: Tensor) -> tuple[Tensor, Tensor]:
 def decode_heatmaps(
     heatmaps: Tensor,
     use_dark: bool = False,
-    sigma: float = 2.0,
 ) -> Tensor:
     """Decode heatmaps to (x, y) coordinates.
 
     Args:
         heatmaps: Heatmaps of shape (B, K, H, W).
         use_dark: If True, apply DARK refinement for sub-pixel accuracy.
-        sigma: Gaussian sigma (used for DARK refinement documentation).
 
     Returns:
         Coordinates of shape (B, K, 2).
@@ -84,48 +82,71 @@ def decode_heatmaps(
     # where g is gradient (1st derivative), H is Hessian (2nd derivative)
 
     # Clamp coordinates to avoid boundary issues during gradient computation
-    px = coords[..., 0].long().clamp(2, W - 3)
-    py = coords[..., 1].long().clamp(2, H - 3)
+    px = coords[..., 0].long().clamp(2, W - 3)  # (B, K)
+    py = coords[..., 1].long().clamp(2, H - 3)  # (B, K)
+
+    # Batch indices for advanced indexing: (B, K) each
+    batch_idx = torch.arange(B, device=heatmaps.device)[:, None]
+    keypoint_idx = torch.arange(K, device=heatmaps.device)[None, :]
+
+    # First derivative (central difference)
+    dx = 0.5 * (
+        heatmaps[batch_idx, keypoint_idx, py, px + 1]
+        - heatmaps[batch_idx, keypoint_idx, py, px - 1]
+    )
+    dy = 0.5 * (
+        heatmaps[batch_idx, keypoint_idx, py + 1, px]
+        - heatmaps[batch_idx, keypoint_idx, py - 1, px]
+    )
+
+    # Second derivative (central difference)
+    center = heatmaps[batch_idx, keypoint_idx, py, px]
+    dxx = (
+        heatmaps[batch_idx, keypoint_idx, py, px + 1]
+        - 2 * center
+        + heatmaps[batch_idx, keypoint_idx, py, px - 1]
+    )
+    dyy = (
+        heatmaps[batch_idx, keypoint_idx, py + 1, px]
+        - 2 * center
+        + heatmaps[batch_idx, keypoint_idx, py - 1, px]
+    )
+    dxy = 0.25 * (
+        heatmaps[batch_idx, keypoint_idx, py + 1, px + 1]
+        - heatmaps[batch_idx, keypoint_idx, py + 1, px - 1]
+        - heatmaps[batch_idx, keypoint_idx, py - 1, px + 1]
+        + heatmaps[batch_idx, keypoint_idx, py - 1, px - 1]
+    )
+
+    # Build batched Hessians (B, K, 2, 2) and gradients (B, K, 2)
+    hessian = torch.stack(
+        [
+            torch.stack([dxx, dxy], dim=-1),
+            torch.stack([dxy, dyy], dim=-1),
+        ],
+        dim=-2,
+    )
+    grad = torch.stack([dx, dy], dim=-1)
+
+    # Flatten to (B*K, 2, 2) and (B*K, 2) for batched solve
+    hessian_flat = hessian.reshape(-1, 2, 2)
+    grad_flat = grad.reshape(-1, 2)
+
+    # Only solve where the Hessian is non-singular and finite
+    det = hessian_flat[:, 0, 0] * hessian_flat[:, 1, 1] - hessian_flat[:, 0, 1] ** 2
+    solvable = torch.isfinite(hessian_flat).all(dim=(-2, -1)) & torch.isfinite(grad_flat).all(
+        dim=-1
+    )
+    solvable = solvable & (det.abs() > torch.finfo(hessian_flat.dtype).eps)
 
     refined_coords = coords.clone()
 
-    for b in range(B):
-        for k in range(K):
-            cx, cy = px[b, k], py[b, k]
-            val = heatmaps[b, k]
-
-            # First derivative (central difference)
-            # dx = 0.5 * (h[x+1] - h[x-1])
-            # dy = 0.5 * (h[y+1] - h[y-1])
-            dx = 0.5 * (val[cy, cx + 1] - val[cy, cx - 1])
-            dy = 0.5 * (val[cy + 1, cx] - val[cy - 1, cx])
-
-            # Second derivative (central difference)
-            # dxx = h[x+1] - 2*h[x] + h[x-1]
-            dxx = val[cy, cx + 1] - 2 * val[cy, cx] + val[cy, cx - 1]
-            dyy = val[cy + 1, cx] - 2 * val[cy, cx] + val[cy - 1, cx]
-            dxy = 0.25 * (
-                val[cy + 1, cx + 1]
-                - val[cy + 1, cx - 1]
-                - val[cy - 1, cx + 1]
-                + val[cy - 1, cx - 1]
-            )
-
-            # Build the local quadratic approximation without materializing Python scalars.
-            hessian = torch.stack(
-                [
-                    torch.stack([dxx, dxy]),
-                    torch.stack([dxy, dyy]),
-                ]
-            )
-            grad = torch.stack([dx, dy])
-
-            try:
-                delta = torch.linalg.solve(hessian, -grad)
-                refined_coords[b, k, 0] += delta[0]
-                refined_coords[b, k, 1] += delta[1]
-            except RuntimeError:
-                # Singular matrix or solve failure, skip refinement for this keypoint.
-                continue
+    if torch.any(solvable):
+        delta = torch.linalg.solve(
+            hessian_flat[solvable],
+            -grad_flat[solvable].unsqueeze(-1),
+        ).squeeze(-1)
+        refined_flat = refined_coords.reshape(-1, 2)
+        refined_flat[solvable] += delta
 
     return refined_coords
