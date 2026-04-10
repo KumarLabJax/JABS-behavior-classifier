@@ -83,10 +83,10 @@ Mousing over the video player will display a control overlay with the following 
 
 - **Video Playback Speed Controls:** Controls the speed of video playback. Clicking this control will open a menu with options for playback speed. The default speed is 1x.
 - **Video Cropping:** Allows the user to crop the video to a specific region of interest. After clicking the cropping control, the user can click and drag a rectangular selecting tool to select the region of interest. The video will be cropped to the selection, and scaled to fill the available player area. If the video is currently cropped, the cropping control will be replaced with a "Reset Cropping" control, which will reset the cropping to the original video size.
-- **Brightness Adjustment:** Allows the user to adjust the brightness of the video. Clicking this control will open a slider that can be used to adjust the brightness.
-- **Contrast Adjustment:** Allows the user to adjust the contrast of the video. Clicking this control will open a slider that can be used to adjust the contrast.
+- **Brightness Adjustment:** Allows the user to adjust the brightness of the video. Clicking this control will open a slider that can be used to adjust the brightness. The slider retains its last-used value when reopened; a reset button at the top of the slider restores the default brightness.
+- **Contrast Adjustment:** Allows the user to adjust the contrast of the video. Clicking this control will open a slider that can be used to adjust the contrast. The slider retains its last-used value when reopened; a reset button at the top of the slider restores the default contrast.
 
-Clicking the Brightness or Contrast controls will reset the brightness or contrast to the default value before displaying the slider control. Clicking the video or moving the mouse off the video frame will dismiss the slider control.
+Clicking the video or moving the mouse off the video frame will dismiss the slider control.
 
 ## Menu
 
