@@ -71,6 +71,7 @@ class ControlOverlay(Overlay):
         self._brightness_slider_open = False
         self._brightness_slider = None
         self._brightness_slider_bg = None
+        self._brightness_value: int = 100
         self._brightness_icon = MaterialIcon("brightness_6").pixmap(
             16, color=QtGui.QColor(0, 0, 0)
         )
@@ -79,6 +80,7 @@ class ControlOverlay(Overlay):
         self._contrast_slider_open = False
         self._contrast_slider = None
         self._contrast_slider_bg = None
+        self._contrast_value: int = 100
         self._contrast_icon = MaterialIcon("contrast_circle").pixmap(
             16, color=QtGui.QColor(0, 0, 0)
         )
@@ -501,54 +503,51 @@ class ControlOverlay(Overlay):
     def _show_brightness_slider(self) -> None:
         """Displays a brightness slider for adjusting the video brightness.
 
-        This method creates a slider widget and positions it above the brightness badge.
-        The slider allows the user to adjust the brightness of the video frame.
+        Creates a container with a reset button above the slider. The slider is
+        restored to its last-used value rather than resetting to the default.
         """
         if self._brightness_slider and self._brightness_slider.isVisible():
             return
 
-        # Create a translucent gray widget as the background for the slider
-        # this helps the slider stand out against the video
-        # it will not be clickable
-        self._brightness_slider_bg = QtWidgets.QWidget(self.parent)
-        self._brightness_slider_bg.setAttribute(
-            QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        container = QtWidgets.QWidget(self.parent)
+        container.setObjectName("brightnessSliderContainer")
+        container.setStyleSheet(
+            "#brightnessSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
         )
-        self._brightness_slider_bg.setStyleSheet(
-            "background-color: rgba(60, 60, 60, 180); border-radius: 8px;"
-        )
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
 
-        # Create a slider widget
-        self._brightness_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, self.parent)
+        reset_btn = QtWidgets.QPushButton(container)
+        reset_btn.setIcon(
+            MaterialIcon("restart_alt").pixmap(14, color=QtGui.QColor(255, 255, 255))
+        )
+        reset_btn.setFixedSize(20, 20)
+        reset_btn.setFlat(True)
+        layout.addWidget(reset_btn, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
+
+        self._brightness_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
         self._brightness_slider.setRange(50, 200)
+        self._brightness_slider.setValue(self._brightness_value)
         self._brightness_slider.valueChanged.connect(self._on_brightness_slider_value_changed)
-        self._brightness_slider.setValue(100)
+        layout.addWidget(self._brightness_slider)
 
-        # Position both widgets above the brightness badge
+        reset_btn.clicked.connect(lambda: self._brightness_slider.setValue(100))
+
+        container.adjustSize()
         badge_top_left = self.parent.mapToGlobal(self._brightness_badge.topLeft())
-        slider_size = self._brightness_slider.sizeHint()
-        pos = badge_top_left - QtCore.QPoint(0, slider_size.height())
+        pos = badge_top_left - QtCore.QPoint(0, container.sizeHint().height())
+        container.move(self.parent.mapFromGlobal(pos))
+        container.show()
 
-        # Set geometry for background and slider
-        self._brightness_slider_bg.setGeometry(
-            self.parent.mapFromGlobal(pos).x(),
-            self.parent.mapFromGlobal(pos).y(),
-            slider_size.width(),
-            slider_size.height(),
-        )
-        self._brightness_slider.move(self.parent.mapFromGlobal(pos))
-
-        self._brightness_slider_bg.show()
-        self._brightness_slider.show()
+        self._brightness_slider_bg = container
 
     def _hide_brightness_slider(self) -> None:
-        """Hides the brightness slider and its background widget."""
-        if self._brightness_slider:
-            self._brightness_slider.deleteLater()
-            self._brightness_slider = None
+        """Hides the brightness slider container."""
         if self._brightness_slider_bg:
             self._brightness_slider_bg.deleteLater()
             self._brightness_slider_bg = None
+        self._brightness_slider = None
         self._brightness_slider_open = False
 
     def _on_brightness_slider_value_changed(self, value: int) -> None:
@@ -559,60 +558,57 @@ class ControlOverlay(Overlay):
         Args:
             value (int): The new brightness value from the slider.
         """
+        self._brightness_value = value
         self.brightness_changed.emit(value / 100.0)
 
     def _show_contrast_slider(self) -> None:
         """Displays a contrast slider for adjusting the video contrast.
 
-        This method creates a slider widget and positions it above the contrast badge.
-        The slider allows the user to adjust the contrast of the video frame.
+        Creates a container with a reset button above the slider. The slider is
+        restored to its last-used value rather than resetting to the default.
         """
         if self._contrast_slider and self._contrast_slider.isVisible():
             return
 
-        # Create a translucent gray widget as the background for the slider
-        # this helps the slider stand out against the video
-        # it will not be clickable
-        self._contrast_slider_bg = QtWidgets.QWidget(self.parent)
-        self._contrast_slider_bg.setAttribute(
-            QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        container = QtWidgets.QWidget(self.parent)
+        container.setObjectName("contrastSliderContainer")
+        container.setStyleSheet(
+            "#contrastSliderContainer { background-color: rgba(60, 60, 60, 180); border-radius: 8px; }"
         )
-        self._contrast_slider_bg.setStyleSheet(
-            "background-color: rgba(60, 60, 60, 180); border-radius: 8px;"
-        )
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
 
-        # Create a slider widget
-        self._contrast_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, self.parent)
+        reset_btn = QtWidgets.QPushButton(container)
+        reset_btn.setIcon(
+            MaterialIcon("restart_alt").pixmap(14, color=QtGui.QColor(255, 255, 255))
+        )
+        reset_btn.setFixedSize(20, 20)
+        reset_btn.setFlat(True)
+        layout.addWidget(reset_btn, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
+
+        self._contrast_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical, container)
         self._contrast_slider.setRange(100, 200)
+        self._contrast_slider.setValue(self._contrast_value)
         self._contrast_slider.valueChanged.connect(self._on_contrast_slider_value_changed)
-        self._contrast_slider.setValue(100)
-        self.contrast_changed.emit(1.0)
+        layout.addWidget(self._contrast_slider)
 
-        # Position both widgets above the brightness badge
+        reset_btn.clicked.connect(lambda: self._contrast_slider.setValue(100))
+
+        container.adjustSize()
         badge_top_left = self.parent.mapToGlobal(self._contrast_badge.topLeft())
-        slider_size = self._contrast_slider.sizeHint()
-        pos = badge_top_left - QtCore.QPoint(0, slider_size.height())
+        pos = badge_top_left - QtCore.QPoint(0, container.sizeHint().height())
+        container.move(self.parent.mapFromGlobal(pos))
+        container.show()
 
-        # Set geometry for background and slider
-        self._contrast_slider_bg.setGeometry(
-            self.parent.mapFromGlobal(pos).x(),
-            self.parent.mapFromGlobal(pos).y(),
-            slider_size.width(),
-            slider_size.height(),
-        )
-        self._contrast_slider.move(self.parent.mapFromGlobal(pos))
-
-        self._contrast_slider_bg.show()
-        self._contrast_slider.show()
+        self._contrast_slider_bg = container
 
     def _hide_contrast_slider(self) -> None:
-        """Hides the contrast slider and its background widget."""
-        if self._contrast_slider:
-            self._contrast_slider.deleteLater()
-            self._contrast_slider = None
+        """Hides the contrast slider container."""
         if self._contrast_slider_bg:
             self._contrast_slider_bg.deleteLater()
             self._contrast_slider_bg = None
+        self._contrast_slider = None
         self._contrast_slider_open = False
 
     def _on_contrast_slider_value_changed(self, value: int) -> None:
@@ -623,4 +619,5 @@ class ControlOverlay(Overlay):
         Args:
             value (int): The new contrast value from the slider.
         """
+        self._contrast_value = value
         self.contrast_changed.emit(value / 100.0)
