@@ -131,8 +131,10 @@ def leave_one_group_out(
     """Implement the leave-one-group-out data splitting strategy.
 
     Splits are filtered so that the test set has at least `label_threshold`
-    samples for each class present in the test split. This ensures meaningful
-    evaluation regardless of the number of behavior classes.
+    samples for every class present in the full ``labels`` array. This ensures
+    all classes are represented in the test set, matching the original binary
+    behavior (both BEHAVIOR and NOT_BEHAVIOR must be above threshold) and
+    extending naturally to multi-class mode.
 
     Args:
         per_frame_features: Per-frame feature DataFrame for labeled data.
@@ -151,12 +153,12 @@ def leave_one_group_out(
     logo = LeaveOneGroupOut()
     x = combine_data(per_frame_features, window_features)
     splits = list(logo.split(x, labels, groups))
+    all_classes = np.unique(labels)
     random.shuffle(splits)
     count = 0
     for split in splits:
         test_labels = labels[split[1]]
-        unique_classes = np.unique(test_labels)
-        if all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in unique_classes):
+        if all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes):
             count += 1
             yield {
                 "training_data": x.iloc[split[0]],
