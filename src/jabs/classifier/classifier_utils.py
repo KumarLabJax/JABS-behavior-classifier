@@ -109,10 +109,10 @@ def downsample_balance(
     """
     label_states, label_counts = np.unique(labels, return_counts=True)
     max_examples_per_class = np.min(label_counts)
+    rng = np.random.default_rng(random_seed)
     selected_samples = []
     for cur_label in label_states:
         idxs = np.where(labels == cur_label)[0]
-        rng = np.random.default_rng(random_seed)
         sampled_idxs = rng.choice(idxs, max_examples_per_class, replace=False)
         selected_samples.append(sampled_idxs)
     selected_samples = np.sort(np.concatenate(selected_samples))
