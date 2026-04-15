@@ -13,3 +13,7 @@ COMPRESSION_OPTS_DEFAULT = 6
 
 # settings keys for project settings stored in the project.json file
 CV_GROUPING_KEY = "cv_grouping"
+CLASSIFIER_MODE_KEY = "classifier_mode"
+
+# reserved behavior name used in multi-class mode to store explicit negative labels
+MULTICLASS_NONE_BEHAVIOR = "None"

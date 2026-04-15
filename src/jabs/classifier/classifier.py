@@ -1,6 +1,4 @@
 import logging
-import random
-import re
 import typing
 import warnings
 from pathlib import Path
@@ -9,12 +7,6 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import InconsistentVersionWarning
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    precision_recall_fscore_support,
-)
-from sklearn.model_selection import LeaveOneGroupOut
 
 from jabs.core.enums import (
     DEFAULT_CV_GROUPING_STRATEGY,
@@ -24,6 +16,7 @@ from jabs.core.enums import (
 from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
 
+from . import classifier_utils
 from .factories import make_catboost, make_random_forest, make_xgboost
 
 _VERSION = 11
@@ -225,40 +218,13 @@ class Classifier:
             'feature_names': list of feature names
         }
         """
-        logo = LeaveOneGroupOut()
-        x = Classifier.combine_data(per_frame_features, window_features)
-        splits = list(logo.split(x, labels, groups))
-
-        # pick random split, make sure we pick a split where the test data
-        # has sufficient labels of both classes
-        random.shuffle(splits)
-        count = 0
-        for split in splits:
-            behavior_count = np.count_nonzero(labels[split[1]] == TrackLabels.Label.BEHAVIOR)
-            not_behavior_count = np.count_nonzero(
-                labels[split[1]] == TrackLabels.Label.NOT_BEHAVIOR
-            )
-
-            if (
-                behavior_count >= Classifier.LABEL_THRESHOLD
-                and not_behavior_count >= Classifier.LABEL_THRESHOLD
-            ):
-                count += 1
-                yield {
-                    "training_data": x.iloc[split[0]],
-                    "training_labels": labels[split[0]],
-                    "test_data": x.iloc[split[1]],
-                    "test_labels": labels[split[1]],
-                    "test_group": groups[split[1]][0],
-                    "feature_names": x.columns.to_list(),
-                }
-
-        # number of splits exhausted without finding at least one that meets
-        # criteria
-        # the UI won't allow us to reach this case
-        if count == 0:
-            raise ValueError("unable to split data")
-        # If there are no more splits to yield, just let generator end
+        yield from classifier_utils.leave_one_group_out(
+            per_frame_features,
+            window_features,
+            labels,
+            groups,
+            label_threshold=Classifier.LABEL_THRESHOLD,
+        )
 
     @staticmethod
     def downsample_balance(features, labels, random_seed=None):
@@ -272,18 +238,7 @@ class Classifier:
         Returns:
             tuple of downsampled features, labels
         """
-        label_states, label_counts = np.unique(labels, return_counts=True)
-        max_examples_per_class = np.min(label_counts)
-        selected_samples = []
-        for cur_label in label_states:
-            idxs = np.where(labels == cur_label)[0]
-            rng = np.random.default_rng(random_seed)
-            sampled_idxs = rng.choice(idxs, max_examples_per_class, replace=False)
-            selected_samples.append(sampled_idxs)
-        selected_samples = np.sort(np.concatenate(selected_samples))
-        features = features.iloc[selected_samples]
-        labels = labels[selected_samples]
-        return features, labels
+        return classifier_utils.downsample_balance(features, labels, random_seed)
 
     @staticmethod
     def augment_symmetric(features, labels, random_str="ASygRQDZJD"):
@@ -301,27 +256,7 @@ class Classifier:
         Returns:
             tuple of augmented features, labels
         """
-        # Figure out the L-R swapping of features
-        lowercase_features = np.array([x.lower() for x in features.columns.to_list()])
-        reflected_feature_names = [re.sub(r"left", random_str, x) for x in lowercase_features]
-        reflected_feature_names = [re.sub(r"right", "left", x) for x in reflected_feature_names]
-        reflected_feature_names = [re.sub(random_str, "right", x) for x in reflected_feature_names]
-        reflected_idxs = [
-            np.where(lowercase_features == x)[0][0] if x in lowercase_features else i
-            for i, x in enumerate(reflected_feature_names)
-        ]
-        # expand the features with reflections
-        features_duplicate = features.copy()
-        features_duplicate.columns = features.columns.to_numpy()[np.asarray(reflected_idxs)]
-        features = pd.concat([features, features_duplicate])
-        labels = np.concatenate([labels, labels])
-        # TODO: Add this as a test-case that these features are the complete list that should be swapped.
-        # They were manually checked with the full feature set
-        # print('Swapping the following features:')
-        # swapped_features = np.where(reflected_idxs!=np.arange(len(reflected_idxs)))[0]
-        # for idx in swapped_features:
-        #     print(str(lowercase_features[idx]) + ' -> ' + str(reflected_feature_names[idx]))
-        return features, labels
+        return classifier_utils.augment_symmetric(features, labels, random_str)
 
     def set_classifier(self, classifier: ClassifierType):
         """change the type of the classifier being used"""
@@ -536,17 +471,17 @@ class Classifier:
     @staticmethod
     def accuracy_score(truth, predictions):
         """return accuracy score"""
-        return accuracy_score(truth, predictions)
+        return classifier_utils.accuracy_score(truth, predictions)
 
     @staticmethod
     def precision_recall_score(truth, predictions):
         """return precision recall score"""
-        return precision_recall_fscore_support(truth, predictions)
+        return classifier_utils.precision_recall_score(truth, predictions)
 
     @staticmethod
     def confusion_matrix(truth, predictions):
         """return the confusion matrix using sklearn's confusion_matrix function"""
-        return confusion_matrix(truth, predictions)
+        return classifier_utils.confusion_matrix(truth, predictions)
 
     @staticmethod
     def combine_data(per_frame, window):
@@ -559,7 +494,7 @@ class Classifier:
         Returns:
             merged dataframe
         """
-        return pd.concat([per_frame, window], axis=1)
+        return classifier_utils.combine_data(per_frame, window)
 
     def get_feature_importance(self, limit=20) -> list[tuple[str, float]]:
         """get the most important features and their importance
@@ -700,15 +635,7 @@ class Classifier:
         Returns:
             Cleaned DataFrame with missing and infinite values handled.
         """
-        if self._classifier_type in (
-            ClassifierType.XGBOOST,
-            ClassifierType.CATBOOST,
-        ):
-            # these classifiers can handle NaN, just replace infinities
-            return features.replace([np.inf, -np.inf], np.nan)
-        else:
-            # Random forests can't handle NAs & infs, so fill them with 0s
-            return features.replace([np.inf, -np.inf], 0).fillna(0)
+        return classifier_utils.clean_features(features, self._classifier_type)
 
     @staticmethod
     def derive_predictions(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

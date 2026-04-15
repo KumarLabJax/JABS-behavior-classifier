@@ -7,6 +7,7 @@ Gradient Boosting, and XGBoost), utilities for feature management, data splittin
 
 from .classifier import Classifier
 from .cross_validation import run_leave_one_group_out_cv
+from .protocols import ClassifierProtocol
 from .training_report import (
     CrossValidationResult,
     TrainingReportData,
@@ -16,6 +17,7 @@ from .training_report import (
 
 __all__ = [
     "Classifier",
+    "ClassifierProtocol",
     "CrossValidationResult",
     "TrainingReportData",
     "generate_markdown_report",
