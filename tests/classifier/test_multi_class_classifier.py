@@ -155,6 +155,15 @@ class TestMergeLabels:
         with pytest.raises(ValueError, match="must not be empty"):
             MultiClassClassifier.merge_labels({}, ["running"])
 
+    def test_conflicting_behavior_labels_raises(self):
+        """Frames with BEHAVIOR in more than one behavior raise ValueError."""
+        labels_by_behavior = {
+            "running": np.array([_B, _X, _X, _X], dtype=np.int8),
+            "grooming": np.array([_B, _B, _X, _X], dtype=np.int8),
+        }
+        with pytest.raises(ValueError, match="Conflicting BEHAVIOR labels"):
+            MultiClassClassifier.merge_labels(labels_by_behavior, ["running", "grooming"])
+
     def test_missing_behavior_in_dict_is_skipped(self):
         """Behavior names not present in labels_by_behavior are silently skipped."""
         labels_by_behavior = {

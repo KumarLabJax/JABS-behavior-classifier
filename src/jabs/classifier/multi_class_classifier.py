@@ -424,6 +424,23 @@ class MultiClassClassifier:
             raise ValueError("labels_by_behavior must not be empty")
 
         n_frames = next(iter(labels_by_behavior.values())).shape[0]
+
+        # Check for frames labeled BEHAVIOR in more than one behavior.
+        all_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+        behavior_mask = np.zeros(n_frames, dtype=np.intp)
+        for name in all_names:
+            if name in labels_by_behavior:
+                behavior_mask += (labels_by_behavior[name] == TrackLabels.Label.BEHAVIOR).astype(
+                    np.intp
+                )
+        conflict_frames = np.where(behavior_mask > 1)[0]
+        if len(conflict_frames) > 0:
+            raise ValueError(
+                f"Conflicting BEHAVIOR labels found on {len(conflict_frames)} frame(s): "
+                f"{conflict_frames.tolist()}. Each frame may be labeled for at "
+                f"most one behavior."
+            )
+
         class_indices = np.full(n_frames, -1, dtype=np.intp)
 
         # MULTICLASS_NONE_BEHAVIOR BEHAVIOR frames → class 0 (explicit background)
