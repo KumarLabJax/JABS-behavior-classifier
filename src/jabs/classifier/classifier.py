@@ -182,16 +182,16 @@ class Classifier:
             train_labels = labels[~test_mask]
             # Test split must have both classes above threshold.
             test_ok = (
-                np.sum(test_labels == TrackLabels.Label.BEHAVIOR) > Classifier.LABEL_THRESHOLD
+                np.sum(test_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
                 and np.sum(test_labels == TrackLabels.Label.NOT_BEHAVIOR)
-                > Classifier.LABEL_THRESHOLD
+                >= Classifier.LABEL_THRESHOLD
             )
             # Training split must also have both classes above threshold so the
             # model can learn every class regardless of which group is held out.
             train_ok = (
-                np.sum(train_labels == TrackLabels.Label.BEHAVIOR) > Classifier.LABEL_THRESHOLD
+                np.sum(train_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
                 and np.sum(train_labels == TrackLabels.Label.NOT_BEHAVIOR)
-                > Classifier.LABEL_THRESHOLD
+                >= Classifier.LABEL_THRESHOLD
             )
             if test_ok and train_ok:
                 count += 1
