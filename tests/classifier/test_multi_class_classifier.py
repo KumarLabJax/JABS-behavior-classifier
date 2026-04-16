@@ -197,6 +197,21 @@ class TestMultiClassClassifierInit:
         ):
             MultiClassClassifier(BEHAVIOR_NAMES, ClassifierType.RANDOM_FOREST)
 
+    def test_empty_behavior_names_raises(self):
+        """Empty behavior_names raises ValueError."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            MultiClassClassifier([])
+
+    def test_reserved_none_behavior_name_raises(self):
+        """Including MULTICLASS_NONE_BEHAVIOR in behavior_names raises ValueError."""
+        with pytest.raises(ValueError, match="reserved name"):
+            MultiClassClassifier(["running", MULTICLASS_NONE_BEHAVIOR])
+
+    def test_duplicate_behavior_names_raises(self):
+        """Duplicate entries in behavior_names raise ValueError."""
+        with pytest.raises(ValueError, match="duplicate"):
+            MultiClassClassifier(["running", "grooming", "running"])
+
 
 # ---------------------------------------------------------------------------
 # get_class_names

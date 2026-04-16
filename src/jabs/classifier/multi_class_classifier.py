@@ -92,8 +92,21 @@ class MultiClassClassifier:
             n_jobs: Number of parallel jobs for training and inference.
 
         Raises:
+            ValueError: If ``behavior_names`` is empty, contains duplicates, or
+                includes the reserved name ``MULTICLASS_NONE_BEHAVIOR``.
             ValueError: If ``classifier_type`` is not supported in the current environment.
         """
+        if not behavior_names:
+            raise ValueError("behavior_names must not be empty")
+        if MULTICLASS_NONE_BEHAVIOR in behavior_names:
+            raise ValueError(
+                f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
+            )
+        if len(behavior_names) != len(set(behavior_names)):
+            raise ValueError("behavior_names must not contain duplicate entries")
+        if classifier_type not in self._supported_classifier_choices():
+            raise ValueError("Invalid classifier type")
+
         self._behavior_names: list[str] = list(behavior_names)
         self._classifier_type = classifier_type
         self._n_jobs = n_jobs
@@ -103,9 +116,6 @@ class MultiClassClassifier:
         self._classifier_file: str | None = None
         self._classifier_hash: str | None = None
         self._classifier_source: str | None = None
-
-        if classifier_type not in self._supported_classifier_choices():
-            raise ValueError("Invalid classifier type")
 
     @property
     def behavior_names(self) -> list[str]:
