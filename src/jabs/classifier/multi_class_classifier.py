@@ -434,6 +434,14 @@ class MultiClassClassifier:
 
         n_frames = next(iter(labels_by_behavior.values())).shape[0]
 
+        for name, arr in labels_by_behavior.items():
+            if arr.ndim != 1:
+                raise ValueError(f"Label array for '{name}' must be 1-D, got shape {arr.shape}")
+            if arr.shape[0] != n_frames:
+                raise ValueError(
+                    f"Label array for '{name}' has length {arr.shape[0]}, expected {n_frames}"
+                )
+
         # Check for frames labeled BEHAVIOR in more than one behavior.
         all_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
         behavior_mask = np.zeros(n_frames, dtype=np.intp)
