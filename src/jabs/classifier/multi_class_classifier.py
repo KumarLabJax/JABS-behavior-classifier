@@ -169,6 +169,15 @@ class MultiClassClassifier:
             data["labels_by_behavior"], self._behavior_names
         )
 
+        n_classes_present = len(np.unique(multiclass_labels))
+        if n_classes_present < 2:
+            raise ValueError(
+                f"Training requires at least 2 distinct classes, but only "
+                f"{n_classes_present} found. Ensure that at least two behaviors have "
+                f"BEHAVIOR-labeled frames, or combine one behavior with explicit "
+                f"background labels via the '{MULTICLASS_NONE_BEHAVIOR}' behavior entry."
+            )
+
         combined = classifier_utils.combine_data(data["per_frame"], data["window"])
         features = combined[include_mask].reset_index(drop=True)
 
