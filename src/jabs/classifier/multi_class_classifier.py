@@ -420,6 +420,9 @@ class MultiClassClassifier:
             - ``include_mask``: boolean array of length n_frames; True where the
               frame is included in training.
         """
+        if not labels_by_behavior:
+            raise ValueError("labels_by_behavior must not be empty")
+
         n_frames = next(iter(labels_by_behavior.values())).shape[0]
         class_indices = np.full(n_frames, -1, dtype=np.intp)
 

@@ -150,6 +150,11 @@ class TestMergeLabels:
         assert 1 in labels  # "a" at frame 2
         assert 2 in labels  # "b" at frame 4
 
+    def test_empty_labels_by_behavior_raises(self):
+        """Empty labels_by_behavior raises ValueError."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            MultiClassClassifier.merge_labels({}, ["running"])
+
     def test_missing_behavior_in_dict_is_skipped(self):
         """Behavior names not present in labels_by_behavior are silently skipped."""
         labels_by_behavior = {
