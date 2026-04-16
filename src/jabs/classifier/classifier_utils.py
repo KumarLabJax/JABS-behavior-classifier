@@ -169,10 +169,17 @@ def leave_one_group_out(
     for split in splits:
         test_labels = labels[split[1]]
         if min_test_classes is None:
-            # Binary mode: all classes must appear above threshold in test split.
+            # Binary mode: all classes must appear above threshold in both splits.
             test_ok = all(
                 np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
             )
+            if test_ok:
+                # Also require all classes above threshold in the training split
+                # so the model can learn every class regardless of the test group.
+                train_labels = labels[split[0]]
+                test_ok = all(
+                    np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
+                )
         else:
             # Multi-class mode: test split needs at least min_test_classes
             # classes above threshold; training split must have all classes.
