@@ -131,9 +131,17 @@ def leave_one_group_out(
 ) -> Generator[dict, None, None]:
     """Implement the leave-one-group-out data splitting strategy.
 
-    When ``min_test_classes`` is ``None`` (default, binary mode), every class
-    present in the full ``labels`` array must appear at least ``label_threshold``
-    times in the test split.
+    A split is accepted only when **both** the test and training portions satisfy
+    their respective class-count requirements.
+
+    When ``min_test_classes`` is ``None`` (default, binary mode), a split is
+    accepted when:
+
+    - Every class present in the full ``labels`` array appears at least
+      ``label_threshold`` times in the test split.
+    - The training split also contains every class at least ``label_threshold``
+      times (guards against the held-out group being the sole source of a rare
+      class).
 
     When ``min_test_classes`` is an integer (multi-class mode), a split is
     accepted when:
