@@ -345,6 +345,84 @@ class TestSaveLoad:
 
 
 # ---------------------------------------------------------------------------
+# leave_one_group_out / get_leave_one_group_out_max
+# ---------------------------------------------------------------------------
+
+
+class TestLeaveOneGroupOut:
+    """Tests for MultiClassClassifier LOGO cross-validation helpers."""
+
+    @pytest.fixture
+    def multiclass_logo_data(self):
+        """Three groups; each group has 2 of 3 behavior classes plus background.
+
+        Group 0: classes 0 and 1 (30 samples each)
+        Group 1: classes 0 and 2 (30 samples each)
+        Group 2: classes 1 and 2 (30 samples each)
+
+        No single group has all 3 classes, but the training set for any held-out
+        group always contains all 3.
+        """
+        rng = np.random.default_rng(0)
+        n = 30
+        labels = np.array(
+            [0] * n
+            + [1] * n  # group 0
+            + [0] * n
+            + [2] * n  # group 1
+            + [1] * n
+            + [2] * n,  # group 2
+            dtype=np.intp,
+        )
+        groups = np.array([0] * (2 * n) + [1] * (2 * n) + [2] * (2 * n))
+        per_frame = pd.DataFrame({"f": rng.standard_normal(len(labels))})
+        window = pd.DataFrame({"w": rng.standard_normal(len(labels))})
+        return per_frame, window, labels, groups
+
+    def test_yields_splits_when_no_group_has_all_classes(self, multiclass_logo_data):
+        """LOGO succeeds even when no single group contains all classes."""
+        per_frame, window, labels, groups = multiclass_logo_data
+        splits = list(MultiClassClassifier.leave_one_group_out(per_frame, window, labels, groups))
+        assert len(splits) > 0
+
+    def test_split_structure(self, multiclass_logo_data):
+        """Each split dict has the expected keys."""
+        per_frame, window, labels, groups = multiclass_logo_data
+        split = next(MultiClassClassifier.leave_one_group_out(per_frame, window, labels, groups))
+        for key in (
+            "training_data",
+            "training_labels",
+            "test_data",
+            "test_labels",
+            "test_group",
+            "feature_names",
+        ):
+            assert key in split
+
+    def test_training_split_has_all_classes(self, multiclass_logo_data):
+        """Every yielded split has all classes in the training portion."""
+        per_frame, window, labels, groups = multiclass_logo_data
+        all_classes = np.unique(labels)
+        for split in MultiClassClassifier.leave_one_group_out(per_frame, window, labels, groups):
+            for cls in all_classes:
+                assert np.count_nonzero(split["training_labels"] == cls) > 0
+
+    def test_get_leave_one_group_out_max(self, multiclass_logo_data):
+        """get_leave_one_group_out_max counts groups that yield valid splits."""
+        _, _, labels, groups = multiclass_logo_data
+        max_splits = MultiClassClassifier.get_leave_one_group_out_max(labels, groups)
+        assert max_splits == 3  # all three groups are valid test sets
+
+    def test_get_leave_one_group_out_max_zero_when_training_incomplete(self):
+        """Returns 0 when no split leaves a training set with all classes."""
+        # Only 2 groups; each has only one class — training set always missing classes.
+        labels = np.array([0] * 30 + [1] * 30, dtype=np.intp)
+        groups = np.array([0] * 30 + [1] * 30)
+        # group 0 test: training only has class 1; group 1 test: training only has class 0
+        assert MultiClassClassifier.get_leave_one_group_out_max(labels, groups) == 0
+
+
+# ---------------------------------------------------------------------------
 # Protocol compliance
 # ---------------------------------------------------------------------------
 

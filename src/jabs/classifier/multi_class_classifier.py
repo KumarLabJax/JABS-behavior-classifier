@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import typing
 import warnings
+from collections.abc import Generator
 from pathlib import Path
 
 import joblib
@@ -58,6 +59,16 @@ class MultiClassClassifier:
         - BEHAVIOR in ``MULTICLASS_NONE_BEHAVIOR`` TrackLabels → class 0 (background)
         - BEHAVIOR in behavior X's TrackLabels → class X's 1-based index
         - All other frames → excluded from training
+
+    Cross-validation note:
+        Leave-one-group-out CV uses a relaxed split criterion compared to binary
+        mode. Because individual groups (videos or animals) are often labeled for
+        only a subset of behaviors, requiring all classes in every test split would
+        yield no valid splits. Instead, a test split is accepted when it contains at
+        least 2 classes above ``LABEL_THRESHOLD`` and the remaining training groups
+        collectively contain all classes above ``LABEL_THRESHOLD``. A follow-up
+        ticket should introduce a multi-video grouping strategy that aggregates
+        groups to improve class coverage in test splits.
 
     Attributes:
         LABEL_THRESHOLD: Minimum number of labeled frames required per class.
@@ -296,6 +307,80 @@ class MultiClassClassifier:
             self._classifier_source = "pickle"
 
         logger.info("MultiClassClassifier loaded from %s", path)
+
+    @staticmethod
+    def leave_one_group_out(
+        per_frame_features: pd.DataFrame,
+        window_features: pd.DataFrame,
+        labels: npt.NDArray,
+        groups: npt.NDArray,
+    ) -> Generator[dict, None, None]:
+        """Generate leave-one-group-out splits for multi-class cross-validation.
+
+        Uses a relaxed acceptance criterion: a split is valid when the test group
+        has at least 2 classes above ``LABEL_THRESHOLD`` and the training portion
+        has all classes above ``LABEL_THRESHOLD``. See the class docstring for
+        rationale.
+
+        Args:
+            per_frame_features: Per-frame feature DataFrame for labeled data.
+            window_features: Window feature DataFrame for labeled data.
+            labels: Multi-class label array (class indices).
+            groups: Group ID array corresponding to each feature row.
+
+        Yields:
+            Split dictionaries with keys: training_data, training_labels,
+            test_data, test_labels, test_group, feature_names.
+
+        Raises:
+            ValueError: If no valid split can be found.
+        """
+        yield from classifier_utils.leave_one_group_out(
+            per_frame_features,
+            window_features,
+            labels,
+            groups,
+            label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
+            min_test_classes=2,
+        )
+
+    @staticmethod
+    def get_leave_one_group_out_max(
+        labels: npt.NDArray,
+        groups: npt.NDArray,
+    ) -> int:
+        """Count the number of valid LOGO splits for multi-class cross-validation.
+
+        A group is counted as a valid test split when it contains at least 2
+        distinct classes above ``LABEL_THRESHOLD`` and the remaining training
+        groups collectively contain all classes above ``LABEL_THRESHOLD``.
+
+        Args:
+            labels: Multi-class label array (class indices).
+            groups: Group ID array corresponding to each label.
+
+        Returns:
+            Number of groups that can serve as a valid test split.
+        """
+        all_classes = np.unique(labels)
+        unique_groups = np.unique(groups)
+        count = 0
+        for g in unique_groups:
+            test_mask = np.asarray(groups) == g
+            test_labels = np.asarray(labels)[test_mask]
+            train_labels = np.asarray(labels)[~test_mask]
+
+            n_test_classes = sum(
+                np.count_nonzero(test_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
+                for cls in all_classes
+            )
+            train_has_all = all(
+                np.count_nonzero(train_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
+                for cls in all_classes
+            )
+            if n_test_classes >= 2 and train_has_all:
+                count += 1
+        return count
 
     @staticmethod
     def merge_labels(
