@@ -176,6 +176,7 @@ class MultiClassClassifier:
 
         if "feature_names" in data:
             self._feature_names = data["feature_names"]
+            features = features[self._feature_names]
         else:
             self._feature_names = features.columns.to_list()
 
