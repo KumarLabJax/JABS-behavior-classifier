@@ -36,6 +36,28 @@ def make_catboost(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
     )
 
 
+def make_catboost_multiclass(n_jobs: int, random_seed: int | None) -> CatBoostClassifier:
+    """Factory function to construct a CatBoost classifier for multi-class problems.
+
+    Uses ``loss_function="MultiClass"`` (softmax over all classes), which is
+    required when the label set has more than two classes.
+
+    Args:
+        n_jobs: Number of parallel jobs.
+        random_seed: Random seed for reproducibility.
+
+    Returns:
+        CatBoostClassifier configured for multi-class classification.
+    """
+    return CatBoostClassifier(
+        loss_function="MultiClass",
+        thread_count=n_jobs,
+        random_state=random_seed,
+        verbose=False,
+        allow_writing_files=False,
+    )
+
+
 def make_xgboost(n_jobs: int, random_seed: int | None) -> ClassifierMixin:
     """Factory function to construct an XGBoost classifier.
 

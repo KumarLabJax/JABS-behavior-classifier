@@ -20,7 +20,7 @@ from jabs.core.utils import hash_file
 from jabs.project import TrackLabels
 
 from . import classifier_utils
-from .factories import make_catboost, make_random_forest, make_xgboost
+from .factories import make_catboost_multiclass, make_random_forest, make_xgboost
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ _VERSION = 1
 
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost,
+    ClassifierType.CATBOOST: make_catboost_multiclass,
 }
 
 try:
