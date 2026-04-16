@@ -9,6 +9,13 @@ from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
 from jabs.project import TrackLabels
 
+try:
+    import xgboost  # noqa: F401
+
+    _XGBOOST_AVAILABLE = True
+except ImportError:
+    _XGBOOST_AVAILABLE = False
+
 # Shorthand for label enum values used throughout tests
 _B = TrackLabels.Label.BEHAVIOR
 _N = TrackLabels.Label.NOT_BEHAVIOR
@@ -272,6 +279,37 @@ class TestTrain:
             random_seed=42,
         )
         assert clf.feature_names is not None
+
+    @pytest.mark.parametrize(
+        "classifier_type",
+        [
+            ClassifierType.CATBOOST,
+            pytest.param(
+                ClassifierType.XGBOOST,
+                marks=pytest.mark.skipif(not _XGBOOST_AVAILABLE, reason="xgboost not installed"),
+            ),
+        ],
+    )
+    def test_train_and_predict_alternate_classifier_types(
+        self,
+        classifier_type,
+        two_behavior_labels,
+        synthetic_features,
+        combined_features,
+    ):
+        """Train and predict smoke test for non-default classifier types."""
+        per_frame, window = synthetic_features
+        clf = MultiClassClassifier(BEHAVIOR_NAMES, classifier_type)
+        clf.train(
+            {
+                "per_frame": per_frame,
+                "window": window,
+                "labels_by_behavior": two_behavior_labels,
+            },
+            random_seed=42,
+        )
+        predictions = clf.predict(combined_features)
+        assert predictions.shape == (len(combined_features),)
 
     def test_train_with_symmetric_augmentation(self, two_behavior_labels):
         """Training with symmetric_behavior does not raise."""

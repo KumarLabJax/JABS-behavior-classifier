@@ -220,7 +220,8 @@ class MultiClassClassifier:
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
-            result = self._classifier.predict(cleaned).astype(np.int8)
+            # ravel() normalizes CatBoost MultiClass, which returns (n, 1).
+            result = np.ravel(self._classifier.predict(cleaned)).astype(np.int8)
 
         if frame_indexes is not None:
             result_adjusted = np.full(result.shape, -1, dtype=np.int8)
