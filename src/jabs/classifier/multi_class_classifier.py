@@ -20,7 +20,12 @@ from jabs.core.utils import hash_file
 from jabs.project import TrackLabels
 
 from . import classifier_utils
-from .factories import make_catboost_multiclass, make_random_forest, make_xgboost
+from .factories import (
+    XGBOOST_AVAILABLE,
+    make_catboost_multiclass,
+    make_random_forest,
+    make_xgboost,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +36,7 @@ _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], t
     ClassifierType.CATBOOST: make_catboost_multiclass,
 }
 
-try:
-    import xgboost  # noqa: F401
-except ImportError:
-    logger.warning(
-        "Unable to import xgboost. XGBoost support will be unavailable. "
-        "You may need to install xgboost and/or libomp."
-    )
-else:
+if XGBOOST_AVAILABLE:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
 
 

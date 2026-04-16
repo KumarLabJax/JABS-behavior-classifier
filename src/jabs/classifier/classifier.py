@@ -17,32 +17,21 @@ from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
 
 from . import classifier_utils
-from .factories import make_catboost, make_random_forest, make_xgboost
+from .factories import XGBOOST_AVAILABLE, make_catboost, make_random_forest, make_xgboost
 
 _VERSION = 11
 
 # _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
 # supported by the current JABS environment, in addition to the mapping of ClassifierTypes
-# to factory functions that produce instantiated classifiers for that type
+# to factory functions that produce instantiated classifiers for that type.
+# XGBoost availability is detected once in factories.py; import XGBOOST_AVAILABLE here
+# rather than re-probing so that the warning is emitted exactly once.
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
     ClassifierType.CATBOOST: make_catboost,
 }
 
-# Attempt to register XGBoost if available. While it will be installed, because it is a
-# package dependency, it might not be usable on macOS due to missing libomp. In this case
-# xgboost will raise an ImportError, so we try importing and catch ImportError to see if it
-# is usable in the current environment.
-# Users will be warned if XGBoost support is unavailable. This can be resolved by installing
-# libomp using homebrew.
-try:
-    import xgboost  # noqa F401
-except ImportError:
-    logging.warning(
-        "Unable to import xgboost. XGBoost support will be unavailable. "
-        "You may need to install xgboost and/or libomp."
-    )
-else:
+if XGBOOST_AVAILABLE:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
 
 

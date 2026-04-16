@@ -1,8 +1,30 @@
-"""Factory functions for various classifiers."""
+"""Factory functions for various classifiers.
+
+``XGBOOST_AVAILABLE`` is set at import time by probing for the ``xgboost``
+package.  Both ``Classifier`` and ``MultiClassClassifier`` import this flag
+to conditionally register XGBoost support, so the availability check and
+warning are emitted exactly once regardless of how many classifier modules
+are imported.
+"""
+
+import logging
 
 from catboost import CatBoostClassifier
 from sklearn.base import ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
+
+logger = logging.getLogger(__name__)
+
+try:
+    import xgboost as _xgboost  # noqa: F401
+
+    XGBOOST_AVAILABLE: bool = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+    logger.warning(
+        "Unable to import xgboost. XGBoost support will be unavailable. "
+        "You may need to install xgboost and/or libomp."
+    )
 
 
 def make_random_forest(n_jobs: int, random_seed: int | None) -> RandomForestClassifier:
