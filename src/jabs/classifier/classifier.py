@@ -183,20 +183,30 @@ class Classifier:
 
         Note: labels excludes label for frames with no identity.
         """
+        labels = np.asarray(labels)
+        groups = np.asarray(groups)
         unique_groups = np.unique(groups)
-        count_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.BEHAVIOR)
-            for x in unique_groups
-        ]
-        count_not_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.NOT_BEHAVIOR)
-            for x in unique_groups
-        ]
-        can_kfold = np.logical_and(
-            np.asarray(count_behavior) > Classifier.LABEL_THRESHOLD,
-            np.asarray(count_not_behavior) > Classifier.LABEL_THRESHOLD,
-        )
-        return np.sum(can_kfold)
+        count = 0
+        for g in unique_groups:
+            test_mask = groups == g
+            test_labels = labels[test_mask]
+            train_labels = labels[~test_mask]
+            # Test split must have both classes above threshold.
+            test_ok = (
+                np.sum(test_labels == TrackLabels.Label.BEHAVIOR) > Classifier.LABEL_THRESHOLD
+                and np.sum(test_labels == TrackLabels.Label.NOT_BEHAVIOR)
+                > Classifier.LABEL_THRESHOLD
+            )
+            # Training split must also have both classes above threshold so the
+            # model can learn every class regardless of which group is held out.
+            train_ok = (
+                np.sum(train_labels == TrackLabels.Label.BEHAVIOR) > Classifier.LABEL_THRESHOLD
+                and np.sum(train_labels == TrackLabels.Label.NOT_BEHAVIOR)
+                > Classifier.LABEL_THRESHOLD
+            )
+            if test_ok and train_ok:
+                count += 1
+        return count
 
     @staticmethod
     def leave_one_group_out(per_frame_features, window_features, labels, groups):
