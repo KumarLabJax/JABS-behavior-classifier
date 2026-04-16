@@ -167,7 +167,11 @@ def leave_one_group_out(
 
     Raises:
         ValueError: If no valid split satisfying the threshold can be found.
+        ValueError: If ``min_test_classes`` is not ``None`` and is less than 1.
     """
+    if min_test_classes is not None and min_test_classes < 1:
+        raise ValueError(f"min_test_classes must be None or >= 1, got {min_test_classes}")
+
     logo = LeaveOneGroupOut()
     x = combine_data(per_frame_features, window_features)
     splits = list(logo.split(x, labels, groups))
