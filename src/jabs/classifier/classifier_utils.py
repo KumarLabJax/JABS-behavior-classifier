@@ -127,21 +127,39 @@ def leave_one_group_out(
     labels: npt.NDArray,
     groups: npt.NDArray,
     label_threshold: int = LABEL_THRESHOLD,
+    min_test_classes: int | None = None,
 ) -> Generator[dict, None, None]:
     """Implement the leave-one-group-out data splitting strategy.
 
-    Splits are filtered so that the test set has at least `label_threshold`
-    samples for every class present in the full ``labels`` array. This ensures
-    all classes are represented in the test set, matching the original binary
-    behavior (both BEHAVIOR and NOT_BEHAVIOR must be above threshold) and
-    extending naturally to multi-class mode.
+    A split is accepted only when **both** the test and training portions satisfy
+    their respective class-count requirements.
+
+    When ``min_test_classes`` is ``None`` (default, binary mode), a split is
+    accepted when:
+
+    - Every class present in the full ``labels`` array appears at least
+      ``label_threshold`` times in the test split.
+    - The training split also contains every class at least ``label_threshold``
+      times (guards against the held-out group being the sole source of a rare
+      class).
+
+    When ``min_test_classes`` is an integer (multi-class mode), a split is
+    accepted when:
+
+    - The test split contains at least ``min_test_classes`` distinct classes each
+      with at least ``label_threshold`` samples.
+    - The training split contains **all** classes at least ``label_threshold``
+      times (so the model can learn every class regardless of what appears in
+      the test split).
 
     Args:
         per_frame_features: Per-frame feature DataFrame for labeled data.
         window_features: Window feature DataFrame for labeled data.
         labels: Label array corresponding to each feature row.
         groups: Group ID array corresponding to each feature row.
-        label_threshold: Minimum number of samples per class in the test split.
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split. ``None`` requires all classes (binary default).
 
     Yields:
         Dictionary with keys: training_data, training_labels, test_data,
@@ -149,7 +167,11 @@ def leave_one_group_out(
 
     Raises:
         ValueError: If no valid split satisfying the threshold can be found.
+        ValueError: If ``min_test_classes`` is not ``None`` and is less than 1.
     """
+    if min_test_classes is not None and min_test_classes < 1:
+        raise ValueError(f"min_test_classes must be None or >= 1, got {min_test_classes}")
+
     logo = LeaveOneGroupOut()
     x = combine_data(per_frame_features, window_features)
     splits = list(logo.split(x, labels, groups))
@@ -158,7 +180,31 @@ def leave_one_group_out(
     count = 0
     for split in splits:
         test_labels = labels[split[1]]
-        if all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes):
+        if min_test_classes is None:
+            # Binary mode: all classes must appear above threshold in both splits.
+            test_ok = all(
+                np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
+            )
+            if test_ok:
+                # Also require all classes above threshold in the training split
+                # so the model can learn every class regardless of the test group.
+                train_labels = labels[split[0]]
+                test_ok = all(
+                    np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
+                )
+        else:
+            # Multi-class mode: test split needs at least min_test_classes
+            # classes above threshold; training split must have all classes.
+            n_test_classes = sum(
+                np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
+            )
+            train_labels = labels[split[0]]
+            train_has_all = all(
+                np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
+            )
+            test_ok = n_test_classes >= min_test_classes and train_has_all
+
+        if test_ok:
             count += 1
             yield {
                 "training_data": x.iloc[split[0]],

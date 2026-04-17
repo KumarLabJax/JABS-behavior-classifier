@@ -17,32 +17,21 @@ from jabs.core.utils import hash_file
 from jabs.project import Project, TrackLabels, load_training_data
 
 from . import classifier_utils
-from .factories import make_catboost, make_random_forest, make_xgboost
+from .factories import XGBOOST_AVAILABLE, make_catboost, make_random_forest, make_xgboost
 
 _VERSION = 11
 
 # _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
 # supported by the current JABS environment, in addition to the mapping of ClassifierTypes
-# to factory functions that produce instantiated classifiers for that type
+# to factory functions that produce instantiated classifiers for that type.
+# XGBoost availability is detected once in factories.py; import XGBOOST_AVAILABLE here
+# rather than re-probing so that the warning is emitted exactly once.
 _CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
     ClassifierType.RANDOM_FOREST: make_random_forest,
     ClassifierType.CATBOOST: make_catboost,
 }
 
-# Attempt to register XGBoost if available. While it will be installed, because it is a
-# package dependency, it might not be usable on macOS due to missing libomp. In this case
-# xgboost will raise an ImportError, so we try importing and catch ImportError to see if it
-# is usable in the current environment.
-# Users will be warned if XGBoost support is unavailable. This can be resolved by installing
-# libomp using homebrew.
-try:
-    import xgboost  # noqa F401
-except ImportError:
-    logging.warning(
-        "Unable to import xgboost. XGBoost support will be unavailable. "
-        "You may need to install xgboost and/or libomp."
-    )
-else:
+if XGBOOST_AVAILABLE:
     _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
 
 
@@ -183,20 +172,30 @@ class Classifier:
 
         Note: labels excludes label for frames with no identity.
         """
+        labels = np.asarray(labels)
+        groups = np.asarray(groups)
         unique_groups = np.unique(groups)
-        count_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.BEHAVIOR)
-            for x in unique_groups
-        ]
-        count_not_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.NOT_BEHAVIOR)
-            for x in unique_groups
-        ]
-        can_kfold = np.logical_and(
-            np.asarray(count_behavior) > Classifier.LABEL_THRESHOLD,
-            np.asarray(count_not_behavior) > Classifier.LABEL_THRESHOLD,
-        )
-        return np.sum(can_kfold)
+        count = 0
+        for g in unique_groups:
+            test_mask = groups == g
+            test_labels = labels[test_mask]
+            train_labels = labels[~test_mask]
+            # Test split must have both classes above threshold.
+            test_ok = (
+                np.sum(test_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
+                and np.sum(test_labels == TrackLabels.Label.NOT_BEHAVIOR)
+                >= Classifier.LABEL_THRESHOLD
+            )
+            # Training split must also have both classes above threshold so the
+            # model can learn every class regardless of which group is held out.
+            train_ok = (
+                np.sum(train_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
+                and np.sum(train_labels == TrackLabels.Label.NOT_BEHAVIOR)
+                >= Classifier.LABEL_THRESHOLD
+            )
+            if test_ok and train_ok:
+                count += 1
+        return count
 
     @staticmethod
     def leave_one_group_out(per_frame_features, window_features, labels, groups):
