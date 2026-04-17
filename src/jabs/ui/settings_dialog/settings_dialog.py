@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from jabs.core.constants import APP_NAME, ORG_NAME
 from jabs.project.settings_manager import SettingsManager
 
+from .classifier_mode_settings_group import ClassifierModeSettingsGroup
 from .cross_validation_settings_group import CrossValidationSettingsGroup
 from .postprocessing_group import (
     DurationStageSettingsGroup,
@@ -236,6 +237,8 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         Args:
             parent (QWidget): Parent widget for the settings groups.
         """
+        mode_group = ClassifierModeSettingsGroup(parent)
+        self._settings_groups.append(mode_group)
         cv_group = CrossValidationSettingsGroup(parent)
         self._settings_groups.append(cv_group)
 

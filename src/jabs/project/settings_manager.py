@@ -2,7 +2,8 @@ import json
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.constants import CV_GROUPING_KEY
+from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY
+from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from jabs.core.enums.cv_grouping import (
     DEFAULT_CV_GROUPING_STRATEGY,
     CrossValidationGroupingStrategy,
@@ -87,6 +88,21 @@ class SettingsManager:
             Dictionary of project-level metadata, or empty dict if none exists.
         """
         return self._project_info.get("metadata", {})
+
+    @property
+    def classifier_mode(self) -> ClassifierMode:
+        """Get the classifier mode for the project.
+
+        Returns:
+            ClassifierMode: The configured classifier mode, defaulting to BINARY.
+        """
+        mode_str = self._project_info.get("settings", {}).get(
+            CLASSIFIER_MODE_KEY, DEFAULT_CLASSIFIER_MODE.value
+        )
+        try:
+            return ClassifierMode(mode_str)
+        except ValueError:
+            return DEFAULT_CLASSIFIER_MODE
 
     @property
     def cv_grouping_strategy(self) -> CrossValidationGroupingStrategy:
