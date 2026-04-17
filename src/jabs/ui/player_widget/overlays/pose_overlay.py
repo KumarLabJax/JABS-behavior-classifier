@@ -58,6 +58,9 @@ class PoseOverlay(Overlay):
         if self.parent.pose is None:
             return
 
+        zoom = self.parent.scaled_pix_width / max(crop_rect.width(), 1)
+        keypoint_size = max(1, round(_KEYPOINT_SIZE * zoom**0.8))
+
         # draw the pose estimation skeletons
         for identity in self.parent.pose.identities:
             if not all_identities and identity != self.parent.active_identity:
@@ -121,5 +124,5 @@ class PoseOverlay(Overlay):
                         painter.setBrush(color)
 
                     painter.drawEllipse(
-                        QtCore.QPoint(widget_x, widget_y), _KEYPOINT_SIZE, _KEYPOINT_SIZE
+                        QtCore.QPoint(widget_x, widget_y), keypoint_size, keypoint_size
                     )
