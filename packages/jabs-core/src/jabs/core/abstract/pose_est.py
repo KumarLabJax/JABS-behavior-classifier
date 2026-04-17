@@ -91,6 +91,11 @@ class PoseEstimation(ABC):
             KeypointIndex.MID_TAIL,
             KeypointIndex.TIP_TAIL,
         ),
+        (
+            KeypointIndex.LEFT_EAR,
+            KeypointIndex.NOSE,
+            KeypointIndex.RIGHT_EAR,
+        ),
     )
 
     # Pose based on the Envision Hydra model will have fewer keypoints,
