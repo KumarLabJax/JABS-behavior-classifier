@@ -1,5 +1,7 @@
 """Classifier mode settings group for configuring binary vs. multi-class training."""
 
+import logging
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
@@ -7,6 +9,8 @@ from jabs.core.constants import CLASSIFIER_MODE_KEY
 from jabs.core.enums import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 
 from .settings_group import SettingsGroup
+
+logger = logging.getLogger(__name__)
 
 _CLASSIFIER_MODE_LABELS: dict[ClassifierMode, str] = {
     ClassifierMode.BINARY: "Binary",
@@ -88,4 +92,7 @@ class ClassifierModeSettingsGroup(SettingsGroup):
         if index >= 0:
             self._mode_combo.setCurrentIndex(index)
         else:
+            logger.warning(
+                f"Invalid classifier mode value: {mode}. Defaulting to {DEFAULT_CLASSIFIER_MODE}."
+            )
             self._mode_combo.setCurrentIndex(self._mode_combo.findData(DEFAULT_CLASSIFIER_MODE))
