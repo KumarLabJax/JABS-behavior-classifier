@@ -8,6 +8,11 @@ from jabs.core.enums import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 
 from .settings_group import SettingsGroup
 
+_CLASSIFIER_MODE_LABELS: dict[ClassifierMode, str] = {
+    ClassifierMode.BINARY: "Binary",
+    ClassifierMode.MULTICLASS: "Multi-class",
+}
+
 
 class ClassifierModeSettingsGroup(SettingsGroup):
     """Settings group for classifier mode configuration.
@@ -24,7 +29,7 @@ class ClassifierModeSettingsGroup(SettingsGroup):
         """Create the classifier mode combo box control."""
         self._mode_combo = QComboBox()
         for enum_val in ClassifierMode:
-            self._mode_combo.addItem(enum_val.value, enum_val)
+            self._mode_combo.addItem(_CLASSIFIER_MODE_LABELS[enum_val], enum_val)
         self._mode_combo.setCurrentIndex(self._mode_combo.findData(DEFAULT_CLASSIFIER_MODE))
         self._mode_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.add_control_row("Mode:", self._mode_combo)
