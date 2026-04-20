@@ -123,7 +123,7 @@ class IdentityFeatures:
         self._identity_mask = pose_est.identity_mask(identity)
         self._op_settings = _normalize_op_settings(op_settings) if op_settings else None
         self._distance_scale_factor = (
-            pose_est.cm_per_pixel if op_settings.get("cm_units", False) else None
+            pose_est.cm_per_pixel if (op_settings or {}).get("cm_units", False) else None
         )
 
         if directory is None:
