@@ -559,6 +559,55 @@ class CentralWidget(QtWidgets.QWidget):
                 self._selection_end = num_frames - 1
                 self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
 
+    def select_current_bout(self) -> None:
+        """Select all frames in the current bout (contiguous labeled run at the current frame).
+
+        Only activates when the current frame has a BEHAVIOR or NOT_BEHAVIOR label.
+        """
+        if (
+            not self._controls.select_button_enabled
+            or self._labels is None
+            or self._pose_est is None
+        ):
+            return
+
+        current_frame = self._player_widget.current_frame
+        identity = self._controls.current_identity_index
+        behavior = self._controls.current_behavior
+
+        if identity == -1 or behavior == "":
+            return
+
+        labels = self._labels.get_track_labels(str(identity), behavior).get_labels()
+
+        if labels is None or len(labels) == 0:
+            return
+
+        current_label = labels[current_frame]
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return
+
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        num_frames = len(labels)
+        end = current_frame
+        while end < num_frames and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        if not self._controls.select_button_is_checked:
+            self._controls.toggle_select_button()
+
+        self._controls.enable_label_buttons()
+        self._selection_start = start
+        self._selection_end = end
+        self._stacked_timeline.start_selection(start, end)
+
     @property
     def _curr_selection_end(self) -> int:
         """Get the end of the current selection.
