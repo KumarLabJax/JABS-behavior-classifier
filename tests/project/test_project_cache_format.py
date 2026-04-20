@@ -41,12 +41,12 @@ def _project_settings(tmp_path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_new_project_defaults_to_hdf5(tmp_path: Path) -> None:
-    """A brand-new project gets cache_format=hdf5 written to project.json."""
+def test_new_project_defaults_to_parquet(tmp_path: Path) -> None:
+    """A brand-new project gets cache_format=parquet written to project.json."""
     project = _make_project(tmp_path)
 
-    assert project.cache_format == CacheFormat.HDF5
-    assert _project_settings(tmp_path).get(CACHE_FORMAT_KEY) == CacheFormat.HDF5.value
+    assert project.cache_format == CacheFormat.PARQUET
+    assert _project_settings(tmp_path).get(CACHE_FORMAT_KEY) == CacheFormat.PARQUET.value
 
 
 def test_existing_project_without_cache_format_migrates_to_hdf5(tmp_path: Path) -> None:
@@ -82,13 +82,12 @@ def test_existing_project_with_cache_format_parquet_is_preserved(tmp_path: Path)
 # ---------------------------------------------------------------------------
 
 
-def test_cache_format_returns_hdf5_enum(tmp_path: Path) -> None:
+def test_cache_format_returns_enum_instance(tmp_path: Path) -> None:
     """cache_format returns a CacheFormat instance, not a bare string."""
     project = _make_project(tmp_path)
 
     result = project.cache_format
     assert isinstance(result, CacheFormat)
-    assert result is CacheFormat.HDF5
 
 
 def test_cache_format_falls_back_to_hdf5_for_unknown_value(tmp_path: Path) -> None:
@@ -155,3 +154,24 @@ def test_clear_feature_cache_no_op_when_feature_dir_empty(tmp_path: Path) -> Non
     # feature_dir is created by Project.__init__; it just has no identity subdirs yet
     assert project.feature_dir.exists()
     project.clear_feature_cache()  # should not raise
+
+
+def test_clear_feature_cache_handles_pose_hash_layout(tmp_path: Path) -> None:
+    """clear_feature_cache removes cache files when pose-hash subdirectory is present.
+
+    Hash layout: features/<video>/<pose_hash>/<identity>/
+    """
+    project = _make_project(tmp_path)
+
+    pose_hash = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"  # 40-char hex
+    identity_dir = project.feature_dir / "video_stem" / pose_hash / "0"
+    identity_dir.mkdir(parents=True)
+    (identity_dir / "metadata.json").write_text("{}")
+    (identity_dir / "per_frame.parquet").write_bytes(b"stub")
+    (identity_dir / "window_5.parquet").write_bytes(b"stub")
+
+    project.clear_feature_cache()
+
+    assert not (identity_dir / "metadata.json").exists()
+    assert not any(identity_dir.glob("*.parquet"))
+    assert identity_dir.exists()  # directories preserved

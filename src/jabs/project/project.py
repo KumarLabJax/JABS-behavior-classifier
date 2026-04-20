@@ -234,10 +234,20 @@ class Project:
         if not feature_dir.exists():
             return
         for video_dir in feature_dir.iterdir():
-            if video_dir.is_dir():
-                for identity_dir in video_dir.iterdir():
-                    if identity_dir.is_dir():
-                        clear_cache(identity_dir)
+            if not video_dir.is_dir():
+                continue
+            for sub in video_dir.iterdir():
+                if not sub.is_dir():
+                    continue
+                try:
+                    int(sub.name)
+                    # sub is an identity directory (flat layout: features/<video>/<id>)
+                    clear_cache(sub)
+                except ValueError:
+                    # sub is a pose-hash directory (hash layout: features/<video>/<hash>/<id>)
+                    for identity_dir in sub.iterdir():
+                        if identity_dir.is_dir():
+                            clear_cache(identity_dir)
 
     def get_derived_file_paths(self, video_name: str) -> list[Path]:
         """Return a list of paths for files derived from a given video.
