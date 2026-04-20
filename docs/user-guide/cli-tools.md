@@ -20,7 +20,8 @@ See `jabs-classify COMMAND --help` for information on a specific command.
 usage: jabs-classify classify [-h] [--random-forest | --xgboost]
                             (--training TRAINING | --classifier CLASSIFIER) --input-pose
                             INPUT_POSE --out-dir OUT_DIR [--fps FPS]
-                            [--feature-dir FEATURE_DIR]
+                            [--feature-dir FEATURE_DIR] [--skip-window-cache]
+                            [--use-pose-hash]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -28,6 +29,12 @@ optional arguments:
   --feature-dir FEATURE_DIR
                         Feature cache dir. If present, look here for features before computing.
                         If features need to be computed, they will be saved here.
+  --skip-window-cache   Only cache per-frame features when --feature-dir is provided, reducing
+                        cache size at the cost of needing to re-calculate window features.
+  --use-pose-hash       Include the pose file hash as a subdirectory level in the feature cache
+                        path (e.g. <feature-dir>/<video>/<pose-hash>/<identity>). Prevents
+                        collisions when multiple pipelines share a feature cache directory and
+                        different pose files happen to share the same video name.
 
 required arguments:
   --input-pose INPUT_POSE
@@ -45,6 +52,8 @@ Classifier Input (one of the following is required):
   --classifier CLASSIFIER
                         Classifier file produced from the `jabs-classify train` command
 ```
+
+When `--feature-dir` is provided, `jabs-classify` automatically detects the existing cache format (HDF5 or Parquet) and reads from it. New cache files are always written in Parquet format. If the directory already contains an HDF5 cache, it is read as-is and any new window features are added to the existing HDF5 file — no conversion takes place.
 
 ### Train Command
 
@@ -77,6 +86,7 @@ JABS includes a script called `jabs-features`, which can be used to generate a f
 usage: jabs-features [-h] --pose-file POSE_FILE --pose-version POSE_VERSION
                             --feature-dir FEATURE_DIR [--use-cm-distances]
                             [--window-size WINDOW_SIZE] [--fps FPS]
+                            [--use-pose-hash]
 
 options:
   -h, --help            show this help message and exit
@@ -90,7 +100,12 @@ options:
   --window-size WINDOW_SIZE
                         window size for features (default none)
   --fps FPS             frames per second to use for feature calculation
+  --use-pose-hash       Include the pose file hash as a subdirectory level in the feature cache
+                        path (e.g. <feature-dir>/<video>/<pose-hash>/<identity>). Prevents
+                        collisions when a shared cache directory is used across multiple pipelines.
 ```
+
+Features are always written in Parquet format. Use `--use-pose-hash` when building a shared feature cache for multiple pipelines where video filenames may collide.
 
 ## jabs-cli
 
@@ -138,20 +153,31 @@ The `jabs-init` command initializes a JABS project directory and computes featur
 
 ```bash
 jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
+          [-w WINDOW_SIZE] [--cache-format {hdf5,parquet}] [--skip-feature-generation]
 ```
 
 - `<project_dir>`: Path to the JABS project directory containing video and pose files.
 - `--metadata <metadata.json>`: Optional path to a JSON metadata file describing the project and videos.
-- `--force`: Overwrite existing features and settings if present.
+- `--force`: Recompute features even if cache files already exist.
 - `--processes <N>`: Number of parallel workers to use for feature computation. If omitted, this defaults to the logical CPU count.
+- `-w WINDOW_SIZE`: Window size(s) to pre-compute. Can be repeated (e.g. `-w 2 -w 5`). Defaults to 5 if omitted.
+- `--cache-format {hdf5,parquet}`: Feature cache storage format. Defaults to `parquet`. Use `hdf5` only for compatibility with older JABS versions.
+- `--skip-feature-generation`: Validate and initialize the project without computing features.
 
-**Example:**
+**Examples:**
 
 ```bash
-jabs-init /path/to/project --metadata project_metadata.json --processes 8
+# Initialize a project with default settings (Parquet cache, window size 5)
+jabs-init /path/to/project
+
+# Initialize with metadata, 8 workers, and explicit window sizes
+jabs-init /path/to/project --metadata project_metadata.json --processes 8 -w 2 -w 5
+
+# Migrate an existing HDF5 cache to Parquet (recomputes all features)
+jabs-init /path/to/project --cache-format parquet --force
 ```
 
-See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview.
+See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview and [Feature Cache Format](project-setup.md#feature-cache-format) for migration guidance.
 
 ## jabs-cli update-pose
 

@@ -6,6 +6,7 @@ be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_featu
 """
 
 import json
+import logging
 import multiprocessing
 import sys
 from pathlib import Path
@@ -15,11 +16,14 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
+from jabs.core.enums import CacheFormat
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader.utilities import get_fps
 
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
@@ -40,6 +44,7 @@ class FeatureLoadJobSpec(TypedDict):
     cache_dir: Path | None
     behavior_settings: dict[str, object]
     behavior_name: str | None
+    cache_format: str
 
 
 class CollectFeatureLoadResult(TypedDict):
@@ -131,6 +136,14 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
             continue
 
         # Feature extraction for this identity
+        try:
+            cache_format = CacheFormat(job["cache_format"])
+        except (KeyError, ValueError):
+            logger.error(
+                "Unknown cache_format %r in job spec; falling back to HDF5",
+                job.get("cache_format"),
+            )
+            cache_format = CacheFormat.HDF5
         features = fe.IdentityFeatures(
             video,
             identity,
@@ -138,11 +151,11 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
             pose_est,
             fps=fps,
             op_settings=behavior_settings,
+            cache_format=cache_format,
         )
 
         # Per-frame features
-        per_frame = features.get_per_frame(labels)
-        per_frame = fe.IdentityFeatures.merge_per_frame_features(per_frame)
+        per_frame = features.get_per_frame_flat(labels)
 
         # Window features
         window_size: int = behavior_settings["window_size"]

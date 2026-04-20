@@ -35,9 +35,10 @@ class MenuReferences:
 
     # App menu actions
     settings_action: QtGui.QAction
-    clear_cache: QtGui.QAction
 
     # File menu actions
+    clear_cache: QtGui.QAction
+    clear_feature_cache: QtGui.QAction
     export_frame: QtGui.QAction
     export_training: QtGui.QAction
     archive_behavior: QtGui.QAction
@@ -184,13 +185,6 @@ class MenuBuilder:
         license_action.triggered.connect(self.handlers.show_license_dialog)
         menu.addAction(license_action)
 
-        # Clear cache action (store as instance variable for later reference)
-        clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)
-        clear_cache.setStatusTip("Clear Project Cache")
-        clear_cache.setEnabled(False)
-        clear_cache.triggered.connect(self.handlers.clear_cache)
-        menu.addAction(clear_cache)
-
         # Quit action
         exit_action = QtGui.QAction(f" &Quit {self.app_name}", self.main_window)
         exit_action.setShortcut(QtGui.QKeySequence("Ctrl+Q"))
@@ -199,7 +193,6 @@ class MenuBuilder:
         menu.addAction(exit_action)
 
         return {
-            "clear_cache": clear_cache,
             "settings_action": settings_action,
         }
 
@@ -257,12 +250,30 @@ class MenuBuilder:
         prune_action.triggered.connect(self.handlers.show_project_pruning_dialog)
         menu.addAction(prune_action)
 
+        menu.addSeparator()
+
+        # Clear pose cache action (was "Clear Project Cache" in the app menu)
+        clear_cache = QtGui.QAction("Clear Pose Cache", self.main_window)
+        clear_cache.setStatusTip("Clear the pose estimation cache for this project")
+        clear_cache.setEnabled(False)
+        clear_cache.triggered.connect(self.handlers.clear_cache)
+        menu.addAction(clear_cache)
+
+        # Clear feature cache action
+        clear_feature_cache = QtGui.QAction("Clear Feature Cache\u2026", self.main_window)
+        clear_feature_cache.setStatusTip("Delete all cached feature files for this project")
+        clear_feature_cache.setEnabled(False)
+        clear_feature_cache.triggered.connect(self.handlers.clear_feature_cache)
+        menu.addAction(clear_feature_cache)
+
         return {
             "open_recent_menu": open_recent_menu,
             "export_frame": export_frame,
             "export_training": export_training,
             "archive_behavior": archive_behavior,
             "prune_action": prune_action,
+            "clear_cache": clear_cache,
+            "clear_feature_cache": clear_feature_cache,
         }
 
     def _build_tool_menu(self, menu: QtWidgets.QMenu) -> dict:

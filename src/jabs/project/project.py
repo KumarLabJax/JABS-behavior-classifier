@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.constants import CACHE_FORMAT_KEY
+from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.pose_estimation import PoseEstimation, open_pose_file
 
 from .feature_manager import FeatureManager
@@ -106,6 +107,12 @@ class Project:
         if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
+        # Persist cache_format for projects that predate this setting (conservative HDF5 default).
+        existing_settings = dict(self._settings_manager.project_settings.get("settings", {}))
+        if CACHE_FORMAT_KEY not in existing_settings:
+            existing_settings[CACHE_FORMAT_KEY] = CacheFormat.HDF5.value
+            self._settings_manager.save_project_file({"settings": existing_settings})
+
         # Shared application-level process pool for feature extraction
         self._process_pool = process_pool
 
@@ -182,6 +189,40 @@ class Project:
     def project_paths(self) -> ProjectPaths:
         """get the project paths object for this project"""
         return self._paths
+
+    @property
+    def cache_format(self) -> CacheFormat:
+        """Get the feature cache format for this project.
+
+        Returns:
+            The configured ``CacheFormat``. Defaults to ``CacheFormat.HDF5`` if
+            the setting is absent or contains an unrecognized value.
+        """
+        raw = self._settings_manager.project_settings.get("settings", {}).get(
+            CACHE_FORMAT_KEY, CacheFormat.HDF5.value
+        )
+        try:
+            return CacheFormat(raw)
+        except ValueError:
+            return CacheFormat.HDF5
+
+    def clear_feature_cache(self) -> None:
+        """Delete all feature cache files for every identity in the project.
+
+        Removes HDF5 and Parquet cache files from each per-identity directory
+        under the features directory. The directories themselves are preserved.
+        The new format will be written on the next cache miss.
+        """
+        from jabs.io.feature_cache import clear_cache
+
+        feature_dir = self._paths.feature_dir
+        if not feature_dir.exists():
+            return
+        for video_dir in feature_dir.iterdir():
+            if video_dir.is_dir():
+                for identity_dir in video_dir.iterdir():
+                    if identity_dir.is_dir():
+                        clear_cache(identity_dir)
 
     def get_derived_file_paths(self, video_name: str) -> list[Path]:
         """Return a list of paths for files derived from a given video.
@@ -639,6 +680,7 @@ class Project:
                 "cache_dir": self._paths.cache_dir,
                 "behavior_settings": behavior_settings,
                 "behavior_name": behavior,
+                "cache_format": self.cache_format.value,
             }
             jobs.append(job)
 

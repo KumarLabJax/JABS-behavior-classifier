@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.enums import CacheFormat, ProjectDistanceUnit
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project import Project
@@ -47,6 +47,8 @@ def generate_feature_cache(args):
             fps=args.fps,
             op_settings=settings,
             cache_window=cache_window,
+            cache_format=CacheFormat.PARQUET,
+            include_pose_hash=args.use_pose_hash,
         )
         # Window features are not automatically generated.
         if cache_window:
@@ -91,6 +93,17 @@ def main():
     )
     parser.add_argument(
         "--fps", default=30, help="frames per second to use for feature calculation"
+    )
+    parser.add_argument(
+        "--use-pose-hash",
+        action="store_true",
+        dest="use_pose_hash",
+        default=False,
+        help=(
+            "include the pose file hash as a subdirectory level in the feature cache path "
+            "(e.g. <feature-dir>/<video>/<pose-hash>/<identity>); "
+            "prevents collisions when a shared cache dir is used across multiple pipelines"
+        ),
     )
     args = parser.parse_args()
 

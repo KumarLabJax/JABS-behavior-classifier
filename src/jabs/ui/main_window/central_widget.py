@@ -918,7 +918,7 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self, output: dict) -> None:
+    def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
         # display the new predictions
         self._predictions = output["predictions"]
@@ -926,7 +926,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions_postprocessed = output["predictions_postprocessed"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self.status_message.emit("Classification Complete", 3000)
+        self.status_message.emit(
+            f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
+        )
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step: int) -> None:

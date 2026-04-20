@@ -227,18 +227,39 @@ class MenuHandlers:
                 )
 
     def clear_cache(self) -> None:
-        """Clear the project's feature cache after user confirmation."""
+        """Clear the project's pose cache after user confirmation."""
         result = MessageDialog.confirm(
             self.window,
-            title="Clear Cache",
-            message="Are you sure you want to clear the project cache?",
+            title="Clear Pose Cache",
+            message="Are you sure you want to clear the project pose cache?",
         )
         if result:
             self.window._project.clear_cache()
             # need to reload the current video to force the pose file to reload
             if self.window._central_widget.loaded_video:
                 self.window._central_widget.load_video(self.window._central_widget.loaded_video)
-            self.window.display_status_message("Cache cleared", duration=3000)
+            self.window.display_status_message("Pose cache cleared", duration=3000)
+
+    def clear_feature_cache(self) -> None:
+        """Clear the project's feature cache after user confirmation."""
+        from jabs.core.enums import CacheFormat
+
+        project = self.window._project
+        hint = ""
+        if project.cache_format == CacheFormat.HDF5:
+            hint = (
+                "\n\nThis project is configured to use HDF5 feature cache. "
+                "To switch to the faster Parquet format, update Cache Format "
+                "in Project Settings before clearing."
+            )
+        result = MessageDialog.confirm(
+            self.window,
+            title="Clear Feature Cache",
+            message=f"Are you sure you want to delete all cached feature files?{hint}",
+        )
+        if result:
+            project.clear_feature_cache()
+            self.window.display_status_message("Feature cache cleared", duration=3000)
 
     # ========== App Menu Handlers ==========
 

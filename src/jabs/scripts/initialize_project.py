@@ -7,6 +7,7 @@ overwrite existing feature H5 files.
 """
 
 import json
+import logging
 import os
 from multiprocessing import Pool
 from pathlib import Path
@@ -18,10 +19,13 @@ from rich.progress import Progress
 import jabs.feature_extraction
 import jabs.pose_estimation
 import jabs.project
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.constants import CACHE_FORMAT_KEY
+from jabs.core.enums import CacheFormat, ProjectDistanceUnit
 from jabs.project.video_manager import VideoManager
 from jabs.schema.metadata import validate_metadata
 from jabs.video_reader import VideoReader
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_SIZE = 5
 DEFAULT_PROCESSES = os.cpu_count() or 1
@@ -31,6 +35,14 @@ def generate_files_worker(params: dict):
     """worker function used for generating project feature and cache files"""
     project = params["project"]
     pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
+    try:
+        cache_format = CacheFormat(params.get("cache_format", CacheFormat.HDF5.value))
+    except ValueError:
+        logger.error(
+            "Unknown cache_format %r in job params; falling back to HDF5",
+            params.get("cache_format"),
+        )
+        cache_format = CacheFormat.HDF5
 
     features = jabs.feature_extraction.IdentityFeatures(
         params["video"],
@@ -39,6 +51,7 @@ def generate_files_worker(params: dict):
         pose_est,
         force=params["force"],
         op_settings=project.get_project_defaults(),
+        cache_format=cache_format,
     )
 
     # unlike per frame features, window features are not automatically
@@ -132,6 +145,7 @@ def compute_project_features(
     window_sizes: list[int],
     force: bool,
     pool: Pool,
+    cache_format: CacheFormat = CacheFormat.PARQUET,
 ) -> None:
     """Compute features for all identities in the project."""
 
@@ -146,6 +160,7 @@ def compute_project_features(
                     "project": project,
                     "force": force,
                     "window_sizes": window_sizes,
+                    "cache_format": cache_format.value,
                 }
 
     total_identities = project.total_project_identities
@@ -225,6 +240,7 @@ def run_initialize_project(
     metadata_path: Path | None,
     skip_feature_generation: bool,
     project_dir: Path,
+    cache_format: CacheFormat = CacheFormat.PARQUET,
 ) -> None:
     """Run project initialization and optional feature generation."""
     pool = Pool(processes)
@@ -247,6 +263,12 @@ def run_initialize_project(
         project = jabs.project.Project(project_dir, enable_session_tracker=False)
         distance_unit = project.feature_manager.distance_unit
         _apply_project_metadata(project, metadata)
+
+        # Write the requested cache format to project.json so subsequent opens
+        # (including subprocess workers that re-open the project) see it.
+        existing_settings = dict(project.settings_manager.project_settings.get("settings", {}))
+        existing_settings[CACHE_FORMAT_KEY] = cache_format.value
+        project.settings_manager.save_project_file({"settings": existing_settings})
 
         # iterate over each video and try to pair it with an h5 file
         # this test is quick, don't bother to parallelize
@@ -279,7 +301,7 @@ def run_initialize_project(
 
         # compute features in parallel, this might take a while
         if not skip_feature_generation:
-            compute_project_features(project, resolved_window_sizes, force, pool)
+            compute_project_features(project, resolved_window_sizes, force, pool, cache_format)
 
         # save window sizes to project settings
         deduped_window_sizes = set(
@@ -355,6 +377,14 @@ def run_initialize_project(
     is_flag=True,
     help="Skip feature calculation and only initialize/validate the project",
 )
+@click.option(
+    "--cache-format",
+    "cache_format",
+    type=click.Choice([f.value for f in CacheFormat], case_sensitive=False),
+    default=CacheFormat.PARQUET.value,
+    show_default=True,
+    help="Feature cache storage format to use for this project",
+)
 @click.argument("project_dir", type=click.Path(path_type=Path))
 def main(
     force: bool,
@@ -363,6 +393,7 @@ def main(
     force_pixel_distances: bool,
     metadata: Path | None,
     skip_feature_generation: bool,
+    cache_format: str,
     project_dir: Path,
 ) -> None:
     """jabs-init."""
@@ -374,6 +405,7 @@ def main(
         metadata_path=metadata,
         skip_feature_generation=skip_feature_generation,
         project_dir=project_dir,
+        cache_format=CacheFormat(cache_format),
     )
 
 
