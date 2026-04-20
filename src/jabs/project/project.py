@@ -2,6 +2,7 @@ import contextlib
 import getpass
 import gzip
 import json
+import logging
 import shutil
 import sys
 from collections.abc import Callable
@@ -28,6 +29,8 @@ from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from jabs.classifier import Classifier
@@ -95,6 +98,11 @@ class Project:
         self._total_project_identities = 0
         self._enabled_extended_features = {}
 
+        # Capture whether project.json exists before SettingsManager loads it.
+        # Used below to choose the cache_format default: Parquet for brand-new projects,
+        # HDF5 for existing projects that predate the setting (conservative back-compat).
+        is_new_project = not self._paths.project_file.exists()
+
         self._settings_manager = SettingsManager(self._paths)
         self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
         self._feature_manager = FeatureManager(
@@ -107,10 +115,12 @@ class Project:
         if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
 
-        # Persist cache_format for projects that predate this setting (conservative HDF5 default).
+        # Persist cache_format. New projects default to Parquet; existing projects that
+        # predate this setting default to HDF5 to preserve backward compatibility.
         existing_settings = dict(self._settings_manager.project_settings.get("settings", {}))
         if CACHE_FORMAT_KEY not in existing_settings:
-            existing_settings[CACHE_FORMAT_KEY] = CacheFormat.HDF5.value
+            default_format = CacheFormat.PARQUET if is_new_project else CacheFormat.HDF5
+            existing_settings[CACHE_FORMAT_KEY] = default_format.value
             self._settings_manager.save_project_file({"settings": existing_settings})
 
         # Shared application-level process pool for feature extraction
@@ -195,8 +205,10 @@ class Project:
         """Get the feature cache format for this project.
 
         Returns:
-            The configured ``CacheFormat``. Defaults to ``CacheFormat.HDF5`` if
-            the setting is absent or contains an unrecognized value.
+            The configured ``CacheFormat``. The setting is always written to
+            ``project.json`` on first open, so this property should never read an
+            absent value in practice. Falls back to ``CacheFormat.HDF5`` for
+            unrecognized values.
         """
         raw = self._settings_manager.project_settings.get("settings", {}).get(
             CACHE_FORMAT_KEY, CacheFormat.HDF5.value
@@ -204,6 +216,9 @@ class Project:
         try:
             return CacheFormat(raw)
         except ValueError:
+            logger.error(
+                "Unrecognized cache_format value %r in project.json; falling back to HDF5", raw
+            )
             return CacheFormat.HDF5
 
     def clear_feature_cache(self) -> None:
