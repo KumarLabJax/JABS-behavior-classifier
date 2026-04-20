@@ -1,5 +1,7 @@
 """Cache format settings group for configuring the project's feature cache format."""
 
+import logging
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
@@ -8,7 +10,9 @@ from jabs.core.enums import CacheFormat
 
 from .settings_group import SettingsGroup
 
-_DEFAULT_CACHE_FORMAT = CacheFormat.HDF5
+logger = logging.getLogger(__name__)
+
+_DEFAULT_CACHE_FORMAT = CacheFormat.PARQUET
 
 _DISPLAY_NAMES: dict[CacheFormat, str] = {
     CacheFormat.HDF5: "HDF5",
@@ -90,4 +94,9 @@ class CacheFormatSettingsGroup(SettingsGroup):
         if index >= 0:
             self._format_combo.setCurrentIndex(index)
         else:
+            logger.error(
+                "Unrecognized cache_format value %r; defaulting to %s",
+                raw,
+                _DEFAULT_CACHE_FORMAT.value,
+            )
             self._format_combo.setCurrentIndex(self._format_combo.findData(_DEFAULT_CACHE_FORMAT))
