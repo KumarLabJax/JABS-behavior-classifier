@@ -13,7 +13,8 @@
 
 | Action                        | Shortcut   |
 |-------------------------------|------------|
-| Play / Pause video            | Space bar  |
+| Play / Pause video            | Space bar        |
+| Play current bout             | Shift+Space bar  |
 | Previous / Next frame         | ← / →      |
 | Move forward / back 10 frames | ↑ / ↓      |
 | Previous / Next video         | , / .      |

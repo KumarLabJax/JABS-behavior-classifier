@@ -571,7 +571,6 @@ class CentralWidget(QtWidgets.QWidget):
         ):
             return
 
-        current_frame = self._player_widget.current_frame
         identity = self._controls.current_identity_index
         behavior = self._controls.current_behavior
 
@@ -583,22 +582,11 @@ class CentralWidget(QtWidgets.QWidget):
         if labels is None or len(labels) == 0:
             return
 
-        current_label = labels[current_frame]
-        if current_label not in (
-            TrackLabels.Label.BEHAVIOR.value,
-            TrackLabels.Label.NOT_BEHAVIOR.value,
-        ):
+        bout = self._get_bout_range(labels, self._player_widget.current_frame)
+        if bout is None:
             return
 
-        start = current_frame
-        while start > 0 and labels[start - 1] == current_label:
-            start -= 1
-
-        num_frames = len(labels)
-        end = current_frame
-        while end < num_frames and labels[end] == current_label:
-            end += 1
-        end -= 1
+        start, end = bout
 
         if not self._controls.select_button_is_checked:
             self._controls.toggle_select_button()
@@ -607,6 +595,36 @@ class CentralWidget(QtWidgets.QWidget):
         self._selection_start = start
         self._selection_end = end
         self._stacked_timeline.start_selection(start, end)
+
+    @staticmethod
+    def _get_bout_range(labels: np.ndarray, current_frame: int) -> tuple[int, int] | None:
+        """Return the (start, end) frame indices of the labeled bout at current_frame.
+
+        Args:
+            labels: Per-frame label array for a single identity/behavior track.
+            current_frame: Index of the current frame.
+
+        Returns:
+            Inclusive (start, end) frame indices, or None if the current frame is
+            not labeled BEHAVIOR or NOT_BEHAVIOR.
+        """
+        current_label = labels[current_frame]
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return None
+
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        end = current_frame
+        while end < len(labels) and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        return start, end
 
     @property
     def _curr_selection_end(self) -> int:
@@ -1331,27 +1349,11 @@ class CentralWidget(QtWidgets.QWidget):
         if labels is None or len(labels) == 0:
             return
 
-        current_label = labels[current_frame]
-        # Only play if current label is BEHAVIOR or NOT_BEHAVIOR
-        if current_label not in (
-            TrackLabels.Label.BEHAVIOR.value,
-            TrackLabels.Label.NOT_BEHAVIOR.value,
-        ):
+        bout = self._get_bout_range(labels, current_frame)
+        if bout is None:
             return
 
-        # Find start of bout
-        start = current_frame
-        while start > 0 and labels[start - 1] == current_label:
-            start -= 1
-
-        # Find end of bout (inclusive)
-        num_frames = len(labels)
-        end = current_frame
-        while end < num_frames and labels[end] == current_label:
-            end += 1
-        end -= 1
-
-        self._player_widget.play_range(start, end)
+        self._player_widget.play_range(*bout)
 
     def _on_timeline_annotation_button_clicked(self) -> None:
         """Handle the event when the button to create a new timeline annotation is clicked.
