@@ -456,6 +456,10 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         # changing the settings can affect training thresholds, so the train button state needs to be updated
         self._central_widget.set_train_button_enabled_state()
+        # classifier mode change is reflected immediately on the labeling buttons
+        self._central_widget.controls.set_classifier_mode(
+            self._project.settings_manager.classifier_mode
+        )
 
     def on_app_settings_changed(self) -> None:
         """Slot called when application settings are changed via JabsSettingsDialog.
