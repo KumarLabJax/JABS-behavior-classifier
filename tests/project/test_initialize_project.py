@@ -77,7 +77,7 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
 
 
 def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
-    """The Click entrypoint should keep the legacy default option values."""
+    """Check defaults passed by Click entrypoint."""
     project_dir = tmp_path / "project"
 
     captured = {}
@@ -124,7 +124,7 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
         "metadata_path": None,
         "skip_feature_generation": False,
         "project_dir": project_dir,
-        "cache_format": CacheFormat.PARQUET,
+        "cache_format": None,
     }
 
 
