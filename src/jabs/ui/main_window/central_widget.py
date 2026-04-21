@@ -12,7 +12,8 @@ from shapely.geometry import Point
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier
-from jabs.core.enums import ClassifierType, PredictionType
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode, ClassifierType, PredictionType
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
@@ -315,6 +316,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._loaded_video = None
 
         self._controls.update_project_settings(project.settings)
+        self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()
 
@@ -572,8 +574,14 @@ class CentralWidget(QtWidgets.QWidget):
         )
 
     def _label_behavior(self) -> None:
-        """Apply behavior label to currently selected range of frames"""
+        """Apply behavior label to currently selected range of frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            identity_str = str(self._controls.current_identity_index)
+            current_behavior = self._controls.current_behavior
+            for behavior, track in self._labels.iter_behavior_labels(identity_str):
+                if behavior != current_behavior:
+                    track.clear_labels(start, end)
         self._project.session_tracker.label_created(
             self._loaded_video,
             self._controls.current_identity_index,
@@ -586,17 +594,34 @@ class CentralWidget(QtWidgets.QWidget):
         self._label_button_common()
 
     def _label_not_behavior(self) -> None:
-        """apply _not_ behavior label to currently selected range of frames"""
+        """Apply not-behavior label (binary) or None label (multi-class) to selected frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        self._project.session_tracker.label_created(
-            self._loaded_video,
-            self._controls.current_identity_index,
-            self._controls.current_behavior,
-            False,
-            start,
-            end,
-        )
-        self._get_label_track().label_not_behavior(start, end)
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            identity_str = str(self._controls.current_identity_index)
+            for behavior, track in self._labels.iter_behavior_labels(identity_str):
+                if behavior != MULTICLASS_NONE_BEHAVIOR:
+                    track.clear_labels(start, end)
+            self._project.session_tracker.label_created(
+                self._loaded_video,
+                self._controls.current_identity_index,
+                MULTICLASS_NONE_BEHAVIOR,
+                True,
+                start,
+                end,
+            )
+            self._labels.get_track_labels(identity_str, MULTICLASS_NONE_BEHAVIOR).label_behavior(
+                start, end
+            )
+        else:
+            self._project.session_tracker.label_created(
+                self._loaded_video,
+                self._controls.current_identity_index,
+                self._controls.current_behavior,
+                False,
+                start,
+                end,
+            )
+            self._get_label_track().label_not_behavior(start, end)
         self._label_button_common()
 
     def _clear_behavior_label(self) -> None:

@@ -16,7 +16,7 @@ from PySide6 import QtCore, QtWidgets
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import ClassifierMode, ClassifierType
 
 from ..colors import (
     BEHAVIOR_BUTTON_COLOR_BRIGHT,
@@ -86,6 +86,7 @@ class MainControlWidget(QtWidgets.QWidget):
 
         # initial behavior labels to list in the drop-down selection
         self._behaviors = []
+        self._classifier_mode: ClassifierMode = ClassifierMode.BINARY
 
         # behavior selection form components
         self.behavior_selection = QtWidgets.QComboBox()
@@ -671,11 +672,29 @@ class MainControlWidget(QtWidgets.QWidget):
         # send a signal that we have an updated list of window sizes
         self.new_window_sizes.emit(sizes)
 
+    def set_classifier_mode(self, mode: ClassifierMode) -> None:
+        """Update the labeling UI to reflect the current classifier mode.
+
+        In multi-class mode the not-behavior button is repurposed as a "None"
+        label button; in binary mode it shows the normal "Not {behavior}" text.
+
+        Args:
+            mode: The classifier mode to apply.
+        """
+        self._classifier_mode = mode
+        self._behavior_changed()
+
     def _behavior_changed(self):
         self._label_behavior_button.setText(self.current_behavior)
         self._label_behavior_button.setToolTip(f"Label frames {self.current_behavior} [z]")
-        self._label_not_behavior_button.setText(f"Not {self.current_behavior}")
-        self._label_not_behavior_button.setToolTip(f"Label frames Not {self.current_behavior} [c]")
+        if self._classifier_mode == ClassifierMode.MULTICLASS:
+            self._label_not_behavior_button.setText("None")
+            self._label_not_behavior_button.setToolTip("Label frames as None [c]")
+        else:
+            self._label_not_behavior_button.setText(f"Not {self.current_behavior}")
+            self._label_not_behavior_button.setToolTip(
+                f"Label frames Not {self.current_behavior} [c]"
+            )
         self.behavior_changed.emit(self.current_behavior)
 
     def _window_size_changed(self):

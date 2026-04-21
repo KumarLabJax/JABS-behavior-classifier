@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from jabs.pose_estimation import PoseEstimation
@@ -91,6 +92,17 @@ class VideoLabels:
         for identity, behaviors in self._identity_labels.items():
             for behavior, track_labels in behaviors.items():
                 yield identity, behavior, track_labels
+
+    def iter_behavior_labels(self, identity: str) -> Iterator[tuple[str, TrackLabels]]:
+        """Yield ``(behavior, TrackLabels)`` for every labeled track belonging to an identity.
+
+        Args:
+            identity: String representation of the identity to iterate over.
+
+        Yields:
+            Tuples of (behavior name, TrackLabels) for each labeled track.
+        """
+        yield from self._identity_labels.get(identity, {}).items()
 
     def counts(self, behavior):
         """get the count of labeled frames and bouts for each identity in this video for a specified behavior
