@@ -574,16 +574,23 @@ class CentralWidget(QtWidgets.QWidget):
         )
 
     def _label_behavior(self) -> None:
-        """Apply behavior label to currently selected range of frames"""
+        """Apply behavior label to currently selected range of frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        self._project.session_tracker.label_created(
-            self._loaded_video,
-            self._controls.current_identity_index,
-            self._controls.current_behavior,
-            True,
-            start,
-            end,
-        )
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            identity_str = str(self._controls.current_identity_index)
+            current_behavior = self._controls.current_behavior
+            for behavior, track in self._labels.iter_behavior_labels(identity_str):
+                if behavior != current_behavior:
+                    track.clear_labels(start, end)
+        else:
+            self._project.session_tracker.label_created(
+                self._loaded_video,
+                self._controls.current_identity_index,
+                self._controls.current_behavior,
+                True,
+                start,
+                end,
+            )
         self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
@@ -592,8 +599,8 @@ class CentralWidget(QtWidgets.QWidget):
         start, end = sorted([self._selection_start, self._curr_selection_end])
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             identity_str = str(self._controls.current_identity_index)
-            for ident, behavior, track in self._labels.iter_identity_behavior_labels():
-                if ident == identity_str and behavior != MULTICLASS_NONE_BEHAVIOR:
+            for behavior, track in self._labels.iter_behavior_labels(identity_str):
+                if behavior != MULTICLASS_NONE_BEHAVIOR:
                     track.clear_labels(start, end)
             self._labels.get_track_labels(identity_str, MULTICLASS_NONE_BEHAVIOR).label_behavior(
                 start, end
