@@ -562,6 +562,10 @@ class MenuHandlers:
         """Handle Ctrl+A / Cmd+A keyboard shortcut."""
         self.window._central_widget.select_all()
 
+    def handle_select_current_bout(self) -> None:
+        """Handle Ctrl+Shift+A / Cmd+Shift+A keyboard shortcut."""
+        self.window._central_widget.select_current_bout()
+
     def on_bbox_overlay_support_changed(self, supported: bool) -> None:
         """Enable/disable the bounding box overlay menu item based on whether the current pose supports it.
 

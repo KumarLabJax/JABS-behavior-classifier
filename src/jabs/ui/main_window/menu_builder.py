@@ -661,3 +661,8 @@ class MenuBuilder:
         select_all_action.setShortcut(QtGui.QKeySequence.StandardKey.SelectAll)
         select_all_action.triggered.connect(self.handlers.handle_select_all)
         self.main_window.addAction(select_all_action)
+
+        select_bout_action = QtGui.QAction(self.main_window)
+        select_bout_action.setShortcut(QtGui.QKeySequence("Ctrl+Shift+A"))
+        select_bout_action.triggered.connect(self.handlers.handle_select_current_bout)
+        self.main_window.addAction(select_bout_action)
