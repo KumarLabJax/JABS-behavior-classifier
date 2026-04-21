@@ -166,7 +166,19 @@ This directory contains trained classifiers. Currently, these are stored in Pyth
 
 ### jabs/features
 
-This directory contains the computed features. There is one directory per project video, and within each video directory there will be one feature subdirectory per identity. Feature files are portable between machines, but JABS may need to recompute the features if they were created with a different version of JABS. Feature files contain a version attribute that is incremented when features are added or changed, or the format of the features file is changed.
+This directory contains the computed features. There is one directory per project video, and within each video directory there will be one feature subdirectory per identity:
+
+```
+jabs/features/
+└── video_name/
+    ├── 0/          ← identity 0
+    ├── 1/          ← identity 1
+    └── ...
+```
+
+Feature files are portable between machines, but JABS may need to recompute them if the version of JABS that computed them is different from the one reading them. Each cache records a feature version number that is incremented whenever features are added, changed, or the cache format is updated.
+
+JABS supports two feature cache formats: **HDF5** (the original format) and **Parquet** (the current default). See [Feature Cache Format](#feature-cache-format) below for details and migration guidance.
 
 ### jabs/predictions
 
@@ -175,3 +187,44 @@ This directory contains one HDF5 prediction file per video (e.g., `VIDEO_1.h5`).
 ### jabs/training_logs
 
 This directory contains training reports generated each time a classifier is trained. Reports are saved as Markdown files with filenames in the format `<BehaviorName>_<timestamp>_training_report.md`. Each report includes training performance metrics, cross-validation results, and feature importance rankings. These reports provide a permanent record of training sessions for documentation and comparison purposes.
+
+## Feature Cache Format
+
+JABS supports two storage formats for the computed feature cache:
+
+| Format      | Description |
+|-------------|-------------|
+| **Parquet** | The current default. A columnar format that offers faster reads and smaller file sizes. Each identity directory contains `metadata.json`, `per_frame.parquet`, and one `window_<N>.parquet` file per cached window size. |
+| **HDF5**    | The original format. All features for an identity are stored in a single `features.h5` file. Supported by all versions of JABS. |
+
+New projects created with `jabs-init` or the GUI default to Parquet. JABS automatically detects the format of existing cache files on read, so HDF5 and Parquet projects both open correctly without any manual configuration.
+
+### Changing the cache format for a project (GUI)
+
+The cache format for a project is stored in `jabs/project.json` and can be changed from the GUI at any time via **Edit > Project Settings > Feature Cache Format**.
+
+Changing the setting alone does not convert existing cache files — JABS reads whatever format is already on disk. To force the cache to be regenerated in the new format:
+
+1. Open the project in JABS.
+2. Go to **Edit > Project Settings > Feature Cache Format** and select the desired format.
+3. Click **OK** to save.
+4. Use **File > Clear Feature Cache…** to delete all existing cache files.
+5. Trigger a training or classification run. JABS will recompute and write the cache in the new format on the next cache miss.
+
+### Migrating an existing project to Parquet (CLI)
+
+Use `jabs-init` with `--cache-format parquet` and `--force` to recompute all features and write them in Parquet format:
+
+```bash
+jabs-init /path/to/project --cache-format parquet --force
+```
+
+`--force` is required to overwrite existing HDF5 cache files. Without it, `jabs-init` skips identities that already have a valid cache. The `--cache-format parquet` flag is also written to `project.json` so the GUI and subsequent CLI runs use Parquet going forward.
+
+If the project has multiple window sizes, pass them explicitly so they are all pre-computed:
+
+```bash
+jabs-init /path/to/project --cache-format parquet --force -w 2 -w 5
+```
+
+To migrate back to HDF5, use `--cache-format hdf5 --force` in the same way.

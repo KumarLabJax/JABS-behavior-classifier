@@ -1,6 +1,7 @@
 from click.testing import CliRunner
 
 import jabs.scripts.initialize_project as initialize_project
+from jabs.core.enums import CacheFormat
 
 
 def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
@@ -20,6 +21,7 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
         metadata_path,
         skip_feature_generation,
         project_dir,
+        cache_format,
     ):
         captured.update(
             {
@@ -30,6 +32,7 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
                 "metadata_path": metadata_path,
                 "skip_feature_generation": skip_feature_generation,
                 "project_dir": project_dir,
+                "cache_format": cache_format,
             }
         )
 
@@ -54,6 +57,8 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
             "--metadata",
             str(metadata_path),
             "--skip-feature-generation",
+            "--cache-format",
+            "hdf5",
             str(project_dir),
         ],
     )
@@ -67,11 +72,12 @@ def test_jabs_init_click_parses_all_existing_options(tmp_path, monkeypatch):
         "metadata_path": metadata_path,
         "skip_feature_generation": True,
         "project_dir": project_dir,
+        "cache_format": CacheFormat.HDF5,
     }
 
 
 def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
-    """The Click entrypoint should keep the legacy default option values."""
+    """Check defaults passed by Click entrypoint."""
     project_dir = tmp_path / "project"
 
     captured = {}
@@ -85,6 +91,7 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
         metadata_path,
         skip_feature_generation,
         project_dir,
+        cache_format,
     ):
         captured.update(
             {
@@ -95,6 +102,7 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
                 "metadata_path": metadata_path,
                 "skip_feature_generation": skip_feature_generation,
                 "project_dir": project_dir,
+                "cache_format": cache_format,
             }
         )
 
@@ -116,6 +124,7 @@ def test_jabs_init_click_uses_existing_defaults(tmp_path, monkeypatch):
         "metadata_path": None,
         "skip_feature_generation": False,
         "project_dir": project_dir,
+        "cache_format": None,
     }
 
 

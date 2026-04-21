@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from jabs.core.constants import APP_NAME, ORG_NAME
 from jabs.project.settings_manager import SettingsManager
 
+from .cache_format_settings_group import CacheFormatSettingsGroup
 from .cross_validation_settings_group import CrossValidationSettingsGroup
 from .postprocessing_group import (
     DurationStageSettingsGroup,
@@ -238,6 +239,8 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         """
         cv_group = CrossValidationSettingsGroup(parent)
         self._settings_groups.append(cv_group)
+        cache_format_group = CacheFormatSettingsGroup(parent)
+        self._settings_groups.append(cache_format_group)
 
 
 class PostprocessingSettingsDialog(BaseSettingsDialog):

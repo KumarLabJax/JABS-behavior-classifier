@@ -2,6 +2,7 @@ import contextlib
 import getpass
 import gzip
 import json
+import logging
 import shutil
 import sys
 from collections.abc import Callable
@@ -15,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.enums import CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.constants import CACHE_FORMAT_KEY
+from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.pose_estimation import PoseEstimation, open_pose_file
 
 from .feature_manager import FeatureManager
@@ -27,6 +29,8 @@ from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from jabs.classifier import Classifier
@@ -94,6 +98,11 @@ class Project:
         self._total_project_identities = 0
         self._enabled_extended_features = {}
 
+        # Capture whether project.json exists before SettingsManager loads it.
+        # Used below to choose the cache_format default: Parquet for brand-new projects,
+        # HDF5 for existing projects that predate the setting (conservative back-compat).
+        is_new_project = not self._paths.project_file.exists()
+
         self._settings_manager = SettingsManager(self._paths)
         self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
         self._feature_manager = FeatureManager(
@@ -105,6 +114,14 @@ class Project:
         # write out the defaults to the project file
         if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
             self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
+
+        # Persist cache_format. New projects default to Parquet; existing projects that
+        # predate this setting default to HDF5 to preserve backward compatibility.
+        existing_settings = dict(self._settings_manager.project_settings.get("settings", {}))
+        if CACHE_FORMAT_KEY not in existing_settings:
+            default_format = CacheFormat.PARQUET if is_new_project else CacheFormat.HDF5
+            existing_settings[CACHE_FORMAT_KEY] = default_format.value
+            self._settings_manager.save_project_file({"settings": existing_settings})
 
         # Shared application-level process pool for feature extraction
         self._process_pool = process_pool
@@ -182,6 +199,55 @@ class Project:
     def project_paths(self) -> ProjectPaths:
         """get the project paths object for this project"""
         return self._paths
+
+    @property
+    def cache_format(self) -> CacheFormat:
+        """Get the feature cache format for this project.
+
+        Returns:
+            The configured ``CacheFormat``. The setting is always written to
+            ``project.json`` on first open, so this property should never read an
+            absent value in practice. Falls back to ``CacheFormat.HDF5`` for
+            unrecognized values.
+        """
+        raw = self._settings_manager.project_settings.get("settings", {}).get(
+            CACHE_FORMAT_KEY, CacheFormat.HDF5.value
+        )
+        try:
+            return CacheFormat(raw)
+        except ValueError:
+            logger.error(
+                "Unrecognized cache_format value %r in project.json; falling back to HDF5", raw
+            )
+            return CacheFormat.HDF5
+
+    def clear_feature_cache(self) -> None:
+        """Delete all feature cache files for every identity in the project.
+
+        Removes HDF5 and Parquet cache files from each per-identity directory
+        under the features directory. The directories themselves are preserved.
+        The new format will be written on the next cache miss.
+        """
+        from jabs.io.feature_cache import clear_cache
+
+        feature_dir = self._paths.feature_dir
+        if not feature_dir.exists():
+            return
+        for video_dir in feature_dir.iterdir():
+            if not video_dir.is_dir():
+                continue
+            for sub in video_dir.iterdir():
+                if not sub.is_dir():
+                    continue
+                try:
+                    int(sub.name)
+                    # sub is an identity directory (flat layout: features/<video>/<id>)
+                    clear_cache(sub)
+                except ValueError:
+                    # sub is a pose-hash directory (hash layout: features/<video>/<hash>/<id>)
+                    for identity_dir in sub.iterdir():
+                        if identity_dir.is_dir():
+                            clear_cache(identity_dir)
 
     def get_derived_file_paths(self, video_name: str) -> list[Path]:
         """Return a list of paths for files derived from a given video.
@@ -639,6 +705,7 @@ class Project:
                 "cache_dir": self._paths.cache_dir,
                 "behavior_settings": behavior_settings,
                 "behavior_name": behavior,
+                "cache_format": self.cache_format.value,
             }
             jobs.append(job)
 
