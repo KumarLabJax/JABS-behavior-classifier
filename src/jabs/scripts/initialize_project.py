@@ -35,14 +35,7 @@ def generate_files_worker(params: dict):
     """worker function used for generating project feature and cache files"""
     project = params["project"]
     pose_est = project.load_pose_est(project.video_manager.video_path(params["video"]))
-    try:
-        cache_format = CacheFormat(params.get("cache_format", CacheFormat.HDF5.value))
-    except ValueError:
-        logger.error(
-            "Unknown cache_format %r in job params; falling back to HDF5",
-            params.get("cache_format"),
-        )
-        cache_format = CacheFormat.HDF5
+    cache_format = CacheFormat(params["cache_format"])
 
     features = jabs.feature_extraction.IdentityFeatures(
         params["video"],
@@ -240,7 +233,7 @@ def run_initialize_project(
     metadata_path: Path | None,
     skip_feature_generation: bool,
     project_dir: Path,
-    cache_format: CacheFormat = CacheFormat.PARQUET,
+    cache_format: CacheFormat | None = None,
 ) -> None:
     """Run project initialization and optional feature generation."""
     pool = Pool(processes)
@@ -264,11 +257,16 @@ def run_initialize_project(
         distance_unit = project.feature_manager.distance_unit
         _apply_project_metadata(project, metadata)
 
-        # Write the requested cache format to project.json so subsequent opens
-        # (including subprocess workers that re-open the project) see it.
+        # Resolve the effective cache format. For new projects, Project.__init__ already
+        # wrote CACHE_FORMAT_KEY into project.json, so existing_settings always has the key
+        # (or it's an older HDf5 project that predates this setting key, which implies HDF5).
+        # We only override it when the user explicitly passes --cache-format.
         existing_settings = dict(project.settings_manager.project_settings.get("settings", {}))
-        existing_settings[CACHE_FORMAT_KEY] = cache_format.value
-        project.settings_manager.save_project_file({"settings": existing_settings})
+        if cache_format is None:
+            cache_format = CacheFormat(existing_settings[CACHE_FORMAT_KEY])
+        else:
+            existing_settings[CACHE_FORMAT_KEY] = cache_format.value
+            project.settings_manager.save_project_file({"settings": existing_settings})
 
         # iterate over each video and try to pair it with an h5 file
         # this test is quick, don't bother to parallelize
@@ -334,7 +332,7 @@ def run_initialize_project(
     "-f",
     "--force",
     is_flag=True,
-    help="recompute features even if file already exists",
+    help="Recompute features even if they already exist. Does not change the cache format; pass --cache-format explicitly to migrate.",
 )
 @click.option(
     "-p",
@@ -381,9 +379,12 @@ def run_initialize_project(
     "--cache-format",
     "cache_format",
     type=click.Choice([f.value for f in CacheFormat], case_sensitive=False),
-    default=CacheFormat.PARQUET.value,
-    show_default=True,
-    help="Feature cache storage format to use for this project",
+    default=None,
+    help=(
+        "Feature cache storage format. If omitted, the existing project setting is "
+        "preserved; new projects default to Parquet; projects created before this "
+        "option existed default to HDF5."
+    ),
 )
 @click.argument("project_dir", type=click.Path(path_type=Path))
 def main(
@@ -393,7 +394,7 @@ def main(
     force_pixel_distances: bool,
     metadata: Path | None,
     skip_feature_generation: bool,
-    cache_format: str,
+    cache_format: str | None,
     project_dir: Path,
 ) -> None:
     """jabs-init."""
@@ -405,7 +406,7 @@ def main(
         metadata_path=metadata,
         skip_feature_generation=skip_feature_generation,
         project_dir=project_dir,
-        cache_format=CacheFormat(cache_format),
+        cache_format=CacheFormat(cache_format) if cache_format is not None else None,
     )
 
 

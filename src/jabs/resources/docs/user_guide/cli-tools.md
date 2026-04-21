@@ -161,7 +161,7 @@ jabs-init <project_dir> [--metadata <metadata.json>] [--force] [--processes <N>]
 - `--force`: Recompute features even if cache files already exist.
 - `--processes <N>`: Number of parallel workers to use for feature computation. If omitted, this defaults to the logical CPU count.
 - `-w WINDOW_SIZE`: Window size(s) to pre-compute. Can be repeated (e.g. `-w 2 -w 5`). Defaults to 5 if omitted.
-- `--cache-format {hdf5,parquet}`: Feature cache storage format. Defaults to `parquet`. Use `hdf5` only for compatibility with older JABS versions.
+- `--cache-format {hdf5,parquet}`: Feature cache storage format. If omitted, the existing project setting is preserved. New projects default to `parquet`; projects created before this option existed default to `hdf5`. Pass `--cache-format` explicitly only when you want to change or set the format — use `--force` alongside it to rewrite existing cache files in the new format.
 - `--skip-feature-generation`: Validate and initialize the project without computing features.
 
 **Examples:**

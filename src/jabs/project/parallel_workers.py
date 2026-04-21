@@ -136,14 +136,7 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
             continue
 
         # Feature extraction for this identity
-        try:
-            cache_format = CacheFormat(job["cache_format"])
-        except (KeyError, ValueError):
-            logger.error(
-                "Unknown cache_format %r in job spec; falling back to HDF5",
-                job.get("cache_format"),
-            )
-            cache_format = CacheFormat.HDF5
+        cache_format = CacheFormat(job["cache_format"])
         features = fe.IdentityFeatures(
             video,
             identity,
