@@ -582,15 +582,14 @@ class CentralWidget(QtWidgets.QWidget):
             for behavior, track in self._labels.iter_behavior_labels(identity_str):
                 if behavior != current_behavior:
                     track.clear_labels(start, end)
-        else:
-            self._project.session_tracker.label_created(
-                self._loaded_video,
-                self._controls.current_identity_index,
-                self._controls.current_behavior,
-                True,
-                start,
-                end,
-            )
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            self._controls.current_identity_index,
+            self._controls.current_behavior,
+            True,
+            start,
+            end,
+        )
         self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
@@ -602,6 +601,14 @@ class CentralWidget(QtWidgets.QWidget):
             for behavior, track in self._labels.iter_behavior_labels(identity_str):
                 if behavior != MULTICLASS_NONE_BEHAVIOR:
                     track.clear_labels(start, end)
+            self._project.session_tracker.label_created(
+                self._loaded_video,
+                self._controls.current_identity_index,
+                MULTICLASS_NONE_BEHAVIOR,
+                True,
+                start,
+                end,
+            )
             self._labels.get_track_labels(identity_str, MULTICLASS_NONE_BEHAVIOR).label_behavior(
                 start, end
             )
