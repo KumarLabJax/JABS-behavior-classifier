@@ -117,7 +117,18 @@ class VideoLabels:
 
         Returns:
             Integer array of shape ``(n_frames,)`` with dtype ``np.int16``.
+
+        Raises:
+            ValueError: If ``behavior_names`` contains the reserved
+                ``MULTICLASS_NONE_BEHAVIOR`` name or any duplicate entries.
         """
+        if MULTICLASS_NONE_BEHAVIOR in behavior_names:
+            raise ValueError(
+                f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
+            )
+        if len(behavior_names) != len(set(behavior_names)):
+            raise ValueError("behavior_names must not contain duplicates")
+
         result = np.zeros(self._num_frames, dtype=np.int16)
         identity_tracks = self._identity_labels.get(identity, {})
 

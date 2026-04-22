@@ -229,3 +229,15 @@ def test_multiclass_dtype_is_int16(empty_video_labels):
     """Return dtype is int16 regardless of input."""
     result = empty_video_labels.build_multiclass_label_array("0", [])
     assert result.dtype == np.int16
+
+
+def test_multiclass_reserved_name_raises(empty_video_labels):
+    """Passing the reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
+    with pytest.raises(ValueError, match="reserved"):
+        empty_video_labels.build_multiclass_label_array("0", [MULTICLASS_NONE_BEHAVIOR])
+
+
+def test_multiclass_duplicate_names_raises(empty_video_labels):
+    """Duplicate entries in behavior_names raises ValueError."""
+    with pytest.raises(ValueError, match="duplicate"):
+        empty_video_labels.build_multiclass_label_array("0", ["walk", "walk"])
