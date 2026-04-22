@@ -37,11 +37,11 @@ class PredictedLabelWidget(ManualLabelWidget):
         Args:
             event (QPaintEvent): The paint event containing region to update.
         """
-        fw = self._frame_width
-        if fw == 0.0:
-            return
-
         widget_width = self.size().width()
+        if widget_width == 0 or self._window_frames_total == 0:
+            return
+        self._frame_width = widget_width / self._window_frames_total
+        fw = self._frame_width
 
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
@@ -76,7 +76,8 @@ class PredictedLabelWidget(ManualLabelWidget):
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:
-                alphas = (self._probabilities[slice_start : slice_end + 1] * 255).astype(np.uint8)
+                probs = np.clip(self._probabilities[slice_start : slice_end + 1], 0.0, 1.0)
+                alphas = (probs * 255).astype(np.uint8)
 
                 # some post-processed predictions may have zero probability, specifically the interpolation stage
                 # which fills in short gaps where there was no prediction. To ensure these interpolated classes
@@ -131,8 +132,34 @@ class PredictedLabelWidget(ManualLabelWidget):
             predictions: Class-index array of shape ``(n_frames,)`` with dtype ``int16``, or ``None``.
             probabilities: Per-frame prediction confidence of shape ``(n_frames,)``, or ``None``.
         """
+        if predictions is None:
+            if probabilities is not None:
+                raise ValueError("probabilities must be None when predictions is None")
+            self._predictions = None
+            self._probabilities = None
+            self.update()
+            return
+
+        if predictions.ndim != 1:
+            raise ValueError("predictions must be a 1D array")
+        if self._num_frames and predictions.shape[0] != self._num_frames:
+            raise ValueError(
+                "predictions length must match num_frames: "
+                f"{predictions.shape[0]} != {self._num_frames}"
+            )
+        if np.any(predictions < 0) or np.any(predictions >= len(self._color_lut)):
+            raise ValueError("predictions contain indices outside the active color LUT range")
+
+        if probabilities is not None:
+            if probabilities.ndim != 1 or probabilities.shape[0] != predictions.shape[0]:
+                raise ValueError(
+                    "probabilities must be a 1D array with same length as predictions"
+                )
+            self._probabilities = np.clip(probabilities, 0.0, 1.0).astype(np.float32, copy=False)
+        else:
+            self._probabilities = None
+
         self._predictions = predictions
-        self._probabilities = probabilities
         self.update()
 
     def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:

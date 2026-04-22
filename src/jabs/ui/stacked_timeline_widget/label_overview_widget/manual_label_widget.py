@@ -129,6 +129,7 @@ class ManualLabelWidget(QWidget):
         Args:
             event: QResizeEvent containing the new and old size of the widget.
         """
+        super().resizeEvent(event)
         w = self.size().width()
         self._frame_width = w / self._window_frames_total if w > 0 else 0.0
 
@@ -142,11 +143,11 @@ class ManualLabelWidget(QWidget):
         Args:
             event: QPaintEvent containing the region to be redrawn.
         """
-        fw = self._frame_width
-        if fw == 0.0:
-            return
-
         widget_width = self.size().width()
+        if widget_width == 0 or self._window_frames_total == 0:
+            return
+        self._frame_width = widget_width / self._window_frames_total
+        fw = self._frame_width
 
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
@@ -321,6 +322,21 @@ class ManualLabelWidget(QWidget):
             labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
             mask: Integer array indicating valid identity frames (1 = present, 0 = gap).
         """
+        if labels.ndim != 1:
+            raise ValueError("labels must be a 1D array")
+        if mask.ndim != 1:
+            raise ValueError("mask must be a 1D array")
+        if labels.shape[0] != mask.shape[0]:
+            raise ValueError(
+                f"labels and mask must have the same length: {labels.shape[0]} != {mask.shape[0]}"
+            )
+        if self._num_frames and labels.shape[0] != self._num_frames:
+            raise ValueError(
+                f"labels length must match num_frames: {labels.shape[0]} != {self._num_frames}"
+            )
+        if np.any(labels < 0) or np.any(labels >= len(self._color_lut)):
+            raise ValueError("labels contain indices outside the active color LUT range")
+
         self._labels = labels
         self._identity_mask = mask
         self.update()
