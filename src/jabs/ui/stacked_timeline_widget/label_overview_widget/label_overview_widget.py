@@ -133,10 +133,9 @@ class LabelOverviewWidget(QWidget):
     def set_labels(self, labels: npt.NDArray[np.int16], mask: np.ndarray) -> None:
         """Set the label data for the widget.
 
-        ``labels`` must already be a direct LUT-index array.  Callers are
-        responsible for normalizing raw data before calling this method (e.g.
-        via :func:`.label_overview_util.track_labels_to_lut_indices` for binary
-        mode or ``VideoLabels.build_multiclass_label_array`` for multi-class).
+        ``labels`` must be a direct LUT-index array whose values correspond to
+        rows in the active color LUT.  Callers are responsible for producing this
+        array before calling.
 
         Args:
             labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
