@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
@@ -12,7 +15,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.behavior_search import SearchHit
-from jabs.project import TrackLabels
 
 from ...colors import (
     BACKGROUND_COLOR,
@@ -55,6 +57,7 @@ class ManualLabelWidget(QWidget):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self._color_lut: npt.NDArray[np.uint8] = self.COLOR_LUT
 
         # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -73,9 +76,9 @@ class ManualLabelWidget(QWidget):
         self._num_frames = 0
         self._framerate = 0
 
-        # TrackLabels object containing labels for current behavior & identity
-        self._labels: np.ndarray | None = None
-        self._identity_mask: np.ndarray | None = None
+        # Direct LUT-index array; binary labels are pre-offset (+1) on set_labels.
+        self._labels: npt.NDArray[np.int16] | None = None
+        self._identity_mask: npt.NDArray[np.int16] | None = None
 
         # search results to render in the bar
         self._search_results: list[SearchHit] = []
@@ -91,6 +94,20 @@ class ManualLabelWidget(QWidget):
         self._position_marker_pen = QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
         self._selection_brush = QBrush(SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern)
         self._padding_brush = QBrush(BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern)
+
+    def set_color_lut(self, lut: npt.NDArray[np.uint8]) -> None:
+        """Replace the color lookup table used to render label frames.
+
+        In binary mode this is never called and the class-level ``COLOR_LUT``
+        is used.  In multi-class mode ``StackedTimelineWidget`` calls this with
+        the per-behavior palette produced by
+        :func:`jabs.ui.colors.build_multiclass_color_lut`.
+
+        Args:
+            lut: RGBA array of shape ``(N, 4)`` mapping class indices to colors.
+        """
+        self._color_lut = lut
+        self.update()
 
     def sizeHint(self) -> QSize:
         """Return the recommended initial size for the widget.
@@ -148,14 +165,11 @@ class ManualLabelWidget(QWidget):
 
         # Draw the main bar image
         if self._labels is not None:
-            labels = self._labels.get_labels()[slice_start : slice_end + 1]
-
-            # turn labels into indices into color LUT, labels are -1, 0, 1 for no label, not behavior, behavior
-            # add 1 to the labels to convert to indexes in color_lut
-            color_indices = labels + 1
+            # _labels stores direct LUT indices (binary labels are pre-offset on set_labels)
+            color_indices = self._labels[slice_start : slice_end + 1]
 
             # Map indices to RGBA colors
-            colors = self.COLOR_LUT[color_indices]
+            colors = self._color_lut[color_indices]
 
             # set alpha for frames with dropped identity to make them semi-transparent
             gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
@@ -295,15 +309,20 @@ class ManualLabelWidget(QWidget):
                 offset = (i - start) * self._frame_width + self._offset
                 painter.drawRect(offset, 0, self._frame_width - 1, self._TICK_HEIGHT)
 
-    def set_labels(self, labels: TrackLabels, mask: np.ndarray) -> None:
+    def set_labels(self, labels: npt.NDArray[np.int16], mask: npt.NDArray[np.int16]) -> None:
         """Load and display the label track and identity mask.
 
         Updates the widget with new frame-wise behavior labels and the corresponding identity mask,
         then triggers a repaint to reflect the changes.
 
+        ``labels`` must already be a direct LUT-index array: binary callers shift
+        ``TrackLabels.get_labels()`` by +1 (NONE→0, NOT_BEHAVIOR→1, BEHAVIOR→2)
+        before calling; multi-class callers pass the array from
+        ``VideoLabels.build_multiclass_label_array`` directly.
+
         Args:
-            labels: TrackLabels object behavior labels for each frame.
-            mask: A numpy array indicating valid identity frames (1 for present, 0 for gap).
+            labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
+            mask: Integer array indicating valid identity frames (1 = present, 0 = gap).
         """
         self._labels = labels
         self._identity_mask = mask
@@ -385,4 +404,5 @@ class ManualLabelWidget(QWidget):
         self._selection_start = None
         self._selection_end = None
         self._num_frames = 0
+        self._color_lut = self.COLOR_LUT
         self.update()

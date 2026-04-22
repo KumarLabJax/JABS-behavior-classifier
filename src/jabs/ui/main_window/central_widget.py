@@ -25,7 +25,11 @@ from ..exceptions import ThreadTerminatedError
 from ..main_control_widget import MainControlWidget
 from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
-from ..stacked_timeline_widget import StackedTimelineWidget
+from ..stacked_timeline_widget import (
+    StackedTimelineWidget,
+    binary_predictions_to_lut_indices,
+    track_labels_to_lut_indices,
+)
 from ..training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -686,7 +690,10 @@ class CentralWidget(QtWidgets.QWidget):
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            self._stacked_timeline.set_labels(label_list, mask_list)
+            self._stacked_timeline.set_labels(
+                [track_labels_to_lut_indices(t) for t in label_list],
+                mask_list,
+            )
 
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
                 # if configured to show labels, update the player widget with the new labels
@@ -964,7 +971,10 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
-        self._stacked_timeline.set_predictions(self._prediction_list, self._probability_list)
+        self._stacked_timeline.set_predictions(
+            [binary_predictions_to_lut_indices(p) for p in self._prediction_list],
+            self._probability_list,
+        )
         if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
             # if the player is set to show predictions, update the player widget
             self._player_widget.set_labels(self._prediction_list)

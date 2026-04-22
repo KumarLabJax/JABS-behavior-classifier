@@ -1,6 +1,9 @@
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.pose_estimation import PoseEstimation
 
 from .timeline_annotations import TimelineAnnotations
@@ -92,6 +95,42 @@ class VideoLabels:
         for identity, behaviors in self._identity_labels.items():
             for behavior, track_labels in behaviors.items():
                 yield identity, behavior, track_labels
+
+    def build_multiclass_label_array(self, identity: str, behavior_names: list[str]) -> np.ndarray:
+        """Build a combined class-index array for multi-class label visualization.
+
+        Maps each frame to a class index suitable for direct lookup into the
+        color LUT produced by ``build_multiclass_color_lut``:
+
+        - ``0``: unlabeled (no BEHAVIOR annotation on any track for this frame)
+        - ``1``: "None" explicit-negative (BEHAVIOR on the ``MULTICLASS_NONE_BEHAVIOR`` track)
+        - ``2..N+1``: behavior *i* has a BEHAVIOR annotation (index = position in
+          ``behavior_names`` + 2)
+
+        Mutual exclusivity is assumed — enforced at label-entry time — so at most
+        one class will be active per frame.
+
+        Args:
+            identity: String identity index.
+            behavior_names: Ordered list of project behavior names. Must not
+                include the reserved ``"None"`` behavior.
+
+        Returns:
+            Integer array of shape ``(n_frames,)`` with dtype ``np.int16``.
+        """
+        result = np.zeros(self._num_frames, dtype=np.int16)
+        identity_tracks = self._identity_labels.get(identity, {})
+
+        none_track = identity_tracks.get(MULTICLASS_NONE_BEHAVIOR)
+        if none_track is not None:
+            result[none_track.get_labels() == TrackLabels.Label.BEHAVIOR] = 1
+
+        for i, behavior in enumerate(behavior_names):
+            track = identity_tracks.get(behavior)
+            if track is not None:
+                result[track.get_labels() == TrackLabels.Label.BEHAVIOR] = i + 2
+
+        return result
 
     def iter_behavior_labels(self, identity: str) -> Iterator[tuple[str, TrackLabels]]:
         """Yield ``(behavior, TrackLabels)`` for every labeled track belonging to an identity.

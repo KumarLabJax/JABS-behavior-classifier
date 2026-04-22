@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import math
 
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
@@ -14,7 +17,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.behavior_search import SearchHit
-from jabs.project import TrackLabels
 
 from ...colors import (
     BACKGROUND_COLOR,
@@ -23,6 +25,32 @@ from ...colors import (
     POSITION_MARKER_COLOR,
 )
 from .label_overview_util import diamond_at
+
+
+def _downsample_to_size(labels: npt.NDArray[np.int16], size: int) -> npt.NDArray[np.int16]:
+    """Downsample a class-index array to the specified number of output pixels.
+
+    Each output element is the most common non-zero class index in its bin, or
+    0 if the bin contains only unlabeled (0) frames.  Padding added to make
+    the array evenly divisible also contributes 0.
+
+    Args:
+        labels: Integer class-index array (0 = unlabeled, 1+ = class indices).
+        size: Desired output length, typically the widget width in pixels.
+
+    Returns:
+        Downsampled array of length ``size`` with the same dtype as ``labels``.
+    """
+    pad_size = math.ceil(labels.size / size) * size - labels.size
+    padded = np.append(labels, np.zeros(pad_size, dtype=labels.dtype))
+    bin_size = padded.size // size
+    binned = padded.reshape(size, bin_size)
+    result = np.zeros(size, dtype=labels.dtype)
+    for i in range(size):
+        non_zero = binned[i][binned[i] != 0]
+        if non_zero.size > 0:
+            result[i] = np.bincount(non_zero.astype(np.intp)).argmax()
+    return result
 
 
 class TimelineLabelWidget(QWidget):
@@ -38,20 +66,17 @@ class TimelineLabelWidget(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    # Define color LUT (RGBA)
-    COLOR_LUT = np.array(
+    COLOR_LUT: np.ndarray = np.array(
         [
             BACKGROUND_COLOR.getRgb(),
             NOT_BEHAVIOR_COLOR.getRgb(),
             BEHAVIOR_COLOR.getRgb(),
-            (144, 102, 132, 255),  # MIX
-            (0, 0, 0, 0),  # PAD
         ],
         dtype=np.uint8,
     )
-    _BAR_HEIGHT = 8  # height of the bar in pixels
-    _BAR_PADDING = 3  # padding around the bar in pixels
-    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
+    _BAR_HEIGHT = 8
+    _BAR_PADDING = 3
+    _WINDOW_SIZE = 100
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -62,27 +87,34 @@ class TimelineLabelWidget(QWidget):
         self._window_size = self._WINDOW_SIZE
         self._frames_in_view = 2 * self._window_size + 1
 
-        # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # TrackLabels object containing labels for current behavior & identity
-        self._labels = None
+        self._labels: npt.NDArray[np.int16] | None = None
+        self._color_lut: npt.NDArray[np.uint8] = self.COLOR_LUT
 
-        # search results to render in the bar
         self._search_results: list[SearchHit] = []
 
-        # In order to indicate where the current frame is on the bar,
-        # we need to know out which element it corresponds to in the downsampled
-        # array. That maps to a pixel location in the bar. To calculate that
-        # we will need to know the bin size. This is updated at every resize
-        # event
         self._bin_size = 0
-
-        self._pixmap = None
+        self._pixmap: QPixmap | None = None
         self._pixmap_offset = 0
 
         self._current_frame = 0
         self._num_frames = 0
+
+    def set_color_lut(self, lut: npt.NDArray[np.uint8]) -> None:
+        """Replace the color lookup table used to render label frames.
+
+        In binary mode this is never called and the class-level ``COLOR_LUT``
+        is used.  In multi-class mode ``StackedTimelineWidget`` calls this with
+        the per-behavior palette produced by
+        :func:`jabs.ui.colors.build_multiclass_color_lut`.
+
+        Args:
+            lut: RGBA array of shape ``(N, 4)`` mapping class indices to colors.
+        """
+        self._color_lut = lut
+        self._update_bar()
+        self.update()
 
     def sizeHint(self) -> QSize:
         """Return the recommended size for the widget.
@@ -100,8 +132,6 @@ class TimelineLabelWidget(QWidget):
         Args:
             event (QResizeEvent): The resize event.
         """
-        # if no video is loaded, there is nothing to display and nothing to
-        # resize
         if self._num_frames == 0:
             return
 
@@ -144,11 +174,16 @@ class TimelineLabelWidget(QWidget):
             qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
             qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
 
-    def set_labels(self, labels: TrackLabels) -> None:
+    def set_labels(self, labels: npt.NDArray[np.int16]) -> None:
         """Load and display a new label track.
 
+        ``labels`` must already be a direct LUT-index array: binary callers
+        use :func:`.label_overview_util.track_labels_to_lut_indices` to shift
+        a ``TrackLabels`` before calling; multi-class callers pass the array
+        from ``VideoLabels.build_multiclass_label_array`` directly.
+
         Args:
-            labels (TrackLabels): The label track to display.
+            labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
         """
         self._labels = labels
         self.update_labels()
@@ -196,6 +231,7 @@ class TimelineLabelWidget(QWidget):
         Clears any loaded labels and recalculates the scale, preparing the widget for new data.
         """
         self._labels = None
+        self._color_lut = self.COLOR_LUT
         self._update_scale()
 
     def _update_bar(self) -> None:
@@ -221,13 +257,9 @@ class TimelineLabelWidget(QWidget):
         self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.GlobalColor.transparent)
 
-        downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
+        downsampled = _downsample_to_size(self._labels, pixmap_width)
+        colors = self._color_lut[downsampled]  # shape (width, 4)
 
-        # use downsampled labels to generate RGBA colors
-        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
-        colors = self.COLOR_LUT[downsampled + 1]  # shape (width, 4)
-
-        # resize colors to bar height: shape = (height, width, 4)
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
         # convert bar to QImage and draw it to the pixmap
@@ -250,8 +282,6 @@ class TimelineLabelWidget(QWidget):
         width = self.size().width()
 
         if width and self._num_frames:
-            # calculate the bin size based on the number of frames and the
-            # width of the widget
             pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
             self._bin_size = int(self._num_frames + pad_size) // width
 

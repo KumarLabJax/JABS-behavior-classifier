@@ -1,9 +1,9 @@
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QSize, Slot
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from jabs.behavior_search import SearchHit
-from jabs.project import TrackLabels
 
 from .manual_label_widget import ManualLabelWidget
 from .timeline_label_widget import TimelineLabelWidget
@@ -118,12 +118,29 @@ class LabelOverviewWidget(QWidget):
         """
         self._label_widget.set_framerate(fps)
 
-    def set_labels(self, labels: TrackLabels, mask: np.ndarray) -> None:
-        """Set the data for the widget.
+    def set_color_lut(self, lut: npt.NDArray[np.uint8]) -> None:
+        """Set the color lookup table for both child widgets.
+
+        Propagates a custom LUT to the timeline and label widgets, enabling
+        multi-class color rendering.
 
         Args:
-            labels: TrackLabels object containing labels.
-            mask:  mask array
+            lut: RGBA array of shape ``(N, 4)`` mapping class indices to colors.
+        """
+        self._timeline_widget.set_color_lut(lut)
+        self._label_widget.set_color_lut(lut)
+
+    def set_labels(self, labels: npt.NDArray[np.int16], mask: np.ndarray) -> None:
+        """Set the label data for the widget.
+
+        ``labels`` must already be a direct LUT-index array.  Callers are
+        responsible for normalizing raw data before calling this method (e.g.
+        via :func:`.label_overview_util.track_labels_to_lut_indices` for binary
+        mode or ``VideoLabels.build_multiclass_label_array`` for multi-class).
+
+        Args:
+            labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
+            mask: Mask array indicating valid identity frames.
         """
         self._timeline_widget.set_labels(labels)
         self._label_widget.set_labels(labels, mask)

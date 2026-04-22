@@ -2,7 +2,9 @@ import unittest
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.project import VideoLabels
 from jabs.project.video_labels import SERIALIZED_VERSION
 
@@ -155,3 +157,75 @@ class TestVideoLabels(unittest.TestCase):
             d_before["unfragmented_labels"]["0"]["Walk"],
             d_after["unfragmented_labels"]["0"]["Walking"],
         )
+
+
+# ---------------------------------------------------------------------------
+# build_multiclass_label_array
+# ---------------------------------------------------------------------------
+
+N_FRAMES = 100
+
+
+@pytest.fixture()
+def empty_video_labels() -> VideoLabels:
+    """Return a fresh VideoLabels with no annotations."""
+    return VideoLabels("test.avi", N_FRAMES)
+
+
+def test_multiclass_all_unlabeled(empty_video_labels):
+    """All frames are 0 when no labels have been applied."""
+    result = empty_video_labels.build_multiclass_label_array("0", ["walk", "groom"])
+    assert result.shape == (N_FRAMES,)
+    assert (result == 0).all()
+
+
+def test_multiclass_none_label_maps_to_index_1(empty_video_labels):
+    """BEHAVIOR on the None track should produce class index 1."""
+    track = empty_video_labels.get_track_labels("0", MULTICLASS_NONE_BEHAVIOR)
+    track.label_behavior(10, 20)
+    result = empty_video_labels.build_multiclass_label_array("0", ["walk", "groom"])
+    assert (result[10:21] == 1).all()
+    assert (result[:10] == 0).all()
+    assert (result[21:] == 0).all()
+
+
+def test_multiclass_behavior_maps_to_offset_index(empty_video_labels):
+    """Behaviors start at index 2 because 0=unlabeled and 1=None are reserved."""
+    walk_track = empty_video_labels.get_track_labels("0", "walk")
+    walk_track.label_behavior(30, 40)
+    groom_track = empty_video_labels.get_track_labels("0", "groom")
+    groom_track.label_behavior(60, 70)
+    result = empty_video_labels.build_multiclass_label_array("0", ["walk", "groom"])
+    assert (result[30:41] == 2).all()
+    assert (result[60:71] == 3).all()
+    assert (result[:30] == 0).all()
+
+
+def test_multiclass_only_behavior_frames_labeled(empty_video_labels):
+    """NOT_BEHAVIOR frames are treated as unlabeled (class index 0)."""
+    track = empty_video_labels.get_track_labels("0", "walk")
+    track.label_not_behavior(0, 49)
+    track.label_behavior(50, 59)
+    result = empty_video_labels.build_multiclass_label_array("0", ["walk"])
+    assert (result[:50] == 0).all()
+    assert (result[50:60] == 2).all()
+
+
+def test_multiclass_identity_with_no_labels(empty_video_labels):
+    """An identity with no tracks returns an all-zero array."""
+    result = empty_video_labels.build_multiclass_label_array("1", ["walk", "groom"])
+    assert (result == 0).all()
+
+
+def test_multiclass_behavior_not_in_list_ignored(empty_video_labels):
+    """A labeled behavior absent from behavior_names contributes nothing."""
+    track = empty_video_labels.get_track_labels("0", "rear")
+    track.label_behavior(5, 15)
+    result = empty_video_labels.build_multiclass_label_array("0", ["walk", "groom"])
+    assert (result == 0).all()
+
+
+def test_multiclass_dtype_is_int16(empty_video_labels):
+    """Return dtype is int16 regardless of input."""
+    result = empty_video_labels.build_multiclass_label_array("0", [])
+    assert result.dtype == np.int16

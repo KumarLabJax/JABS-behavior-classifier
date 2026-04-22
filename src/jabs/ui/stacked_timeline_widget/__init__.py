@@ -9,4 +9,8 @@ The widget supports switching between different identities, selection modes, and
 annotation and review.
 """
 
+from .label_overview_widget.label_overview_util import (
+    binary_predictions_to_lut_indices,
+    track_labels_to_lut_indices,
+)
 from .stacked_timeline_widget import StackedTimelineWidget

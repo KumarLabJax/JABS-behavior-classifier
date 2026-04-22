@@ -1,6 +1,7 @@
 from enum import IntEnum
 
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -12,7 +13,6 @@ from jabs.behavior_search import (
     TimelineAnnotationSearchQuery,
 )
 from jabs.pose_estimation import PoseEstimation
-from jabs.project import TrackLabels
 
 from .frame_labels_widget import FrameLabelsWidget
 from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
@@ -343,16 +343,24 @@ class StackedTimelineWidget(QWidget):
             prediction_widget.set_current_frame(current_frame)
         self._frame_labels.set_current_frame(current_frame)
 
-    def set_labels(self, labels_list: list[TrackLabels], masks_list: list[np.ndarray]) -> None:
+    def set_labels(
+        self,
+        labels_list: list[npt.NDArray[np.int16]],
+        masks_list: list[np.ndarray],
+    ) -> None:
         """Set labels for all LabelOverviewWidgets.
 
+        ``labels_list`` must contain pre-normalized LUT-index arrays.  Callers
+        are responsible for converting raw ``TrackLabels`` or multi-class arrays
+        before passing.
+
         Args:
-            labels_list: List of TrackLabels, one per identity.
-            masks_list: Optional list of masks, one per identity.
+            labels_list: List of class-index arrays, one per identity.
+            masks_list: List of identity mask arrays, one per identity.
         """
         if len(labels_list) != self._num_identities:
             raise ValueError(
-                f"Number of TrackLabels in labels_list ({len(labels_list)}) "
+                f"Number of label arrays in labels_list ({len(labels_list)}) "
                 f"does not match number of identities ({self._num_identities})."
             )
         if len(masks_list) != self._num_identities:

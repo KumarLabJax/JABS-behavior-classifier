@@ -77,10 +77,11 @@ class PredictedLabelWidget(ManualLabelWidget):
         if self._predictions is not None:
             # Convert predictions to color_lut indices (assume -1, 0, 1 corresponds to no prediction, not behavior, behavior)
             # add 1 to the predictions to convert to indices in color_lut
-            color_indices = self._predictions[slice_start : slice_end + 1] + 1
+            # predictions are pre-normalized LUT indices; no shift needed
+            color_indices = self._predictions[slice_start : slice_end + 1]
 
             # Map to RGBA colors
-            colors = self.COLOR_LUT[color_indices]
+            colors = self._color_lut[color_indices]
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:
@@ -138,7 +139,7 @@ class PredictedLabelWidget(ManualLabelWidget):
         self._probabilities = probabilities
         self.update()
 
-    def start_selection(self, start_frame: int) -> None:
+    def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:
         """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
 

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
+import numpy.typing as npt
 
 from .label_overview_widget import LabelOverviewWidget
 from .predicted_label_widget import PredictedLabelWidget
-from .timeline_prediction_widget import TimelinePredictionWidget
+from .timeline_label_widget import TimelineLabelWidget
 
 
 class PredictionOverviewWidget(LabelOverviewWidget):
@@ -15,26 +18,36 @@ class PredictionOverviewWidget(LabelOverviewWidget):
 
     @classmethod
     def _timeline_widget_factory(cls, parent):
-        return TimelinePredictionWidget(parent)
+        """Return a TimelineLabelWidget for the timeline slot."""
+        return TimelineLabelWidget(parent)
 
     @classmethod
     def _label_widget_factory(cls, parent):
+        """Return a PredictedLabelWidget for the detail bar slot."""
         return PredictedLabelWidget(parent)
 
-    def set_labels(self, labels: np.ndarray, probabilities: np.ndarray):
-        """set prediction data to display
+    def set_labels(
+        self,
+        labels: npt.NDArray[np.int16],
+        probabilities: npt.NDArray[np.float32],
+    ) -> None:
+        """Set prediction data to display.
 
-        overrides the set_labels method of LabelOverviewWidget to set predictions instead of manual labels.
+        Overrides :meth:`LabelOverviewWidget.set_labels` to accept pre-normalized
+        LUT-index arrays and per-frame probabilities instead of ``TrackLabels``.
+        Callers must normalize raw binary predictions via
+        :func:`.label_overview_util.binary_predictions_to_lut_indices` before
+        calling; multi-class callers pass class-index arrays directly.
 
         Args:
-            labels (np.ndarray): Array of predicted labels.
-            probabilities (np.ndarray): Array of prediction probabilities corresponding to the labels.
+            labels: Pre-normalized class-index array of shape ``(n_frames,)``.
+            probabilities: Per-frame prediction confidence, shape ``(n_frames,)``.
         """
         self._label_widget.set_labels(labels, probabilities)
         self._timeline_widget.set_labels(labels)
         self.update_labels()
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the widget to its initial state."""
         self._timeline_widget.reset()
         self._label_widget.set_labels(None, None)
