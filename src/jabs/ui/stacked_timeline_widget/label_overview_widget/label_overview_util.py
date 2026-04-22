@@ -2,8 +2,8 @@ from random import Random
 
 import numpy as np
 import numpy.typing as npt
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QBrush, QPen, QPolygon
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QBrush, QPen, QPolygonF
 
 from jabs.project import TrackLabels
 
@@ -43,7 +43,7 @@ def binary_predictions_to_lut_indices(
     return (predictions + 1).astype(np.int16)
 
 
-def diamond_at(x: float, y: float, w: float, h: float) -> QPolygon:
+def diamond_at(x: float, y: float, w: float, h: float) -> QPolygonF:
     """Create a diamond shape polygon centered at (x, y) with width w and height h.
 
     Args:
@@ -53,29 +53,35 @@ def diamond_at(x: float, y: float, w: float, h: float) -> QPolygon:
         h (float): The height of the diamond.
 
     Returns:
-        QPolygon: A polygon representing the diamond shape.
+        QPolygonF: A polygon representing the diamond shape.
     """
-    return QPolygon(
+    return QPolygonF(
         [
-            QPoint(x, y - h),  # top
-            QPoint(x + w, y),  # right
-            QPoint(x, y + h),  # bottom
-            QPoint(x - w, y),  # left
+            QPointF(x, y - h),  # top
+            QPointF(x + w, y),  # right
+            QPointF(x, y + h),  # bottom
+            QPointF(x - w, y),  # left
         ]
     )
 
 
 def render_search_hits(
-    qp, search_results, offset, start, frame_width, bar_height, window_frames_total
-):
+    qp,
+    search_results: list,
+    offset: float,
+    start: int,
+    frame_width: float,
+    bar_height: int,
+    window_frames_total: int,
+) -> None:
     """Render search hits on the given QPainter.
 
     Args:
         qp (QPainter): The QPainter to draw on.
         search_results (list): List of search hit results.
-        offset (int): The offset for drawing.
+        offset (float): The x offset for drawing (0 when content fills the full widget).
         start (int): The starting frame index for the current view.
-        frame_width (int): The width of each frame.
+        frame_width (float): Pixels per frame (may be fractional).
         bar_height (int): The height of the bar.
         window_frames_total (int): Total number of frames in the window.
     """
@@ -115,8 +121,8 @@ def render_search_hits(
             # skip search hits that are completely out of bounds
             continue
 
-        start_pos = offset + (bounded_rel_start * frame_width)
-        end_pos = offset + (bounded_rel_end * frame_width)
+        start_pos = offset + bounded_rel_start * frame_width
+        end_pos = offset + bounded_rel_end * frame_width
         qp.drawLine(start_pos, y_pos, end_pos, y_pos)
 
         if bounded_rel_start == rel_start_frame:

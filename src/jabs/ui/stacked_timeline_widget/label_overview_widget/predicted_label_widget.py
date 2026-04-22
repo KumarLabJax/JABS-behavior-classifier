@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import numpy.typing as npt
 from PySide6.QtCore import Qt
@@ -35,46 +37,38 @@ class PredictedLabelWidget(ManualLabelWidget):
         Args:
             event (QPaintEvent): The paint event containing region to update.
         """
-        # starting and ending frames of the current view
-        # since the current frame is centered start might be negative and end might be > num_frames
-        # out of bounds frames will be padded with a pattern
+        fw = self._frame_width
+        if fw == 0.0:
+            return
+
+        widget_width = self.size().width()
+
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
 
-        # calculate the start and end of the slice to draw
         slice_start = max(start, 0)
         slice_end = min(end, self._num_frames - 1)
+        n_in_bounds = slice_end - slice_start + 1
+        n_start_pad = max(0, -start)
 
-        start_padding = max(0, -start) * self._frame_width
-        in_bounds_frames = slice_end - slice_start + 1
-        in_bounds_width = in_bounds_frames * self._frame_width
-        end_padding_frames = max(0, end - (self._num_frames - 1))
-        end_padding_width = end_padding_frames * self._frame_width
+        in_bounds_x0 = math.floor(n_start_pad * fw)
+        in_bounds_x1 = math.floor((n_start_pad + n_in_bounds) * fw)
+        in_bounds_px = in_bounds_x1 - in_bounds_x0
 
         qp = QPainter(self)
         qp.setPen(Qt.PenStyle.NoPen)
 
-        # Draw start padding
-        if start_padding > 0:
-            qp.setBrush(self._padding_brush)
-            qp.drawRect(self._offset, 0, start_padding, self._bar_height)
+        # Fill entire bar with padding pattern, then overdraw in-bounds region
+        qp.setBrush(self._padding_brush)
+        qp.drawRect(0, 0, widget_width, self._bar_height)
 
-        # Draw in-bounds white background
-        qp.setBrush(Qt.GlobalColor.white)
-        qp.drawRect(self._offset + start_padding, 0, in_bounds_width, self._bar_height)
-
-        # Draw end padding
-        if end_padding_width > 0:
-            qp.setBrush(self._padding_brush)
-            qp.drawRect(
-                self._offset + start_padding + in_bounds_width,
-                0,
-                end_padding_width,
-                self._bar_height,
-            )
+        if n_in_bounds > 0 and in_bounds_px > 0:
+            # White background for the in-bounds region; predictions are overlaid with alpha
+            qp.setBrush(Qt.GlobalColor.white)
+            qp.drawRect(in_bounds_x0, 0, in_bounds_px, self._bar_height)
 
         # Draw predictions overlaid on the white background; lower probability = more transparent.
-        if self._predictions is not None:
+        if self._predictions is not None and n_in_bounds > 0 and in_bounds_px > 0:
             color_indices = self._predictions[slice_start : slice_end + 1]
 
             # Map to RGBA colors
@@ -93,25 +87,26 @@ class PredictedLabelWidget(ManualLabelWidget):
 
                 colors[:, 3] = alphas
 
-            # Expand to bar height: shape = (bar_height, frames in view, 4)
+            # Per-frame pixel widths using floating-point positions
+            win_indices = np.arange(n_start_pad, n_start_pad + n_in_bounds + 1, dtype=np.float64)
+            frame_px_widths = np.diff(np.floor(win_indices * fw)).astype(int)
+
+            # Expand to bar height and per-frame pixel widths
             colors_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
+            colors_bar = np.repeat(colors_bar, frame_px_widths, axis=1)
 
-            # Expand each frame horizontally: shape = (bar_height, frames in view * frame pixel width, 4)
-            colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
-
-            # Draw the bar
             img = QImage(
                 colors_bar.data,
                 colors_bar.shape[1],
                 colors_bar.shape[0],
                 QImage.Format.Format_RGBA8888,
             )
-            qp.drawImage(self._offset + start_padding, 0, img)
+            qp.drawImage(in_bounds_x0, 0, img)
 
         render_search_hits(
             qp,
             self._search_results,
-            self._offset,
+            0,
             start,
             self._frame_width,
             self._bar_height,
