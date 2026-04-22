@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
@@ -21,8 +22,8 @@ class PredictedLabelWidget(ManualLabelWidget):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._predictions: np.ndarray | None = None
-        self._probabilities: np.ndarray | None = None
+        self._predictions: npt.NDArray[np.int16] | None = None
+        self._probabilities: npt.NDArray[np.floating] | None = None
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """handle the paint event to render the widget.
@@ -124,12 +125,16 @@ class PredictedLabelWidget(ManualLabelWidget):
         # done drawing
         qp.end()
 
-    def set_labels(self, predictions: np.ndarray, probabilities: np.ndarray) -> None:
+    def set_labels(
+        self,
+        predictions: npt.NDArray[np.int16] | None,
+        probabilities: npt.NDArray[np.floating] | None,
+    ) -> None:
         """Set the predicted labels and their probabilities for display.
 
         Args:
-            predictions (np.ndarray): Array of predicted labels for each frame.
-            probabilities (np.ndarray): Array of prediction probabilities for each frame.
+            predictions: Class-index array of shape ``(n_frames,)`` with dtype ``int16``, or ``None``.
+            probabilities: Per-frame prediction confidence of shape ``(n_frames,)``, or ``None``.
         """
         self._predictions = predictions
         self._probabilities = probabilities

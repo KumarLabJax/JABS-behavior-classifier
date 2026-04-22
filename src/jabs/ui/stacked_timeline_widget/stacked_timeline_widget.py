@@ -381,14 +381,15 @@ class StackedTimelineWidget(QWidget):
             widget.set_labels(labels, mask)
 
     def set_predictions(
-        self, predictions_list: list[np.ndarray], probabilities_list: list[np.ndarray]
+        self,
+        predictions_list: list[npt.NDArray[np.int16]],
+        probabilities_list: list[npt.NDArray[np.floating]],
     ) -> None:
-        """
-        Set predictions for all PredictionOverviewWidgets.
+        """Set predictions for all PredictionOverviewWidgets.
 
         Args:
-            predictions_list: List of np.ndarray, one per identity.
-            probabilities_list: List of np.ndarray, one per identity.
+            predictions_list: List of class-index arrays (one per identity).
+            probabilities_list: List of per-frame confidence arrays (one per identity).
         """
         if len(predictions_list) != self._num_identities:
             raise ValueError(

@@ -30,7 +30,7 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     def set_labels(
         self,
         labels: npt.NDArray[np.int16],
-        probabilities: npt.NDArray[np.float32],
+        probabilities: npt.NDArray[np.floating],
     ) -> None:
         """Set prediction data to display.
 
