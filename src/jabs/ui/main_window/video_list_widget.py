@@ -56,6 +56,8 @@ class _VideoListWidget(QtWidgets.QListWidget):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        mono_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont)
+        self.setFont(mono_font)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.setSortingEnabled(True)
         self.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
