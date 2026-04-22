@@ -315,10 +315,11 @@ class ManualLabelWidget(QWidget):
         Updates the widget with new frame-wise behavior labels and the corresponding identity mask,
         then triggers a repaint to reflect the changes.
 
-        ``labels`` must already be a direct LUT-index array: binary callers shift
-        ``TrackLabels.get_labels()`` by +1 (NONE→0, NOT_BEHAVIOR→1, BEHAVIOR→2)
-        before calling; multi-class callers pass the array from
-        ``VideoLabels.build_multiclass_label_array`` directly.
+        ``labels`` must already be a direct LUT-index array: for binary classifiers, callers
+        shift ``TrackLabels.get_labels()`` by +1 (NONE→0, NOT_BEHAVIOR→1, BEHAVIOR→2)
+        before calling; multi-class callers can pass the array from
+        ``VideoLabels.build_multiclass_label_array`` directly, since that generates the correct
+        LUT indexing directly.
 
         Args:
             labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
