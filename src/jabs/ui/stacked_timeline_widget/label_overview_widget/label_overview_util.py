@@ -1,3 +1,4 @@
+import math
 from random import Random
 
 import numpy as np
@@ -121,8 +122,11 @@ def render_search_hits(
             # skip search hits that are completely out of bounds
             continue
 
-        start_pos = offset + bounded_rel_start * frame_width
-        end_pos = offset + bounded_rel_end * frame_width
+        start_pos = math.floor(offset + bounded_rel_start * frame_width)
+        end_pos = math.floor(offset + bounded_rel_end * frame_width)
+        # ensure at least 1px span so single-frame hits remain visible
+        if end_pos <= start_pos:
+            end_pos = start_pos + 1
         qp.drawLine(start_pos, y_pos, end_pos, y_pos)
 
         if bounded_rel_start == rel_start_frame:

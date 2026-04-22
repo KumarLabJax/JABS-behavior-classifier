@@ -270,10 +270,15 @@ class TimelineLabelWidget(QWidget):
         width = self.size().width()
         height = self.size().height()
 
-        self._pixmap = QPixmap(width, height)
-        self._pixmap.fill(Qt.GlobalColor.transparent)
+        if width <= 0 or height <= 0:
+            return
 
         colors = _downsample_to_size(self._labels, self._color_lut, width)
+        if colors.size == 0:
+            return
+
+        self._pixmap = QPixmap(width, height)
+        self._pixmap.fill(Qt.GlobalColor.transparent)
 
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
@@ -292,8 +297,12 @@ class TimelineLabelWidget(QWidget):
 
         Determines how many frames each horizontal pixel represents based on the
         widget width and total frame count. Content fills the full widget width.
+        Resets to 0.0 (disabling drawing) when either dimension is unavailable.
         """
         width = self.size().width()
 
         if width and self._num_frames:
             self._float_bin_size = self._num_frames / width
+        else:
+            self._float_bin_size = 0.0
+            self._pixmap = None
