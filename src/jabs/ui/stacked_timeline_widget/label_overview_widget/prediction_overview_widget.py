@@ -9,11 +9,12 @@ from .timeline_label_widget import TimelineLabelWidget
 
 
 class PredictionOverviewWidget(LabelOverviewWidget):
-    """Widget that displays an overview of predicted labels and global inference results for a video.
+    """Widget that displays an overview of predicted labels for a video.
 
-    This widget replaces the manual label and timeline widgets of LabelOverviewWidget with
-    widgets specialized for visualizing model predictions. It provides methods to set
-    prediction data and disables setting manual labels.
+    Subclass of ``LabelOverviewWidget`` that replaces the detail bar with a
+    ``PredictedLabelWidget`` (confidence alpha-blending, read-only) while
+    keeping ``TimelineLabelWidget`` for the overview bar.  Overrides
+    ``set_labels`` to accept per-frame probabilities instead of an identity mask.
     """
 
     @classmethod
@@ -33,14 +34,12 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     ) -> None:
         """Set prediction data to display.
 
-        Overrides :meth:`LabelOverviewWidget.set_labels` to accept pre-normalized
-        LUT-index arrays and per-frame probabilities instead of ``TrackLabels``.
-        Callers must normalize raw binary predictions via
-        :func:`.label_overview_util.binary_predictions_to_lut_indices` before
-        calling; multi-class callers pass class-index arrays directly.
+        Overrides :meth:`LabelOverviewWidget.set_labels` to accept per-frame
+        probabilities as the second argument instead of an identity mask.
+        ``labels`` must be a direct LUT-index array, same contract as the parent.
 
         Args:
-            labels: Pre-normalized class-index array of shape ``(n_frames,)``.
+            labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
             probabilities: Per-frame prediction confidence, shape ``(n_frames,)``.
         """
         self._label_widget.set_labels(labels, probabilities)

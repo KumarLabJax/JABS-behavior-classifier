@@ -75,8 +75,6 @@ class PredictedLabelWidget(ManualLabelWidget):
         # Draw predictions using color_lut
         # will be overlayed on top of the white background, lower probability will be more transparent
         if self._predictions is not None:
-            # Convert predictions to color_lut indices (assume -1, 0, 1 corresponds to no prediction, not behavior, behavior)
-            # add 1 to the predictions to convert to indices in color_lut
             # predictions are pre-normalized LUT indices; no shift needed
             color_indices = self._predictions[slice_start : slice_end + 1]
 
