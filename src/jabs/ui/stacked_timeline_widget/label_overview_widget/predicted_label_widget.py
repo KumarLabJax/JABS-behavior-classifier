@@ -72,10 +72,8 @@ class PredictedLabelWidget(ManualLabelWidget):
                 self._bar_height,
             )
 
-        # Draw predictions using color_lut
-        # will be overlayed on top of the white background, lower probability will be more transparent
+        # Draw predictions overlaid on the white background; lower probability = more transparent.
         if self._predictions is not None:
-            # predictions are pre-normalized LUT indices; no shift needed
             color_indices = self._predictions[slice_start : slice_end + 1]
 
             # Map to RGBA colors
