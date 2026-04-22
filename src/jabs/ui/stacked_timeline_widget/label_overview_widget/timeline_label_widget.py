@@ -56,6 +56,9 @@ def _downsample_to_size(
     Returns:
         RGBA array of shape ``(size, 4)`` with dtype ``uint8``.
     """
+    if size <= 0 or labels.size == 0:
+        return np.zeros((0, 4), dtype=np.uint8)
+
     n_classes = len(lut)
     pad_size = math.ceil(labels.size / size) * size - labels.size
     padded = np.append(labels, np.zeros(pad_size, dtype=labels.dtype))
