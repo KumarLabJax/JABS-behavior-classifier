@@ -27,30 +27,49 @@ from ...colors import (
 from .label_overview_util import diamond_at
 
 
-def _downsample_to_size(labels: npt.NDArray[np.int16], size: int) -> npt.NDArray[np.int16]:
-    """Downsample a class-index array to the specified number of output pixels.
+def _downsample_to_size(
+    labels: npt.NDArray[np.int16],
+    lut: npt.NDArray[np.uint8],
+    size: int,
+) -> npt.NDArray[np.uint8]:
+    """Downsample a class-index array to ``size`` pixels via proportional color blending.
 
-    Each output element is the most common non-zero class index in its bin, or
-    0 if the bin contains only unlabeled (0) frames.  Padding added to make
-    the array evenly divisible also contributes 0.
+    Each output pixel is the weighted average of the LUT colors for all frames in
+    the corresponding bin, with each class contributing in proportion to its frame
+    count.  Class 0 (background/unlabeled) is included in the blend, so a bin that
+    is half labeled shows as a half-intensity color against background — faithfully
+    representing label density rather than just label identity.
+
+    This replaces the previous binary-mode ``MIX`` color: bins containing multiple
+    classes produce a visible blend of those class colors rather than collapsing to
+    an opaque purple indicator.  This is strictly more informative and works
+    uniformly for both binary and multi-class LUTs with no special cases.
+
+    Padding frames added to make the array evenly divisible contribute class 0
+    (background) to the blend.
 
     Args:
-        labels: Integer class-index array (0 = unlabeled, 1+ = class indices).
+        labels: Integer class-index array (0 = unlabeled/background, 1+ = class indices).
+        lut: RGBA lookup table of shape ``(n_classes, 4)`` mapping class indices to colors.
         size: Desired output length, typically the widget width in pixels.
 
     Returns:
-        Downsampled array of length ``size`` with the same dtype as ``labels``.
+        RGBA array of shape ``(size, 4)`` with dtype ``uint8``.
     """
+    n_classes = len(lut)
     pad_size = math.ceil(labels.size / size) * size - labels.size
     padded = np.append(labels, np.zeros(pad_size, dtype=labels.dtype))
     bin_size = padded.size // size
-    binned = padded.reshape(size, bin_size)
-    result = np.zeros(size, dtype=labels.dtype)
-    for i in range(size):
-        non_zero = binned[i][binned[i] != 0]
-        if non_zero.size > 0:
-            result[i] = np.bincount(non_zero.astype(np.intp)).argmax()
-    return result
+    binned = padded.reshape(size, bin_size)  # (size, bin_size)
+
+    # Count occurrences of each class per bin: shape (size, n_classes)
+    counts = np.zeros((size, n_classes), dtype=np.float32)
+    for c in range(n_classes):
+        counts[:, c] = (binned == c).sum(axis=1)
+
+    # Proportional weighted average color per bin
+    colors = (counts @ lut.astype(np.float32)) / bin_size
+    return colors.clip(0, 255).astype(np.uint8)
 
 
 class TimelineLabelWidget(QWidget):
@@ -257,8 +276,7 @@ class TimelineLabelWidget(QWidget):
         self._pixmap = QPixmap(pixmap_width, height)
         self._pixmap.fill(Qt.GlobalColor.transparent)
 
-        downsampled = _downsample_to_size(self._labels, pixmap_width)
-        colors = self._color_lut[downsampled]  # shape (width, 4)
+        colors = _downsample_to_size(self._labels, self._color_lut, pixmap_width)
 
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
