@@ -34,19 +34,11 @@ def _downsample_to_size(
 ) -> npt.NDArray[np.uint8]:
     """Downsample a class-index array to ``size`` pixels via proportional color blending.
 
-    Each output pixel is the weighted average of the LUT colors for all frames in
-    the corresponding bin, with each class contributing in proportion to its frame
-    count.  Class 0 (background/unlabeled) is included in the blend, so a bin that
-    is half labeled shows as a half-intensity color against background — faithfully
-    representing label density rather than just label identity.
-
-    This replaces the previous binary-mode ``MIX`` color: bins containing multiple
-    classes produce a visible blend of those class colors rather than collapsing to
-    an opaque purple indicator.  This is strictly more informative and works
-    uniformly for both binary and multi-class LUTs with no special cases.
-
-    Padding frames added to make the array evenly divisible contribute class 0
-    (background) to the blend.
+    Each output pixel covers an equal-width interval in frame space. Frame
+    contributions are weighted by the fractional overlap between that pixel's
+    interval and each source frame interval. This avoids introducing synthetic
+    background at the right edge when the frame count is not evenly divisible by
+    the widget width.
 
     Args:
         labels: Integer class-index array (0 = unlabeled/background, 1+ = class indices).
@@ -60,18 +52,32 @@ def _downsample_to_size(
         return np.zeros((0, 4), dtype=np.uint8)
 
     n_classes = len(lut)
-    pad_size = math.ceil(labels.size / size) * size - labels.size
-    padded = np.append(labels, np.zeros(pad_size, dtype=labels.dtype))
-    bin_size = padded.size // size
-    binned = padded.reshape(size, bin_size)  # (size, bin_size)
-
-    # Count occurrences of each class per bin: shape (size, n_classes)
+    n_frames = labels.size
+    edges = np.linspace(0.0, float(n_frames), num=size + 1, dtype=np.float64)
     counts = np.zeros((size, n_classes), dtype=np.float32)
-    for c in range(n_classes):
-        counts[:, c] = (binned == c).sum(axis=1)
 
-    # Proportional weighted average color per bin
-    colors = (counts @ lut.astype(np.float32)) / bin_size
+    for i in range(size):
+        start = edges[i]
+        end = edges[i + 1]
+        if end <= start:
+            continue
+
+        first = math.floor(start)
+        last = math.ceil(end)
+
+        for frame in range(first, last):
+            frame_start = float(frame)
+            frame_end = frame_start + 1.0
+            overlap = min(end, frame_end) - max(start, frame_start)
+            if overlap <= 0.0 or frame < 0 or frame >= n_frames:
+                continue
+
+            label = int(labels[frame])
+            if 0 <= label < n_classes:
+                counts[i, label] += overlap
+
+    bin_widths = (edges[1:] - edges[:-1]).astype(np.float32)
+    colors = (counts @ lut.astype(np.float32)) / bin_widths[:, np.newaxis]
     return colors.clip(0, 255).astype(np.uint8)
 
 
@@ -158,6 +164,7 @@ class TimelineLabelWidget(QWidget):
 
         self._update_scale()
         self._update_bar()
+        self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Render the timeline label bar and highlight the current frame.
@@ -165,10 +172,20 @@ class TimelineLabelWidget(QWidget):
         Args:
             event (QPaintEvent): The paint event.
         """
-        if self._pixmap is None or self._float_bin_size == 0.0:
+        widget_width = self.size().width()
+        if widget_width <= 0 or self._num_frames == 0:
             return
 
-        fbs = self._float_bin_size
+        if self._labels is not None and (
+            self._pixmap is None or self._pixmap.width() != widget_width
+        ):
+            self._float_bin_size = self._num_frames / widget_width
+            self._update_bar()
+
+        if self._pixmap is None:
+            return
+
+        fbs = self._num_frames / widget_width
 
         qp = QPainter(self)
 
