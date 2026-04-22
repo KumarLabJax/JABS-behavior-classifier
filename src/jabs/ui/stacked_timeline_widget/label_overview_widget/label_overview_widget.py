@@ -27,6 +27,8 @@ class LabelOverviewWidget(QWidget):
     """
 
     def __init__(self, *args, **kwargs) -> None:
+        # need to strip "compact" out of kwargs before calling super
+        compact = kwargs.pop("compact", False)
         super().__init__(*args, **kwargs)
 
         self._num_frames = 0
@@ -38,9 +40,27 @@ class LabelOverviewWidget(QWidget):
         self._container = QWidget(self)
 
         self._timeline_widget = self._timeline_widget_factory(self._container)
-        self._label_widget = self._label_widget_factory(self._container)
+        self._label_widget = self._label_widget_factory(self._container, compact)
 
         self._set_layout()
+
+    @property
+    def compact(self) -> bool:
+        """Whether the label widget is in compact mode.
+
+        Returns:
+            True if compact mode is active, False otherwise.
+        """
+        return self._label_widget.compact
+
+    @compact.setter
+    def compact(self, value: bool) -> None:
+        """Set compact mode on the label widget.
+
+        Args:
+            value: True to enable compact mode, False to disable.
+        """
+        self._label_widget.compact = value
 
     @classmethod
     def _timeline_widget_factory(cls, parent: QWidget) -> TimelineLabelWidget:
@@ -51,12 +71,12 @@ class LabelOverviewWidget(QWidget):
         return TimelineLabelWidget(parent)
 
     @classmethod
-    def _label_widget_factory(cls, parent: QWidget) -> ManualLabelWidget:
+    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> ManualLabelWidget:
         """factory method to create the label widget
 
         This is done to make it easier to subclass the widget and swap out the label widget
         """
-        return ManualLabelWidget(parent)
+        return ManualLabelWidget(parent, compact=compact)
 
     def _set_layout(self) -> None:
         """Set up the vertical layout for the widget.
