@@ -2,6 +2,7 @@ import distinctipy
 import numpy as np
 from PySide6.QtGui import QColor
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.pose_estimation import PoseEstimation
 
 POSITION_MARKER_COLOR = QColor(231, 66, 126, 255)
@@ -55,7 +56,17 @@ def make_behavior_color_map(behavior_names: list[str]) -> dict[str, QColor]:
 
     Returns:
         Dictionary mapping each behavior name to a ``QColor``.
+
+    Raises:
+        ValueError: If ``behavior_names`` contains the reserved
+            ``MULTICLASS_NONE_BEHAVIOR`` name or any duplicate entries.
     """
+    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
+        raise ValueError(
+            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
+        )
+    if len(behavior_names) != len(set(behavior_names)):
+        raise ValueError("behavior_names must not contain duplicates")
     if not behavior_names:
         return {}
     rgb_floats = distinctipy.get_colors(
@@ -92,7 +103,22 @@ def build_multiclass_color_lut(
     Returns:
         ``np.ndarray`` of shape ``(N+2, 4)`` and dtype ``np.uint8`` containing
         RGBA values.
+
+    Raises:
+        ValueError: If ``behavior_names`` contains the reserved
+            ``MULTICLASS_NONE_BEHAVIOR`` name, any duplicates, or names missing
+            from ``color_map``.
     """
+    if MULTICLASS_NONE_BEHAVIOR in behavior_names:
+        raise ValueError(
+            f"behavior_names must not include the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
+        )
+    if len(behavior_names) != len(set(behavior_names)):
+        raise ValueError("behavior_names must not contain duplicates")
+    missing = [n for n in behavior_names if n not in color_map]
+    if missing:
+        raise ValueError(f"behavior_names contains names missing from color_map: {missing}")
+
     entries: list[tuple[int, int, int, int]] = [
         BACKGROUND_COLOR.getRgb(),
         NOT_BEHAVIOR_COLOR.getRgb(),

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 try:
+    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.ui.colors import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
@@ -106,3 +107,33 @@ def test_build_multiclass_color_lut_behavior_indices():
     lut = build_multiclass_color_lut(["walk", "groom"], color_map)
     assert tuple(lut[2]) == color_map["walk"].getRgb()
     assert tuple(lut[3]) == color_map["groom"].getRgb()
+
+
+def test_make_behavior_color_map_reserved_name_raises():
+    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
+    with pytest.raises(ValueError, match="reserved"):
+        make_behavior_color_map([MULTICLASS_NONE_BEHAVIOR])
+
+
+def test_make_behavior_color_map_duplicates_raises():
+    """Duplicate names in behavior_names raises ValueError."""
+    with pytest.raises(ValueError, match="duplicate"):
+        make_behavior_color_map(["walk", "walk"])
+
+
+def test_build_multiclass_color_lut_reserved_name_raises():
+    """Reserved MULTICLASS_NONE_BEHAVIOR name raises ValueError."""
+    with pytest.raises(ValueError, match="reserved"):
+        build_multiclass_color_lut([MULTICLASS_NONE_BEHAVIOR], {})
+
+
+def test_build_multiclass_color_lut_duplicates_raises():
+    """Duplicate names in behavior_names raises ValueError."""
+    with pytest.raises(ValueError, match="duplicate"):
+        build_multiclass_color_lut(["walk", "walk"], {"walk": None})
+
+
+def test_build_multiclass_color_lut_missing_key_raises():
+    """Name in behavior_names absent from color_map raises ValueError."""
+    with pytest.raises(ValueError, match="missing from color_map"):
+        build_multiclass_color_lut(["walk"], {})
