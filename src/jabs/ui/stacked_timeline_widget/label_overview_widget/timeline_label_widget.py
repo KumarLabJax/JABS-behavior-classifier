@@ -27,6 +27,16 @@ from ...colors import (
 from .label_overview_util import diamond_at
 
 
+def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Convert sRGB-encoded values in [0, 1] to linear light values."""
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def _linear_to_srgb(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Convert linear light values in [0, 1] to sRGB-encoded values."""
+    return np.where(v <= 0.0031308, 12.92 * v, 1.055 * v ** (1.0 / 2.4) - 0.055)
+
+
 def _downsample_to_size(
     labels: npt.NDArray[np.int16],
     lut: npt.NDArray[np.uint8],
@@ -39,6 +49,16 @@ def _downsample_to_size(
     interval and each source frame interval. This avoids introducing synthetic
     background at the right edge when the frame count is not evenly divisible by
     the widget width.
+
+    When a bin contains any labeled (non-background) frames, the background
+    frames in that bin are excluded from the color blend so they do not dilute
+    the label color. The blend is then normalized by the total non-background
+    weight rather than the full bin width. Bins that are entirely background
+    retain the normal background color.
+
+    Color blending is performed in linear light space (sRGB gamma-decoded before
+    averaging, re-encoded afterward) so that proportional mixing corresponds to
+    actual light output. Alpha is averaged linearly and is not gamma-corrected.
 
     Args:
         labels: Integer class-index array (0 = unlabeled/background, 1+ = class indices).
@@ -77,8 +97,25 @@ def _downsample_to_size(
                 counts[i, label] += overlap
 
     bin_widths = (edges[1:] - edges[:-1]).astype(np.float32)
-    colors = (counts @ lut.astype(np.float32)) / bin_widths[:, np.newaxis]
-    return colors.clip(0, 255).astype(np.uint8)
+
+    # When labeled frames are present, exclude background so it doesn't dilute the color.
+    non_bg_weight = counts[:, 1:].sum(axis=1)
+    has_labels = non_bg_weight > 0
+    effective_counts = counts.copy()
+    effective_counts[has_labels, 0] = 0.0
+    normalizer = np.where(has_labels, non_bg_weight, bin_widths)
+
+    # Convert LUT to linear light space for perceptually correct blending.
+    lut_float = lut.astype(np.float32) / 255.0
+    lut_linear = lut_float.copy()
+    lut_linear[:, :3] = _srgb_to_linear(lut_float[:, :3])
+
+    # Blend in linear space, then re-encode RGB to sRGB; alpha stays linear.
+    linear_colors = (effective_counts @ lut_linear) / normalizer[:, np.newaxis]
+    result = linear_colors.copy()
+    result[:, :3] = _linear_to_srgb(linear_colors[:, :3])
+
+    return (result * 255.0).clip(0, 255).astype(np.uint8)
 
 
 class TimelineLabelWidget(QWidget):
