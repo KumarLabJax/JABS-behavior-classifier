@@ -1,4 +1,5 @@
 import numpy as np
+from PySide6.QtWidgets import QWidget
 
 from .label_overview_widget import LabelOverviewWidget
 from .predicted_label_widget import PredictedLabelWidget
@@ -18,8 +19,9 @@ class PredictionOverviewWidget(LabelOverviewWidget):
         return TimelinePredictionWidget(parent)
 
     @classmethod
-    def _label_widget_factory(cls, parent):
-        return PredictedLabelWidget(parent)
+    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> PredictedLabelWidget:
+        """Create a PredictedLabelWidget as the label widget for this overview."""
+        return PredictedLabelWidget(parent, compact=compact)
 
     def set_labels(self, labels: np.ndarray, probabilities: np.ndarray):
         """set prediction data to display

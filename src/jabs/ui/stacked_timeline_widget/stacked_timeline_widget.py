@@ -52,21 +52,21 @@ class StackedTimelineWidget(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self._active_identity_index = None
-        self._selection_starting_frame = None
-        self._selection_ending_frame = None
+        self._active_identity_index: int | None = None
+        self._selection_starting_frame: int | None = None
+        self._selection_ending_frame: int | None = None
         self._view_mode = self.ViewMode.LABELS_AND_PREDICTIONS
         self._identity_mode = self.IdentityMode.ACTIVE
         self._num_identities = 0
         self._num_frames = 0
         self._framerate = 0
         self._label_overview_widgets: list[LabelOverviewWidget] = []
-        self._prediction_overview_widgets = []
-        self._identity_frames = []
+        self._prediction_overview_widgets: list[PredictionOverviewWidget] = []
+        self._identity_frames: list[QFrame] = []
         self._frame_labels = FrameLabelsWidget(self)
         self._pose: PoseEstimation | None = None
 
-        self._layout = QVBoxLayout(self)
+        self._layout: QVBoxLayout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
@@ -77,14 +77,16 @@ class StackedTimelineWidget(QWidget):
 
     def _label_overview_widget_factory(self, parent) -> LabelOverviewWidget:
         """Factory method to create a label overview widget."""
-        widget = LabelOverviewWidget(parent)
+        widget = LabelOverviewWidget(parent, compact=self._identity_mode == self.IdentityMode.ALL)
         widget.num_frames = self.num_frames
         widget.framerate = self.framerate
         return widget
 
     def _prediction_overview_widget_factory(self, parent) -> PredictionOverviewWidget:
         """Factory method to create a prediction overview widget."""
-        widget = PredictionOverviewWidget(parent)
+        widget = PredictionOverviewWidget(
+            parent, compact=self._identity_mode == self.IdentityMode.ALL
+        )
         widget.num_frames = self.num_frames
         widget.framerate = self.framerate
         return widget
@@ -231,7 +233,7 @@ class StackedTimelineWidget(QWidget):
         self._framerate = value
 
     @property
-    def active_identity_index(self) -> int:
+    def active_identity_index(self) -> int | None:
         """Get the index of the active identity."""
         return self._active_identity_index
 
@@ -255,7 +257,7 @@ class StackedTimelineWidget(QWidget):
             self._active_identity_index = value
 
             # Transfer selection to new active widget if selection is active
-            if selection_frame is not None:
+            if selection_frame is not None and self._active_identity_index is not None:
                 self._label_overview_widgets[self._active_identity_index].start_selection(
                     selection_frame,
                     self._selection_ending_frame,
@@ -275,12 +277,14 @@ class StackedTimelineWidget(QWidget):
             self._set_active_frame_border(-1)
 
     def _update_widget_visibility(self) -> None:
+        """Rebuild the layout to show only the widgets appropriate for the current modes."""
         # Remove all widgets from the layout
         while self._layout.count():
             item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.hide()
 
         # Add only the widgets needed for the current mode
         if self._identity_mode == self.IdentityMode.ALL:
@@ -291,6 +295,8 @@ class StackedTimelineWidget(QWidget):
                     self._label_overview_widgets[i],
                     self._prediction_overview_widgets[i],
                 )
+                self._label_overview_widgets[i].compact = True
+                self._prediction_overview_widgets[i].compact = True
         elif (
             self._identity_mode == self.IdentityMode.ACTIVE
             and self._active_identity_index is not None
@@ -303,6 +309,8 @@ class StackedTimelineWidget(QWidget):
                 self._label_overview_widgets[idx],
                 self._prediction_overview_widgets[idx],
             )
+            self._label_overview_widgets[idx].compact = False
+            self._prediction_overview_widgets[idx].compact = False
 
         # Add FrameLabelsWidget last
         self._layout.addWidget(self._frame_labels)
