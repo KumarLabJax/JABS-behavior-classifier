@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
@@ -85,10 +87,8 @@ class ManualLabelWidget(QWidget):
 
         self._bar_height = self._BAR_HEIGHT
 
-        # size each frame takes up in the bar in pixels
-        self._frame_width = self.size().width() // self._window_frames_total
-        self._adjusted_width = self._window_frames_total * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) // 2
+        # float pixels per frame; set in resizeEvent
+        self._frame_width: float = 0.0
 
         # initialize some brushes and pens once rather than every paintEvent
         self._position_marker_pen = QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
@@ -123,15 +123,15 @@ class ManualLabelWidget(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Handle widget resize events.
 
-        Updates internal frame width, adjusted width, and offset values based on the new widget size.
-        This ensures that the label bar and its elements are correctly scaled and centered after resizing.
+        Updates the floating-point pixels-per-frame value based on the new widget width.
+        Content expands to fill the full width with no padding.
 
         Args:
             event: QResizeEvent containing the new and old size of the widget.
         """
-        self._frame_width = self.size().width() // self._window_frames_total
-        self._adjusted_width = self._window_frames_total * self._frame_width
-        self._offset = (self.size().width() - self._adjusted_width) // 2
+        super().resizeEvent(event)
+        w = self.size().width()
+        self._frame_width = w / self._window_frames_total if w > 0 else 0.0
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Handle widget paint events.
@@ -143,6 +143,12 @@ class ManualLabelWidget(QWidget):
         Args:
             event: QPaintEvent containing the region to be redrawn.
         """
+        widget_width = self.size().width()
+        if widget_width == 0 or self._window_frames_total == 0:
+            return
+        self._frame_width = widget_width / self._window_frames_total
+        fw = self._frame_width
+
         # starting and ending frames of the current view
         # since the current frame is centered start might be negative and end might be > num_frames
         # out of bounds frames will be padded with a pattern
@@ -152,19 +158,25 @@ class ManualLabelWidget(QWidget):
         # slice size for grabbing label blocks
         slice_start = max(start, 0)
         slice_end = min(end, self._num_frames - 1)
+        n_in_bounds = slice_end - slice_start + 1
+
+        # Number of padding frames before the in-bounds content
+        n_start_pad = max(0, -start)
+
+        # Pixel edges of the in-bounds region using floating-point frame positions
+        in_bounds_x0 = math.floor(n_start_pad * fw)
+        in_bounds_x1 = math.floor((n_start_pad + n_in_bounds) * fw)
+        in_bounds_px = in_bounds_x1 - in_bounds_x0
 
         qp = QPainter(self)
         qp.setPen(Qt.PenStyle.NoPen)
 
-        # Calculate padding in pixels
-        start_padding = max(0, -start) * self._frame_width
-
-        # Use QPainter to fill drawing area with the padding pattern
+        # Fill entire bar with the padding pattern, then overdraw in-bounds content
         qp.setBrush(self._padding_brush)
-        qp.drawRect(self._offset, 0, self._adjusted_width, self._bar_height)
+        qp.drawRect(0, 0, widget_width, self._bar_height)
 
         # Draw the main bar image
-        if self._labels is not None:
+        if self._labels is not None and n_in_bounds > 0 and in_bounds_px > 0:
             # _labels stores direct LUT indices (binary labels are pre-offset on set_labels)
             color_indices = self._labels[slice_start : slice_end + 1]
 
@@ -175,22 +187,23 @@ class ManualLabelWidget(QWidget):
             gap_mask = self._identity_mask[slice_start : slice_end + 1] == 0
             colors[gap_mask, 3] = self.GAP_ALPHA
 
-            # expand color array to bar height
-            # shape (bar_height, frames in view, 4)
+            # Per-frame pixel widths: floor((i+1)*fw) - floor(i*fw) for each frame
+            win_indices = np.arange(n_start_pad, n_start_pad + n_in_bounds + 1, dtype=np.float64)
+            frame_px_widths = np.diff(np.floor(win_indices * fw)).astype(int)
+
+            # expand color array to bar height: shape (bar_height, n_in_bounds, 4)
             colors_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
-            # Repeat each column (frame) by self._frame_width pixels
-            # shape: (bar_height, frames in view * frame_width, 4)
-            colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
+            # Expand each frame to its pixel width: shape (bar_height, in_bounds_px, 4)
+            colors_bar = np.repeat(colors_bar, frame_px_widths, axis=1)
 
-            # Draw the main bar image accounting for start padding
             img = QImage(
                 colors_bar.data,
                 colors_bar.shape[1],
                 colors_bar.shape[0],
                 QImage.Format.Format_RGBA8888,
             )
-            qp.drawImage(self._offset + start_padding, 0, img)
+            qp.drawImage(in_bounds_x0, 0, img)
 
         # Draw selection overlay if in select mode
         if self._selection_start is not None:
@@ -199,7 +212,7 @@ class ManualLabelWidget(QWidget):
         render_search_hits(
             qp,
             self._search_results,
-            self._offset,
+            0,
             start,
             self._frame_width,
             self._bar_height,
@@ -223,7 +236,7 @@ class ManualLabelWidget(QWidget):
             painter: The active QPainter used for drawing.
         """
         painter.setPen(self._position_marker_pen)
-        position_offset = self._offset + self._adjusted_width // 2
+        position_offset = self.size().width() // 2
         painter.drawLine(position_offset, 0, position_offset, self._bar_height - 1)
 
     def _draw_bounding_box(self, painter: QPainter) -> None:
@@ -236,7 +249,7 @@ class ManualLabelWidget(QWidget):
         """
         painter.setPen(self._BORDER_COLOR)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(self._offset, 0, self._adjusted_width - 1, self._bar_height - 1)
+        painter.drawRect(0, 0, self.size().width() - 1, self._bar_height - 1)
 
     def _draw_selection_overlay(self, painter: QPainter) -> None:
         """Draw the selection overlay on the label bar.
@@ -247,44 +260,28 @@ class ManualLabelWidget(QWidget):
         Args:
             painter: The active QPainter used for drawing.
         """
-        # starting and ending frames of the current view
+        fw = self._frame_width
         start = self._current_frame - self._window_size
-        end = self._current_frame + self._window_size
+
+        if self._selection_end is not None:
+            true_start, true_end = self._selection_start, self._selection_end
+        else:
+            true_start = min(self._selection_start, self._current_frame)
+            true_end = max(self._selection_start, self._current_frame)
+
+        # Clamp to the visible window (in window-relative frame indices)
+        vis_start = max(true_start - start, 0)
+        vis_end = min(true_end - start + 1, self._window_frames_total)
+
+        if vis_end <= vis_start:
+            return
+
+        x0 = math.floor(vis_start * fw)
+        x1 = math.floor(vis_end * fw)
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._selection_brush)
-
-        # figure out the start and width of the selection rectangle
-        if self._selection_end is not None:
-            # we have an explicit end frame for the selection
-            selection_start = max(self._selection_start - start, 0)
-            selection_width = (
-                min(end, self._selection_end) - max(start, self._selection_start) + 1
-            ) * self._frame_width
-        elif self._selection_start < self._current_frame:
-            # normal selection, start is lower than current frame
-            selection_start = max(self._selection_start - start, 0)
-            selection_width = (
-                self._current_frame - max(start, self._selection_start) + 1
-            ) * self._frame_width
-        elif self._selection_start > self._current_frame:
-            # user started selecting and then scanned backwards, start is greater than current frame
-            selection_start = self._current_frame - start
-            selection_width = (
-                min(end, self._selection_start) - self._current_frame + 1
-            ) * self._frame_width
-        else:
-            # single frame selected
-            selection_start = self._current_frame - start
-            selection_width = self._frame_width
-
-        # draw the selection overlay rectangle
-        painter.drawRect(
-            self._offset + (selection_start * self._frame_width),
-            0,
-            selection_width,
-            self._bar_height,
-        )
+        painter.drawRect(x0, 0, max(x1 - x0, 1), self._bar_height)
 
     def _draw_second_ticks(self, painter: QPainter, start: int, end: int) -> None:
         """Draw vertical tick marks at one-second intervals along the label bar.
@@ -297,17 +294,17 @@ class ManualLabelWidget(QWidget):
             start: The starting frame number of the current view.
             end: The ending frame number of the current view.
         """
-        # can't draw if we don't know the frame rate yet
         if self._framerate == 0:
             return
 
+        fw = self._frame_width
         painter.setBrush(self._BORDER_COLOR)
         for i in range(start, end + 1):
-            # we could add i > 0 and i < num_frames to this if test to avoid
-            # drawing ticks in the 'padding' at the start and end of the video
             if i % self._framerate == 0:
-                offset = (i - start) * self._frame_width + self._offset
-                painter.drawRect(offset, 0, self._frame_width - 1, self._TICK_HEIGHT)
+                win_i = i - start
+                x0 = math.floor(win_i * fw)
+                x1 = math.floor((win_i + 1) * fw)
+                painter.drawRect(x0, 0, max(x1 - x0, 1), self._TICK_HEIGHT)
 
     def set_labels(self, labels: npt.NDArray[np.int16], mask: npt.NDArray[np.int16]) -> None:
         """Load and display the label track and identity mask.
@@ -325,6 +322,21 @@ class ManualLabelWidget(QWidget):
             labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
             mask: Integer array indicating valid identity frames (1 = present, 0 = gap).
         """
+        if labels.ndim != 1:
+            raise ValueError("labels must be a 1D array")
+        if mask.ndim != 1:
+            raise ValueError("mask must be a 1D array")
+        if labels.shape[0] != mask.shape[0]:
+            raise ValueError(
+                f"labels and mask must have the same length: {labels.shape[0]} != {mask.shape[0]}"
+            )
+        if labels.shape[0] != self._num_frames:
+            raise ValueError(
+                f"labels length must match num_frames: {labels.shape[0]} != {self._num_frames}"
+            )
+        if np.any(labels < 0) or np.any(labels >= len(self._color_lut)):
+            raise ValueError("labels contain indices outside the active color LUT range")
+
         self._labels = labels
         self._identity_mask = mask
         self.update()
