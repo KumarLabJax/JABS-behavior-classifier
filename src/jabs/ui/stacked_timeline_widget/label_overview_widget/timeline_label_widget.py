@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import math
 
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
@@ -14,7 +17,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from jabs.behavior_search import SearchHit
-from jabs.project import TrackLabels
 
 from ...colors import (
     BACKGROUND_COLOR,
@@ -23,6 +25,97 @@ from ...colors import (
     POSITION_MARKER_COLOR,
 )
 from .label_overview_util import diamond_at
+
+
+def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Convert sRGB-encoded values in [0, 1] to linear light values."""
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def _linear_to_srgb(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Convert linear light values in [0, 1] to sRGB-encoded values."""
+    return np.where(v <= 0.0031308, 12.92 * v, 1.055 * v ** (1.0 / 2.4) - 0.055)
+
+
+def _downsample_to_size(
+    labels: npt.NDArray[np.int16],
+    lut: npt.NDArray[np.uint8],
+    size: int,
+) -> npt.NDArray[np.uint8]:
+    """Downsample a class-index array to ``size`` pixels via proportional color blending.
+
+    Each output pixel covers an equal-width interval in frame space. Frame
+    contributions are weighted by the fractional overlap between that pixel's
+    interval and each source frame interval. This avoids introducing synthetic
+    background at the right edge when the frame count is not evenly divisible by
+    the widget width.
+
+    When a bin contains any labeled (non-background) frames, the background
+    frames in that bin are excluded from the color blend so they do not dilute
+    the label color. The blend is then normalized by the total non-background
+    weight rather than the full bin width. Bins that are entirely background
+    retain the normal background color.
+
+    Color blending is performed in linear light space (sRGB gamma-decoded before
+    averaging, re-encoded afterward) so that proportional mixing corresponds to
+    actual light output. Alpha is averaged linearly and is not gamma-corrected.
+
+    Args:
+        labels: Integer class-index array (0 = unlabeled/background, 1+ = class indices).
+        lut: RGBA lookup table of shape ``(n_classes, 4)`` mapping class indices to colors.
+        size: Desired output length, typically the widget width in pixels.
+
+    Returns:
+        RGBA array of shape ``(size, 4)`` with dtype ``uint8``.
+    """
+    if size <= 0 or labels.size == 0:
+        return np.zeros((0, 4), dtype=np.uint8)
+
+    n_classes = len(lut)
+    n_frames = labels.size
+    edges = np.linspace(0.0, float(n_frames), num=size + 1, dtype=np.float64)
+    counts = np.zeros((size, n_classes), dtype=np.float32)
+
+    for i in range(size):
+        start = edges[i]
+        end = edges[i + 1]
+        if end <= start:
+            continue
+
+        first = math.floor(start)
+        last = math.ceil(end)
+
+        for frame in range(first, last):
+            frame_start = float(frame)
+            frame_end = frame_start + 1.0
+            overlap = min(end, frame_end) - max(start, frame_start)
+            if overlap <= 0.0 or frame < 0 or frame >= n_frames:
+                continue
+
+            label = int(labels[frame])
+            if 0 <= label < n_classes:
+                counts[i, label] += overlap
+
+    bin_widths = (edges[1:] - edges[:-1]).astype(np.float32)
+
+    # When labeled frames are present, exclude background so it doesn't dilute the color.
+    non_bg_weight = counts[:, 1:].sum(axis=1)
+    has_labels = non_bg_weight > 0
+    effective_counts = counts.copy()
+    effective_counts[has_labels, 0] = 0.0
+    normalizer = np.where(has_labels, non_bg_weight, bin_widths)
+
+    # Convert LUT to linear light space for perceptually correct blending.
+    lut_float = lut.astype(np.float32) / 255.0
+    lut_linear = lut_float.copy()
+    lut_linear[:, :3] = _srgb_to_linear(lut_float[:, :3])
+
+    # Blend in linear space, then re-encode RGB to sRGB; alpha stays linear.
+    linear_colors = (effective_counts @ lut_linear) / normalizer[:, np.newaxis]
+    result = linear_colors.copy()
+    result[:, :3] = _linear_to_srgb(linear_colors[:, :3])
+
+    return (result * 255.0).clip(0, 255).astype(np.uint8)
 
 
 class TimelineLabelWidget(QWidget):
@@ -38,20 +131,17 @@ class TimelineLabelWidget(QWidget):
         **kwargs: Additional keyword arguments for QWidget.
     """
 
-    # Define color LUT (RGBA)
-    COLOR_LUT = np.array(
+    COLOR_LUT: np.ndarray = np.array(
         [
             BACKGROUND_COLOR.getRgb(),
             NOT_BEHAVIOR_COLOR.getRgb(),
             BEHAVIOR_COLOR.getRgb(),
-            (144, 102, 132, 255),  # MIX
-            (0, 0, 0, 0),  # PAD
         ],
         dtype=np.uint8,
     )
-    _BAR_HEIGHT = 8  # height of the bar in pixels
-    _BAR_PADDING = 3  # padding around the bar in pixels
-    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
+    _BAR_HEIGHT = 8
+    _BAR_PADDING = 3
+    _WINDOW_SIZE = 100
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -62,27 +152,33 @@ class TimelineLabelWidget(QWidget):
         self._window_size = self._WINDOW_SIZE
         self._frames_in_view = 2 * self._window_size + 1
 
-        # allow widget to expand horizontally but maintain fixed vertical size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # TrackLabels object containing labels for current behavior & identity
-        self._labels = None
+        self._labels: npt.NDArray[np.int16] | None = None
+        self._color_lut: npt.NDArray[np.uint8] = self.COLOR_LUT
 
-        # search results to render in the bar
         self._search_results: list[SearchHit] = []
 
-        # In order to indicate where the current frame is on the bar,
-        # we need to know out which element it corresponds to in the downsampled
-        # array. That maps to a pixel location in the bar. To calculate that
-        # we will need to know the bin size. This is updated at every resize
-        # event
-        self._bin_size = 0
-
-        self._pixmap = None
-        self._pixmap_offset = 0
+        self._float_bin_size: float = 0.0
+        self._pixmap: QPixmap | None = None
 
         self._current_frame = 0
         self._num_frames = 0
+
+    def set_color_lut(self, lut: npt.NDArray[np.uint8]) -> None:
+        """Replace the color lookup table used to render label frames.
+
+        In binary mode this is never called and the class-level ``COLOR_LUT``
+        is used.  In multi-class mode ``StackedTimelineWidget`` calls this with
+        the per-behavior palette produced by
+        :func:`jabs.ui.colors.build_multiclass_color_lut`.
+
+        Args:
+            lut: RGBA array of shape ``(N, 4)`` mapping class indices to colors.
+        """
+        self._color_lut = lut
+        self._update_bar()
+        self.update()
 
     def sizeHint(self) -> QSize:
         """Return the recommended size for the widget.
@@ -100,13 +196,12 @@ class TimelineLabelWidget(QWidget):
         Args:
             event (QResizeEvent): The resize event.
         """
-        # if no video is loaded, there is nothing to display and nothing to
-        # resize
         if self._num_frames == 0:
             return
 
         self._update_scale()
         self._update_bar()
+        self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Render the timeline label bar and highlight the current frame.
@@ -114,23 +209,35 @@ class TimelineLabelWidget(QWidget):
         Args:
             event (QPaintEvent): The paint event.
         """
-        # make sure we have something to draw
-        if self._pixmap is None or self._bin_size == 0:
+        widget_width = self.size().width()
+        if widget_width <= 0 or self._num_frames == 0:
             return
+
+        if self._labels is not None and (
+            self._pixmap is None or self._pixmap.width() != widget_width
+        ):
+            self._float_bin_size = self._num_frames / widget_width
+            self._update_bar()
+
+        if self._pixmap is None:
+            return
+
+        fbs = self._num_frames / widget_width
 
         qp = QPainter(self)
 
-        # get the current position
-        mapped_position = self._current_frame // self._bin_size
-        start = mapped_position - (self._window_size // self._bin_size) + self._pixmap_offset
+        # Highlight the window around the current position
+        mapped_position = int(self._current_frame / fbs)
+        window_px = int(self._frames_in_view / fbs)
+        window_half_px = int(self._window_size / fbs)
+        highlight_start = mapped_position - window_half_px
 
-        # highlight the current position
         qp.setPen(QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(POSITION_MARKER_COLOR, Qt.BrushStyle.Dense4Pattern))
-        qp.drawRect(start, 0, self._frames_in_view // self._bin_size, self.size().height() - 1)
+        qp.drawRect(highlight_start, 0, window_px, self.size().height() - 1)
 
-        # draw the actual bar
-        qp.drawPixmap(0 + self._pixmap_offset, 0, self._pixmap)
+        # Draw the label bar (fills the full widget width)
+        qp.drawPixmap(0, 0, self._pixmap)
 
         qp.setPen(QPen(Qt.GlobalColor.green, 1, Qt.PenStyle.SolidLine))
         qp.setBrush(QBrush(Qt.GlobalColor.green, Qt.BrushStyle.SolidPattern))
@@ -138,17 +245,22 @@ class TimelineLabelWidget(QWidget):
         diamond_w = self.size().height() // 8
         diamond_h = self.size().height() // 8
         for hit in self._search_results:
-            start_pos = hit.start_frame // self._bin_size + self._pixmap_offset
-            end_pos = (hit.end_frame + 1) // self._bin_size + self._pixmap_offset
+            start_pos = int(hit.start_frame / fbs)
+            end_pos = int((hit.end_frame + 1) / fbs)
             qp.drawLine(start_pos, center_y, end_pos, center_y)
             qp.drawPolygon(diamond_at(start_pos, center_y, diamond_w, diamond_h))
             qp.drawPolygon(diamond_at(end_pos, center_y, diamond_w, diamond_h))
 
-    def set_labels(self, labels: TrackLabels) -> None:
+    def set_labels(self, labels: npt.NDArray[np.int16]) -> None:
         """Load and display a new label track.
 
+        ``labels`` must already be a direct LUT-index array: binary callers
+        use :func:`.label_overview_util.track_labels_to_lut_indices` to shift
+        a ``TrackLabels`` before calling; multi-class callers pass the array
+        from ``VideoLabels.build_multiclass_label_array`` directly.
+
         Args:
-            labels (TrackLabels): The label track to display.
+            labels: Class-index array of shape ``(n_frames,)`` with dtype ``int16``.
         """
         self._labels = labels
         self.update_labels()
@@ -196,14 +308,15 @@ class TimelineLabelWidget(QWidget):
         Clears any loaded labels and recalculates the scale, preparing the widget for new data.
         """
         self._labels = None
+        self._color_lut = self.COLOR_LUT
         self._update_scale()
 
     def _update_bar(self) -> None:
         """Downsample the label array and update the bar pixmap for display.
 
-        Converts the current labels into a color bar, downsampling as needed to fit the widget width,
-        and updates the internal pixmap for efficient rendering. The internal pixmap is reused by paintEvent
-        and only updated when the labels change or the widget is resized.
+        Converts the current labels into a color bar using proportional color blending,
+        then updates the internal pixmap for efficient rendering. The pixmap fills the
+        full widget width with no padding.
         """
         if self._labels is None:
             return
@@ -211,26 +324,18 @@ class TimelineLabelWidget(QWidget):
         width = self.size().width()
         height = self.size().height()
 
-        # create a pixmap with a width that evenly divides the total number of
-        # frames so that each pixel along the width represents a bin of frames
-        # (_update_scale() has done this, we can use pixmap_offset to figure
-        # out how many pixels of padding will be on each side of the final
-        # pixmap)
-        pixmap_width = width - 2 * self._pixmap_offset
+        if width <= 0 or height <= 0:
+            return
 
-        self._pixmap = QPixmap(pixmap_width, height)
+        colors = _downsample_to_size(self._labels, self._color_lut, width)
+        if colors.size == 0:
+            return
+
+        self._pixmap = QPixmap(width, height)
         self._pixmap.fill(Qt.GlobalColor.transparent)
 
-        downsampled = self._labels.downsample(self._labels.get_labels(), pixmap_width)
-
-        # use downsampled labels to generate RGBA colors
-        # labels are -1, 0, 1, 2 so add 1 to the downsampled labels to convert to indices in color_lut
-        colors = self.COLOR_LUT[downsampled + 1]  # shape (width, 4)
-
-        # resize colors to bar height: shape = (height, width, 4)
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
-        # convert bar to QImage and draw it to the pixmap
         img = QImage(
             color_bar.data,
             color_bar.shape[1],
@@ -242,18 +347,16 @@ class TimelineLabelWidget(QWidget):
         painter.end()
 
     def _update_scale(self) -> None:
-        """Recalculate the bin size and pixmap offset for the timeline bar.
+        """Recalculate the floating-point bin size for the timeline bar.
 
-        Determines how many frames each horizontal pixel represents and computes the necessary
-        padding to center the bar, based on the widget width and total frame count.
+        Determines how many frames each horizontal pixel represents based on the
+        widget width and total frame count. Content fills the full widget width.
+        Resets to 0.0 (disabling drawing) when either dimension is unavailable.
         """
         width = self.size().width()
 
         if width and self._num_frames:
-            # calculate the bin size based on the number of frames and the
-            # width of the widget
-            pad_size = math.ceil(float(self._num_frames) / width) * width - self._num_frames
-            self._bin_size = int(self._num_frames + pad_size) // width
-
-            padding = (self._bin_size * width - self._num_frames) // self._bin_size
-            self._pixmap_offset = padding // 2
+            self._float_bin_size = self._num_frames / width
+        else:
+            self._float_bin_size = 0.0
+            self._pixmap = None

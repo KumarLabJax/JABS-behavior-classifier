@@ -1,4 +1,7 @@
+import math
+
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
@@ -21,8 +24,8 @@ class PredictedLabelWidget(ManualLabelWidget):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._predictions: np.ndarray | None = None
-        self._probabilities: np.ndarray | None = None
+        self._predictions: npt.NDArray[np.int16] | None = None
+        self._probabilities: npt.NDArray[np.floating] | None = None
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """handle the paint event to render the widget.
@@ -34,57 +37,47 @@ class PredictedLabelWidget(ManualLabelWidget):
         Args:
             event (QPaintEvent): The paint event containing region to update.
         """
-        # starting and ending frames of the current view
-        # since the current frame is centered start might be negative and end might be > num_frames
-        # out of bounds frames will be padded with a pattern
+        widget_width = self.size().width()
+        if widget_width == 0 or self._window_frames_total == 0:
+            return
+        self._frame_width = widget_width / self._window_frames_total
+        fw = self._frame_width
+
         start = self._current_frame - self._window_size
         end = self._current_frame + self._window_size
 
-        # calculate the start and end of the slice to draw
         slice_start = max(start, 0)
         slice_end = min(end, self._num_frames - 1)
+        n_in_bounds = slice_end - slice_start + 1
+        n_start_pad = max(0, -start)
 
-        start_padding = max(0, -start) * self._frame_width
-        in_bounds_frames = slice_end - slice_start + 1
-        in_bounds_width = in_bounds_frames * self._frame_width
-        end_padding_frames = max(0, end - (self._num_frames - 1))
-        end_padding_width = end_padding_frames * self._frame_width
+        in_bounds_x0 = math.floor(n_start_pad * fw)
+        in_bounds_x1 = math.floor((n_start_pad + n_in_bounds) * fw)
+        in_bounds_px = in_bounds_x1 - in_bounds_x0
 
         qp = QPainter(self)
         qp.setPen(Qt.PenStyle.NoPen)
 
-        # Draw start padding
-        if start_padding > 0:
-            qp.setBrush(self._padding_brush)
-            qp.drawRect(self._offset, 0, start_padding, self._bar_height)
+        # Fill entire bar with padding pattern, then overdraw in-bounds region
+        qp.setBrush(self._padding_brush)
+        qp.drawRect(0, 0, widget_width, self._bar_height)
 
-        # Draw in-bounds white background
-        qp.setBrush(Qt.GlobalColor.white)
-        qp.drawRect(self._offset + start_padding, 0, in_bounds_width, self._bar_height)
+        if n_in_bounds > 0 and in_bounds_px > 0:
+            # White background for the in-bounds region; predictions are overlaid with alpha
+            qp.setBrush(Qt.GlobalColor.white)
+            qp.drawRect(in_bounds_x0, 0, in_bounds_px, self._bar_height)
 
-        # Draw end padding
-        if end_padding_width > 0:
-            qp.setBrush(self._padding_brush)
-            qp.drawRect(
-                self._offset + start_padding + in_bounds_width,
-                0,
-                end_padding_width,
-                self._bar_height,
-            )
-
-        # Draw predictions using color_lut
-        # will be overlayed on top of the white background, lower probability will be more transparent
-        if self._predictions is not None:
-            # Convert predictions to color_lut indices (assume -1, 0, 1 corresponds to no prediction, not behavior, behavior)
-            # add 1 to the predictions to convert to indices in color_lut
-            color_indices = self._predictions[slice_start : slice_end + 1] + 1
+        # Draw predictions overlaid on the white background; lower probability = more transparent.
+        if self._predictions is not None and n_in_bounds > 0 and in_bounds_px > 0:
+            color_indices = self._predictions[slice_start : slice_end + 1]
 
             # Map to RGBA colors
-            colors = self.COLOR_LUT[color_indices]
+            colors = self._color_lut[color_indices]
 
             # Set alpha from probabilities if available
             if self._probabilities is not None:
-                alphas = (self._probabilities[slice_start : slice_end + 1] * 255).astype(np.uint8)
+                probs = np.clip(self._probabilities[slice_start : slice_end + 1], 0.0, 1.0)
+                alphas = (probs * 255).astype(np.uint8)
 
                 # some post-processed predictions may have zero probability, specifically the interpolation stage
                 # which fills in short gaps where there was no prediction. To ensure these interpolated classes
@@ -95,25 +88,26 @@ class PredictedLabelWidget(ManualLabelWidget):
 
                 colors[:, 3] = alphas
 
-            # Expand to bar height: shape = (bar_height, frames in view, 4)
+            # Per-frame pixel widths using floating-point positions
+            win_indices = np.arange(n_start_pad, n_start_pad + n_in_bounds + 1, dtype=np.float64)
+            frame_px_widths = np.diff(np.floor(win_indices * fw)).astype(int)
+
+            # Expand to bar height and per-frame pixel widths
             colors_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
+            colors_bar = np.repeat(colors_bar, frame_px_widths, axis=1)
 
-            # Expand each frame horizontally: shape = (bar_height, frames in view * frame pixel width, 4)
-            colors_bar = np.repeat(colors_bar, self._frame_width, axis=1)
-
-            # Draw the bar
             img = QImage(
                 colors_bar.data,
                 colors_bar.shape[1],
                 colors_bar.shape[0],
                 QImage.Format.Format_RGBA8888,
             )
-            qp.drawImage(self._offset + start_padding, 0, img)
+            qp.drawImage(in_bounds_x0, 0, img)
 
         render_search_hits(
             qp,
             self._search_results,
-            self._offset,
+            0,
             start,
             self._frame_width,
             self._bar_height,
@@ -127,18 +121,48 @@ class PredictedLabelWidget(ManualLabelWidget):
         # done drawing
         qp.end()
 
-    def set_labels(self, predictions: np.ndarray, probabilities: np.ndarray) -> None:
+    def set_labels(
+        self,
+        predictions: npt.NDArray[np.int16] | None,
+        probabilities: npt.NDArray[np.floating] | None,
+    ) -> None:
         """Set the predicted labels and their probabilities for display.
 
         Args:
-            predictions (np.ndarray): Array of predicted labels for each frame.
-            probabilities (np.ndarray): Array of prediction probabilities for each frame.
+            predictions: Class-index array of shape ``(n_frames,)`` with dtype ``int16``, or ``None``.
+            probabilities: Per-frame prediction confidence of shape ``(n_frames,)``, or ``None``.
         """
+        if predictions is None:
+            if probabilities is not None:
+                raise ValueError("probabilities must be None when predictions is None")
+            self._predictions = None
+            self._probabilities = None
+            self.update()
+            return
+
+        if predictions.ndim != 1:
+            raise ValueError("predictions must be a 1D array")
+        if self._num_frames and predictions.shape[0] != self._num_frames:
+            raise ValueError(
+                "predictions length must match num_frames: "
+                f"{predictions.shape[0]} != {self._num_frames}"
+            )
+        if np.any(predictions < 0) or np.any(predictions >= len(self._color_lut)):
+            raise ValueError("predictions contain indices outside the active color LUT range")
+
+        if probabilities is not None:
+            if probabilities.ndim != 1 or probabilities.shape[0] != predictions.shape[0]:
+                raise ValueError(
+                    "probabilities must be a 1D array with same length as predictions"
+                )
+            self._probabilities = np.clip(probabilities, 0.0, 1.0).astype(np.float32, copy=False)
+        else:
+            self._probabilities = None
+
         self._predictions = predictions
-        self._probabilities = probabilities
         self.update()
 
-    def start_selection(self, start_frame: int) -> None:
+    def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:
         """Not supported in PredictedLabelWidget"""
         raise NotImplementedError
 
