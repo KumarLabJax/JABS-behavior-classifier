@@ -330,7 +330,7 @@ class ManualLabelWidget(QWidget):
             raise ValueError(
                 f"labels and mask must have the same length: {labels.shape[0]} != {mask.shape[0]}"
             )
-        if self._num_frames and labels.shape[0] != self._num_frames:
+        if labels.shape[0] != self._num_frames:
             raise ValueError(
                 f"labels length must match num_frames: {labels.shape[0]} != {self._num_frames}"
             )
