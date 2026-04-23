@@ -126,7 +126,12 @@ class LabelOverviewWidget(QWidget):
 
         Args:
             lut: RGBA array of shape ``(N, 4)`` mapping class indices to colors.
+
+        Raises:
+            ValueError: If ``lut`` is not a 2-D array with exactly 4 columns.
         """
+        if lut.ndim != 2 or lut.shape[1] != 4:
+            raise ValueError(f"lut must have shape (N, 4), got {lut.shape}")
         self._timeline_widget.set_color_lut(lut)
         self._label_widget.set_color_lut(lut)
 
