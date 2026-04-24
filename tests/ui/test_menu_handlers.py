@@ -194,6 +194,24 @@ def test_export_frame_restores_existing_directory(monkeypatch, tmp_path, handler
     assert captured["initial_path"] == str(tmp_path / "video_frame000042.png")
 
 
+def test_handle_select_all_delegates_to_central_widget():
+    """handle_select_all() calls select_all() on the central widget."""
+    central = SimpleNamespace(select_all=MagicMock())
+    window = SimpleNamespace(_central_widget=central)
+    handler = MenuHandlers(window)
+    handler.handle_select_all()
+    central.select_all.assert_called_once_with()
+
+
+def test_handle_select_current_bout_delegates_to_central_widget():
+    """handle_select_current_bout() calls select_current_bout() on the central widget."""
+    central = SimpleNamespace(select_current_bout=MagicMock())
+    window = SimpleNamespace(_central_widget=central)
+    handler = MenuHandlers(window)
+    handler.handle_select_current_bout()
+    central.select_current_bout.assert_called_once_with()
+
+
 def test_export_frame_missing_directory_falls_back(monkeypatch, handler_setup):
     """A missing saved directory falls back to the bare suggested filename."""
     handler, window, player = handler_setup

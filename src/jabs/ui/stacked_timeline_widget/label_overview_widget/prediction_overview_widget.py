@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+from PySide6.QtWidgets import QWidget
 
 from .label_overview_widget import LabelOverviewWidget
 from .predicted_label_widget import PredictedLabelWidget
@@ -23,9 +24,9 @@ class PredictionOverviewWidget(LabelOverviewWidget):
         return TimelineLabelWidget(parent)
 
     @classmethod
-    def _label_widget_factory(cls, parent):
-        """Return a PredictedLabelWidget for the detail bar slot."""
-        return PredictedLabelWidget(parent)
+    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> PredictedLabelWidget:
+        """Create a PredictedLabelWidget as the label widget for this overview."""
+        return PredictedLabelWidget(parent, compact=compact)
 
     def set_labels(
         self,

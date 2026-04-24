@@ -163,7 +163,11 @@ class PredictedLabelWidget(ManualLabelWidget):
         self.update()
 
     def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:
-        """Not supported in PredictedLabelWidget"""
+        """Not supported in PredictedLabelWidget.
+
+        Raises:
+            NotImplementedError: Always; selection is not supported on prediction widgets.
+        """
         raise NotImplementedError
 
     def clear_selection(self) -> None:

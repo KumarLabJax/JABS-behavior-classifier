@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pandas as pd
 from PySide6.QtCore import QThread, Signal
@@ -43,7 +45,7 @@ class ClassifyThread(QThread):
         projects with many videos.
     """
 
-    classification_complete = Signal(dict)
+    classification_complete = Signal(dict, int)
     current_status = Signal(str)
     update_progress = Signal(int)
     error_callback = Signal(Exception)
@@ -86,6 +88,7 @@ class ClassifyThread(QThread):
         current_video_predictions = {}
         current_video_probabilities = {}
         current_video_predictions_postprocessed = {}
+        t0_ns = time.perf_counter_ns()
 
         def check_termination_requested() -> None:
             if self._should_terminate:
@@ -124,18 +127,15 @@ class ClassifyThread(QThread):
                         pose_est,
                         fps=fps,
                         op_settings=project_settings,
+                        cache_format=self._project.cache_format,
                     )
                     feature_values = features.get_features(
                         project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
                     )
 
                     # reformat the data in a single 2D numpy array to pass to the classifier
-                    per_frame_features = pd.DataFrame(
-                        IdentityFeatures.merge_per_frame_features(feature_values["per_frame"])
-                    )
-                    window_features = pd.DataFrame(
-                        IdentityFeatures.merge_window_features(feature_values["window"])
-                    )
+                    per_frame_features = pd.DataFrame(feature_values["per_frame"])
+                    window_features = pd.DataFrame(feature_values["window"])
                     data = self._classifier.combine_data(per_frame_features, window_features)
 
                     check_termination_requested()
@@ -178,6 +178,7 @@ class ClassifyThread(QThread):
                 self._tasks_complete += 1
                 self.update_progress.emit(self._tasks_complete)
 
+            elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
             # emits the predictions, probabilities, and frame indexes for the video currently loaded in
             # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(
@@ -185,7 +186,8 @@ class ClassifyThread(QThread):
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
                     "predictions_postprocessed": current_video_predictions_postprocessed,
-                }
+                },
+                elapsed_ms,
             )
         except Exception as e:
             # if there was an exception, we'll emit the Exception as a signal so that

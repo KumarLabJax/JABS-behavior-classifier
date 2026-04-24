@@ -139,9 +139,9 @@ class TimelineLabelWidget(QWidget):
         ],
         dtype=np.uint8,
     )
-    _BAR_HEIGHT = 8
-    _BAR_PADDING = 3
-    _WINDOW_SIZE = 100
+    _BAR_HEIGHT = 7  # height of the bar in pixels
+    _BAR_PADDING = 2  # padding around the bar in pixels
+    _WINDOW_SIZE = 100  # number of frames to show on either side of the current frame
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

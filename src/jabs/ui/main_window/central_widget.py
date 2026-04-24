@@ -569,6 +569,73 @@ class CentralWidget(QtWidgets.QWidget):
                 self._selection_end = num_frames - 1
                 self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
 
+    def select_current_bout(self) -> None:
+        """Select all frames in the current bout (contiguous labeled run at the current frame).
+
+        Only activates when the current frame has a BEHAVIOR or NOT_BEHAVIOR label.
+        """
+        if (
+            not self._controls.select_button_enabled
+            or self._labels is None
+            or self._pose_est is None
+        ):
+            return
+
+        identity = self._controls.current_identity_index
+        behavior = self._controls.current_behavior
+
+        if identity == -1 or behavior == "":
+            return
+
+        labels = self._labels.get_track_labels(str(identity), behavior).get_labels()
+
+        if labels is None or len(labels) == 0:
+            return
+
+        bout = self._get_bout_range(labels, self._player_widget.current_frame)
+        if bout is None:
+            return
+
+        start, end = bout
+
+        if not self._controls.select_button_is_checked:
+            self._controls.toggle_select_button()
+
+        self._controls.enable_label_buttons()
+        self._selection_start = start
+        self._selection_end = end
+        self._stacked_timeline.start_selection(start, end)
+
+    @staticmethod
+    def _get_bout_range(labels: np.ndarray, current_frame: int) -> tuple[int, int] | None:
+        """Return the (start, end) frame indices of the labeled bout at current_frame.
+
+        Args:
+            labels: Per-frame label array for a single identity/behavior track.
+            current_frame: Index of the current frame.
+
+        Returns:
+            Inclusive (start, end) frame indices, or None if the current frame is
+            not labeled BEHAVIOR or NOT_BEHAVIOR.
+        """
+        current_label = labels[current_frame]
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return None
+
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        end = current_frame
+        while end < len(labels) and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        return start, end
+
     @property
     def _curr_selection_end(self) -> int:
         """Get the end of the current selection.
@@ -963,7 +1030,7 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self, output: dict) -> None:
+    def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
         # display the new predictions
         self._predictions = output["predictions"]
@@ -971,7 +1038,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions_postprocessed = output["predictions_postprocessed"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self.status_message.emit("Classification Complete", 3000)
+        self.status_message.emit(
+            f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
+        )
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step: int) -> None:
@@ -1344,27 +1413,11 @@ class CentralWidget(QtWidgets.QWidget):
         if labels is None or len(labels) == 0:
             return
 
-        current_label = labels[current_frame]
-        # Only play if current label is BEHAVIOR or NOT_BEHAVIOR
-        if current_label not in (
-            TrackLabels.Label.BEHAVIOR.value,
-            TrackLabels.Label.NOT_BEHAVIOR.value,
-        ):
+        bout = self._get_bout_range(labels, current_frame)
+        if bout is None:
             return
 
-        # Find start of bout
-        start = current_frame
-        while start > 0 and labels[start - 1] == current_label:
-            start -= 1
-
-        # Find end of bout (inclusive)
-        num_frames = len(labels)
-        end = current_frame
-        while end < num_frames and labels[end] == current_label:
-            end += 1
-        end -= 1
-
-        self._player_widget.play_range(start, end)
+        self._player_widget.play_range(*bout)
 
     def _on_timeline_annotation_button_clicked(self) -> None:
         """Handle the event when the button to create a new timeline annotation is clicked.
