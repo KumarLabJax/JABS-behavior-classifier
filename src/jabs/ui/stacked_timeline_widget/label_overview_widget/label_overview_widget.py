@@ -73,15 +73,18 @@ class LabelOverviewWidget(QWidget):
     def sizeHint(self) -> QSize:
         """Return the recommended size for the widget.
 
-        Calculates the preferred size based on the size hints of the timeline and manual label widgets.
+        Calculates the preferred size based on the visible child widgets only, so
+        that hiding the detail bar via :meth:`set_detail_bar_visible` actually
+        shrinks the widget.
 
         Returns:
             QSize: The recommended size for the widget.
         """
         timeline_hint = self._timeline_widget.sizeHint()
-        manual_hint = self._label_widget.sizeHint()
-        width = max(timeline_hint.width(), manual_hint.width())
-        height = timeline_hint.height() + manual_hint.height()
+        width = max(timeline_hint.width(), self._label_widget.sizeHint().width())
+        height = timeline_hint.height()
+        if self._label_widget.isVisible():
+            height += self._label_widget.sizeHint().height()
         return QSize(width, height)
 
     @property
@@ -134,6 +137,26 @@ class LabelOverviewWidget(QWidget):
             raise ValueError(f"lut must have shape (N, 4), got {lut.shape}")
         self._timeline_widget.set_color_lut(lut)
         self._label_widget.set_color_lut(lut)
+
+    def set_detail_bar_visible(self, visible: bool) -> None:
+        """Show or hide the detail (manual-label) bar below the overview strip.
+
+        Used in multi-class + all-animals mode to collapse the detail bar on
+        non-active identities and recover vertical space.  Also tightens the
+        widget's internal margins when collapsed so overview bars pack together
+        with minimal whitespace.
+
+        Args:
+            visible: ``True`` to show the detail bar; ``False`` to hide it.
+        """
+        self._label_widget.setVisible(visible)
+        if visible:
+            self.layout().setContentsMargins(2, 4, 2, 6)
+            self.layout().setSpacing(4)
+        else:
+            self.layout().setContentsMargins(2, 1, 2, 1)
+            self.layout().setSpacing(0)
+        self.updateGeometry()
 
     def set_labels(self, labels: npt.NDArray[np.int16], mask: np.ndarray) -> None:
         """Set the label data for the widget.

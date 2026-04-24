@@ -368,6 +368,10 @@ class CentralWidget(QtWidgets.QWidget):
 
             self._stacked_timeline.pose = self._pose_est
             self._stacked_timeline.framerate = self._player_widget.stream_fps
+            self._stacked_timeline.set_classifier_mode(
+                self._project.settings_manager.classifier_mode,
+                self._controls.behaviors,
+            )
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
@@ -686,18 +690,27 @@ class CentralWidget(QtWidgets.QWidget):
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            label_list = self._get_label_list()
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            self._stacked_timeline.set_labels(
-                [track_labels_to_lut_indices(t) for t in label_list],
-                mask_list,
-            )
-
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                # if configured to show labels, update the player widget with the new labels
-                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                behavior_names = self._controls.behaviors
+                self._stacked_timeline.set_labels(
+                    [
+                        self._labels.build_multiclass_label_array(str(i), behavior_names)
+                        for i in range(self._pose_est.num_identities)
+                    ],
+                    mask_list,
+                )
+            else:
+                label_list = self._get_label_list()
+                self._stacked_timeline.set_labels(
+                    [track_labels_to_lut_indices(t) for t in label_list],
+                    mask_list,
+                )
+                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                    # if configured to show labels, update the player widget with the new labels
+                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
@@ -972,8 +985,8 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
         self._stacked_timeline.set_predictions(
-            [binary_predictions_to_lut_indices(p) for p in self._prediction_list],
-            self._probability_list,
+            [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
+            [[prob] for prob in self._probability_list],
         )
         if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
             # if the player is set to show predictions, update the player widget
@@ -1012,6 +1025,20 @@ class CentralWidget(QtWidgets.QWidget):
             prediction_list.append(predictions[i])
             probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
+
+    def update_classifier_mode_display(self) -> None:
+        """Rebuild the timeline layout and refresh labels to reflect the current classifier mode.
+
+        Rebuilds the stacked timeline's per-identity widget structure and re-renders
+        all label bars.  Has no effect if no video is currently loaded.
+        """
+        if self._project is None or self._loaded_video is None:
+            return
+        self._stacked_timeline.set_classifier_mode(
+            self._project.settings_manager.classifier_mode,
+            self._controls.behaviors,
+        )
+        self._set_label_track()
 
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
