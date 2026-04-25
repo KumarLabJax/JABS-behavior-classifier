@@ -725,6 +725,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._player_widget.reload_frame()
+        self._set_label_track()
 
     def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
@@ -1049,7 +1050,13 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _set_prediction_vis(self) -> None:
         """update data being displayed by the prediction visualization widget"""
-        if self._loaded_video is None:
+        if self._project is None or self._loaded_video is None:
+            return
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            # Binary predictions from individual behavior classifiers must not be pushed
+            # into the multiclass timeline layout -- the widget structure is incompatible
+            # and the data is meaningless in a multiclass context.
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
