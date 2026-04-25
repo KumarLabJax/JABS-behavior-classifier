@@ -737,6 +737,18 @@ class StackedTimelineWidget(QWidget):
                 f"Number of probability arrays ({len(probabilities_list)}) "
                 f"does not match number of identities ({self._num_identities})."
             )
+        for i, pred_widgets in enumerate(self._prediction_overview_widgets):
+            n_expected = len(pred_widgets)
+            if len(predictions_list[i]) != n_expected:
+                raise ValueError(
+                    f"Identity {i}: expected {n_expected} prediction arrays, "
+                    f"got {len(predictions_list[i])}."
+                )
+            if len(probabilities_list[i]) != n_expected:
+                raise ValueError(
+                    f"Identity {i}: expected {n_expected} probability arrays, "
+                    f"got {len(probabilities_list[i])}."
+                )
 
         for i, pred_widgets in enumerate(self._prediction_overview_widgets):
             for j, widget in enumerate(pred_widgets):

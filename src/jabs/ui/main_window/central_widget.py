@@ -806,6 +806,9 @@ class CentralWidget(QtWidgets.QWidget):
                     ],
                     mask_list,
                 )
+                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                    label_list = self._get_label_list()
+                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
             else:
                 label_list = self._get_label_list()
                 self._stacked_timeline.set_labels(
