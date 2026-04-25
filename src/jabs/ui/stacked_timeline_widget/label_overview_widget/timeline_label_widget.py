@@ -7,6 +7,7 @@ import numpy.typing as npt
 from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtGui import (
     QBrush,
+    QColor,
     QImage,
     QPainter,
     QPaintEvent,
@@ -213,9 +214,7 @@ class TimelineLabelWidget(QWidget):
         if widget_width <= 0 or self._num_frames == 0:
             return
 
-        if self._labels is not None and (
-            self._pixmap is None or self._pixmap.width() != widget_width
-        ):
+        if self._pixmap is None or self._pixmap.width() != widget_width:
             self._float_bin_size = self._num_frames / widget_width
             self._update_bar()
 
@@ -309,6 +308,7 @@ class TimelineLabelWidget(QWidget):
         """
         self._labels = None
         self._color_lut = self.COLOR_LUT
+        self._pixmap = None
         self._update_scale()
 
     def _update_bar(self) -> None:
@@ -316,15 +316,28 @@ class TimelineLabelWidget(QWidget):
 
         Converts the current labels into a color bar using proportional color blending,
         then updates the internal pixmap for efficient rendering. The pixmap fills the
-        full widget width with no padding.
+        full widget width with no padding. When no labels are loaded, draws a solid
+        background bar so the widget is visible even before predictions are run.
         """
-        if self._labels is None:
-            return
-
         width = self.size().width()
         height = self.size().height()
 
         if width <= 0 or height <= 0:
+            return
+
+        if self._labels is None:
+            self._pixmap = QPixmap(width, height)
+            self._pixmap.fill(Qt.GlobalColor.transparent)
+            bg = self._color_lut[0]
+            painter = QPainter(self._pixmap)
+            painter.fillRect(
+                0,
+                self._bar_padding,
+                width,
+                self._bar_height,
+                QColor(int(bg[0]), int(bg[1]), int(bg[2]), int(bg[3])),
+            )
+            painter.end()
             return
 
         colors = _downsample_to_size(self._labels, self._color_lut, width)

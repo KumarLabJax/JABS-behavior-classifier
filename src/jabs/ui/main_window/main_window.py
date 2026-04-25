@@ -463,6 +463,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         # rebuild the timeline layout and refresh labels for the new mode
         self._central_widget.update_classifier_mode_display()
+        self.menu_handlers.update_mc_layout_actions_enabled_state()
 
     def on_app_settings_changed(self) -> None:
         """Slot called when application settings are changed via JabsSettingsDialog.

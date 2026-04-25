@@ -512,6 +512,42 @@ class CentralWidget(QtWidgets.QWidget):
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 
+    @property
+    def mc_collapse_label_bar(self) -> bool:
+        """Whether inactive identity label bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_label_bar
+
+    @mc_collapse_label_bar.setter
+    def mc_collapse_label_bar(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_label_bar = value
+
+    @property
+    def mc_collapse_combined_bar(self) -> bool:
+        """Whether inactive combined prediction bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_combined_bar
+
+    @mc_collapse_combined_bar.setter
+    def mc_collapse_combined_bar(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_combined_bar = value
+
+    @property
+    def mc_collapse_per_class_bars(self) -> bool:
+        """Whether inactive per-class prediction bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_per_class_bars
+
+    @mc_collapse_per_class_bars.setter
+    def mc_collapse_per_class_bars(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_per_class_bars = value
+
+    @property
+    def mc_hide_per_class_rows(self) -> bool:
+        """Whether per-class prediction rows are hidden for inactive identities."""
+        return self._stacked_timeline.hide_inactive_per_class_widgets
+
+    @mc_hide_per_class_rows.setter
+    def mc_hide_per_class_rows(self, value: bool) -> None:
+        self._stacked_timeline.hide_inactive_per_class_widgets = value
+
     def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
         if self._project is None:

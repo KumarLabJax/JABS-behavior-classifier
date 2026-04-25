@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import PredictionType
+from jabs.core.enums import ClassifierMode, PredictionType
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
@@ -422,6 +422,7 @@ class MenuHandlers:
             mode = StackedTimelineWidget.IdentityMode.ACTIVE
 
         self.window._central_widget.timeline_identity_mode = mode
+        self.update_mc_layout_actions_enabled_state()
 
     def on_timeline_prediction_type_changed(self) -> None:
         """Handle change to the prediction type shown in the timeline (raw vs. postprocessed)."""
@@ -430,6 +431,49 @@ class MenuHandlers:
         else:
             mode = PredictionType.POSTPROCESSED
         self.window._central_widget.prediction_type = mode
+
+    def on_mc_collapse_label_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Label Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_label_bar = (
+            self.window._menu_refs.mc_collapse_label_bar.isChecked()
+        )
+
+    def on_mc_collapse_combined_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Combined Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_combined_bar = (
+            self.window._menu_refs.mc_collapse_combined_bar.isChecked()
+        )
+
+    def on_mc_collapse_per_class_bars_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Per-class Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_per_class_bars = (
+            self.window._menu_refs.mc_collapse_per_class_bars.isChecked()
+        )
+
+    def on_mc_hide_per_class_rows_changed(self) -> None:
+        """Handle toggling the 'Hide Inactive Per-class Rows' multiclass layout option."""
+        self.window._central_widget.mc_hide_per_class_rows = (
+            self.window._menu_refs.mc_hide_per_class_rows.isChecked()
+        )
+
+    def update_mc_layout_actions_enabled_state(self) -> None:
+        """Enable or disable the multi-class layout menu actions based on the current mode.
+
+        The four actions are only meaningful when both multiclass classifier mode and
+        all-animals identity mode are active simultaneously.
+        """
+        refs = self.window._menu_refs
+        project = self.window._central_widget._project
+        is_multiclass = (
+            project is not None
+            and project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        is_all_animals = refs.timeline_all_animals.isChecked()
+        enabled = is_multiclass and is_all_animals
+        refs.mc_collapse_label_bar.setEnabled(enabled)
+        refs.mc_collapse_combined_bar.setEnabled(enabled)
+        refs.mc_collapse_per_class_bars.setEnabled(enabled)
+        refs.mc_hide_per_class_rows.setEnabled(enabled)
 
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""
