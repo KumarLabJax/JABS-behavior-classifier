@@ -14,7 +14,7 @@ class PerClassPredictionOverviewWidget(PredictionOverviewWidget):
     Identical to :class:`PredictionOverviewWidget` except the detail bar uses
     :class:`BehaviorProbabilityWidget` instead of :class:`PredictedLabelWidget`.
     That means the bar renders the behavior color at ``alpha = probability``
-    for every present frame, with no "not this class" gray.
+    for every present frame, with no "not behavior" color for probabilities < 0.5
     """
 
     @classmethod
