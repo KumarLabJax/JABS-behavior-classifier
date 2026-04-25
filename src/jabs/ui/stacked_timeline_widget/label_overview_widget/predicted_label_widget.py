@@ -70,23 +70,12 @@ class PredictedLabelWidget(ManualLabelWidget):
         # Draw predictions overlaid on the white background; lower probability = more transparent.
         if self._predictions is not None and n_in_bounds > 0 and in_bounds_px > 0:
             color_indices = self._predictions[slice_start : slice_end + 1]
-
-            # Map to RGBA colors
-            colors = self._color_lut[color_indices]
-
-            # Set alpha from probabilities if available
-            if self._probabilities is not None:
-                probs = np.clip(self._probabilities[slice_start : slice_end + 1], 0.0, 1.0)
-                alphas = (probs * 255).astype(np.uint8)
-
-                # some post-processed predictions may have zero probability, specifically the interpolation stage
-                # which fills in short gaps where there was no prediction. To ensure these interpolated classes
-                # are still visible, set a minimum alpha anywhere there is a prediction but probability is zero
-                # to ensure visibility. Interpolated predictions will show as having a low confidence.
-                mask = (color_indices != 0) & (alphas == 0)
-                alphas[mask] = 125
-
-                colors[:, 3] = alphas
+            probs_slice = (
+                np.clip(self._probabilities[slice_start : slice_end + 1], 0.0, 1.0)
+                if self._probabilities is not None
+                else None
+            )
+            colors = self._build_frame_colors(color_indices, probs_slice)
 
             # Per-frame pixel widths using floating-point positions
             win_indices = np.arange(n_start_pad, n_start_pad + n_in_bounds + 1, dtype=np.float64)
@@ -120,6 +109,32 @@ class PredictedLabelWidget(ManualLabelWidget):
 
         # done drawing
         qp.end()
+
+    def _build_frame_colors(
+        self,
+        color_indices: npt.NDArray[np.int16],
+        probs_slice: npt.NDArray[np.floating] | None,
+    ) -> npt.NDArray[np.uint8]:
+        """Build per-frame RGBA color array from LUT indices and probabilities.
+
+        Subclasses can override this to change how colors are computed without
+        duplicating the full paint pipeline.
+
+        Args:
+            color_indices: LUT index per in-bounds frame, shape ``(n,)``.
+            probs_slice: Clipped probabilities ``[0, 1]`` for the same frames, or ``None``.
+
+        Returns:
+            RGBA array of shape ``(n, 4)`` with dtype ``uint8``.
+        """
+        colors = self._color_lut[color_indices].copy()
+        if probs_slice is not None:
+            alphas = (probs_slice * 255).astype(np.uint8)
+            # Interpolated post-processed frames can have pred!=0 but prob==0; keep them visible.
+            mask = (color_indices != 0) & (alphas == 0)
+            alphas[mask] = 125
+            colors[:, 3] = alphas
+        return colors
 
     def set_labels(
         self,

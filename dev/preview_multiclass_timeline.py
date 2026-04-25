@@ -229,6 +229,17 @@ class PreviewWindow(QMainWindow):
             lambda v: setattr(self._timeline, "collapse_inactive_per_class_bars", v)
         )
 
+        # Hide per-class rows entirely for inactive animals
+        hide_box = QGroupBox("Hide inactive")
+        hide_layout = QHBoxLayout(hide_box)
+        self._chk_hide_per_class = QCheckBox("Per-class bars")
+        self._chk_hide_per_class.setChecked(False)
+        self._chk_hide_per_class.setEnabled(False)
+        hide_layout.addWidget(self._chk_hide_per_class)
+        self._chk_hide_per_class.toggled.connect(
+            lambda v: setattr(self._timeline, "hide_inactive_per_class_widgets", v)
+        )
+
         # Frame slider
         slider_box = QGroupBox(f"Frame  (0 - {NUM_FRAMES - 1})")
         slider_layout = QHBoxLayout(slider_box)
@@ -259,9 +270,11 @@ class PreviewWindow(QMainWindow):
         controls_layout.addWidget(mode_box)
         controls_layout.addWidget(identity_box)
         controls_layout.addWidget(collapse_box)
+        controls_layout.addWidget(hide_box)
         controls_layout.addWidget(identity_sel_box)
         controls_layout.addWidget(slider_box, stretch=1)
 
+        self._controls = controls
         root_layout.addWidget(controls)
 
         # ---- Keyboard shortcuts -------------------------------------------
@@ -270,13 +283,13 @@ class PreviewWindow(QMainWindow):
         QShortcut(QKeySequence("]"), self).activated.connect(self._next_identity)
 
         # ---- Scrollable timeline area -------------------------------------
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._timeline = StackedTimelineWidget()
-        scroll.setWidget(self._timeline)
-        root_layout.addWidget(scroll, stretch=1)
+        self._scroll.setWidget(self._timeline)
+        root_layout.addWidget(self._scroll, stretch=1)
 
         # ---- Load initial data -------------------------------------------
         self._timeline.pose = FAKE_POSE
@@ -331,6 +344,25 @@ class PreviewWindow(QMainWindow):
         self._chk_collapse_label.setEnabled(is_all)
         self._chk_collapse_combined.setEnabled(is_all)
         self._chk_collapse_per_class.setEnabled(is_all)
+        self._chk_hide_per_class.setEnabled(is_all)
+        self._resize_to_content()
+
+    def _resize_to_content(self) -> None:
+        """Resize the window height to fit the current timeline content."""
+        margins = self.centralWidget().layout().contentsMargins()
+        controls_h = self._controls.sizeHint().height()
+        timeline_h = self._timeline.sizeHint().height()
+        chrome = self.frameGeometry().height() - self.geometry().height()
+        needed = (
+            controls_h
+            + timeline_h
+            + margins.top()
+            + margins.bottom()
+            + chrome
+            + 8  # a little breathing room
+        )
+        screen_h = self.screen().availableGeometry().height()
+        self.resize(self.width(), min(needed, screen_h - 40))
 
     def _on_frame_changed(self, frame: int) -> None:
         self._frame_label.setText(str(frame))

@@ -34,6 +34,9 @@ from ..colors import (
 )
 from .frame_labels_widget import FrameLabelsWidget
 from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
+from .label_overview_widget.per_class_prediction_overview_widget import (
+    PerClassPredictionOverviewWidget,
+)
 
 
 class _BehaviorLegendWidget(QWidget):
@@ -125,6 +128,7 @@ class StackedTimelineWidget(QWidget):
         self._label_overview_widgets: list[LabelOverviewWidget] = []
         self._combined_prediction_widgets: list[PredictionOverviewWidget | None] = []
         self._prediction_overview_widgets: list[list[PredictionOverviewWidget]] = []
+        self._per_class_separators: list[QFrame | None] = []
         self._identity_frames: list[QFrame] = []
         self._frame_labels = FrameLabelsWidget(self)
         self._pose: PoseEstimation | None = None
@@ -137,6 +141,7 @@ class StackedTimelineWidget(QWidget):
         self._collapse_inactive_label_bar: bool = False
         self._collapse_inactive_combined_bar: bool = False
         self._collapse_inactive_per_class_bars: bool = True
+        self._hide_inactive_per_class_widgets: bool = False
 
         self._layout: QVBoxLayout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -230,6 +235,24 @@ class StackedTimelineWidget(QWidget):
         """Set whether non-active per-class prediction bars are collapsed in all-animals mode."""
         if value != self._collapse_inactive_per_class_bars:
             self._collapse_inactive_per_class_bars = value
+            self._update_widget_visibility()
+
+    @property
+    def hide_inactive_per_class_widgets(self) -> bool:
+        """Whether per-class prediction rows are hidden entirely for non-active identities.
+
+        When ``True``, non-active identities show no per-class bars at all (neither
+        the overview strip nor the detail bar), leaving only the label and combined
+        prediction rows visible.  Only has a visual effect in multi-class + all-animals
+        mode.
+        """
+        return self._hide_inactive_per_class_widgets
+
+    @hide_inactive_per_class_widgets.setter
+    def hide_inactive_per_class_widgets(self, value: bool) -> None:
+        """Set whether per-class rows are hidden for non-active identities."""
+        if value != self._hide_inactive_per_class_widgets:
+            self._hide_inactive_per_class_widgets = value
             self._update_widget_visibility()
 
     @property
@@ -333,6 +356,7 @@ class StackedTimelineWidget(QWidget):
         self._label_overview_widgets = []
         self._combined_prediction_widgets = []
         self._prediction_overview_widgets = []
+        self._per_class_separators = []
         self._identity_frames = []
 
         # Build the legend widget in multi-class mode
@@ -369,14 +393,20 @@ class StackedTimelineWidget(QWidget):
                 combined_pw = self._prediction_overview_widget_factory(frame)
                 combined_pw.set_color_lut(self._multiclass_color_lut)
                 combined_pw.setVisible(False)
-                # Per-class detail bars (collapsible): None row first, then behaviors
+                # Per-class detail bars (collapsible): None row first, then behaviors.
+                # Always compact; use PerClassPredictionOverviewWidget so the detail bar
+                # renders behavior color at probability-based alpha (no "not this class" gray).
                 prediction_widgets: list[PredictionOverviewWidget] = []
-                none_pw = self._prediction_overview_widget_factory(frame)
+                none_pw = PerClassPredictionOverviewWidget(frame, compact=True)
+                none_pw.num_frames = self.num_frames
+                none_pw.framerate = self.framerate
                 none_pw.set_color_lut(self._build_none_lut())
                 none_pw.setVisible(False)
                 prediction_widgets.append(none_pw)
                 for behavior_name in self._behavior_names:
-                    pw = self._prediction_overview_widget_factory(frame)
+                    pw = PerClassPredictionOverviewWidget(frame, compact=True)
+                    pw.num_frames = self.num_frames
+                    pw.framerate = self.framerate
                     pw.set_color_lut(self._build_class_lut(behavior_name))
                     pw.setVisible(False)
                     prediction_widgets.append(pw)
@@ -390,12 +420,21 @@ class StackedTimelineWidget(QWidget):
             vbox.addWidget(label_widget)
             if combined_pw is not None:
                 vbox.addWidget(combined_pw)
+            if prediction_widgets and combined_pw is not None:
+                separator = QFrame(frame)
+                separator.setFrameShape(QFrame.Shape.HLine)
+                separator.setFrameShadow(QFrame.Shadow.Sunken)
+                separator.setContentsMargins(0, 2, 0, 0)
+                vbox.addWidget(separator)
+            else:
+                separator = None
             for pw in prediction_widgets:
                 vbox.addWidget(pw)
 
             self._label_overview_widgets.append(label_widget)
             self._combined_prediction_widgets.append(combined_pw)
             self._prediction_overview_widgets.append(prediction_widgets)
+            self._per_class_separators.append(separator)
             self._identity_frames.append(frame)
             self._layout.addWidget(frame)
 
@@ -521,6 +560,7 @@ class StackedTimelineWidget(QWidget):
                     self._label_overview_widgets[i],
                     self._combined_prediction_widgets[i],
                     self._prediction_overview_widgets[i],
+                    self._per_class_separators[i],
                     is_active=(i == self._active_identity_index),
                 )
                 self._label_overview_widgets[i].compact = True
@@ -540,13 +580,13 @@ class StackedTimelineWidget(QWidget):
                 self._label_overview_widgets[idx],
                 self._combined_prediction_widgets[idx],
                 self._prediction_overview_widgets[idx],
+                self._per_class_separators[idx],
                 is_active=True,
             )
             self._label_overview_widgets[idx].compact = False
             if self._combined_prediction_widgets[idx] is not None:
                 self._combined_prediction_widgets[idx].compact = False  # type: ignore[union-attr]
-            for pw in self._prediction_overview_widgets[idx]:
-                pw.compact = False
+            # Per-class bars are always compact regardless of identity view mode.
 
         # Add FrameLabelsWidget last
         self._layout.addWidget(self._frame_labels)
@@ -558,6 +598,7 @@ class StackedTimelineWidget(QWidget):
         label_widget: LabelOverviewWidget,
         combined_widget: PredictionOverviewWidget | None,
         prediction_widgets: list[PredictionOverviewWidget],
+        separator: QFrame | None = None,
         is_active: bool = True,
     ) -> None:
         """Set the visibility of label and prediction widgets based on the current view mode.
@@ -572,6 +613,8 @@ class StackedTimelineWidget(QWidget):
             combined_widget: The combined argmax PredictionOverviewWidget, or ``None`` in
                 binary mode.
             prediction_widgets: The per-class PredictionOverviewWidgets to show or hide.
+            separator: Optional horizontal line separating the combined bar from the
+                per-class bars; shown whenever the per-class bars are shown.
             is_active: Whether this identity is the active one (used for layout compaction).
         """
         show_labels = self._view_mode in (
@@ -585,8 +628,20 @@ class StackedTimelineWidget(QWidget):
         label_widget.setVisible(show_labels)
         if combined_widget is not None:
             combined_widget.setVisible(show_preds)
+
+        # In multi-class + all-animals mode, per-class rows can be hidden entirely for
+        # non-active identities, or selectively collapsed via the detail-bar flags.
+        hide_per_class = (
+            self._classifier_mode == ClassifierMode.MULTICLASS
+            and self._identity_mode == self.IdentityMode.ALL
+            and not is_active
+            and self._hide_inactive_per_class_widgets
+        )
+        show_per_class = show_preds and not hide_per_class
+        if separator is not None:
+            separator.setVisible(show_per_class)
         for pw in prediction_widgets:
-            pw.setVisible(show_preds)
+            pw.setVisible(show_per_class)
 
         # In multi-class + all-animals mode, optionally collapse detail bars on non-active
         # identities independently for each bar type.
