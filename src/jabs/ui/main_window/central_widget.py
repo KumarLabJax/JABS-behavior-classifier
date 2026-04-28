@@ -1096,6 +1096,8 @@ class CentralWidget(QtWidgets.QWidget):
             # Binary predictions from individual behavior classifiers must not be pushed
             # into the multiclass timeline layout -- the widget structure is incompatible
             # and the data is meaningless in a multiclass context.
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
+                self._player_widget.set_labels(None)
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
