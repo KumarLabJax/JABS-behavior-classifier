@@ -52,7 +52,7 @@ dev = [
   "matplotlib>=3.9.3,<4.0.0",
 ]
 test = [
-  "pytest>=8.3.4,<9.0.0",
+  "pytest>=9.0.3",
   "pytest-cov>=7.0.0",
 ]
 lint = [
