@@ -1,4 +1,5 @@
 import json
+import logging
 import typing
 
 import jabs.feature_extraction as feature_extraction
@@ -12,6 +13,8 @@ from jabs.version import version_str
 
 if typing.TYPE_CHECKING:
     from .project_paths import ProjectPaths
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsManager:
@@ -102,6 +105,7 @@ class SettingsManager:
         try:
             return ClassifierMode(mode_str)
         except ValueError:
+            logger.warning("Invalid classifier mode %r in project file, using default", mode_str)
             return DEFAULT_CLASSIFIER_MODE
 
     @property
@@ -117,6 +121,9 @@ class SettingsManager:
         try:
             return CrossValidationGroupingStrategy(grouping_str)
         except ValueError:
+            logger.warning(
+                "Invalid CV grouping strategy %r in project file, using default", grouping_str
+            )
             return DEFAULT_CV_GROUPING_STRATEGY
 
     def video_metadata(self, video: str) -> dict:

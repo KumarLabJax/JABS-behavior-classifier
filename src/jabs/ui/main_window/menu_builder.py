@@ -35,9 +35,10 @@ class MenuReferences:
 
     # App menu actions
     settings_action: QtGui.QAction
-    clear_cache: QtGui.QAction
 
     # File menu actions
+    clear_cache: QtGui.QAction
+    clear_feature_cache: QtGui.QAction
     export_frame: QtGui.QAction
     export_training: QtGui.QAction
     archive_behavior: QtGui.QAction
@@ -62,6 +63,12 @@ class MenuReferences:
     timeline_selected_animal: QtGui.QAction
     timeline_raw_predictions: QtGui.QAction
     timeline_postprocessed_predictions: QtGui.QAction
+
+    # Multi-class layout actions (enabled only in multiclass + all-animals mode)
+    mc_collapse_label_bar: QtGui.QAction
+    mc_collapse_combined_bar: QtGui.QAction
+    mc_collapse_per_class_bars: QtGui.QAction
+    mc_hide_per_class_rows: QtGui.QAction
 
     # Label overlay actions
     label_overlay_none: QtGui.QAction
@@ -184,13 +191,6 @@ class MenuBuilder:
         license_action.triggered.connect(self.handlers.show_license_dialog)
         menu.addAction(license_action)
 
-        # Clear cache action (store as instance variable for later reference)
-        clear_cache = QtGui.QAction("Clear Project Cache", self.main_window)
-        clear_cache.setStatusTip("Clear Project Cache")
-        clear_cache.setEnabled(False)
-        clear_cache.triggered.connect(self.handlers.clear_cache)
-        menu.addAction(clear_cache)
-
         # Quit action
         exit_action = QtGui.QAction(f" &Quit {self.app_name}", self.main_window)
         exit_action.setShortcut(QtGui.QKeySequence("Ctrl+Q"))
@@ -199,7 +199,6 @@ class MenuBuilder:
         menu.addAction(exit_action)
 
         return {
-            "clear_cache": clear_cache,
             "settings_action": settings_action,
         }
 
@@ -257,12 +256,30 @@ class MenuBuilder:
         prune_action.triggered.connect(self.handlers.show_project_pruning_dialog)
         menu.addAction(prune_action)
 
+        menu.addSeparator()
+
+        # Clear pose cache action (was "Clear Project Cache" in the app menu)
+        clear_cache = QtGui.QAction("Clear Pose Cache", self.main_window)
+        clear_cache.setStatusTip("Clear the pose estimation cache for this project")
+        clear_cache.setEnabled(False)
+        clear_cache.triggered.connect(self.handlers.clear_cache)
+        menu.addAction(clear_cache)
+
+        # Clear feature cache action
+        clear_feature_cache = QtGui.QAction("Clear Feature Cache\u2026", self.main_window)
+        clear_feature_cache.setStatusTip("Delete all cached feature files for this project")
+        clear_feature_cache.setEnabled(False)
+        clear_feature_cache.triggered.connect(self.handlers.clear_feature_cache)
+        menu.addAction(clear_feature_cache)
+
         return {
             "open_recent_menu": open_recent_menu,
             "export_frame": export_frame,
             "export_training": export_training,
             "archive_behavior": archive_behavior,
             "prune_action": prune_action,
+            "clear_cache": clear_cache,
+            "clear_feature_cache": clear_feature_cache,
         }
 
     def _build_tool_menu(self, menu: QtWidgets.QMenu) -> dict:
@@ -436,10 +453,47 @@ class MenuBuilder:
             self.handlers.on_timeline_prediction_type_changed
         )
 
+        timeline_menu.addSeparator()
+
+        # Fourth group: multi-class layout options (only active in multiclass + all-animals mode)
+        mc_collapse_label_bar = QtGui.QAction(
+            "Collapse Inactive Label Bars", self.main_window, checkable=True
+        )
+        mc_collapse_combined_bar = QtGui.QAction(
+            "Collapse Inactive Combined Prediction Bars", self.main_window, checkable=True
+        )
+        mc_collapse_per_class_bars = QtGui.QAction(
+            "Collapse Inactive Per-class Predictions", self.main_window, checkable=True
+        )
+        mc_hide_per_class_rows = QtGui.QAction(
+            "Hide Inactive Per-class Rows", self.main_window, checkable=True
+        )
+
+        timeline_menu.addAction(mc_collapse_label_bar)
+        timeline_menu.addAction(mc_collapse_combined_bar)
+        timeline_menu.addAction(mc_collapse_per_class_bars)
+        timeline_menu.addAction(mc_hide_per_class_rows)
+
+        mc_collapse_label_bar.triggered.connect(self.handlers.on_mc_collapse_label_bar_changed)
+        mc_collapse_combined_bar.triggered.connect(
+            self.handlers.on_mc_collapse_combined_bar_changed
+        )
+        mc_collapse_per_class_bars.triggered.connect(
+            self.handlers.on_mc_collapse_per_class_bars_changed
+        )
+        mc_hide_per_class_rows.triggered.connect(self.handlers.on_mc_hide_per_class_rows_changed)
+
         # Set defaults
         timeline_labels_preds.setChecked(True)
         timeline_selected_animal.setChecked(True)
         timeline_raw_predictions.setChecked(True)
+        mc_collapse_per_class_bars.setChecked(True)
+
+        # Disabled until multiclass + all-animals mode is active
+        mc_collapse_label_bar.setEnabled(False)
+        mc_collapse_combined_bar.setEnabled(False)
+        mc_collapse_per_class_bars.setEnabled(False)
+        mc_hide_per_class_rows.setEnabled(False)
 
         return {
             "timeline_labels_preds": timeline_labels_preds,
@@ -449,6 +503,10 @@ class MenuBuilder:
             "timeline_selected_animal": timeline_selected_animal,
             "timeline_raw_predictions": timeline_raw_predictions,
             "timeline_postprocessed_predictions": timeline_postprocessed_predictions,
+            "mc_collapse_label_bar": mc_collapse_label_bar,
+            "mc_collapse_combined_bar": mc_collapse_combined_bar,
+            "mc_collapse_per_class_bars": mc_collapse_per_class_bars,
+            "mc_hide_per_class_rows": mc_hide_per_class_rows,
         }
 
     def _build_label_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:
@@ -661,3 +719,8 @@ class MenuBuilder:
         select_all_action.setShortcut(QtGui.QKeySequence.StandardKey.SelectAll)
         select_all_action.triggered.connect(self.handlers.handle_select_all)
         self.main_window.addAction(select_all_action)
+
+        select_bout_action = QtGui.QAction(self.main_window)
+        select_bout_action.setShortcut(QtGui.QKeySequence("Ctrl+Shift+A"))
+        select_bout_action.triggered.connect(self.handlers.handle_select_current_bout)
+        self.main_window.addAction(select_bout_action)

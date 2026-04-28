@@ -1,5 +1,5 @@
 import json
-import sys
+import logging
 from pathlib import Path
 
 from jabs.pose_estimation import (
@@ -13,6 +13,8 @@ from jabs.video_reader import VideoReader
 from .project_paths import ProjectPaths
 from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
+
+logger = logging.getLogger(__name__)
 
 
 class VideoManager:
@@ -75,7 +77,7 @@ class VideoManager:
         try:
             self.check_video_name(video_name)
         except ValueError as e:
-            print(f"Error removing video {video_name}: {e}", file=sys.stderr)
+            logger.warning("Error removing video %s: %s", video_name, e)
         else:
             self._videos.remove(video_name)
             del self._video_identity_count[video_name]
@@ -191,9 +193,11 @@ class VideoManager:
             pose_frames = get_frames_from_file(path)
             vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
             if pose_frames != vid_frames:
-                print(
-                    f"{v}: video and pose file have different number of frames",
-                    file=sys.stderr,
+                logger.error(
+                    "%s: video and pose file have different number of frames (video=%s, pose=%s)",
+                    v,
+                    vid_frames,
+                    pose_frames,
                 )
                 err = True
         if err:
@@ -207,7 +211,7 @@ class VideoManager:
                 # Populate cache during validation
                 self._pose_path_cache[v] = get_pose_path(self.video_path(v), self._paths.pose_dir)
             except ValueError:
-                print(f"{v} missing pose file", file=sys.stderr)
+                logger.error("%s missing pose file", v)
                 err = True
         if err:
             raise ValueError("Project missing pose file for one or more video")

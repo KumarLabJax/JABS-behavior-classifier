@@ -17,6 +17,7 @@ from rich.progress import BarColumn, Progress, TextColumn
 
 from jabs.classifier import Classifier
 from jabs.core.constants import APP_NAME
+from jabs.core.enums import CacheFormat
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import PredictionManager
@@ -46,6 +47,7 @@ def train_and_classify(
     fps=DEFAULT_FPS,
     feature_dir: str | None = None,
     cache_window: bool = False,
+    use_pose_hash: bool = False,
 ):
     """Train a classifier using the provided training file and classify behaviors in a pose file.
 
@@ -59,6 +61,7 @@ def train_and_classify(
         fps (int, optional): Frames per second for feature extraction. Defaults to DEFAULT_FPS.
         feature_dir (str or None, optional): Directory for feature cache. If provided, features are cached here.
         cache_window (bool, optional): Whether to cache window features. Defaults to False.
+        use_pose_hash (bool, optional): Include pose file hash as a subdirectory in the cache path. Defaults to False.
     """
     if not training_file_path.exists():
         sys.exit("Unable to open training data\n")
@@ -72,6 +75,7 @@ def train_and_classify(
         fps,
         feature_dir,
         cache_window,
+        use_pose_hash=use_pose_hash,
     )
 
 
@@ -83,6 +87,7 @@ def classify_pose(
     fps=DEFAULT_FPS,
     feature_dir: str | None = None,
     cache_window: bool = False,
+    use_pose_hash: bool = False,
 ):
     """Classify behaviors in a pose file using a trained classifier.
 
@@ -97,6 +102,7 @@ def classify_pose(
         fps (int, optional): Frames per second for feature extraction. Defaults to DEFAULT_FPS.
         feature_dir (str or None, optional): Directory for feature cache. If provided, features are cached here.
         cache_window (bool, optional): Whether to cache window features. Defaults to False.
+        use_pose_hash (bool, optional): Include pose file hash as a subdirectory in the cache path. Defaults to False.
     """
     pose_est = open_pose_file(input_pose_file)
     pose_stem = get_pose_stem(input_pose_file)
@@ -125,14 +131,12 @@ def classify_pose(
                 fps=fps,
                 op_settings=classifier_settings,
                 cache_window=cache_window,
+                cache_format=CacheFormat.PARQUET,
+                include_pose_hash=use_pose_hash,
             ).get_features(classifier_settings["window_size"])
 
-            per_frame_features = pd.DataFrame(
-                IdentityFeatures.merge_per_frame_features(features["per_frame"])
-            )
-            window_features = pd.DataFrame(
-                IdentityFeatures.merge_window_features(features["window"])
-            )
+            per_frame_features = pd.DataFrame(features["per_frame"])
+            window_features = pd.DataFrame(features["window"])
 
             data = Classifier.combine_data(per_frame_features, window_features)
 
@@ -283,6 +287,17 @@ def classify_main():
         default=False,
         action="store_true",
     )
+    parser.add_argument(
+        "--use-pose-hash",
+        help=(
+            "Include the pose file hash as a subdirectory level in the feature cache path "
+            "(e.g. <feature-dir>/<video>/<pose-hash>/<identity>). "
+            "Prevents collisions when multiple pipelines share a feature cache directory "
+            "and different pose files happen to share the same video name."
+        ),
+        default=False,
+        action="store_true",
+    )
 
     args = parser.parse_args(classify_args)
 
@@ -297,6 +312,7 @@ def classify_main():
             fps=args.fps,
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
+            use_pose_hash=args.use_pose_hash,
         )
     elif args.classifier is not None:
         try:
@@ -327,6 +343,7 @@ def classify_main():
             fps=args.fps,
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
+            use_pose_hash=args.use_pose_hash,
         )
 
 

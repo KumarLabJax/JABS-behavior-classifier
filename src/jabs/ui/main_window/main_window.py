@@ -325,6 +325,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._project.feature_manager.can_use_segmentation_features
         )
         self._menu_refs.clear_cache.setEnabled(True)
+        self._menu_refs.clear_feature_cache.setEnabled(True)
         available_objects = self._project.feature_manager.static_objects
         for static_object, menu_item in self._menu_refs.enable_landmark_features.items():
             if static_object in available_objects:
@@ -460,6 +461,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._central_widget.controls.set_classifier_mode(
             self._project.settings_manager.classifier_mode
         )
+        # rebuild the timeline layout and refresh labels for the new mode
+        self._central_widget.update_classifier_mode_display()
+        self.menu_handlers.update_mc_layout_actions_enabled_state()
 
     def on_app_settings_changed(self) -> None:
         """Slot called when application settings are changed via JabsSettingsDialog.

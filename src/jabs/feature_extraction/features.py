@@ -40,11 +40,27 @@ _FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGro
 
 _EXTENDED_FEATURE_MODULES = [LandmarkFeatureGroup]
 
-_BASE_FILTERS = {
-    "social": SocialFeatureGroup.module_names(),
-    "segmentation": SegmentationFeatureGroup.module_names(),
+_BASE_FILTERS: dict[str, dict[str, list[str]]] = {
+    "social": {"_all": SocialFeatureGroup.module_names()},
+    "segmentation": {"_all": SegmentationFeatureGroup.module_names()},
     "static_objects": LandmarkFeatureGroup.feature_map,
 }
+
+
+def _normalize_op_settings(settings: dict) -> dict:
+    """Normalize op_settings so all _BASE_FILTERS keys map to ``dict[str, bool]``.
+
+    project.json stores simple feature-group toggles (social, segmentation) as plain
+    booleans and compound settings (static_objects) as nested dicts.  Converting the
+    plain booleans to ``{"_all": value}`` at read time means downstream filter code
+    can always iterate uniformly without branching on the value type.
+    """
+    result = dict(settings)
+    for key in _BASE_FILTERS:
+        if key in result and not isinstance(result[key], dict):
+            result[key] = {"_all": result[key]}
+    return result
+
 
 _WINDOW_FILTERS = {
     "window": list(Feature._window_operations.keys()),
@@ -97,6 +113,7 @@ class IdentityFeatures:
         op_settings: dict | None = None,
         cache_window: bool = True,
         cache_format: CacheFormat = CacheFormat.HDF5,
+        include_pose_hash: bool = False,
     ) -> None:
         self._pose_version = pose_est.format_major_version
         self._num_frames = pose_est.num_frames
@@ -104,16 +121,18 @@ class IdentityFeatures:
         self._pose_hash = pose_est.hash
         self._identity = identity
         self._identity_mask = pose_est.identity_mask(identity)
-        self._op_settings = dict(op_settings) if op_settings else None
+        self._op_settings = _normalize_op_settings(op_settings) if op_settings else None
         self._distance_scale_factor = (
-            pose_est.cm_per_pixel if op_settings.get("cm_units", False) else None
+            pose_est.cm_per_pixel if (op_settings or {}).get("cm_units", False) else None
         )
 
-        self._identity_feature_dir = (
-            None
-            if directory is None
-            else (Path(directory) / Path(source_file).stem / str(self._identity))
-        )
+        if directory is None:
+            self._identity_feature_dir = None
+        else:
+            base = Path(directory) / Path(source_file).stem
+            if include_pose_hash:
+                base = base / self._pose_hash
+            self._identity_feature_dir = base / str(self._identity)
         self._cache_window = cache_window
         self._compute_social_features = pose_est.format_major_version >= 3
 
@@ -142,6 +161,12 @@ class IdentityFeatures:
 
         # will hold an array that indicates if each frame is valid for this identity
         self._frame_valid = None
+
+        # per-frame features: one of these will be set after __init__ completes.
+        # _per_frame_flat is set on cache-hit paths (avoids unflatten/re-flatten).
+        # _per_frame is set on cache-miss/compute paths and lazily from _per_frame_flat.
+        self._per_frame: PerFrameFeatureMap | None = None
+        self._per_frame_flat: FlatFeatureMap | None = None
 
         # per frame features
         point_mask = pose_est.get_identity_point_mask(identity)
@@ -285,7 +310,9 @@ class IdentityFeatures:
         cache_data = self._reader.read_per_frame(self._identity_feature_dir)
         self._frame_valid = cache_data.frame_valid
         assert len(self._frame_valid) == self._num_frames
-        self._per_frame = self._unflatten_per_frame(cache_data.features)
+        # Store the flat dict directly; skip unflatten here.
+        # _per_frame is built lazily by get_per_frame() if the nested format is needed.
+        self._per_frame_flat = cache_data.features
 
     def __save_per_frame(self) -> None:
         """Save per-frame features to the cache."""
@@ -465,6 +492,17 @@ class IdentityFeatures:
 
         return final_features
 
+    def _compute_base_filter_names(self) -> list[str]:
+        """Return the list of top-level module names to remove based on op_settings."""
+        names: list[str] = []
+        for setting_name, sub_settings in self._op_settings.items():
+            if setting_name not in _BASE_FILTERS:
+                continue
+            for sub_key, enabled in sub_settings.items():
+                if not enabled:
+                    names += _BASE_FILTERS[setting_name].get(sub_key, [])
+        return names
+
     def get_per_frame(self, labels: np.ndarray | None = None) -> PerFrameFeatureMap:
         """get per frame features
 
@@ -491,6 +529,9 @@ class IdentityFeatures:
 
             features are filtered by self.op_settings
         """
+        if self._per_frame is None:
+            self._per_frame = self._unflatten_per_frame(self._per_frame_flat)
+
         if labels is None:
             features = self._per_frame
 
@@ -512,6 +553,39 @@ class IdentityFeatures:
 
         return features
 
+    def get_per_frame_flat(self, labels: np.ndarray | None = None) -> FlatFeatureMap:
+        """Return per-frame features as a flat ``{module feature: array}`` dict.
+
+        When features were loaded from a cache file the flat representation stored
+        directly at load time is returned, skipping the unflatten→flatten round-trip
+        that ``get_per_frame()`` + ``merge_per_frame_features()`` would otherwise incur.
+
+        Args:
+            labels: If provided, only return features for frames where the label is
+                not NONE and the identity exists.
+
+        Returns:
+            Flat dict mapping ``"module_name feature_name"`` keys to 1-D arrays.
+        """
+        if self._per_frame_flat is not None:
+            if labels is not None:
+                mask = (labels != jabs.project.track_labels.TrackLabels.Label.NONE) & (
+                    self._identity_mask != 0
+                )
+                flat: FlatFeatureMap = {k: v[mask] for k, v in self._per_frame_flat.items()}
+            else:
+                flat = self._per_frame_flat
+
+            if self._op_settings is not None:
+                names_to_remove = self._compute_base_filter_names()
+                if names_to_remove:
+                    flat = {
+                        k: v for k, v in flat.items() if k.split(" ", 1)[0] not in names_to_remove
+                    }
+            return flat
+
+        return self.merge_per_frame_features(self.get_per_frame(labels))
+
     def get_features(self, window_size: int) -> dict:
         """get features and corresponding frame indexes for classification
 
@@ -524,15 +598,15 @@ class IdentityFeatures:
         Returns:
             dictionary with the following keys:
 
-            'per_frame': dict with feature name as keys, numpy array as values
-            'window': dict, see _compute_window_features
+            'per_frame': flat dict with ``"module feature"`` keys, numpy array values
+            'window': flat dict with ``"module op feature"`` keys, numpy array values
             'frame_indexes': 1D np array, maps elements of per frame and window
                feature arrays back to global frame indexes
 
             features are filtered by self.op_settings
         """
-        per_frame_features = self.get_per_frame()
-        window_features = self.get_window_features(window_size)
+        per_frame_features = self.get_per_frame_flat()
+        window_features = self.merge_window_features(self.get_window_features(window_size))
 
         indexes = np.arange(self._num_frames)[self._frame_valid == 1]
 
@@ -543,7 +617,7 @@ class IdentityFeatures:
         }
 
     def _filter_base_features_by_op(self, features: PerFrameFeatureMap) -> PerFrameFeatureMap:
-        """filter either per_frame or window features by the self._op_settings
+        """Filter per-frame or window features by op_settings.
 
         Args:
             features: dict of feature data
@@ -551,20 +625,7 @@ class IdentityFeatures:
         Returns:
             filtered features
         """
-        names_to_remove = []
-        for setting_name, setting_val in self._op_settings.items():
-            # skip if no filter assigned or we want to keep
-            if setting_name not in _BASE_FILTERS or setting_val is True:
-                continue
-            # special case for static objects, which are nested in a second dict
-            if isinstance(setting_val, dict):
-                for sub_setting, sub_val in setting_val.items():
-                    if not sub_val:
-                        names_to_remove = names_to_remove + _BASE_FILTERS[setting_name].get(
-                            sub_setting, []
-                        )
-            else:
-                names_to_remove = names_to_remove + _BASE_FILTERS[setting_name]
+        names_to_remove = self._compute_base_filter_names()
         return {k: v for k, v in features.items() if k not in names_to_remove}
 
     def _filter_window_features_by_op(self, features: WindowFeatureMap) -> WindowFeatureMap:

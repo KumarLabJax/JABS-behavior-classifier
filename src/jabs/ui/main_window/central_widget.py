@@ -368,6 +368,10 @@ class CentralWidget(QtWidgets.QWidget):
 
             self._stacked_timeline.pose = self._pose_est
             self._stacked_timeline.framerate = self._player_widget.stream_fps
+            self._stacked_timeline.set_classifier_mode(
+                self._project.settings_manager.classifier_mode,
+                self._controls.behaviors,
+            )
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
@@ -508,6 +512,42 @@ class CentralWidget(QtWidgets.QWidget):
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 
+    @property
+    def mc_collapse_label_bar(self) -> bool:
+        """Whether inactive identity label bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_label_bar
+
+    @mc_collapse_label_bar.setter
+    def mc_collapse_label_bar(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_label_bar = value
+
+    @property
+    def mc_collapse_combined_bar(self) -> bool:
+        """Whether inactive combined prediction bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_combined_bar
+
+    @mc_collapse_combined_bar.setter
+    def mc_collapse_combined_bar(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_combined_bar = value
+
+    @property
+    def mc_collapse_per_class_bars(self) -> bool:
+        """Whether inactive per-class prediction bars are collapsed in multiclass all-animals mode."""
+        return self._stacked_timeline.collapse_inactive_per_class_bars
+
+    @mc_collapse_per_class_bars.setter
+    def mc_collapse_per_class_bars(self, value: bool) -> None:
+        self._stacked_timeline.collapse_inactive_per_class_bars = value
+
+    @property
+    def mc_hide_per_class_rows(self) -> bool:
+        """Whether per-class prediction rows are hidden for inactive identities."""
+        return self._stacked_timeline.hide_inactive_per_class_widgets
+
+    @mc_hide_per_class_rows.setter
+    def mc_hide_per_class_rows(self, value: bool) -> None:
+        self._stacked_timeline.hide_inactive_per_class_widgets = value
+
     def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
         if self._project is None:
@@ -564,6 +604,73 @@ class CentralWidget(QtWidgets.QWidget):
                 self._selection_start = 0
                 self._selection_end = num_frames - 1
                 self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
+
+    def select_current_bout(self) -> None:
+        """Select all frames in the current bout (contiguous labeled run at the current frame).
+
+        Only activates when the current frame has a BEHAVIOR or NOT_BEHAVIOR label.
+        """
+        if (
+            not self._controls.select_button_enabled
+            or self._labels is None
+            or self._pose_est is None
+        ):
+            return
+
+        identity = self._controls.current_identity_index
+        behavior = self._controls.current_behavior
+
+        if identity == -1 or behavior == "":
+            return
+
+        labels = self._labels.get_track_labels(str(identity), behavior).get_labels()
+
+        if labels is None or len(labels) == 0:
+            return
+
+        bout = self._get_bout_range(labels, self._player_widget.current_frame)
+        if bout is None:
+            return
+
+        start, end = bout
+
+        if not self._controls.select_button_is_checked:
+            self._controls.toggle_select_button()
+
+        self._controls.enable_label_buttons()
+        self._selection_start = start
+        self._selection_end = end
+        self._stacked_timeline.start_selection(start, end)
+
+    @staticmethod
+    def _get_bout_range(labels: np.ndarray, current_frame: int) -> tuple[int, int] | None:
+        """Return the (start, end) frame indices of the labeled bout at current_frame.
+
+        Args:
+            labels: Per-frame label array for a single identity/behavior track.
+            current_frame: Index of the current frame.
+
+        Returns:
+            Inclusive (start, end) frame indices, or None if the current frame is
+            not labeled BEHAVIOR or NOT_BEHAVIOR.
+        """
+        current_label = labels[current_frame]
+        if current_label not in (
+            TrackLabels.Label.BEHAVIOR.value,
+            TrackLabels.Label.NOT_BEHAVIOR.value,
+        ):
+            return None
+
+        start = current_frame
+        while start > 0 and labels[start - 1] == current_label:
+            start -= 1
+
+        end = current_frame
+        while end < len(labels) and labels[end] == current_label:
+            end += 1
+        end -= 1
+
+        return start, end
 
     @property
     def _curr_selection_end(self) -> int:
@@ -654,6 +761,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._player_widget.reload_frame()
+        self._set_label_track()
 
     def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
@@ -686,18 +794,30 @@ class CentralWidget(QtWidgets.QWidget):
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            label_list = self._get_label_list()
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            self._stacked_timeline.set_labels(
-                [track_labels_to_lut_indices(t) for t in label_list],
-                mask_list,
-            )
-
-            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                # if configured to show labels, update the player widget with the new labels
-                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                behavior_names = self._controls.behaviors
+                self._stacked_timeline.set_labels(
+                    [
+                        self._labels.build_multiclass_label_array(str(i), behavior_names)
+                        for i in range(self._pose_est.num_identities)
+                    ],
+                    mask_list,
+                )
+                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                    label_list = self._get_label_list()
+                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+            else:
+                label_list = self._get_label_list()
+                self._stacked_timeline.set_labels(
+                    [track_labels_to_lut_indices(t) for t in label_list],
+                    mask_list,
+                )
+                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                    # if configured to show labels, update the player widget with the new labels
+                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
@@ -950,7 +1070,7 @@ class CentralWidget(QtWidgets.QWidget):
         # start classification thread
         self._classify_thread.start()
 
-    def _classify_thread_complete(self, output: dict) -> None:
+    def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
         # display the new predictions
         self._predictions = output["predictions"]
@@ -958,7 +1078,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions_postprocessed = output["predictions_postprocessed"]
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self.status_message.emit("Classification Complete", 3000)
+        self.status_message.emit(
+            f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
+        )
         self._set_prediction_vis()
 
     def _update_classify_progress(self, step: int) -> None:
@@ -967,13 +1089,21 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _set_prediction_vis(self) -> None:
         """update data being displayed by the prediction visualization widget"""
-        if self._loaded_video is None:
+        if self._project is None or self._loaded_video is None:
+            return
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            # Binary predictions from individual behavior classifiers must not be pushed
+            # into the multiclass timeline layout -- the widget structure is incompatible
+            # and the data is meaningless in a multiclass context.
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
+                self._player_widget.set_labels(None)
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
         self._stacked_timeline.set_predictions(
-            [binary_predictions_to_lut_indices(p) for p in self._prediction_list],
-            self._probability_list,
+            [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
+            [[prob] for prob in self._probability_list],
         )
         if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
             # if the player is set to show predictions, update the player widget
@@ -1012,6 +1142,20 @@ class CentralWidget(QtWidgets.QWidget):
             prediction_list.append(predictions[i])
             probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
+
+    def update_classifier_mode_display(self) -> None:
+        """Rebuild the timeline layout and refresh labels to reflect the current classifier mode.
+
+        Rebuilds the stacked timeline's per-identity widget structure and re-renders
+        all label bars.  Has no effect if no video is currently loaded.
+        """
+        if self._project is None or self._loaded_video is None:
+            return
+        self._stacked_timeline.set_classifier_mode(
+            self._project.settings_manager.classifier_mode,
+            self._controls.behaviors,
+        )
+        self._set_label_track()
 
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
@@ -1317,27 +1461,11 @@ class CentralWidget(QtWidgets.QWidget):
         if labels is None or len(labels) == 0:
             return
 
-        current_label = labels[current_frame]
-        # Only play if current label is BEHAVIOR or NOT_BEHAVIOR
-        if current_label not in (
-            TrackLabels.Label.BEHAVIOR.value,
-            TrackLabels.Label.NOT_BEHAVIOR.value,
-        ):
+        bout = self._get_bout_range(labels, current_frame)
+        if bout is None:
             return
 
-        # Find start of bout
-        start = current_frame
-        while start > 0 and labels[start - 1] == current_label:
-            start -= 1
-
-        # Find end of bout (inclusive)
-        num_frames = len(labels)
-        end = current_frame
-        while end < num_frames and labels[end] == current_label:
-            end += 1
-        end -= 1
-
-        self._player_widget.play_range(start, end)
+        self._player_widget.play_range(*bout)
 
     def _on_timeline_annotation_button_clicked(self) -> None:
         """Handle the event when the button to create a new timeline annotation is clicked.

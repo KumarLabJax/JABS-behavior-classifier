@@ -58,8 +58,12 @@ def _metadata_to_dict(metadata: FeatureCacheMetadata) -> dict[str, object]:
         "identity": metadata.identity,
         "num_frames": metadata.num_frames,
         "pose_hash": metadata.pose_hash,
-        "distance_scale_factor": metadata.distance_scale_factor,
-        "avg_wall_length": metadata.avg_wall_length,
+        "distance_scale_factor": float(metadata.distance_scale_factor)
+        if metadata.distance_scale_factor is not None
+        else None,
+        "avg_wall_length": float(metadata.avg_wall_length)
+        if metadata.avg_wall_length is not None
+        else None,
         "cached_window_sizes": sorted(metadata.cached_window_sizes),
     }
 

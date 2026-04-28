@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import PredictionType
+from jabs.core.enums import ClassifierMode, PredictionType
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
@@ -227,18 +227,39 @@ class MenuHandlers:
                 )
 
     def clear_cache(self) -> None:
-        """Clear the project's feature cache after user confirmation."""
+        """Clear the project's pose cache after user confirmation."""
         result = MessageDialog.confirm(
             self.window,
-            title="Clear Cache",
-            message="Are you sure you want to clear the project cache?",
+            title="Clear Pose Cache",
+            message="Are you sure you want to clear the project pose cache?",
         )
         if result:
             self.window._project.clear_cache()
             # need to reload the current video to force the pose file to reload
             if self.window._central_widget.loaded_video:
                 self.window._central_widget.load_video(self.window._central_widget.loaded_video)
-            self.window.display_status_message("Cache cleared", duration=3000)
+            self.window.display_status_message("Pose cache cleared", duration=3000)
+
+    def clear_feature_cache(self) -> None:
+        """Clear the project's feature cache after user confirmation."""
+        from jabs.core.enums import CacheFormat
+
+        project = self.window._project
+        hint = ""
+        if project.cache_format == CacheFormat.HDF5:
+            hint = (
+                "\n\nThis project is configured to use HDF5 feature cache. "
+                "To switch to the faster Parquet format, update Cache Format "
+                "in Project Settings before clearing."
+            )
+        result = MessageDialog.confirm(
+            self.window,
+            title="Clear Feature Cache",
+            message=f"Are you sure you want to delete all cached feature files?{hint}",
+        )
+        if result:
+            project.clear_feature_cache()
+            self.window.display_status_message("Feature cache cleared", duration=3000)
 
     # ========== App Menu Handlers ==========
 
@@ -401,6 +422,7 @@ class MenuHandlers:
             mode = StackedTimelineWidget.IdentityMode.ACTIVE
 
         self.window._central_widget.timeline_identity_mode = mode
+        self.update_mc_layout_actions_enabled_state()
 
     def on_timeline_prediction_type_changed(self) -> None:
         """Handle change to the prediction type shown in the timeline (raw vs. postprocessed)."""
@@ -409,6 +431,49 @@ class MenuHandlers:
         else:
             mode = PredictionType.POSTPROCESSED
         self.window._central_widget.prediction_type = mode
+
+    def on_mc_collapse_label_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Label Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_label_bar = (
+            self.window._menu_refs.mc_collapse_label_bar.isChecked()
+        )
+
+    def on_mc_collapse_combined_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Combined Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_combined_bar = (
+            self.window._menu_refs.mc_collapse_combined_bar.isChecked()
+        )
+
+    def on_mc_collapse_per_class_bars_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Per-class Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_per_class_bars = (
+            self.window._menu_refs.mc_collapse_per_class_bars.isChecked()
+        )
+
+    def on_mc_hide_per_class_rows_changed(self) -> None:
+        """Handle toggling the 'Hide Inactive Per-class Rows' multiclass layout option."""
+        self.window._central_widget.mc_hide_per_class_rows = (
+            self.window._menu_refs.mc_hide_per_class_rows.isChecked()
+        )
+
+    def update_mc_layout_actions_enabled_state(self) -> None:
+        """Enable or disable the multi-class layout menu actions based on the current mode.
+
+        The four actions are only meaningful when both multiclass classifier mode and
+        all-animals identity mode are active simultaneously.
+        """
+        refs = self.window._menu_refs
+        project = self.window._central_widget._project
+        is_multiclass = (
+            project is not None
+            and project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        is_all_animals = refs.timeline_all_animals.isChecked()
+        enabled = is_multiclass and is_all_animals
+        refs.mc_collapse_label_bar.setEnabled(enabled)
+        refs.mc_collapse_combined_bar.setEnabled(enabled)
+        refs.mc_collapse_per_class_bars.setEnabled(enabled)
+        refs.mc_hide_per_class_rows.setEnabled(enabled)
 
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""
@@ -561,6 +626,10 @@ class MenuHandlers:
     def handle_select_all(self) -> None:
         """Handle Ctrl+A / Cmd+A keyboard shortcut."""
         self.window._central_widget.select_all()
+
+    def handle_select_current_bout(self) -> None:
+        """Handle Ctrl+Shift+A / Cmd+Shift+A keyboard shortcut."""
+        self.window._central_widget.select_current_bout()
 
     def on_bbox_overlay_support_changed(self, supported: bool) -> None:
         """Enable/disable the bounding box overlay menu item based on whether the current pose supports it.

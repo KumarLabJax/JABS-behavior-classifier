@@ -43,6 +43,7 @@ class ManualLabelWidget(QWidget):
     _BORDER_COLOR = QColor(212, 212, 212)
 
     _BAR_HEIGHT = 30
+    _BAR_HEIGHT_COMPACT = 18
     _DEFAULT_WIDTH = 400
     _DEFAULT_WINDOW_SIZE = 100
     _TICK_HEIGHT = 4
@@ -58,6 +59,8 @@ class ManualLabelWidget(QWidget):
     GAP_ALPHA = 128  # semi-transparent for gaps
 
     def __init__(self, *args, **kwargs) -> None:
+        # need to strip "compact" out of kwargs before calling super
+        self._compact = compact = kwargs.pop("compact", False)
         super().__init__(*args, **kwargs)
         self._color_lut: npt.NDArray[np.uint8] = self.COLOR_LUT
 
@@ -85,7 +88,7 @@ class ManualLabelWidget(QWidget):
         # search results to render in the bar
         self._search_results: list[SearchHit] = []
 
-        self._bar_height = self._BAR_HEIGHT
+        self._bar_height = self._BAR_HEIGHT_COMPACT if compact else self._BAR_HEIGHT
 
         # float pixels per frame; set in resizeEvent
         self._frame_width: float = 0.0
@@ -94,6 +97,24 @@ class ManualLabelWidget(QWidget):
         self._position_marker_pen = QPen(POSITION_MARKER_COLOR, 1, Qt.PenStyle.SolidLine)
         self._selection_brush = QBrush(SELECTION_COLOR, Qt.BrushStyle.DiagCrossPattern)
         self._padding_brush = QBrush(BACKGROUND_COLOR, Qt.BrushStyle.Dense6Pattern)
+
+    @property
+    def compact(self) -> bool:
+        """Whether the widget is in compact mode.
+
+        Returns:
+            bool: True if the widget is in compact mode, False otherwise.
+        """
+        return self._compact
+
+    @compact.setter
+    def compact(self, value: bool) -> None:
+        """Set compact mode and trigger a layout and repaint update."""
+        if self._compact != value:
+            self._compact = value
+            self._bar_height = self._BAR_HEIGHT_COMPACT if self._compact else self._BAR_HEIGHT
+            self.updateGeometry()
+            self.update()
 
     def set_color_lut(self, lut: npt.NDArray[np.uint8]) -> None:
         """Replace the color lookup table used to render label frames.

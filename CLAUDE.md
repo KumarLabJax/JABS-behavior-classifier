@@ -158,6 +158,8 @@ cache invalidation logic (version mismatch, pose hash, distance scale).
 - Use American English spelling (e.g., "behavior" not "behaviour").
 - Prefer importing at the top of the module. It is acceptable to import within
   functions/methods if an expensive import is only needed in specific code paths.
+- Do not use ambiguous `–` (EN DASH) in docstrings. Use `-` (HYPHEN-MINUS) to avoid 
+  Ruff RUF001 error.
 
 ## Coding Standards
 
