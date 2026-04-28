@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 import jabs.feature_extraction as fe
@@ -546,16 +547,23 @@ class Project:
             if labels is None:
                 continue
             identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
+            video_has_conflict = False
             for identity in identities:
-                behavior_arrays = [
-                    track.get_labels() == TrackLabels.Label.BEHAVIOR
-                    for _, track in labels.iter_behavior_labels(identity)
-                ]
-                if len(behavior_arrays) >= 2:
-                    stacked = np.stack(behavior_arrays)
-                    if np.any(stacked.sum(axis=0) > 1):
-                        conflicting.append(video)
-                        break
+                behavior_counts: npt.NDArray[np.intp] | None = None
+                for _, track in labels.iter_behavior_labels(identity):
+                    behavior_mask = (track.get_labels() == TrackLabels.Label.BEHAVIOR).astype(
+                        np.intp
+                    )
+                    if behavior_counts is None:
+                        behavior_counts = behavior_mask
+                    else:
+                        behavior_counts = behavior_counts + behavior_mask
+                        if np.any(behavior_counts > 1):
+                            video_has_conflict = True
+                            break
+                if video_has_conflict:
+                    conflicting.append(video)
+                    break
         return sorted(conflicting)
 
     def archive_behavior(self, behavior: str):
