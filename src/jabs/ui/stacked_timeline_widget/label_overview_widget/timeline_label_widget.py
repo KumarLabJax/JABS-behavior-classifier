@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -70,7 +71,7 @@ def _downsample_to_size(
         RGBA array of shape ``(size, 4)`` with dtype ``uint8``.
     """
     if size <= 0 or labels.size == 0:
-        return np.zeros((0, 4), dtype=np.uint8)
+        return cast(npt.NDArray[np.uint8], np.zeros((0, 4), dtype=np.uint8))
 
     n_classes = len(lut)
     n_frames = labels.size
@@ -107,8 +108,10 @@ def _downsample_to_size(
     normalizer = np.where(has_labels, non_bg_weight, bin_widths)
 
     # Convert LUT to linear light space for perceptually correct blending.
-    lut_float = lut.astype(np.float32) / 255.0
-    lut_linear = lut_float.copy()
+    lut_float: npt.NDArray[np.float32] = cast(
+        npt.NDArray[np.float32], lut.astype(np.float32) / 255.0
+    )
+    lut_linear: npt.NDArray[np.float32] = lut_float.copy()
     lut_linear[:, :3] = _srgb_to_linear(lut_float[:, :3])
 
     # Blend in linear space, then re-encode RGB to sRGB; alpha stays linear.
@@ -325,11 +328,12 @@ class TimelineLabelWidget(QWidget):
         if width <= 0 or height <= 0:
             return
 
+        pixmap = QPixmap(width, height)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
         if self._labels is None:
-            self._pixmap = QPixmap(width, height)
-            self._pixmap.fill(Qt.GlobalColor.transparent)
             bg = self._color_lut[0]
-            painter = QPainter(self._pixmap)
+            painter = QPainter(pixmap)
             painter.fillRect(
                 0,
                 self._bar_padding,
@@ -338,14 +342,12 @@ class TimelineLabelWidget(QWidget):
                 QColor(int(bg[0]), int(bg[1]), int(bg[2]), int(bg[3])),
             )
             painter.end()
+            self._pixmap = pixmap
             return
 
         colors = _downsample_to_size(self._labels, self._color_lut, width)
         if colors.size == 0:
             return
-
-        self._pixmap = QPixmap(width, height)
-        self._pixmap.fill(Qt.GlobalColor.transparent)
 
         color_bar = np.repeat(colors[np.newaxis, :, :], self._bar_height, axis=0)
 
@@ -355,9 +357,10 @@ class TimelineLabelWidget(QWidget):
             color_bar.shape[0],
             QImage.Format.Format_RGBA8888,
         )
-        painter = QPainter(self._pixmap)
+        painter = QPainter(pixmap)
         painter.drawImage(0, self._bar_padding, img)
         painter.end()
+        self._pixmap = pixmap
 
     def _update_scale(self) -> None:
         """Recalculate the floating-point bin size for the timeline bar.
