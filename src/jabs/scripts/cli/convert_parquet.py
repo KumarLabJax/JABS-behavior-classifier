@@ -1,6 +1,5 @@
 """Convert parquet pose files to JABS HDF5 pose format."""
 
-import math
 import textwrap
 from pathlib import Path
 
@@ -55,21 +54,14 @@ def convert_data_frame(
             order, or None
         num_frames: total number of frames in the video
     """
-    # Build identities from the string eartag_code field (external IDs).
-    # Drop missing/empty values as well as tag no-reads and sort for stable index mapping (0..N-1).
-    identities = [
-        s
-        for s in (df["eartag_code"].dropna().astype(str).str.strip().unique().tolist())
-        if s not in ["", "00", "01"]
-    ]
-    identities.sort()
+    # Normalize eartag_code once, then build identity list and filter consistently.
+    eartag = df["eartag_code"].fillna("").astype(str).str.strip()
+    identities = sorted(s for s in eartag.unique() if s not in {"", "00", "01"})
+    identity_to_index = {identity: idx for idx, identity in enumerate(identities)}
     num_identities = len(identities)
-    df = df[df["eartag_code"].isin(identities)].copy()
-
-    # Create "jabs identities" for each row (sequential integers starting at 0)
-    df["jabs_identity"] = (
-        df["eartag_code"].astype(str).str.strip().apply(lambda x: identities.index(x))
-    )
+    mask = eartag.isin(identities)
+    df = df[mask].copy()
+    df["jabs_identity"] = eartag[mask].map(identity_to_index).to_numpy()
 
     # build the jabs pose data structure
     jabs_points = np.zeros((num_frames, num_identities, 12, 2), dtype=np.uint16)
@@ -78,30 +70,29 @@ def convert_data_frame(
     jabs_embed_id = np.zeros((num_frames, num_identities), dtype=np.uint32)
     jabs_bboxes = np.full((num_frames, num_identities, 2, 2), np.nan, dtype=np.float32)
 
-    for _, row in df.iterrows():
-        frame = row["frame"]
-        identity = row["jabs_identity"]
+    frames = df["frame"].to_numpy(dtype=np.intp)
+    identity_indices = df["jabs_identity"].to_numpy(dtype=np.intp)
 
-        # jabs "instance_embed_id" uses 1-based indexing (zero is used to fill missing data)
-        jabs_embed_id[frame, identity] = identity + 1
+    # jabs "instance_embed_id" uses 1-based indexing (zero is used to fill missing data)
+    jabs_embed_id[frames, identity_indices] = identity_indices + 1
+    jabs_id_mask[frames, identity_indices] = False
 
-        jabs_id_mask[frame, identity] = False
+    # we only fill keypoints 1-5; keypoint 6 is computed (similar to our centroids)
+    # and has no corresponding jabs keypoint.
+    for keypoint in range(1, 6):
+        jabs_keypoint = KEYPOINT_MAP[keypoint]
+        x = df[f"kpt_{keypoint}_x"].to_numpy(dtype=np.float64)
+        y = df[f"kpt_{keypoint}_y"].to_numpy(dtype=np.float64)
+        valid = ~(np.isnan(x) | np.isnan(y))
+        vf, vi = frames[valid], identity_indices[valid]
+        jabs_points[vf, vi, jabs_keypoint.value, 0] = y[valid].astype(np.uint16)
+        jabs_points[vf, vi, jabs_keypoint.value, 1] = x[valid].astype(np.uint16)
+        jabs_confidences[vf, vi, jabs_keypoint.value] = 1.0
 
-        # we only iterate over keypoints 1-5, since keypoint 6 is computed and
-        # doesn't map to a jabs keypoint. It's similar to our computed centroids
-        for keypoint in range(1, 6):
-            jabs_keypoint = KEYPOINT_MAP[keypoint]
-            x = row[f"kpt_{keypoint}_x"]
-            y = row[f"kpt_{keypoint}_y"]
-
-            if not math.isnan(x) and not math.isnan(y):
-                jabs_points[frame, identity, jabs_keypoint.value, :] = np.array(
-                    [int(y), int(x)], dtype=np.uint16
-                )
-                jabs_confidences[frame, identity, jabs_keypoint.value] = 1.0
-
-        jabs_bboxes[frame, identity, 0] = [row["bb_left"], row["bb_top"]]
-        jabs_bboxes[frame, identity, 1] = [row["bb_right"], row["bb_bottom"]]
+    jabs_bboxes[frames, identity_indices, 0, 0] = df["bb_left"].to_numpy(dtype=np.float32)
+    jabs_bboxes[frames, identity_indices, 0, 1] = df["bb_top"].to_numpy(dtype=np.float32)
+    jabs_bboxes[frames, identity_indices, 1, 0] = df["bb_right"].to_numpy(dtype=np.float32)
+    jabs_bboxes[frames, identity_indices, 1, 1] = df["bb_bottom"].to_numpy(dtype=np.float32)
 
     # Replace NaN with -1 as placeholder for missing bounding box coordinates
     jabs_bboxes = np.where(np.isnan(jabs_bboxes), -1, jabs_bboxes)
@@ -149,9 +140,14 @@ def read_lixit_parquet(path: Path) -> npt.NDArray[np.float32]:
         Array of shape (num_lixits, 3, 2) with (y, x) coordinates in float32.
 
     Raises:
-        ValueError: if the keypoint count is not a multiple of 3.
+        ValueError: if the parquet is empty, missing the required `keypoints` column,
+            or if the keypoint count is not a multiple of 3.
     """
     df = pd.read_parquet(path)
+    if df.empty:
+        raise ValueError(f"Lixit parquet '{path}' is empty; expected at least one row.")
+    if "keypoints" not in df.columns:
+        raise ValueError(f"Lixit parquet '{path}' is missing required 'keypoints' column.")
     # keypoints is stored as an array-like of (x, y) pairs
     keypoints = np.array(list(df["keypoints"].iloc[0]), dtype=np.float32)  # (n_kp, 2) in x,y
 
@@ -234,12 +230,11 @@ def convert_parquet_command(
         except Exception as e:
             raise click.ClickException(str(e)) from e
 
-    if out_dir is None:
-        output_file = parquet_path.with_name(
-            parquet_path.name.replace(".parquet", "_pose_est_v8.h5")
-        )
-    else:
-        output_file = out_dir / parquet_path.name.replace(".parquet", "_pose_est_v8.h5")
+    if parquet_path.suffix != ".parquet":
+        raise click.ClickException(f"Input file must have a .parquet suffix: {parquet_path}")
+
+    output_name = f"{parquet_path.stem}_pose_est_v8.h5"
+    output_file = parquet_path.with_name(output_name) if out_dir is None else out_dir / output_name
 
     try:
         convert(parquet_path, output_file, lixit_predictions, num_frames)

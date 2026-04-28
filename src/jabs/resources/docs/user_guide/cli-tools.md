@@ -466,7 +466,7 @@ jabs-cli convert-parquet PARQUET_PATH [OPTIONS]
 
 | Option | Default | Description |
 |---|---|---|
-| `--lixit-parquet PATH` | - | Summary parquet with lixit keypoints. Each row of 3 keypoints (tip, left_side, right_side) defines one lixit; 6 keypoints = 2 lixits. |
+| `--lixit-parquet PATH` | - | Single-row summary parquet with lixit keypoints. The `keypoints` value contains `(x, y)` pairs; each consecutive group of 3 keypoints (`tip`, `left_side`, `right_side`) defines one lixit. 6 keypoints = 2 lixits. |
 | `--num-frames INT` | 1800 | Total number of frames in the video. |
 | `--out-dir PATH` | same as input | Output directory for the converted HDF5 file. Created if it does not exist. |
 
