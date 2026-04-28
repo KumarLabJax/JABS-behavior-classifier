@@ -457,12 +457,15 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         # changing the settings can affect training thresholds, so the train button state needs to be updated
         self._central_widget.set_train_button_enabled_state()
+        # Rebuild the timeline layout before updating the controls mode.
+        # controls.set_classifier_mode emits behavior_changed → _on_behavior_changed →
+        # _set_prediction_vis, which validates against the stacked timeline layout.
+        # The layout must match the new mode before that signal fires.
+        self._central_widget.update_classifier_mode_display()
         # classifier mode change is reflected immediately on the labeling buttons
         self._central_widget.controls.set_classifier_mode(
             self._project.settings_manager.classifier_mode
         )
-        # rebuild the timeline layout and refresh labels for the new mode
-        self._central_widget.update_classifier_mode_display()
         self.menu_handlers.update_mc_layout_actions_enabled_state()
 
     def on_app_settings_changed(self) -> None:
