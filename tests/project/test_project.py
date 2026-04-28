@@ -315,11 +315,11 @@ def test_overlapping_labels_conflict_detected(tmp_path: Path) -> None:
     assert project.get_overlapping_behavior_label_videos() == ["video1.avi"]
 
 
-def test_overlapping_labels_none_behavior_not_a_conflict(tmp_path: Path) -> None:
-    """A behavior and the None behavior sharing a frame is NOT a conflict.
+def test_overlapping_labels_none_behavior_is_a_conflict(tmp_path: Path) -> None:
+    """A behavior and the None behavior sharing a BEHAVIOR-labeled frame is a conflict.
 
-    None labels are dropped on mode transition anyway, so they are excluded
-    from overlap detection.
+    This keeps the validator consistent with MultiClassClassifier.merge_labels(),
+    which raises ValueError for the same condition at training time.
     """
     labels = VideoLabels("video1.avi", 100)
     track_none = labels.get_track_labels("0", "None")
@@ -327,7 +327,7 @@ def test_overlapping_labels_none_behavior_not_a_conflict(tmp_path: Path) -> None
     track_walk = labels.get_track_labels("0", "Walk")
     track_walk.label_behavior(15, 25)  # overlaps frames 15-20 with None
     project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
-    assert project.get_overlapping_behavior_label_videos() == []
+    assert project.get_overlapping_behavior_label_videos() == ["video1.avi"]
 
 
 def test_overlapping_labels_multiple_videos_sorted(tmp_path: Path) -> None:

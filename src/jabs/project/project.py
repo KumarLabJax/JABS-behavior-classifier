@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.constants import CACHE_FORMAT_KEY, MULTICLASS_NONE_BEHAVIOR
+from jabs.core.constants import CACHE_FORMAT_KEY
 from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.pose_estimation import PoseEstimation, open_pose_file
 
@@ -532,7 +532,8 @@ class Project:
 
         Scans every video in the project for annotation conflicts where a single
         identity has the same frame labeled BEHAVIOR for two or more behaviors
-        simultaneously, including the reserved "None" behavior.
+        simultaneously. Includes the reserved "None" behavior track, consistent
+        with how MultiClassClassifier.merge_labels() detects conflicts at training time.
 
         Returns:
             Sorted list of video filenames containing at least one overlap.
@@ -548,8 +549,7 @@ class Project:
             for identity in identities:
                 behavior_arrays = [
                     track.get_labels() == TrackLabels.Label.BEHAVIOR
-                    for behavior, track in labels.iter_behavior_labels(identity)
-                    if behavior != MULTICLASS_NONE_BEHAVIOR
+                    for _, track in labels.iter_behavior_labels(identity)
                 ]
                 if len(behavior_arrays) >= 2:
                     stacked = np.stack(behavior_arrays)
