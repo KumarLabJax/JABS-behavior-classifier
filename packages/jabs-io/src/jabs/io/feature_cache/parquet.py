@@ -461,10 +461,10 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
                 .astype(np.float64)
             )
 
-        closest_lixit: npt.NDArray[np.float64] | None = None
+        closest_lixit: npt.NDArray[np.uint8] | None = None
         if _COL_CLOSEST_LIXIT in col_names:
             closest_lixit = (
-                table.column(_COL_CLOSEST_LIXIT).to_numpy(zero_copy_only=False).astype(np.float64)
+                table.column(_COL_CLOSEST_LIXIT).to_numpy(zero_copy_only=False).astype(np.uint8)
             )
 
         wall_distances: dict[str, npt.NDArray[np.float64]] = {}

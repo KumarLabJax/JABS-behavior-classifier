@@ -77,7 +77,9 @@ class LixitDistanceInfo:
                 ref = lixit[i, 0] if points_per_lixit == 3 else lixit[i]
                 alignment_distances[:, i] = np.sqrt(np.sum((pts - ref) ** 2, axis=1))
 
-            self._closest_lixit_idx[identity] = np.argmin(alignment_distances, axis=1)
+            self._closest_lixit_idx[identity] = np.argmin(alignment_distances, axis=1).astype(
+                np.uint8
+            )
 
             if points_per_lixit == 3:
                 # grab just the tip keypoint for determining pairwise distances from pose keypoints to lixit tip
