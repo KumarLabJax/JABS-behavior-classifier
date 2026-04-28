@@ -108,9 +108,7 @@ def _downsample_to_size(
     normalizer = np.where(has_labels, non_bg_weight, bin_widths)
 
     # Convert LUT to linear light space for perceptually correct blending.
-    lut_float: npt.NDArray[np.float32] = cast(
-        npt.NDArray[np.float32], lut.astype(np.float32) / 255.0
-    )
+    lut_float: npt.NDArray[np.float32] = lut.astype(np.float32) / np.float32(255.0)
     lut_linear: npt.NDArray[np.float32] = lut_float.copy()
     lut_linear[:, :3] = _srgb_to_linear(lut_float[:, :3])
 
