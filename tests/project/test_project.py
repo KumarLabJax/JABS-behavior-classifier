@@ -242,3 +242,112 @@ def test_rename_behavior_raises_if_new_name_exists(tmp_path) -> None:
     names = set(project.settings_manager.behavior_names)
     assert "Existing" in names
     assert "Old" in names
+
+
+# ---------------------------------------------------------------------------
+# get_overlapping_behavior_label_videos
+# ---------------------------------------------------------------------------
+
+
+def _make_project_with_mock_vm(tmp_path: Path, videos_and_labels: dict) -> Project:
+    """Return a Project whose VideoManager is replaced by a mock.
+
+    Args:
+        tmp_path: Temporary directory for the project.
+        videos_and_labels: Mapping of video filename → VideoLabels | None.
+    """
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    mock_vm = MagicMock()
+    mock_vm.videos = list(videos_and_labels.keys())
+    mock_vm.video_path.side_effect = lambda v: tmp_path / v
+    mock_vm.load_video_labels.side_effect = lambda v, pose: videos_and_labels[v]
+    project._video_manager = mock_vm
+    project.load_pose_est = MagicMock(return_value=MagicMock())
+    project.save_annotations = MagicMock()
+    return project
+
+
+def test_overlapping_labels_no_videos(tmp_path: Path) -> None:
+    """Returns empty list when the project has no videos."""
+    project = _make_project_with_mock_vm(tmp_path, {})
+    assert project.get_overlapping_behavior_label_videos() == []
+
+
+def test_overlapping_labels_none_labels(tmp_path: Path) -> None:
+    """Returns empty list when load_video_labels returns None."""
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
+    assert project.get_overlapping_behavior_label_videos() == []
+
+
+def test_overlapping_labels_single_behavior(tmp_path: Path) -> None:
+    """Single behavior per identity - no conflict possible."""
+    labels = VideoLabels("video1.avi", 100)
+    track = labels.get_track_labels("0", "Walk")
+    track.label_behavior(10, 20)
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
+    assert project.get_overlapping_behavior_label_videos() == []
+
+
+def test_overlapping_labels_no_conflict(tmp_path: Path) -> None:
+    """Two behaviors on the same identity but on different frames - no conflict."""
+    labels = VideoLabels("video1.avi", 100)
+    track_a = labels.get_track_labels("0", "Walk")
+    track_a.label_behavior(10, 20)
+    track_b = labels.get_track_labels("0", "Run")
+    track_b.label_behavior(30, 40)
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
+    assert project.get_overlapping_behavior_label_videos() == []
+
+
+def test_overlapping_labels_conflict_detected(tmp_path: Path) -> None:
+    """Two behaviors share a labeled frame on the same identity - conflict detected."""
+    labels = VideoLabels("video1.avi", 100)
+    track_a = labels.get_track_labels("0", "Walk")
+    track_a.label_behavior(10, 30)
+    track_b = labels.get_track_labels("0", "Run")
+    track_b.label_behavior(20, 40)  # overlaps frames 20-30
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
+    assert project.get_overlapping_behavior_label_videos() == ["video1.avi"]
+
+
+def test_overlapping_labels_none_behavior_not_a_conflict(tmp_path: Path) -> None:
+    """A behavior and the None behavior sharing a frame is NOT a conflict.
+
+    None labels are dropped on mode transition anyway, so they are excluded
+    from overlap detection.
+    """
+    labels = VideoLabels("video1.avi", 100)
+    track_none = labels.get_track_labels("0", "None")
+    track_none.label_behavior(10, 20)
+    track_walk = labels.get_track_labels("0", "Walk")
+    track_walk.label_behavior(15, 25)  # overlaps frames 15-20 with None
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": labels})
+    assert project.get_overlapping_behavior_label_videos() == []
+
+
+def test_overlapping_labels_multiple_videos_sorted(tmp_path: Path) -> None:
+    """Conflicting filenames are returned sorted."""
+
+    def _conflicting_labels(name: str) -> VideoLabels:
+        lbl = VideoLabels(name, 100)
+        lbl.get_track_labels("0", "Walk").label_behavior(10, 30)
+        lbl.get_track_labels("0", "Run").label_behavior(20, 40)
+        return lbl
+
+    clean = VideoLabels("aaa.avi", 100)
+    clean.get_track_labels("0", "Walk").label_behavior(10, 20)
+
+    project = _make_project_with_mock_vm(
+        tmp_path,
+        {
+            "zzz.avi": _conflicting_labels("zzz.avi"),
+            "aaa.avi": clean,
+            "mmm.avi": _conflicting_labels("mmm.avi"),
+        },
+    )
+    assert project.get_overlapping_behavior_label_videos() == ["mmm.avi", "zzz.avi"]

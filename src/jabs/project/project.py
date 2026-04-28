@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.constants import CACHE_FORMAT_KEY
+from jabs.core.constants import CACHE_FORMAT_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
 from jabs.pose_estimation import PoseEstimation, open_pose_file
 
@@ -27,6 +27,7 @@ from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
+from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
@@ -525,6 +526,37 @@ class Project:
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
+
+    def get_overlapping_behavior_label_videos(self) -> list[str]:
+        """Return filenames of videos containing frames labeled with multiple behaviors.
+
+        Scans every video in the project for annotation conflicts where a single
+        identity has the same frame labeled BEHAVIOR for two or more behaviors
+        simultaneously, including the reserved "None" behavior.
+
+        Returns:
+            Sorted list of video filenames containing at least one overlap.
+            An empty list means no conflicts exist.
+        """
+        conflicting: list[str] = []
+        for video in self._video_manager.videos:
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            labels = self._video_manager.load_video_labels(video, pose)
+            if labels is None:
+                continue
+            identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
+            for identity in identities:
+                behavior_arrays = [
+                    track.get_labels() == TrackLabels.Label.BEHAVIOR
+                    for behavior, track in labels.iter_behavior_labels(identity)
+                    if behavior != MULTICLASS_NONE_BEHAVIOR
+                ]
+                if len(behavior_arrays) >= 2:
+                    stacked = np.stack(behavior_arrays)
+                    if np.any(stacked.sum(axis=0) > 1):
+                        conflicting.append(video)
+                        break
+        return sorted(conflicting)
 
     def archive_behavior(self, behavior: str):
         """Archive a behavior.
