@@ -67,7 +67,7 @@ def _per_frame_data(
         closest_identities=rng.integers(0, 3, size=_N_FRAMES, dtype=np.int64),
         closest_fov_identities=rng.integers(0, 3, size=_N_FRAMES, dtype=np.int64),
         closest_corners=rng.standard_normal(_N_FRAMES),
-        closest_lixit=rng.standard_normal(_N_FRAMES),
+        closest_lixit=rng.integers(0, 3, size=_N_FRAMES, dtype=np.uint8),
         wall_distances={
             "top": rng.standard_normal(_N_FRAMES),
             "bottom": rng.standard_normal(_N_FRAMES),
@@ -342,7 +342,7 @@ def test_parquet_auxiliary_present(
     np.testing.assert_array_equal(result.closest_identities, data.closest_identities)
     np.testing.assert_array_equal(result.closest_fov_identities, data.closest_fov_identities)
     np.testing.assert_array_almost_equal(result.closest_corners, data.closest_corners)
-    np.testing.assert_array_almost_equal(result.closest_lixit, data.closest_lixit)
+    np.testing.assert_array_equal(result.closest_lixit, data.closest_lixit)
     assert set(result.wall_distances) == set(data.wall_distances)
     for direction in data.wall_distances:
         np.testing.assert_array_almost_equal(
