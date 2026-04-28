@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.utils import hide_stderr
 from jabs.project import Project, VideoLabels
 
@@ -322,7 +323,7 @@ def test_overlapping_labels_none_behavior_is_a_conflict(tmp_path: Path) -> None:
     which raises ValueError for the same condition at training time.
     """
     labels = VideoLabels("video1.avi", 100)
-    track_none = labels.get_track_labels("0", "None")
+    track_none = labels.get_track_labels("0", MULTICLASS_NONE_BEHAVIOR)
     track_none.label_behavior(10, 20)
     track_walk = labels.get_track_labels("0", "Walk")
     track_walk.label_behavior(15, 25)  # overlaps frames 15-20 with None

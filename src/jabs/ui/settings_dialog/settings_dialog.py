@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from jabs.core.constants import APP_NAME, CLASSIFIER_MODE_KEY, ORG_NAME
 from jabs.core.enums import ClassifierMode
-from jabs.project.project import Project
+from jabs.project import Project
 from jabs.project.settings_manager import SettingsManager
 from jabs.ui.dialogs.message_dialog import MessageDialog
 
@@ -36,6 +36,7 @@ class _OverlapCheckThread(QThread):
     """Background thread that scans for conflicting behavior annotations."""
 
     check_complete = Signal(list)
+    check_failed = Signal(Exception)
 
     def __init__(self, project: Project) -> None:
         super().__init__()
@@ -43,7 +44,10 @@ class _OverlapCheckThread(QThread):
 
     def run(self) -> None:
         """Run the overlap check and emit the result."""
-        self.check_complete.emit(self._project.get_overlapping_behavior_label_videos())
+        try:
+            self.check_complete.emit(self._project.get_overlapping_behavior_label_videos())
+        except Exception as error:
+            self.check_failed.emit(error)
 
 
 class BaseSettingsDialog(QDialog):
@@ -307,6 +311,11 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         self._overlap_check_thread = thread
         current_mode = self._settings_manager.classifier_mode
 
+        def _restore_mode() -> None:
+            for group in self._settings_groups:
+                if isinstance(group, ClassifierModeSettingsGroup):
+                    group.set_values({CLASSIFIER_MODE_KEY: current_mode})
+
         def _on_check_complete(conflicting: list[str]) -> None:
             progress.close()
             if conflicting:
@@ -320,15 +329,28 @@ class ProjectSettingsDialog(BaseSettingsDialog):
                     ),
                     details="\n".join(conflicting),
                 )
-                for group in self._settings_groups:
-                    if isinstance(group, ClassifierModeSettingsGroup):
-                        group.set_values({CLASSIFIER_MODE_KEY: current_mode})
+                _restore_mode()
             else:
                 self._warn_and_save(ClassifierMode.MULTICLASS)
-            thread.deleteLater()
-            self._overlap_check_thread = None
+
+        def _on_check_failed(error: Exception) -> None:
+            progress.close()
+            _restore_mode()
+            MessageDialog.error(
+                self,
+                title="Validation Error",
+                message=(
+                    "Unable to validate labels before switching to multi-class mode. "
+                    "The classifier mode was not changed."
+                ),
+                details=f"{type(error).__name__}: {error}",
+            )
 
         thread.check_complete.connect(_on_check_complete)
+        thread.check_failed.connect(_on_check_failed)
+        thread.finished.connect(progress.close)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda: setattr(self, "_overlap_check_thread", None))
         thread.start()
 
     def _warn_and_save(self, new_mode: ClassifierMode) -> None:
