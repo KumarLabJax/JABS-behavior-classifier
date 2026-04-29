@@ -542,9 +542,7 @@ class Project:
         """
         conflicting: list[str] = []
         for video in self._video_manager.videos:
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            labels = self._video_manager.load_video_labels(video, pose)
-            if labels is None:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
                 continue
             identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
             video_has_conflict = False
@@ -591,13 +589,10 @@ class Project:
         # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            labels = self._video_manager.load_video_labels(video, pose)
-
-            # if no labels for video skip it
-            if labels is None:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
                 continue
 
+            pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
 
             # ensure archive structure exists for this video:
