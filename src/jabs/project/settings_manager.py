@@ -111,11 +111,8 @@ class SettingsManager:
 
         Returns:
             Dictionary of metadata for the specified video, or empty dict if none exists.
-
-        Raises:
-            KeyError: If the specified video is not found in the project.
         """
-        return self._project_info["video_files"][video].get("metadata", {})
+        return self._project_info.get("video_files", {}).get(video, {}).get("metadata", {})
 
     def remove_video_from_project_file(self, video_name: str, sync=True) -> None:
         """Remove a video entry from the project if it exists.
