@@ -60,14 +60,6 @@ class TestGetIdentityCount:
         """V4+ without instance_id_center falls back to instance_embed_id max."""
         id_mask = np.array([[0, 0], [0, 1]])  # 0 = valid
         embed_id = np.array([[1, 2], [1, 0]])  # 1-based; max valid = 2
-        embed_mock = MagicMock()
-        embed_mock.shape = embed_id.shape
-        embed_mock.__getitem__ = lambda self_inner, s: embed_id[s]
-        embed_mock[...] = embed_id
-
-        id_mask_mock = MagicMock()
-        id_mask_mock.__getitem__ = lambda self_inner, s: id_mask[s]
-        id_mask_mock[...] = id_mask
 
         pose_grp = {"instance_embed_id": embed_id, "id_mask": id_mask}
         assert _get_identity_count(_h5_like(pose_grp), major_version=4) == 2

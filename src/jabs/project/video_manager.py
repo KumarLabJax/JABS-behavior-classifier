@@ -29,9 +29,18 @@ class VideoManager:
     information required for project processing.
 
     Args:
-        paths (ProjectPaths): Object containing project directory paths.
-        settings_manager (SettingsManager): Manages project settings and metadata.
-        enable_video_check (bool, optional): Whether to validate video frame counts. Defaults to True.
+        paths: Object containing project directory paths.
+        settings_manager: Manages project settings and metadata.
+        enable_video_check: Whether to validate that video and pose file frame
+            counts match. Defaults to True.
+        scan_results: Per-video metadata collected by
+            :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
+            by video filename. Every video in the project directory must have an
+            entry. Required fields for all callers: ``identity_count``,
+            ``hdf5_frame_count``, ``static_objects``, ``lixit_keypoints``,
+            ``has_cm_per_pixel``. When ``enable_video_check=True``,
+            ``video_frame_count`` must also be populated (i.e. the scan job
+            must have been run with ``scan_frame_counts=True``).
     """
 
     def __init__(
@@ -197,6 +206,11 @@ class VideoManager:
         for v in self._videos:
             pose_frames = scan_results[v]["hdf5_frame_count"]
             vid_frames = scan_results[v]["video_frame_count"]
+            if vid_frames is None:
+                raise ValueError(
+                    f"{v}: video_frame_count is missing from scan_results — "
+                    "re-run the scan with scan_frame_counts=True"
+                )
             if pose_frames != vid_frames:
                 logger.error(
                     "%s: video and pose file have different number of frames (video=%s, pose=%s)",

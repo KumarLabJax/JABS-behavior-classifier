@@ -22,9 +22,16 @@ class FeatureManager:
     units, and extended feature support, ensuring consistency across the project.
 
     Args:
-        project_paths (ProjectPaths): Paths object for the project.
-        videos (list[str]): List of video filenames in the project.
-        video_manager: Optional VideoManager instance to use for cached pose path lookups.
+        project_paths: Paths object for the project.
+        videos: List of video filenames in the project.
+        video_manager: Optional VideoManager instance used for cached pose path
+            lookups. When ``None``, pose paths are resolved directly from
+            ``project_paths``.
+        scan_results: Per-video metadata collected by
+            :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
+            by video filename. Every entry in ``videos`` must have a
+            corresponding key. Required fields: ``static_objects``,
+            ``lixit_keypoints``, ``has_cm_per_pixel``.
     """
 
     def __init__(
