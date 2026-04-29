@@ -1,5 +1,5 @@
 from PySide6 import QtCore
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -8,14 +8,18 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QLayout,
+    QProgressDialog,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from jabs.core.constants import APP_NAME, ORG_NAME
+from jabs.core.constants import APP_NAME, CLASSIFIER_MODE_KEY, ORG_NAME
+from jabs.core.enums import ClassifierMode
+from jabs.project import Project
 from jabs.project.settings_manager import SettingsManager
+from jabs.ui.dialogs.message_dialog import MessageDialog
 
 from .cache_format_settings_group import CacheFormatSettingsGroup
 from .classifier_mode_settings_group import ClassifierModeSettingsGroup
@@ -26,6 +30,24 @@ from .postprocessing_group import (
     StitchingStageSettingsGroup,
 )
 from .session_tracking_group import SessionTrackingSettingsGroup
+
+
+class _OverlapCheckThread(QThread):
+    """Background thread that scans for conflicting behavior annotations."""
+
+    check_complete = Signal(list)
+    check_failed = Signal(Exception)
+
+    def __init__(self, project: Project) -> None:
+        super().__init__()
+        self._project = project
+
+    def run(self) -> None:
+        """Run the overlap check and emit the result."""
+        try:
+            self.check_complete.emit(self._project.get_overlapping_behavior_label_videos())
+        except Exception as error:
+            self.check_failed.emit(error)
 
 
 class BaseSettingsDialog(QDialog):
@@ -227,7 +249,14 @@ class BaseSettingsDialog(QDialog):
 class ProjectSettingsDialog(BaseSettingsDialog):
     """Dialog for changing *project* settings (previously `SettingsDialog`)."""
 
-    def __init__(self, settings_manager: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings_manager: SettingsManager,
+        project: Project,
+        parent: QWidget | None = None,
+    ) -> None:
+        self._project = project
+        self._overlap_check_thread: _OverlapCheckThread | None = None
         super().__init__(
             settings_manager=settings_manager, title="Project Settings", parent=parent
         )
@@ -244,6 +273,109 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         self._settings_groups.append(cv_group)
         cache_format_group = CacheFormatSettingsGroup(parent)
         self._settings_groups.append(cache_format_group)
+
+    def _on_save(self) -> None:
+        """Save settings, with mode-change warnings when the classifier mode changes.
+
+        - Binary -> Multi-class: validates labels are mutually exclusive, then
+          warns that Not Behavior labels will be inactive but preserved.
+        - Multi-class -> Binary: warns that None labels will be inactive but preserved.
+        - No mode change: saves immediately.
+        """
+        all_new_settings: dict = {}
+        for group in self._settings_groups:
+            all_new_settings.update(group.get_values())
+
+        new_mode = all_new_settings.get(CLASSIFIER_MODE_KEY)
+        current_mode = self._settings_manager.classifier_mode
+
+        if new_mode == ClassifierMode.MULTICLASS and current_mode != ClassifierMode.MULTICLASS:
+            self._run_overlap_check()
+        elif new_mode == ClassifierMode.BINARY and current_mode != ClassifierMode.BINARY:
+            self._warn_and_save(ClassifierMode.BINARY)
+        else:
+            super()._on_save()
+
+    def _run_overlap_check(self) -> None:
+        """Validate mutual exclusivity in a background thread, then warn and save."""
+        progress = QProgressDialog(
+            "Validating labels are mutually exclusive for multi-class...", None, 0, 0, self
+        )
+        progress.setWindowTitle("Validating Settings")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.setCancelButton(None)
+
+        thread = _OverlapCheckThread(self._project)
+        self._overlap_check_thread = thread
+        current_mode = self._settings_manager.classifier_mode
+
+        def _restore_mode() -> None:
+            for group in self._settings_groups:
+                if isinstance(group, ClassifierModeSettingsGroup):
+                    group.set_values({CLASSIFIER_MODE_KEY: current_mode})
+
+        def _on_check_complete(conflicting: list[str]) -> None:
+            progress.close()
+            if conflicting:
+                MessageDialog.warning(
+                    self,
+                    message=(
+                        "Cannot switch to multi-class mode. One or more videos have "
+                        "frames labeled with multiple behaviors simultaneously. "
+                        "Resolve overlapping labels before switching modes. "
+                        "See Details below for a complete list of videos."
+                    ),
+                    details="\n".join(conflicting),
+                )
+                _restore_mode()
+            else:
+                self._warn_and_save(ClassifierMode.MULTICLASS)
+
+        def _on_check_failed(error: Exception) -> None:
+            progress.close()
+            _restore_mode()
+            MessageDialog.error(
+                self,
+                title="Validation Error",
+                message=(
+                    "Unable to validate labels before switching to multi-class mode. "
+                    "The classifier mode was not changed."
+                ),
+                details=f"{type(error).__name__}: {error}",
+            )
+
+        thread.check_complete.connect(_on_check_complete)
+        thread.check_failed.connect(_on_check_failed)
+        thread.finished.connect(progress.close)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda: setattr(self, "_overlap_check_thread", None))
+        thread.start()
+
+    def _warn_and_save(self, new_mode: ClassifierMode) -> None:
+        """Inform the user that inactive labels are preserved, then save."""
+        if new_mode == ClassifierMode.MULTICLASS:
+            message = (
+                "Not Behavior labels will not be used in multi-class mode. "
+                "They will be preserved and restored if you switch back to binary mode. "
+                "Continue?"
+            )
+        else:
+            message = (
+                "None labels will not be used in binary mode. "
+                "They will be preserved and restored if you switch back to multi-class mode. "
+                "Continue?"
+            )
+
+        if not MessageDialog.confirm(self, message=message):
+            current_mode = self._settings_manager.classifier_mode
+            for group in self._settings_groups:
+                if isinstance(group, ClassifierModeSettingsGroup):
+                    group.set_values({CLASSIFIER_MODE_KEY: current_mode})
+            return
+
+        BaseSettingsDialog._on_save(self)
 
 
 class PostprocessingSettingsDialog(BaseSettingsDialog):

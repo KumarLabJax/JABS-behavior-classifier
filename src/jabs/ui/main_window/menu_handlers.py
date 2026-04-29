@@ -273,7 +273,9 @@ class MenuHandlers:
 
     def open_project_settings_dialog(self) -> None:
         """Open the project settings dialog."""
-        settings_dialog = ProjectSettingsDialog(self.window._project.settings_manager, self.window)
+        settings_dialog = ProjectSettingsDialog(
+            self.window._project.settings_manager, self.window._project, self.window
+        )
         settings_dialog.settings_changed.connect(self.window.on_project_settings_changed)
         settings_dialog.exec()
 

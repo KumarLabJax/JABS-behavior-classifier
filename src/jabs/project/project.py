@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 import jabs.feature_extraction as fe
@@ -27,6 +28,7 @@ from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
+from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
@@ -526,6 +528,42 @@ class Project:
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
 
+    def get_overlapping_behavior_label_videos(self) -> list[str]:
+        """Return filenames of videos containing frames labeled with multiple behaviors.
+
+        Scans every video in the project for annotation conflicts where a single
+        identity has the same frame labeled BEHAVIOR for two or more behaviors
+        simultaneously. Includes the reserved "None" behavior track, consistent
+        with how MultiClassClassifier.merge_labels() detects conflicts at training time.
+
+        Returns:
+            Sorted list of video filenames containing at least one overlap.
+            An empty list means no conflicts exist.
+        """
+        conflicting: list[str] = []
+        for video in self._video_manager.videos:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
+            video_has_conflict = False
+            for identity in identities:
+                behavior_counts: npt.NDArray[np.intp] | None = None
+                for _, track in labels.iter_behavior_labels(identity):
+                    behavior_mask = (track.get_labels() == TrackLabels.Label.BEHAVIOR).astype(
+                        np.intp
+                    )
+                    if behavior_counts is None:
+                        behavior_counts = behavior_mask
+                    else:
+                        behavior_counts = behavior_counts + behavior_mask
+                        if np.any(behavior_counts > 1):
+                            video_has_conflict = True
+                            break
+                if video_has_conflict:
+                    conflicting.append(video)
+                    break
+        return sorted(conflicting)
+
     def archive_behavior(self, behavior: str):
         """Archive a behavior.
 
@@ -551,13 +589,10 @@ class Project:
         # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            labels = self._video_manager.load_video_labels(video, pose)
-
-            # if no labels for video skip it
-            if labels is None:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
                 continue
 
+            pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
 
             # ensure archive structure exists for this video:
