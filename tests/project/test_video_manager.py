@@ -1,4 +1,3 @@
-import json
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -22,15 +21,6 @@ def project_paths(tmp_path):
 @pytest.fixture
 def settings_manager(project_paths):
     """Fixture to create a SettingsManager instance."""
-    # Create a project.json file with a "video_files" field
-    project_json_path = project_paths.project_file
-    video_files = {
-        "video1.avi": {"identities": 3},
-        "video2.mp4": {"identities": 5},
-    }
-    with project_json_path.open("w") as f:
-        json.dump({"video_files": video_files}, f)
-
     return SettingsManager(project_paths)
 
 
@@ -54,7 +44,29 @@ def video_manager(project_paths, settings_manager):
     shutil.copy(pose1_src, pose1_dst)
     shutil.copy(pose2_src, pose2_dst)
 
-    return VideoManager(project_paths, settings_manager, enable_video_check=False)
+    scan_results = {
+        "video1.avi": {
+            "video": "video1.avi",
+            "hdf5_frame_count": 100,
+            "video_frame_count": None,
+            "identity_count": 3,
+            "static_objects": [],
+            "lixit_keypoints": 0,
+            "has_cm_per_pixel": False,
+        },
+        "video2.mp4": {
+            "video": "video2.mp4",
+            "hdf5_frame_count": 100,
+            "video_frame_count": None,
+            "identity_count": 5,
+            "static_objects": [],
+            "lixit_keypoints": 0,
+            "has_cm_per_pixel": False,
+        },
+    }
+    return VideoManager(
+        project_paths, settings_manager, enable_video_check=False, scan_results=scan_results
+    )
 
 
 def test_get_videos(video_manager, project_paths):
@@ -100,15 +112,25 @@ def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
     paths = ProjectPaths(base_path=project_root, video_dir=video_dir, pose_dir=pose_dir)
     paths.create_directories(validate=False)
 
-    with paths.project_file.open("w") as f:
-        json.dump({"video_files": {"video1.avi": {"identities": 2}}}, f)
-
     (video_dir / "video1.avi").touch()
 
     data_dir = Path(__file__).parent.parent / "data"
     shutil.copy(data_dir / "sample_pose_est_v6.h5", pose_dir / "video1_pose_est_v6.h5")
 
-    manager = VideoManager(paths, SettingsManager(paths), enable_video_check=False)
+    scan_results = {
+        "video1.avi": {
+            "video": "video1.avi",
+            "hdf5_frame_count": 100,
+            "video_frame_count": None,
+            "identity_count": 2,
+            "static_objects": [],
+            "lixit_keypoints": 0,
+            "has_cm_per_pixel": False,
+        },
+    }
+    manager = VideoManager(
+        paths, SettingsManager(paths), enable_video_check=False, scan_results=scan_results
+    )
 
     assert manager.videos == ["video1.avi"]
     assert manager.video_path("video1.avi") == video_dir / "video1.avi"

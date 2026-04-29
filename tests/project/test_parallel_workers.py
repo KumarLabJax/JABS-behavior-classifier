@@ -212,14 +212,7 @@ def test_video_manager_with_scan_results_frame_count_validation(tmp_path):
         )
     }
 
-    with (
-        patch("jabs.project.video_manager.get_frames_from_file") as mock_hdf5,
-        patch("jabs.project.video_manager.VideoReader.get_nframes_from_file") as mock_vid,
-    ):
-        vm = VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
-
-    mock_hdf5.assert_not_called()
-    mock_vid.assert_not_called()
+    vm = VideoManager(paths, sm, enable_video_check=True, scan_results=scan_results)
     assert vm.videos == ["video1.avi"]
 
 
@@ -282,18 +275,7 @@ def test_feature_manager_with_scan_results_no_hdf5_open(tmp_path):
         )
     }
 
-    with (
-        patch("jabs.project.feature_manager.get_static_objects_in_file") as mock_so,
-        patch("jabs.project.feature_manager.get_points_per_lixit") as mock_lixit,
-        patch(
-            "jabs.project.feature_manager.PoseEstimation.get_pose_file_attributes"
-        ) as mock_attrs,
-    ):
-        fm = FeatureManager(paths, ["video1.avi"], scan_results=scan_results)
-
-    mock_so.assert_not_called()
-    mock_lixit.assert_not_called()
-    mock_attrs.assert_not_called()
+    fm = FeatureManager(paths, ["video1.avi"], scan_results=scan_results)
     assert fm.is_cm_unit
 
 

@@ -5,11 +5,9 @@ from typing import TYPE_CHECKING
 
 from jabs.pose_estimation import (
     PoseEstimation,
-    get_frames_from_file,
     get_pose_path,
     open_pose_file,
 )
-from jabs.video_reader import VideoReader
 
 from .project_paths import ProjectPaths
 from .settings_manager import SettingsManager
@@ -41,7 +39,8 @@ class VideoManager:
         paths: ProjectPaths,
         settings_manager: SettingsManager,
         enable_video_check: bool = True,
-        scan_results: "dict[str, VideoScanResult] | None" = None,
+        *,
+        scan_results: "dict[str, VideoScanResult]",
     ):
         self._paths = paths
         self._settings_manager = settings_manager
@@ -55,7 +54,7 @@ class VideoManager:
     def _initialize_videos(
         self,
         enable_video_check: bool,
-        scan_results: "dict[str, VideoScanResult] | None" = None,
+        scan_results: "dict[str, VideoScanResult]",
     ) -> None:
         """Initialize video-related data and perform checks."""
         self._videos = self.get_videos(self._paths.video_dir)
@@ -174,68 +173,30 @@ class VideoManager:
             self._pose_path_cache[video_name] = get_pose_path(video_path, self._paths.pose_dir)
         return self._pose_path_cache[video_name]
 
-    def _load_video_metadata(
-        self, scan_results: "dict[str, VideoScanResult] | None" = None
-    ) -> None:
-        """Load metadata for each video and calculate total identities.
-
-        When ``scan_results`` is provided, identity counts are read directly
-        from the pre-loaded scan data with no file I/O. Without scan results,
-        the legacy path reads from ``project.json`` (cached) or opens each
-        pose file as a fallback.
+    def _load_video_metadata(self, scan_results: "dict[str, VideoScanResult]") -> None:
+        """Load identity counts from pre-scanned metadata.
 
         Args:
-            scan_results: Pre-loaded per-video metadata from a parallel scan,
-                keyed by video filename. When provided, file I/O is skipped.
+            scan_results: Per-video metadata from the project scan, keyed by
+                video filename.
         """
-        if scan_results is not None:
-            for video in self._videos:
-                nidentities = scan_results[video]["identity_count"]
-                self._video_identity_count[video] = nidentities
-                self._total_project_identities += nidentities
-            return
-
-        # Legacy fallback: read from project.json or open pose file.
-        video_metadata = self._settings_manager.project_settings.get("video_files", {})
-        flush = False
         for video in self._videos:
-            vinfo = video_metadata.get(video, {})
-            nidentities = vinfo.get("identities")
-
-            if not nidentities:
-                pose_file = open_pose_file(self.get_cached_pose_path(video), self._paths.cache_dir)
-                nidentities = pose_file.num_identities
-                vinfo["identities"] = nidentities
-                flush = True
-
+            nidentities = scan_results[video]["identity_count"]
             self._video_identity_count[video] = nidentities
             self._total_project_identities += nidentities
-            video_metadata[video] = vinfo
-        if flush:
-            self._settings_manager.save_project_file({"video_files": video_metadata})
 
-    def _validate_video_frame_counts(
-        self, scan_results: "dict[str, VideoScanResult] | None" = None
-    ) -> None:
+    def _validate_video_frame_counts(self, scan_results: "dict[str, VideoScanResult]") -> None:
         """Ensure video and pose file frame counts match.
 
-        When ``scan_results`` is provided, frame counts are taken from the
-        pre-loaded scan data with no file I/O. Without scan results, each
-        pose HDF5 and video file is opened to read frame counts.
-
         Args:
-            scan_results: Pre-loaded per-video metadata from a parallel scan,
-                keyed by video filename. When provided, file I/O is skipped.
+            scan_results: Per-video metadata from the project scan, keyed by
+                video filename. Must include ``hdf5_frame_count`` and
+                ``video_frame_count`` (i.e. scanned with ``scan_frame_counts=True``).
         """
         err = False
         for v in self._videos:
-            if scan_results is not None and v in scan_results:
-                pose_frames = scan_results[v]["hdf5_frame_count"]
-                vid_frames = scan_results[v]["video_frame_count"]
-            else:
-                path = self.get_cached_pose_path(v)
-                pose_frames = get_frames_from_file(path)
-                vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
+            pose_frames = scan_results[v]["hdf5_frame_count"]
+            vid_frames = scan_results[v]["video_frame_count"]
             if pose_frames != vid_frames:
                 logger.error(
                     "%s: video and pose file have different number of frames (video=%s, pose=%s)",
