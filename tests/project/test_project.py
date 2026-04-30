@@ -5,11 +5,60 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.typing as npt
+import pandas as pd
 import pytest
 
-from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.classifier.protocols import ClassifierProtocol
+from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode
 from jabs.core.utils import hide_stderr
 from jabs.project import Project, VideoLabels
+from jabs.project.project_utils import to_safe_name
+from jabs.project.track_labels import TrackLabels
+
+
+class _PathRecordingClassifier(ClassifierProtocol):
+    """Minimal classifier test double that records save/load paths."""
+
+    def __init__(self) -> None:
+        self.saved_path: Path | None = None
+        self.loaded_path: Path | None = None
+
+    @property
+    def feature_names(self) -> list[str] | None:
+        """Return no feature names for this path-only test double."""
+        return None
+
+    def train(self, data: dict, random_seed: int | None = None) -> None:
+        """Ignore training calls; tests only exercise save/load paths."""
+
+    def predict(
+        self,
+        features: pd.DataFrame,
+        frame_indexes: npt.NDArray[np.intp] | None = None,
+    ) -> npt.NDArray[np.int8]:
+        """Return an empty prediction array for protocol compatibility."""
+        return np.array([], dtype=np.int8)
+
+    def predict_proba(
+        self,
+        features: pd.DataFrame,
+        frame_indexes: npt.NDArray[np.intp] | None = None,
+    ) -> npt.NDArray[np.float32]:
+        """Return an empty probability array for protocol compatibility."""
+        return np.array([], dtype=np.float32)
+
+    def save(self, path: Path) -> None:
+        """Record the save path and create a placeholder classifier file."""
+        self.saved_path = path
+        path.write_text("classifier", encoding="utf-8")
+
+    def load(self, path: Path) -> None:
+        """Record the load path and raise OSError when the file is missing."""
+        self.loaded_path = path
+        if not path.exists():
+            raise OSError(f"Classifier does not exist: {path}")
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -137,6 +186,7 @@ def test_save_annotations(project_with_data):
     mock_pose_est.num_frames = 10000
 
     labels = project_with_data.video_manager.load_video_labels("test_file_1.avi")
+    assert labels is not None
     walking_labels = labels.get_track_labels("0", "Walking")
 
     # make some changes
@@ -246,6 +296,129 @@ def test_rename_behavior_raises_if_new_name_exists(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# save_classifier / load_classifier
+# ---------------------------------------------------------------------------
+
+
+def test_save_classifier_binary_uses_behavior_path(tmp_path: Path) -> None:
+    """Binary classifier save path remains one pickle file per behavior."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    classifier = _PathRecordingClassifier()
+    behavior = "Groom & Rear"
+
+    project.save_classifier(classifier, behavior)
+
+    expected_path = project.classifier_dir / f"{to_safe_name(behavior)}.pickle"
+    assert classifier.saved_path == expected_path
+    assert expected_path.exists()
+
+
+def test_save_classifier_binary_requires_behavior(tmp_path: Path) -> None:
+    """Binary classifier storage needs a behavior name for path selection."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    classifier = _PathRecordingClassifier()
+
+    with pytest.raises(ValueError, match="behavior is required"):
+        project.save_classifier(classifier)
+
+
+def test_load_classifier_binary_uses_behavior_path(tmp_path: Path) -> None:
+    """Binary classifier load path remains one pickle file per behavior."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    classifier = _PathRecordingClassifier()
+    behavior = "Groom & Rear"
+    expected_path = project.classifier_dir / f"{to_safe_name(behavior)}.pickle"
+    expected_path.write_text("classifier", encoding="utf-8")
+
+    assert project.load_classifier(classifier, behavior) is True
+    assert classifier.loaded_path == expected_path
+
+
+def test_load_classifier_missing_binary_returns_false(tmp_path: Path) -> None:
+    """Missing binary classifier files return False instead of raising."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    classifier = _PathRecordingClassifier()
+
+    assert project.load_classifier(classifier, "Missing Behavior") is False
+
+
+def test_save_classifier_multiclass_uses_reserved_path(tmp_path: Path) -> None:
+    """Multi-class classifier save path ignores behavior and uses one reserved file."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    classifier = _PathRecordingClassifier()
+
+    project.save_classifier(classifier)
+
+    expected_path = project.classifier_dir / "_multiclass.pickle"
+    assert classifier.saved_path == expected_path
+    assert expected_path.exists()
+
+
+def test_load_classifier_multiclass_uses_reserved_path(tmp_path: Path) -> None:
+    """Multi-class classifier load path ignores behavior and uses one reserved file."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    classifier = _PathRecordingClassifier()
+    expected_path = project.classifier_dir / "_multiclass.pickle"
+    expected_path.write_text("classifier", encoding="utf-8")
+
+    assert project.load_classifier(classifier, "Ignored Behavior") is True
+    assert classifier.loaded_path == expected_path
+
+
+def test_load_classifier_missing_multiclass_returns_false(tmp_path: Path) -> None:
+    """Missing multi-class classifier files return False instead of raising."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    classifier = _PathRecordingClassifier()
+
+    assert project.load_classifier(classifier) is False
+    assert classifier.loaded_path == project.classifier_dir / "_multiclass.pickle"
+
+
+# ---------------------------------------------------------------------------
 # get_overlapping_behavior_label_videos
 # ---------------------------------------------------------------------------
 
@@ -352,3 +525,90 @@ def test_overlapping_labels_multiple_videos_sorted(tmp_path: Path) -> None:
         },
     )
     assert project.get_overlapping_behavior_label_videos() == ["mmm.avi", "zzz.avi"]
+
+
+def test_get_multiclass_labeled_features_aligns_labels_and_features(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Project multiclass feature collection concatenates aligned labels_by_behavior arrays."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    project.settings_manager.save_behavior("Walk", {"window_size": 3})
+    project.settings_manager.save_behavior("Run", {"window_size": 3})
+
+    mock_vm = MagicMock()
+    mock_vm.videos = ["video_a.avi", "video_b.avi"]
+    mock_vm.video_path.side_effect = lambda v: tmp_path / v
+    mock_vm.get_cached_pose_path.side_effect = lambda v: tmp_path / v.replace(
+        ".avi", "_pose_est_v6.h5"
+    )
+    project._video_manager = mock_vm
+
+    jobs_seen: list[dict] = []
+
+    def _fake_collect(job: dict) -> dict:
+        jobs_seen.append(job)
+        if job["video"] == "video_a.avi":
+            return {
+                "per_frame": [pd.DataFrame({"f": [1.0, 2.0]})],
+                "window": [pd.DataFrame({"w": [10.0, 20.0]})],
+                "labels": [np.array([1, 1], dtype=np.int8)],
+                "labels_by_behavior": [
+                    {
+                        MULTICLASS_NONE_BEHAVIOR: np.array([TrackLabels.Label.BEHAVIOR, 0]),
+                        "Walk": np.array([0, TrackLabels.Label.BEHAVIOR]),
+                        "Run": np.array([0, 0]),
+                    }
+                ],
+                "group_keys": [("video_a.avi", 0)],
+            }
+        return {
+            "per_frame": [pd.DataFrame({"f": [3.0]})],
+            "window": [pd.DataFrame({"w": [30.0]})],
+            "labels": [np.array([1], dtype=np.int8)],
+            "labels_by_behavior": [
+                {
+                    MULTICLASS_NONE_BEHAVIOR: np.array([0]),
+                    "Walk": np.array([0]),
+                    "Run": np.array([TrackLabels.Label.BEHAVIOR]),
+                }
+            ],
+            "group_keys": [("video_b.avi", 1)],
+        }
+
+    monkeypatch.setattr("jabs.project.project.collect_labeled_features", _fake_collect)
+
+    progress_calls = {"count": 0}
+    features, group_mapping = project.get_multiclass_labeled_features(
+        progress_callable=lambda: progress_calls.__setitem__("count", progress_calls["count"] + 1)
+    )
+
+    assert progress_calls["count"] == 2
+    assert all(job["classifier_mode"] == ClassifierMode.MULTICLASS.value for job in jobs_seen)
+    assert all(job["behavior_names"] == ["Walk", "Run"] for job in jobs_seen)
+
+    assert features["per_frame"].shape[0] == 3
+    assert features["window"].shape[0] == 3
+    assert features["groups"].shape[0] == 3
+
+    assert np.array_equal(
+        features["labels_by_behavior"][MULTICLASS_NONE_BEHAVIOR],
+        np.array([TrackLabels.Label.BEHAVIOR, 0, 0]),
+    )
+    assert np.array_equal(
+        features["labels_by_behavior"]["Walk"],
+        np.array([0, TrackLabels.Label.BEHAVIOR, 0]),
+    )
+    assert np.array_equal(
+        features["labels_by_behavior"]["Run"],
+        np.array([0, 0, TrackLabels.Label.BEHAVIOR]),
+    )
+    assert {(entry["video"], entry["identity"]) for entry in group_mapping.values()} == {
+        ("video_a.avi", 0),
+        ("video_b.avi", 1),
+    }

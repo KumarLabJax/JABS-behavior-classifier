@@ -119,18 +119,14 @@ class Classifier:
         return self._classifier_type
 
     @property
-    def classifier_file(self) -> str:
+    def classifier_file(self) -> str | None:
         """return the filename of the saved classifier"""
-        if self._classifier_file is not None:
-            return self._classifier_file
-        return "NO SAVED CLASSIFIER"
+        return self._classifier_file
 
     @property
-    def classifier_hash(self) -> str:
+    def classifier_hash(self) -> str | None:
         """return the hash of the classifier file"""
-        if self._classifier_hash is not None:
-            return self._classifier_hash
-        return "NO HASH"
+        return self._classifier_hash
 
     @property
     def project_settings(self) -> dict:

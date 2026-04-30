@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from jabs.core.types.prediction import BehaviorPrediction, ClassifierMetadata
+from jabs.core.utils import to_safe_name
 from jabs.io.internal.prediction.hdf5 import PredictionHDF5Adapter
 
 
@@ -21,6 +22,8 @@ def _make_prediction(
     postprocessed=False,
     identity_to_track=False,
     external_identity_mapping=None,
+    classifier_file="model.ckpt",
+    classifier_hash="abc123",
 ):
     """Helper to create a BehaviorPrediction with controllable optional fields."""
     rng = np.random.default_rng(42)
@@ -35,8 +38,8 @@ def _make_prediction(
         predicted_class=pred_class,
         probabilities=probs,
         classifier=ClassifierMetadata(
-            classifier_file="model.ckpt",
-            classifier_hash="abc123",
+            classifier_file=classifier_file,
+            classifier_hash=classifier_hash,
             app_version="1.0.0",
             prediction_date="2024-06-01T00:00:00Z",
         ),
@@ -45,6 +48,35 @@ def _make_prediction(
         predicted_class_postprocessed=pp,
         identity_to_track=itt,
         external_identity_mapping=external_identity_mapping,
+    )
+
+
+def _make_multiclass_prediction(
+    behavior="__multiclass__",
+    n_identities=2,
+    n_frames=10,
+    class_names=None,
+):
+    """Helper to create a multi-class BehaviorPrediction."""
+    if class_names is None:
+        class_names = ["None", "grooming", "running"]
+    rng = np.random.default_rng(42)
+    pred_class = rng.integers(0, len(class_names), size=(n_identities, n_frames), dtype=np.int64)
+    probs = rng.random((n_identities, n_frames, len(class_names)))
+
+    return BehaviorPrediction(
+        behavior=behavior,
+        predicted_class=pred_class,
+        probabilities=probs,
+        classifier=ClassifierMetadata(
+            classifier_file="multiclass.ckpt",
+            classifier_hash="abc123",
+            app_version="1.0.0",
+            prediction_date="2024-06-01T00:00:00Z",
+        ),
+        pose_file="poses.h5",
+        pose_hash="def456",
+        class_names=class_names,
     )
 
 
@@ -71,6 +103,46 @@ def test_roundtrip(tmp_path, adapter):
         loaded.predicted_class_postprocessed, pred.predicted_class_postprocessed
     )
     np.testing.assert_array_equal(loaded.identity_to_track, pred.identity_to_track)
+
+
+def test_multiclass_roundtrip(tmp_path, adapter):
+    """Write and read a multi-class prediction with class names and 3-D probabilities."""
+    path = tmp_path / "multiclass.h5"
+    pred = _make_multiclass_prediction()
+
+    adapter.write(pred, path)
+    loaded = adapter.read(path, behavior="__multiclass__")
+
+    assert loaded.behavior == pred.behavior
+    assert loaded.class_names == pred.class_names
+    np.testing.assert_array_equal(loaded.predicted_class, pred.predicted_class)
+    np.testing.assert_array_equal(loaded.probabilities, pred.probabilities)
+
+
+def test_multiclass_class_names_are_stored_as_utf8_dataset(tmp_path, adapter):
+    """Class names are persisted as an HDF5 string dataset."""
+    path = tmp_path / "multiclass.h5"
+    pred = _make_multiclass_prediction(class_names=["None", "walk", "rear"])
+
+    adapter.write(pred, path)
+
+    with h5py.File(path, "r") as h5:
+        raw = h5["predictions"][to_safe_name(pred.behavior)]["class_names"][()]
+
+    assert [v.decode("utf-8") if isinstance(v, bytes) else v for v in raw] == pred.class_names
+
+
+def test_binary_overwrite_removes_stale_class_names(tmp_path, adapter):
+    """Writing a binary prediction over the same group removes stale class names."""
+    path = tmp_path / "overwrite.h5"
+    adapter.write(_make_multiclass_prediction(behavior="grooming"), path)
+
+    pred = _make_prediction(behavior="grooming")
+    adapter.write(pred, path)
+    loaded = adapter.read(path, behavior="grooming")
+
+    assert loaded.class_names is None
+    np.testing.assert_array_equal(loaded.probabilities, pred.probabilities)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +198,18 @@ def test_optional_fields_none(tmp_path, adapter):
 
     assert loaded.predicted_class_postprocessed is None
     assert loaded.identity_to_track is None
+
+
+def test_optional_classifier_metadata_none(tmp_path, adapter):
+    """Optional classifier_file/hash metadata round-trips as None."""
+    path = tmp_path / "opt_classifier_meta.h5"
+    pred = _make_prediction(classifier_file=None, classifier_hash=None)
+
+    adapter.write(pred, path)
+    loaded = adapter.read(path, behavior="grooming")
+
+    assert loaded.classifier.classifier_file is None
+    assert loaded.classifier.classifier_hash is None
 
 
 def test_external_identity_mapping(tmp_path, adapter):
@@ -193,6 +277,7 @@ def test_legacy_compat(tmp_path):
     np.testing.assert_array_equal(loaded.probabilities, probs)
     assert loaded.predicted_class_postprocessed is None
     assert loaded.identity_to_track is None
+    assert loaded.class_names is None
 
 
 # ---------------------------------------------------------------------------
@@ -206,14 +291,17 @@ def test_read_all(tmp_path, adapter):
     preds = [
         _make_prediction(behavior="grooming", postprocessed=True),
         _make_prediction(behavior="running"),
+        _make_multiclass_prediction(),
     ]
     adapter.write(preds, path)
 
     loaded = adapter.read(path)
     assert isinstance(loaded, list)
-    assert len(loaded) == 2
+    assert len(loaded) == 3
     behaviors = {p.behavior for p in loaded}
-    assert behaviors == {"grooming", "running"}
+    assert behaviors == {"grooming", "running", "multiclass"}
+    multiclass = next(p for p in loaded if p.behavior == "multiclass")
+    assert multiclass.class_names == ["None", "grooming", "running"]
 
 
 # ---------------------------------------------------------------------------

@@ -9,9 +9,11 @@ Legacy HDF5 layout::
         <safe_behavior_name>/ (group, one per behavior)
           attrs: classifier_file, classifier_hash, app_version, prediction_date
           predicted_class (dataset, shape: n_identities x n_frames)
-          probabilities (dataset, shape: n_identities x n_frames)
+          probabilities (dataset, shape: n_identities x n_frames, or
+            n_identities x n_frames x n_classes for multi-class predictions)
           predicted_class_postprocessed (dataset, optional)
           identity_to_track (dataset, optional)
+          class_names (dataset, optional)
 
 Multiple behaviors coexist in one file. Writes use append mode.
 """
@@ -82,13 +84,18 @@ class PredictionHDF5Adapter(HDF5Adapter):
         safe_name = to_safe_name(pred.behavior)
         behavior_group = prediction_group.require_group(safe_name)
 
-        behavior_group.attrs["classifier_file"] = pred.classifier.classifier_file
-        behavior_group.attrs["classifier_hash"] = pred.classifier.classifier_hash
+        _write_optional_attr(behavior_group, "classifier_file", pred.classifier.classifier_file)
+        _write_optional_attr(behavior_group, "classifier_hash", pred.classifier.classifier_hash)
         behavior_group.attrs["app_version"] = pred.classifier.app_version
         behavior_group.attrs["prediction_date"] = pred.classifier.prediction_date
 
         _write_dataset(behavior_group, "predicted_class", pred.predicted_class)
         _write_dataset(behavior_group, "probabilities", pred.probabilities)
+
+        if pred.class_names is not None:
+            _write_string_dataset(behavior_group, "class_names", pred.class_names)
+        elif "class_names" in behavior_group:
+            del behavior_group["class_names"]
 
         if pred.predicted_class_postprocessed is not None:
             _write_dataset(
@@ -133,13 +140,15 @@ class PredictionHDF5Adapter(HDF5Adapter):
         if "identity_to_track" in behavior_group:
             identity_to_track = behavior_group["identity_to_track"][()]
 
+        class_names = _read_string_dataset(behavior_group, "class_names")
+
         return BehaviorPrediction(
             behavior=behavior,
             predicted_class=behavior_group["predicted_class"][()],
             probabilities=behavior_group["probabilities"][()],
             classifier=ClassifierMetadata(
-                classifier_file=str(behavior_group.attrs["classifier_file"]),
-                classifier_hash=str(behavior_group.attrs["classifier_hash"]),
+                classifier_file=_read_optional_attr(behavior_group, "classifier_file"),
+                classifier_hash=_read_optional_attr(behavior_group, "classifier_hash"),
                 app_version=str(behavior_group.attrs["app_version"]),
                 prediction_date=str(behavior_group.attrs["prediction_date"]),
             ),
@@ -148,6 +157,7 @@ class PredictionHDF5Adapter(HDF5Adapter):
             predicted_class_postprocessed=postprocessed,
             identity_to_track=identity_to_track,
             external_identity_mapping=ext_mapping,
+            class_names=class_names,
         )
 
     @staticmethod
@@ -179,14 +189,16 @@ class PredictionHDF5Adapter(HDF5Adapter):
             if "identity_to_track" in behavior_group:
                 identity_to_track = behavior_group["identity_to_track"][()]
 
+            class_names = _read_string_dataset(behavior_group, "class_names")
+
             results.append(
                 BehaviorPrediction(
                     behavior=key,
                     predicted_class=behavior_group["predicted_class"][()],
                     probabilities=behavior_group["probabilities"][()],
                     classifier=ClassifierMetadata(
-                        classifier_file=str(behavior_group.attrs["classifier_file"]),
-                        classifier_hash=str(behavior_group.attrs["classifier_hash"]),
+                        classifier_file=_read_optional_attr(behavior_group, "classifier_file"),
+                        classifier_hash=_read_optional_attr(behavior_group, "classifier_hash"),
                         app_version=str(behavior_group.attrs["app_version"]),
                         prediction_date=str(behavior_group.attrs["prediction_date"]),
                     ),
@@ -195,6 +207,7 @@ class PredictionHDF5Adapter(HDF5Adapter):
                     predicted_class_postprocessed=postprocessed,
                     identity_to_track=identity_to_track,
                     external_identity_mapping=ext_mapping,
+                    class_names=class_names,
                 )
             )
         return results
@@ -202,5 +215,49 @@ class PredictionHDF5Adapter(HDF5Adapter):
 
 def _write_dataset(group: h5py.Group, name: str, data: np.ndarray) -> None:
     """Write or overwrite a dataset in the given group."""
-    ds = group.require_dataset(name, shape=data.shape, dtype=data.dtype)
-    ds[...] = data
+    if name in group:
+        ds = group[name]
+        if ds.shape != data.shape or ds.dtype != data.dtype:
+            del group[name]
+        else:
+            ds[...] = data
+            return
+    group.create_dataset(name, data=data)
+
+
+def _write_string_dataset(group: h5py.Group, name: str, values: list[str]) -> None:
+    """Write or overwrite a UTF-8 string dataset in the given group."""
+    if name in group:
+        del group[name]
+    group.create_dataset(
+        name,
+        data=np.array(values, dtype=object),
+        dtype=h5py.string_dtype(encoding="utf-8"),
+    )
+
+
+def _write_optional_attr(group: h5py.Group, name: str, value: str | None) -> None:
+    """Write an optional UTF-8 attribute, removing it when value is None."""
+    if value is None:
+        if name in group.attrs:
+            del group.attrs[name]
+        return
+    group.attrs[name] = value
+
+
+def _read_string_dataset(group: h5py.Group, name: str) -> list[str] | None:
+    """Read a UTF-8 string dataset from the given group if present."""
+    if name not in group:
+        return None
+    raw = group[name][()]
+    return [v.decode("utf-8") if isinstance(v, bytes) else str(v) for v in raw]
+
+
+def _read_optional_attr(group: h5py.Group, name: str) -> str | None:
+    """Read an optional string attribute, returning None if missing."""
+    value = group.attrs.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)

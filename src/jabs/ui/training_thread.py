@@ -7,13 +7,14 @@ from PySide6.QtWidgets import QWidget
 
 from jabs.classifier import (
     Classifier,
+    MultiClassClassifier,
     TrainingReportData,
     generate_markdown_report,
     save_training_report,
 )
 from jabs.classifier.cross_validation import run_leave_one_group_out_cv
-from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import ProjectDistanceUnit
+from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
 from jabs.project import Project
 
 from .exceptions import ThreadTerminatedError
@@ -51,7 +52,7 @@ class TrainingThread(QThread):
 
     def __init__(
         self,
-        classifier: Classifier,
+        classifier: Classifier | MultiClassClassifier,
         project: Project,
         behavior: str,
         bout_counts: tuple[int, int],
@@ -102,99 +103,227 @@ class TrainingThread(QThread):
 
         try:
             self.current_status.emit("Extracting Features")
-            features, group_mapping = self._project.get_labeled_features(
-                self._behavior,
-                progress_callable=id_processed,
-                should_terminate_callable=check_termination_requested,
-            )
-            check_termination_requested()
-
-            # do LOGO cross-validation
-            cv_results = run_leave_one_group_out_cv(
-                classifier=self._classifier,
-                project=self._project,
-                features=features,
-                group_mapping=group_mapping,
-                behavior=self._behavior,
-                k=self._k,
-                status_callback=self.current_status.emit,
-                progress_callback=id_processed,
-                terminate_callback=check_termination_requested,
-            )
-
-            # Final training on all data
-            full_dataset = self._classifier.combine_data(features["per_frame"], features["window"])
-            feature_names = full_dataset.columns.to_list()
-            self._classifier.train(
-                {
-                    "training_data": full_dataset,
-                    "training_labels": features["labels"],
-                    "feature_names": feature_names,
-                },
-                random_seed=FINAL_TRAIN_SEED,
-            )
-            final_top_features = self._classifier.get_feature_importance(limit=20)
-            self._project.save_classifier(self._classifier, self._behavior)
-
-            # Prepare training report
-            elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
-            behavior_count = int(np.sum(features["labels"] == 1))
-            not_behavior_count = int(np.sum(features["labels"] == 0))
-            behavior_bouts, not_behavior_bouts = self._bout_counts
-            unit = (
-                "cm"
-                if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM
-                else "pixel"
-            )
-            report_timestamp = datetime.now()
-            behavior_settings = self._project.settings_manager.get_behavior(self._behavior)
-            training_data = TrainingReportData(
-                behavior_name=self._behavior,
-                classifier_type=self._classifier.classifier_name,
-                balance_training_labels=behavior_settings.get("balance_labels", False),
-                symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
-                distance_unit=unit,
-                cv_results=cv_results,
-                final_top_features=final_top_features,
-                frames_behavior=behavior_count,
-                frames_not_behavior=not_behavior_count,
-                bouts_behavior=behavior_bouts,
-                bouts_not_behavior=not_behavior_bouts,
-                training_time_ms=elapsed_ms,
-                timestamp=report_timestamp,
-                window_size=behavior_settings["window_size"],
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-            )
-
-            # Save markdown report
-            timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
-            report_filename = f"{self._behavior}_{timestamp_str}_training_report.md"
-            report_path = self._training_log_dir / report_filename
-            save_training_report(training_data, report_path)
-
-            # Generate and emit markdown report
-            markdown_content = generate_markdown_report(training_data)
-            self.training_report.emit(markdown_content)
-
-            # Update session tracker
-            if self._k > 0 and training_data.cv_results:
-                accuracies = [cv.accuracy for cv in training_data.cv_results]
-                fbeta_behavior = [cv.f1_behavior for cv in training_data.cv_results]
-                self._project.session_tracker.classifier_trained(
-                    self._behavior,
-                    self._classifier.classifier_name,
-                    len(training_data.cv_results),
-                    float(np.mean(accuracies)),
-                    float(np.mean(fbeta_behavior)),
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                # Multi-class training uses one shared labeled-feature set across all behaviors.
+                features, group_mapping = self._project.get_multiclass_labeled_features(
+                    progress_callable=id_processed,
+                    should_terminate_callable=check_termination_requested,
                 )
+                check_termination_requested()
+
+                cv_results = run_leave_one_group_out_cv(
+                    classifier=self._classifier,
+                    project=self._project,
+                    features=features,
+                    group_mapping=group_mapping,
+                    behavior=self._behavior,
+                    k=self._k,
+                    status_callback=self.current_status.emit,
+                    progress_callback=id_processed,
+                    terminate_callback=check_termination_requested,
+                )
+
+                self.current_status.emit("Training Classifier")
+                full_dataset = self._classifier.combine_data(
+                    features["per_frame"], features["window"]
+                )
+                feature_names = full_dataset.columns.to_list()
+                multiclass_settings = self._classifier.project_settings
+                # Reuse any settings already attached to the classifier; otherwise use
+                # project defaults for the initial multiclass training run.
+                if not multiclass_settings:
+                    multiclass_settings = self._project.get_project_defaults()
+                self._classifier.train(
+                    {
+                        "per_frame": features["per_frame"],
+                        "window": features["window"],
+                        "labels_by_behavior": features["labels_by_behavior"],
+                        "settings": multiclass_settings,
+                        "feature_names": feature_names,
+                    },
+                    random_seed=FINAL_TRAIN_SEED,
+                )
+                final_top_features = self._classifier.get_feature_importance(limit=20)
+                self._project.save_classifier(self._classifier)
+
+                elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
+                behavior_names = list(getattr(self._classifier, "behavior_names", []))
+                if not behavior_names:
+                    behavior_names = [
+                        name
+                        for name in features["labels_by_behavior"]
+                        if name != MULTICLASS_NONE_BEHAVIOR
+                    ]
+
+                merged_labels, _ = MultiClassClassifier.merge_labels(
+                    features["labels_by_behavior"],
+                    behavior_names,
+                )
+                class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+                class_frame_counts = {
+                    name: int(np.sum(merged_labels == class_idx))
+                    for class_idx, name in enumerate(class_names)
+                }
+                class_bout_counts: dict[str, int] = {}
+                for class_name in class_names:
+                    bouts = 0
+                    for video_counts in self._project.counts(class_name).values():
+                        for identity_counts in video_counts.values():
+                            bouts += identity_counts["unfragmented_bout_counts"][0]
+                    class_bout_counts[class_name] = bouts
+
+                unit = (
+                    "cm"
+                    if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM
+                    else "pixel"
+                )
+                report_timestamp = datetime.now()
+                training_settings = (
+                    multiclass_settings
+                    if multiclass_settings
+                    else self._project.get_project_defaults()
+                )
+                training_data = TrainingReportData(
+                    behavior_name=self._behavior,
+                    classifier_type=self._classifier.classifier_name,
+                    balance_training_labels=training_settings.get("balance_labels", False),
+                    symmetric_behavior=training_settings.get("symmetric_behavior", False),
+                    distance_unit=unit,
+                    cv_results=cv_results,
+                    final_top_features=final_top_features,
+                    training_time_ms=elapsed_ms,
+                    timestamp=report_timestamp,
+                    window_size=training_settings.get("window_size", 0),
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                    class_frame_counts=class_frame_counts,
+                    class_bout_counts=class_bout_counts,
+                )
+
+                timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
+                report_filename = f"{self._behavior}_{timestamp_str}_training_report.md"
+                report_path = self._training_log_dir / report_filename
+                save_training_report(training_data, report_path)
+
+                markdown_content = generate_markdown_report(training_data)
+                self.training_report.emit(markdown_content)
+
+                if self._k > 0 and training_data.cv_results:
+                    accuracies = [cv.accuracy for cv in training_data.cv_results]
+                    f1_macro = [
+                        cv.f1_macro for cv in training_data.cv_results if cv.f1_macro is not None
+                    ]
+                    mean_f1_macro = float(np.mean(f1_macro)) if f1_macro else None
+                    self._project.session_tracker.classifier_trained(
+                        self._behavior,
+                        self._classifier.classifier_name,
+                        len(training_data.cv_results),
+                        float(np.mean(accuracies)),
+                        mean_f1_macro,
+                    )
+                else:
+                    self._project.session_tracker.classifier_trained(
+                        self._behavior,
+                        self._classifier.classifier_name,
+                        0,
+                    )
+                self.update_progress.emit(tasks_complete + 1)
+                self.training_complete.emit(elapsed_ms)
             else:
-                self._project.session_tracker.classifier_trained(
+                features, group_mapping = self._project.get_labeled_features(
                     self._behavior,
-                    self._classifier.classifier_name,
-                    0,
+                    progress_callable=id_processed,
+                    should_terminate_callable=check_termination_requested,
+                )
+                check_termination_requested()
+
+                # Binary mode keeps the existing LOGO CV + markdown report path.
+                cv_results = run_leave_one_group_out_cv(
+                    classifier=self._classifier,
+                    project=self._project,
+                    features=features,
+                    group_mapping=group_mapping,
+                    behavior=self._behavior,
+                    k=self._k,
+                    status_callback=self.current_status.emit,
+                    progress_callback=id_processed,
+                    terminate_callback=check_termination_requested,
                 )
 
-            self.update_progress.emit(tasks_complete + 1)
-            self.training_complete.emit(training_data.training_time_ms)
+                # Final training on all data
+                full_dataset = self._classifier.combine_data(
+                    features["per_frame"], features["window"]
+                )
+                feature_names = full_dataset.columns.to_list()
+                self._classifier.train(
+                    {
+                        "training_data": full_dataset,
+                        "training_labels": features["labels"],
+                        "feature_names": feature_names,
+                    },
+                    random_seed=FINAL_TRAIN_SEED,
+                )
+                final_top_features = self._classifier.get_feature_importance(limit=20)
+                self._project.save_classifier(self._classifier, self._behavior)
+
+                # Prepare training report
+                elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
+                behavior_count = int(np.sum(features["labels"] == 1))
+                not_behavior_count = int(np.sum(features["labels"] == 0))
+                behavior_bouts, not_behavior_bouts = self._bout_counts
+                unit = (
+                    "cm"
+                    if self._project.feature_manager.distance_unit == ProjectDistanceUnit.CM
+                    else "pixel"
+                )
+                report_timestamp = datetime.now()
+                behavior_settings = self._project.settings_manager.get_behavior(self._behavior)
+                training_data = TrainingReportData(
+                    behavior_name=self._behavior,
+                    classifier_type=self._classifier.classifier_name,
+                    balance_training_labels=behavior_settings.get("balance_labels", False),
+                    symmetric_behavior=behavior_settings.get("symmetric_behavior", False),
+                    distance_unit=unit,
+                    cv_results=cv_results,
+                    final_top_features=final_top_features,
+                    frames_behavior=behavior_count,
+                    frames_not_behavior=not_behavior_count,
+                    bouts_behavior=behavior_bouts,
+                    bouts_not_behavior=not_behavior_bouts,
+                    training_time_ms=elapsed_ms,
+                    timestamp=report_timestamp,
+                    window_size=behavior_settings["window_size"],
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                )
+
+                # Save markdown report
+                timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
+                report_filename = f"{self._behavior}_{timestamp_str}_training_report.md"
+                report_path = self._training_log_dir / report_filename
+                save_training_report(training_data, report_path)
+
+                # Generate and emit markdown report
+                markdown_content = generate_markdown_report(training_data)
+                self.training_report.emit(markdown_content)
+
+                # Update session tracker
+                if self._k > 0 and training_data.cv_results:
+                    accuracies = [cv.accuracy for cv in training_data.cv_results]
+                    fbeta_behavior = [cv.f1_behavior for cv in training_data.cv_results]
+                    self._project.session_tracker.classifier_trained(
+                        self._behavior,
+                        self._classifier.classifier_name,
+                        len(training_data.cv_results),
+                        float(np.mean(accuracies)),
+                        float(np.mean(fbeta_behavior)),
+                    )
+                else:
+                    self._project.session_tracker.classifier_trained(
+                        self._behavior,
+                        self._classifier.classifier_name,
+                        0,
+                    )
+
+                self.update_progress.emit(tasks_complete + 1)
+                self.training_complete.emit(training_data.training_time_ms)
         except Exception as e:
             self.error_callback.emit(e)

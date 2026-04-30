@@ -209,8 +209,10 @@ def leave_one_group_out(
             yield {
                 "training_data": x.iloc[split[0]],
                 "training_labels": labels[split[0]],
+                "training_idx": split[0],
                 "test_data": x.iloc[split[1]],
                 "test_labels": labels[split[1]],
+                "test_idx": split[1],
                 "test_group": groups[split[1]][0],
                 "feature_names": x.columns.to_list(),
             }

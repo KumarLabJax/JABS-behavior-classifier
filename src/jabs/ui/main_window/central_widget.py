@@ -11,7 +11,7 @@ from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
-from jabs.classifier import Classifier
+from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode, ClassifierType, PredictionType
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
@@ -95,6 +95,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = {}
         self._probabilities = {}
         self._predictions_postprocessed = {}
+        self._multiclass_class_names: list[str] | None = None
 
         self._selection_start = None
         self._selection_end = None
@@ -355,9 +356,18 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
-            self._predictions, self._probabilities, self._predictions_postprocessed = (
-                self._project.prediction_manager.load_predictions(path.name, self.behavior)
-            )
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                (
+                    self._predictions,
+                    self._probabilities,
+                    self._predictions_postprocessed,
+                    self._multiclass_class_names,
+                ) = self._project.prediction_manager.load_multiclass_predictions(path.name)
+            else:
+                self._predictions, self._probabilities, self._predictions_postprocessed = (
+                    self._project.prediction_manager.load_predictions(path.name, self.behavior)
+                )
+                self._multiclass_class_names = None
 
             # update ui components with properties of new video
             display_identities = [
@@ -564,7 +574,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
 
         # load saved predictions
-        if self._loaded_video:
+        if (
+            self._loaded_video
+            and self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS
+        ):
             self._predictions, self._probabilities, self._predictions_postprocessed = (
                 self._project.prediction_manager.load_predictions(
                     self._loaded_video.name, self.behavior
@@ -863,6 +876,8 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
 
+        self._ensure_classifier_for_mode()
+
         # reset training report
         self._training_report_markdown = None
 
@@ -885,11 +900,16 @@ class CentralWidget(QtWidgets.QWidget):
         # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
         total_steps = self._project.video_manager.num_videos + 1
         if self._controls.all_kfold:
-            project_counts = self._project.counts(self._controls.current_behavior)
-            total_steps += self._classifier.count_label_threshold(
-                project_counts,
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-            )
+            if self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS:
+                project_counts = self._project.counts(self._controls.current_behavior)
+                total_steps += self._classifier.count_label_threshold(
+                    project_counts,
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                )
+            else:
+                # For multiclass all-kfold mode we do not know valid split count until
+                # feature extraction completes; start with a conservative estimate.
+                total_steps += self._project.video_manager.num_videos
         else:
             total_steps += self._controls.kfold_value
 
@@ -899,6 +919,33 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
+
+    def _ensure_classifier_for_mode(self) -> None:
+        """Ensure the active classifier instance matches the current classifier mode."""
+        mode = self._project.settings_manager.classifier_mode
+        selected_type = self._controls.classifier_type
+
+        if mode == ClassifierMode.MULTICLASS:
+            behavior_names = self._controls.behaviors
+            if not behavior_names:
+                return
+            if (
+                not isinstance(self._classifier, MultiClassClassifier)
+                or self._classifier.behavior_names != behavior_names
+            ):
+                self._classifier = MultiClassClassifier(
+                    behavior_names,
+                    classifier_type=selected_type,
+                    n_jobs=-1,
+                )
+            elif self._classifier.classifier_type != selected_type:
+                self._classifier.set_classifier(selected_type)
+            return
+
+        if isinstance(self._classifier, MultiClassClassifier):
+            self._classifier = Classifier(selected_type, n_jobs=-1)
+        elif self._classifier.classifier_type != selected_type:
+            self._classifier.set_classifier(selected_type)
 
     def _on_training_report(self, markdown_content: str) -> None:
         """Save the training report markdown for display after training completes.
@@ -1042,12 +1089,15 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
+        if step > self._progress_dialog.maximum():
+            self._progress_dialog.setMaximum(step)
         self._progress_dialog.setValue(step)
 
     def _classify_button_clicked(self) -> None:
         """handle user click on "Classify" button"""
         # make sure video playback is stopped
         self._player_widget.stop()
+        self._ensure_classifier_for_mode()
 
         # setup classification thread
         self._classify_thread = ClassifyThread(
@@ -1076,6 +1126,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._predictions_postprocessed = output["predictions_postprocessed"]
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            self._multiclass_class_names = output.get("class_names")
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
         self.status_message.emit(
@@ -1093,10 +1145,10 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            # Binary predictions from individual behavior classifiers must not be pushed
-            # into the multiclass timeline layout -- the widget structure is incompatible
-            # and the data is meaningless in a multiclass context.
+            predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
+            self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
+                # Multi-class frame overlay is tracked under T9; keep disabled for now.
                 self._player_widget.set_labels(None)
             return
 
@@ -1143,6 +1195,66 @@ class CentralWidget(QtWidgets.QWidget):
             probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
 
+    @staticmethod
+    def _decompose_multiclass_prediction_rows(
+        predicted_class: np.ndarray,
+        probabilities: np.ndarray,
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Convert multiclass predictions into per-class binary-style row arrays."""
+        if predicted_class.ndim != 1:
+            raise ValueError("predicted_class must be 1-D")
+        if probabilities.ndim != 2:
+            raise ValueError("probabilities must be 2-D")
+        if predicted_class.shape[0] != probabilities.shape[0]:
+            raise ValueError("predicted_class/probabilities frame length mismatch")
+
+        n_frames, n_classes = probabilities.shape
+        per_class_predictions: list[np.ndarray] = []
+        per_class_probabilities: list[np.ndarray] = []
+
+        for class_idx in range(n_classes):
+            row = np.ones(n_frames, dtype=np.int16)  # not this class
+            row[predicted_class == -1] = 0  # no pose / no prediction
+            row[predicted_class == class_idx] = 2  # this class predicted
+            per_class_predictions.append(row)
+            per_class_probabilities.append(probabilities[:, class_idx].astype(np.float32))
+
+        return per_class_predictions, per_class_probabilities
+
+    def _get_multiclass_prediction_rows(
+        self,
+    ) -> tuple[list[list[np.ndarray]], list[list[np.ndarray]]]:
+        """Build per-identity per-class prediction/probability rows for timeline rendering."""
+        prediction_rows: list[list[np.ndarray]] = []
+        probability_rows: list[list[np.ndarray]] = []
+        expected_classes = 1 + len(self._controls.behaviors)
+
+        for i in range(self._pose_est.num_identities):
+            identity_predictions = self._predictions.get(i)
+            identity_probabilities = self._probabilities.get(i)
+
+            if identity_predictions is None or identity_probabilities is None:
+                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
+                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
+                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
+                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                continue
+
+            per_class_preds, per_class_probs = self._decompose_multiclass_prediction_rows(
+                np.asarray(identity_predictions),
+                np.asarray(identity_probabilities),
+            )
+            if len(per_class_preds) != expected_classes:
+                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
+                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
+                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
+                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                continue
+            prediction_rows.append(per_class_preds)
+            probability_rows.append(per_class_probs)
+
+        return prediction_rows, probability_rows
+
     def update_classifier_mode_display(self) -> None:
         """Rebuild the timeline layout and refresh labels to reflect the current classifier mode.
 
@@ -1174,16 +1286,40 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        if Classifier.label_threshold_met(
-            self._counts,
-            self._controls.kfold_value,
-            self._project.settings_manager.cv_grouping_strategy,
-        ):
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            threshold_met = self._multiclass_train_threshold_met()
+        else:
+            threshold_met = Classifier.label_threshold_met(
+                self._counts,
+                self._controls.kfold_value,
+                self._project.settings_manager.cv_grouping_strategy,
+            )
+
+        if threshold_met:
             self._controls.train_button_enabled = True
             self.export_training_status_change.emit(True)
         else:
             self._controls.train_button_enabled = False
             self.export_training_status_change.emit(False)
+
+    def _multiclass_train_threshold_met(self) -> bool:
+        """Return True when at least two classes meet the multiclass frame threshold."""
+        behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+        if len(behavior_names) < 2:
+            return False
+
+        class_frame_counts: dict[str, int] = {}
+        for behavior_name in behavior_names:
+            total = 0
+            for video_counts in self._project.counts(behavior_name).values():
+                for identity_counts in video_counts.values():
+                    total += identity_counts["fragmented_frame_counts"][0]
+            class_frame_counts[behavior_name] = total
+
+        eligible_classes = sum(
+            count >= MultiClassClassifier.LABEL_THRESHOLD for count in class_frame_counts.values()
+        )
+        return eligible_classes >= 2
 
     def _update_label_counts(self) -> None:
         """update the widget with the labeled frame / bout counts
@@ -1333,6 +1469,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.use_symmetric = behavior_metadata["symmetric_behavior"]
 
     def _load_cached_classifier(self) -> None:
+        self._ensure_classifier_for_mode()
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)

@@ -8,6 +8,7 @@ import pytest
 from jabs.classifier.training_report import (
     CrossValidationResult,
     TrainingReportData,
+    generate_json_report,
     generate_markdown_report,
     save_training_report,
 )
@@ -351,3 +352,106 @@ class TestReportFormatting:
 
         # 12345 ms = 12.35 seconds
         assert "12.35 seconds" in report
+
+
+class TestMulticlassReport:
+    """Tests for multiclass CV/report rendering and JSON serialization."""
+
+    def test_multiclass_markdown_contains_multiclass_metrics(self):
+        """Markdown report uses multiclass summary/table and class counts."""
+        cv_results = [
+            CrossValidationResult(
+                iteration=1,
+                test_label="video_a.mp4 [0]",
+                accuracy=0.82,
+                confusion_matrix=np.array([[10, 2, 1], [1, 9, 1], [0, 2, 8]]),
+                class_names=["None", "Walk", "Run"],
+                class_support=[13, 11, 10],
+                precision_macro=0.83,
+                recall_macro=0.82,
+                f1_macro=0.81,
+                precision_micro=0.82,
+                recall_micro=0.82,
+                f1_micro=0.82,
+            )
+        ]
+        training_data = TrainingReportData(
+            behavior_name="Walk",
+            classifier_type="catboost",
+            window_size=5,
+            balance_training_labels=False,
+            symmetric_behavior=False,
+            distance_unit="pixel",
+            cv_results=cv_results,
+            final_top_features=[("feat_a", 0.5)],
+            training_time_ms=1000,
+            timestamp=datetime(2026, 4, 30, 12, 0, 0),
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+            class_frame_counts={"None": 100, "Walk": 80, "Run": 60},
+            class_bout_counts={"None": 7, "Walk": 5, "Run": 4},
+        )
+
+        report = generate_markdown_report(training_data)
+        assert "Mean F1 Score (Macro)" in report
+        assert "Mean F1 Score (Micro)" in report
+        assert "Precision (Macro)" in report
+        assert "F1 Score (Micro)" in report
+        assert "**None frames:** 100" in report
+        assert "**Walk bouts:** 5" in report
+
+    def test_multiclass_json_contains_optional_metrics(self):
+        """JSON report serializes multiclass-only CV and class-count fields."""
+        cv_results = [
+            CrossValidationResult(
+                iteration=1,
+                test_label="video_a.mp4",
+                accuracy=0.9,
+                confusion_matrix=np.array([[5, 1], [1, 6]]),
+                class_names=["None", "Walk"],
+                class_support=[6, 7],
+                precision_macro=0.9,
+                recall_macro=0.9,
+                f1_macro=0.9,
+                precision_micro=0.9,
+                recall_micro=0.9,
+                f1_micro=0.9,
+                per_class_metrics=[
+                    {
+                        "class_name": "None",
+                        "precision": 0.83,
+                        "recall": 0.83,
+                        "f1": 0.83,
+                        "support": 6,
+                    },
+                    {
+                        "class_name": "Walk",
+                        "precision": 0.92,
+                        "recall": 0.92,
+                        "f1": 0.92,
+                        "support": 7,
+                    },
+                ],
+            )
+        ]
+        training_data = TrainingReportData(
+            behavior_name="Walk",
+            classifier_type="catboost",
+            window_size=5,
+            balance_training_labels=False,
+            symmetric_behavior=False,
+            distance_unit="pixel",
+            cv_results=cv_results,
+            final_top_features=[("feat_a", 0.5)],
+            training_time_ms=1000,
+            timestamp=datetime(2026, 4, 30, 12, 0, 0),
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+            class_frame_counts={"None": 10, "Walk": 20},
+            class_bout_counts={"None": 1, "Walk": 2},
+        )
+
+        report = generate_json_report(training_data)
+        assert report["class_frame_counts"] == {"None": 10, "Walk": 20}
+        assert report["class_bout_counts"] == {"None": 1, "Walk": 2}
+        assert report["cv_results"][0]["precision_macro"] == pytest.approx(0.9)
+        assert report["cv_results"][0]["class_names"] == ["None", "Walk"]
+        assert report["cv_results"][0]["class_support"] == [6, 7]

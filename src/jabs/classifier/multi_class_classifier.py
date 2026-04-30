@@ -110,10 +110,17 @@ class MultiClassClassifier:
         self._n_jobs = n_jobs
         self._classifier = None
         self._feature_names: list[str] | None = None
+        self._project_settings: dict | None = None
+        self._behavior: str | None = None
         self._version = _VERSION
         self._classifier_file: str | None = None
         self._classifier_hash: str | None = None
         self._classifier_source: str | None = None
+
+    @property
+    def classifier_name(self) -> str:
+        """Return the classifier algorithm name as a string."""
+        return self._classifier_type.value
 
     @property
     def behavior_names(self) -> list[str]:
@@ -130,6 +137,38 @@ class MultiClassClassifier:
         """Underlying classifier algorithm."""
         return self._classifier_type
 
+    @property
+    def classifier_file(self) -> str | None:
+        """Return the filename of the saved classifier."""
+        return self._classifier_file
+
+    @property
+    def classifier_hash(self) -> str | None:
+        """Return the content hash of the saved classifier."""
+        return self._classifier_hash
+
+    @property
+    def project_settings(self) -> dict:
+        """Return a copy of classifier settings used for training."""
+        if self._project_settings is not None:
+            return dict(self._project_settings)
+        return {}
+
+    @property
+    def behavior_name(self) -> str | None:
+        """Return the selected behavior name, if any."""
+        return self._behavior
+
+    @behavior_name.setter
+    def behavior_name(self, value: str | None) -> None:
+        """Set the selected behavior name."""
+        self._behavior = value
+
+    @property
+    def version(self) -> int:
+        """Return the serialized classifier format version."""
+        return self._version
+
     def get_class_names(self) -> list[str]:
         """Return the ordered list of class names for this classifier.
 
@@ -137,6 +176,52 @@ class MultiClassClassifier:
             List with ``"background"`` at index 0 followed by behavior names.
         """
         return ["background", *self._behavior_names]
+
+    @staticmethod
+    def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
+        """Combine per-frame and window feature matrices into one DataFrame."""
+        return classifier_utils.combine_data(per_frame, window)
+
+    @staticmethod
+    def derive_predictions(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Derive class predictions and confidence from class probabilities."""
+        predictions = np.argmax(probabilities, axis=1).astype(np.int8)
+        confidence = probabilities[np.arange(len(probabilities)), predictions]
+        predictions[confidence == 0] = -1
+        return predictions, confidence
+
+    def set_classifier(self, classifier: ClassifierType) -> None:
+        """Switch the underlying classifier algorithm."""
+        if classifier not in self._supported_classifier_choices():
+            raise ValueError("Invalid Classifier Type")
+        self._classifier_type = classifier
+
+    def set_project_settings(self, project) -> None:
+        """Copy project defaults as classifier settings."""
+        self._project_settings = dict(project.get_project_defaults())
+
+    def set_dict_settings(self, settings: dict) -> None:
+        """Assign classifier settings from a dictionary."""
+        self._project_settings = dict(settings)
+
+    def classifier_choices(self) -> dict[ClassifierType, str]:
+        """Return the available classifier types."""
+        supported = self._supported_classifier_choices()
+        return {t: t.value for t in sorted(supported, key=lambda t: t.value)}
+
+    def get_feature_importance(self, limit: int = 20) -> list[tuple[str, float]]:
+        """Return ranked feature importances, highest first."""
+        if self._classifier is None or self._feature_names is None:
+            return []
+        if not hasattr(self._classifier, "feature_importances_"):
+            return []
+        importances = list(np.asarray(self._classifier.feature_importances_).reshape(-1))
+        feature_importance = [
+            (feature, round(importance, 2))
+            for feature, importance in zip(self._feature_names, importances, strict=True)
+        ]
+        feature_importance.sort(key=lambda x: x[1], reverse=True)
+        return feature_importance[:limit]
 
     def train(self, data: dict, random_seed: int | None = None) -> None:
         """Train the multi-class classifier.
@@ -163,7 +248,7 @@ class MultiClassClassifier:
             if key not in data:
                 raise ValueError(f"Missing required key in training data: '{key}'")
 
-        settings = data.get("settings", {})
+        settings = data.get("settings", self._project_settings or {})
 
         multiclass_labels, include_mask = self.merge_labels(
             data["labels_by_behavior"], self._behavior_names
@@ -316,6 +401,8 @@ class MultiClassClassifier:
         self._behavior_names = c._behavior_names
         self._classifier_type = c._classifier_type
         self._feature_names = c._feature_names
+        self._project_settings = getattr(c, "_project_settings", None)
+        self._behavior = getattr(c, "_behavior", None)
         if c._classifier_file is not None:
             self._classifier_file = c._classifier_file
             self._classifier_hash = c._classifier_hash
