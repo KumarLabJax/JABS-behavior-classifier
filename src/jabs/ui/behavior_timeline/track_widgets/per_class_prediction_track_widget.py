@@ -9,7 +9,7 @@ from .prediction_track_widget import PredictionTrackWidget
 
 
 class PerClassPredictionTrackWidget(PredictionTrackWidget):
-    """Prediction overview for a single behavior class.
+    """Prediction track for a single behavior class.
 
     Identical to :class:`PredictionTrackWidget` except the detail bar uses
     :class:`BehaviorProbabilityDetailBar` instead of :class:`ClassPredictionDetailBar`.
