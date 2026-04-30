@@ -204,6 +204,6 @@ def test_classify_thread_multiclass_path(monkeypatch) -> None:
     project.save_predictions.assert_called_once()
     args, kwargs = project.save_predictions.call_args
     assert args[4] == MULTICLASS_PREDICTION_KEY
-    assert kwargs["class_names"] == ["background", "Walk", "Run"]
+    assert kwargs["class_names"] == ["None", "Walk", "Run"]
     assert kwargs["postprocessed_predictions"] == {}
     assert _FakeIdentityFeatures.op_settings_seen[0]["window_size"] == 7

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget
 
 from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
@@ -107,7 +108,7 @@ class ClassifyThread(QThread):
                     self._classifier.project_settings or self._project.get_project_defaults()
                 )
                 prediction_behavior = MULTICLASS_PREDICTION_KEY
-                class_names = self._classifier.get_class_names()
+                class_names = [MULTICLASS_NONE_BEHAVIOR, *self._classifier.behavior_names]
                 postprocessing_pipeline = None
             else:
                 project_settings = self._project.settings_manager.get_behavior(self._behavior)

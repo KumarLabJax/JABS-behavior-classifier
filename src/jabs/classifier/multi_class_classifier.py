@@ -249,6 +249,9 @@ class MultiClassClassifier:
                 raise ValueError(f"Missing required key in training data: '{key}'")
 
         settings = data.get("settings", self._project_settings or {})
+        # Persist the effective training settings so downstream classification
+        # can consistently reuse the same feature/postprocessing parameters.
+        self._project_settings = dict(settings)
 
         multiclass_labels, include_mask = self.merge_labels(
             data["labels_by_behavior"], self._behavior_names

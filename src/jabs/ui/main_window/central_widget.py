@@ -1240,10 +1240,18 @@ class CentralWidget(QtWidgets.QWidget):
                 probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
                 continue
 
-            per_class_preds, per_class_probs = self._decompose_multiclass_prediction_rows(
-                np.asarray(identity_predictions),
-                np.asarray(identity_probabilities),
-            )
+            try:
+                per_class_preds, per_class_probs = self._decompose_multiclass_prediction_rows(
+                    np.asarray(identity_predictions),
+                    np.asarray(identity_probabilities),
+                )
+            except ValueError:
+                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
+                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
+                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
+                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                continue
+
             if len(per_class_preds) != expected_classes:
                 empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
                 empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
