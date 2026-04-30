@@ -11,3 +11,9 @@ from .track_widgets.timeline_util import (
     binary_predictions_to_lut_indices,
     track_labels_to_lut_indices,
 )
+
+__all__ = [
+    "BehaviorTimelineWidget",
+    "binary_predictions_to_lut_indices",
+    "track_labels_to_lut_indices",
+]

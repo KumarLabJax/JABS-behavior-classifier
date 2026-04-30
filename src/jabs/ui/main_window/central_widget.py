@@ -64,12 +64,12 @@ class CentralWidget(QtWidgets.QWidget):
         self._debounce_search_hit_timer.timeout.connect(self._on_search_hit_changed)
 
         # timeline widgets
-        self._stacked_timeline = BehaviorTimelineWidget(self)
+        self._jabs_timeline = BehaviorTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
         self._player_widget.update_frame_number.connect(self._on_frame_changed)
-        self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
+        self._player_widget.update_frame_number.connect(self._jabs_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._on_pixmap_clicked)
         self._player_widget.id_label_clicked.connect(self._on_id_label_clicked)
         self._curr_frame_index = 0
@@ -127,7 +127,7 @@ class CentralWidget(QtWidgets.QWidget):
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 2, 1)
-        layout.addWidget(self._stacked_timeline, 1, 0)
+        layout.addWidget(self._jabs_timeline, 1, 0)
 
         # set row stretch to allow player to expand vertically but not other rows
         layout.setRowStretch(0, 1)  # Player row expands
@@ -245,11 +245,11 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_search_query = self._search_bar_widget.behavior_search_query
         video_name = self._loaded_video.name if self._loaded_video else None
         if not self._loaded_video or not video_name:
-            self._stacked_timeline.set_search_results(None, [])
+            self._jabs_timeline.set_search_results(None, [])
         else:
             # Filter search results for the currently loaded video
             filtered_results = [hit for hit in search_results if hit.file == video_name]
-            self._stacked_timeline.set_search_results(behavior_search_query, filtered_results)
+            self._jabs_timeline.set_search_results(behavior_search_query, filtered_results)
 
     @property
     def label_overlay_mode(self) -> PlayerWidget.LabelOverlayMode:
@@ -366,9 +366,9 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_identities(display_identities)
             self._player_widget.set_active_identity(self._controls.current_identity_index)
 
-            self._stacked_timeline.pose = self._pose_est
-            self._stacked_timeline.framerate = self._player_widget.stream_fps
-            self._stacked_timeline.set_classifier_mode(
+            self._jabs_timeline.pose = self._pose_est
+            self._jabs_timeline.framerate = self._player_widget.stream_fps
+            self._jabs_timeline.set_classifier_mode(
                 self._project.settings_manager.classifier_mode,
                 self._controls.behaviors,
             )
@@ -494,59 +494,59 @@ class CentralWidget(QtWidgets.QWidget):
     @property
     def timeline_view_mode(self) -> BehaviorTimelineWidget.ViewMode:
         """return the timeline view mode"""
-        return self._stacked_timeline.view_mode
+        return self._jabs_timeline.view_mode
 
     @timeline_view_mode.setter
     def timeline_view_mode(self, view_mode: BehaviorTimelineWidget.ViewMode) -> None:
         """set the timeline view mode"""
-        self._stacked_timeline.view_mode = view_mode
+        self._jabs_timeline.view_mode = view_mode
         self._update_select_button_state()
 
     @property
     def timeline_identity_mode(self) -> BehaviorTimelineWidget.IdentityMode:
         """return the timeline identity mode"""
-        return self._stacked_timeline.identity_mode
+        return self._jabs_timeline.identity_mode
 
     @timeline_identity_mode.setter
     def timeline_identity_mode(self, identity_mode: BehaviorTimelineWidget.IdentityMode) -> None:
         """set the timeline view mode"""
-        self._stacked_timeline.identity_mode = identity_mode
+        self._jabs_timeline.identity_mode = identity_mode
 
     @property
     def mc_collapse_label_bar(self) -> bool:
         """Whether inactive identity label bars are collapsed in multiclass all-animals mode."""
-        return self._stacked_timeline.collapse_inactive_label_bar
+        return self._jabs_timeline.collapse_inactive_label_bar
 
     @mc_collapse_label_bar.setter
     def mc_collapse_label_bar(self, value: bool) -> None:
-        self._stacked_timeline.collapse_inactive_label_bar = value
+        self._jabs_timeline.collapse_inactive_label_bar = value
 
     @property
     def mc_collapse_combined_bar(self) -> bool:
         """Whether inactive combined prediction bars are collapsed in multiclass all-animals mode."""
-        return self._stacked_timeline.collapse_inactive_combined_bar
+        return self._jabs_timeline.collapse_inactive_combined_bar
 
     @mc_collapse_combined_bar.setter
     def mc_collapse_combined_bar(self, value: bool) -> None:
-        self._stacked_timeline.collapse_inactive_combined_bar = value
+        self._jabs_timeline.collapse_inactive_combined_bar = value
 
     @property
     def mc_collapse_per_class_bars(self) -> bool:
         """Whether inactive per-class prediction bars are collapsed in multiclass all-animals mode."""
-        return self._stacked_timeline.collapse_inactive_per_class_bars
+        return self._jabs_timeline.collapse_inactive_per_class_bars
 
     @mc_collapse_per_class_bars.setter
     def mc_collapse_per_class_bars(self, value: bool) -> None:
-        self._stacked_timeline.collapse_inactive_per_class_bars = value
+        self._jabs_timeline.collapse_inactive_per_class_bars = value
 
     @property
     def mc_hide_per_class_rows(self) -> bool:
         """Whether per-class prediction rows are hidden for inactive identities."""
-        return self._stacked_timeline.hide_inactive_per_class_widgets
+        return self._jabs_timeline.hide_inactive_per_class_widgets
 
     @mc_hide_per_class_rows.setter
     def mc_hide_per_class_rows(self, value: bool) -> None:
-        self._stacked_timeline.hide_inactive_per_class_widgets = value
+        self._jabs_timeline.hide_inactive_per_class_widgets = value
 
     def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
@@ -587,10 +587,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame
             self._selection_end = None
-            self._stacked_timeline.start_selection(self._selection_start)
+            self._jabs_timeline.start_selection(self._selection_start)
         else:
             self._controls.disable_label_buttons()
-            self._stacked_timeline.clear_selection()
+            self._jabs_timeline.clear_selection()
 
     def select_all(self) -> None:
         """Select all frames in the current video for the current identity and behavior."""
@@ -603,7 +603,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._controls.enable_label_buttons()
                 self._selection_start = 0
                 self._selection_end = num_frames - 1
-                self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
+                self._jabs_timeline.start_selection(self._selection_start, self._selection_end)
 
     def select_current_bout(self) -> None:
         """Select all frames in the current bout (contiguous labeled run at the current frame).
@@ -640,7 +640,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.enable_label_buttons()
         self._selection_start = start
         self._selection_end = end
-        self._stacked_timeline.start_selection(start, end)
+        self._jabs_timeline.start_selection(start, end)
 
     @staticmethod
     def _get_bout_range(labels: np.ndarray, current_frame: int) -> tuple[int, int] | None:
@@ -757,7 +757,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
-        self._stacked_timeline.clear_selection()
+        self._jabs_timeline.clear_selection()
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._player_widget.reload_frame()
@@ -771,7 +771,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
-        self._stacked_timeline.active_identity_index = self._controls.current_identity_index
+        self._jabs_timeline.active_identity_index = self._controls.current_identity_index
 
     def _on_frame_changed(self, new_frame: int) -> None:
         """called when the video player widget emits its updateFrameNumber signal"""
@@ -799,7 +799,7 @@ class CentralWidget(QtWidgets.QWidget):
             ]
             if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
                 behavior_names = self._controls.behaviors
-                self._stacked_timeline.set_labels(
+                self._jabs_timeline.set_labels(
                     [
                         self._labels.build_multiclass_label_array(str(i), behavior_names)
                         for i in range(self._pose_est.num_identities)
@@ -811,7 +811,7 @@ class CentralWidget(QtWidgets.QWidget):
                     self._player_widget.set_labels([labels.get_labels() for labels in label_list])
             else:
                 label_list = self._get_label_list()
-                self._stacked_timeline.set_labels(
+                self._jabs_timeline.set_labels(
                     [track_labels_to_lut_indices(t) for t in label_list],
                     mask_list,
                 )
@@ -1101,7 +1101,7 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
-        self._stacked_timeline.set_predictions(
+        self._jabs_timeline.set_predictions(
             [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
             [[prob] for prob in self._probability_list],
         )
@@ -1151,7 +1151,7 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if self._project is None or self._loaded_video is None:
             return
-        self._stacked_timeline.set_classifier_mode(
+        self._jabs_timeline.set_classifier_mode(
             self._project.settings_manager.classifier_mode,
             self._controls.behaviors,
         )
@@ -1417,7 +1417,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._start_selection(False)
             self._controls.select_button_enabled = False
             self._controls.select_button_set_checked(False)
-            self._stacked_timeline.clear_selection()
+            self._jabs_timeline.clear_selection()
 
         # disable select frames button if no video is loaded, there are
         # no identities to label, or the current view mode is predictions
@@ -1425,7 +1425,7 @@ class CentralWidget(QtWidgets.QWidget):
         if (
             self._loaded_video is None
             or (self._pose_est is not None and self._pose_est.num_identities == 0)
-            or self._stacked_timeline.view_mode == self._stacked_timeline.view_mode.PREDICTIONS
+            or self._jabs_timeline.view_mode == self._jabs_timeline.view_mode.PREDICTIONS
         ):
             disable_select_button()
         else:
