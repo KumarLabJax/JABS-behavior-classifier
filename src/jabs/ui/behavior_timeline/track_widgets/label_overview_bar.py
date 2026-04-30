@@ -26,7 +26,7 @@ from ...colors import (
     NOT_BEHAVIOR_COLOR,
     POSITION_MARKER_COLOR,
 )
-from .label_overview_util import diamond_at
+from .timeline_util import diamond_at
 
 
 def _srgb_to_linear(v: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
@@ -120,7 +120,7 @@ def _downsample_to_size(
     return (result * 255.0).clip(0, 255).astype(np.uint8)
 
 
-class TimelineLabelWidget(QWidget):
+class LabelOverviewBar(QWidget):
     """Widget that shows a "zoomed out" overview of labels for the entire video.
 
     Because each pixel along the width ends up representing multiple frames,
@@ -171,7 +171,7 @@ class TimelineLabelWidget(QWidget):
         """Replace the color lookup table used to render label frames.
 
         In binary mode this is never called and the class-level ``COLOR_LUT``
-        is used.  In multi-class mode ``StackedTimelineWidget`` calls this with
+        is used.  In multi-class mode ``BehaviorTimelineWidget`` calls this with
         the per-behavior palette produced by
         :func:`jabs.ui.colors.build_multiclass_color_lut`.
 
@@ -255,7 +255,7 @@ class TimelineLabelWidget(QWidget):
         """Load and display a new label track.
 
         ``labels`` must already be a direct LUT-index array: binary callers
-        use :func:`.label_overview_util.track_labels_to_lut_indices` to shift
+        use :func:`.timeline_util.track_labels_to_lut_indices` to shift
         a ``TrackLabels`` before calling; multi-class callers pass the array
         from ``VideoLabels.build_multiclass_label_array`` directly.
 

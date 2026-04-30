@@ -5,11 +5,11 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from jabs.behavior_search import SearchHit
 
-from .manual_label_widget import ManualLabelWidget
-from .timeline_label_widget import TimelineLabelWidget
+from .label_detail_bar import LabelDetailBar
+from .label_overview_bar import LabelOverviewBar
 
 
-class LabelOverviewWidget(QWidget):
+class LabelTrackWidget(QWidget):
     """Widget for displaying an overview of manual behavior labels for one labeling subject.
 
     Combines a timeline widget and a manual label widget in a vertically stacked layout,
@@ -63,20 +63,20 @@ class LabelOverviewWidget(QWidget):
         self._label_widget.compact = value
 
     @classmethod
-    def _timeline_widget_factory(cls, parent: QWidget) -> TimelineLabelWidget:
+    def _timeline_widget_factory(cls, parent: QWidget) -> LabelOverviewBar:
         """factory method to create the timeline widget
 
         This is done to make it easier to subclass the widget and swap out the timeline widget
         """
-        return TimelineLabelWidget(parent)
+        return LabelOverviewBar(parent)
 
     @classmethod
-    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> ManualLabelWidget:
+    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> LabelDetailBar:
         """factory method to create the label widget
 
         This is done to make it easier to subclass the widget and swap out the label widget
         """
-        return ManualLabelWidget(parent, compact=compact)
+        return LabelDetailBar(parent, compact=compact)
 
     def _set_layout(self) -> None:
         """Set up the vertical layout for the widget.

@@ -18,6 +18,7 @@ from jabs.core.enums import ClassifierMode, PredictionType
 from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
+from ..behavior_timeline import BehaviorTimelineWidget
 from ..dialogs import (
     AboutDialog,
     ArchiveBehaviorDialog,
@@ -34,7 +35,6 @@ from ..settings_dialog import (
     PostprocessingSettingsDialog,
     ProjectSettingsDialog,
 )
-from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
 
@@ -408,20 +408,20 @@ class MenuHandlers:
     def on_timeline_view_mode_changed(self) -> None:
         """Handle timeline view mode change (Labels, Predictions, or Both)."""
         if self.window._menu_refs.timeline_labels_preds.isChecked():
-            mode = StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
+            mode = BehaviorTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
         elif self.window._menu_refs.timeline_labels.isChecked():
-            mode = StackedTimelineWidget.ViewMode.LABELS
+            mode = BehaviorTimelineWidget.ViewMode.LABELS
         else:
-            mode = StackedTimelineWidget.ViewMode.PREDICTIONS
+            mode = BehaviorTimelineWidget.ViewMode.PREDICTIONS
 
         self.window._central_widget.timeline_view_mode = mode
 
     def on_timeline_identity_mode_changed(self) -> None:
         """Handle timeline identity mode change (All Animals or Selected Animal)."""
         if self.window._menu_refs.timeline_all_animals.isChecked():
-            mode = StackedTimelineWidget.IdentityMode.ALL
+            mode = BehaviorTimelineWidget.IdentityMode.ALL
         else:
-            mode = StackedTimelineWidget.IdentityMode.ACTIVE
+            mode = BehaviorTimelineWidget.IdentityMode.ACTIVE
 
         self.window._central_widget.timeline_identity_mode = mode
         self.update_mc_layout_actions_enabled_state()

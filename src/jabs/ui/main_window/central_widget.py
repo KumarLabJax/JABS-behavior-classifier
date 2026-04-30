@@ -17,6 +17,11 @@ from jabs.core.enums import ClassifierMode, ClassifierType, PredictionType
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
+from ..behavior_timeline import (
+    BehaviorTimelineWidget,
+    binary_predictions_to_lut_indices,
+    track_labels_to_lut_indices,
+)
 from ..classification_thread import ClassifyThread
 from ..dialogs import AnnotationEditDialog, TrainingReportDialog
 from ..dialogs.message_dialog import MessageDialog
@@ -25,11 +30,6 @@ from ..exceptions import ThreadTerminatedError
 from ..main_control_widget import MainControlWidget
 from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
-from ..stacked_timeline_widget import (
-    StackedTimelineWidget,
-    binary_predictions_to_lut_indices,
-    track_labels_to_lut_indices,
-)
 from ..training_thread import TrainingThread
 
 _CLICK_THRESHOLD = 20
@@ -64,7 +64,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._debounce_search_hit_timer.timeout.connect(self._on_search_hit_changed)
 
         # timeline widgets
-        self._stacked_timeline = StackedTimelineWidget(self)
+        self._stacked_timeline = BehaviorTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
@@ -492,23 +492,23 @@ class CentralWidget(QtWidgets.QWidget):
         return self._controls
 
     @property
-    def timeline_view_mode(self) -> StackedTimelineWidget.ViewMode:
+    def timeline_view_mode(self) -> BehaviorTimelineWidget.ViewMode:
         """return the timeline view mode"""
         return self._stacked_timeline.view_mode
 
     @timeline_view_mode.setter
-    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode) -> None:
+    def timeline_view_mode(self, view_mode: BehaviorTimelineWidget.ViewMode) -> None:
         """set the timeline view mode"""
         self._stacked_timeline.view_mode = view_mode
         self._update_select_button_state()
 
     @property
-    def timeline_identity_mode(self) -> StackedTimelineWidget.IdentityMode:
+    def timeline_identity_mode(self) -> BehaviorTimelineWidget.IdentityMode:
         """return the timeline identity mode"""
         return self._stacked_timeline.identity_mode
 
     @timeline_identity_mode.setter
-    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode) -> None:
+    def timeline_identity_mode(self, identity_mode: BehaviorTimelineWidget.IdentityMode) -> None:
         """set the timeline view mode"""
         self._stacked_timeline.identity_mode = identity_mode
 

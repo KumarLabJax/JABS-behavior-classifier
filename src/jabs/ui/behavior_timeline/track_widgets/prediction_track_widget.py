@@ -4,29 +4,31 @@ import numpy as np
 import numpy.typing as npt
 from PySide6.QtWidgets import QWidget
 
-from .label_overview_widget import LabelOverviewWidget
-from .predicted_label_widget import PredictedLabelWidget
-from .timeline_label_widget import TimelineLabelWidget
+from .class_prediction_detail_bar import ClassPredictionDetailBar
+from .label_overview_bar import LabelOverviewBar
+from .label_track_widget import LabelTrackWidget
 
 
-class PredictionOverviewWidget(LabelOverviewWidget):
+class PredictionTrackWidget(LabelTrackWidget):
     """Widget that displays an overview of predicted labels for a video.
 
-    Subclass of ``LabelOverviewWidget`` that replaces the detail bar with a
-    ``PredictedLabelWidget`` (confidence alpha-blending, read-only) while
-    keeping ``TimelineLabelWidget`` for the overview bar.  Overrides
+    Subclass of ``LabelTrackWidget`` that replaces the detail bar with a
+    ``ClassPredictionDetailBar`` (confidence alpha-blending, read-only) while
+    keeping ``LabelOverviewBar`` for the overview bar.  Overrides
     ``set_labels`` to accept per-frame probabilities instead of an identity mask.
     """
 
     @classmethod
     def _timeline_widget_factory(cls, parent):
-        """Return a TimelineLabelWidget for the timeline slot."""
-        return TimelineLabelWidget(parent)
+        """Return a LabelOverviewBar for the timeline slot."""
+        return LabelOverviewBar(parent)
 
     @classmethod
-    def _label_widget_factory(cls, parent: QWidget, compact: bool = False) -> PredictedLabelWidget:
-        """Create a PredictedLabelWidget as the label widget for this overview."""
-        return PredictedLabelWidget(parent, compact=compact)
+    def _label_widget_factory(
+        cls, parent: QWidget, compact: bool = False
+    ) -> ClassPredictionDetailBar:
+        """Create a ClassPredictionDetailBar as the label widget for this overview."""
+        return ClassPredictionDetailBar(parent, compact=compact)
 
     def set_labels(
         self,
@@ -35,7 +37,7 @@ class PredictionOverviewWidget(LabelOverviewWidget):
     ) -> None:
         """Set prediction data to display.
 
-        Overrides :meth:`LabelOverviewWidget.set_labels` to accept per-frame
+        Overrides :meth:`LabelTrackWidget.set_labels` to accept per-frame
         probabilities as the second argument instead of an identity mask.
         ``labels`` must be a direct LUT-index array, same contract as the parent.
 
