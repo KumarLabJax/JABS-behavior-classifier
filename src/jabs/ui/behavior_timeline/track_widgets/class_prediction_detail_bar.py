@@ -5,16 +5,16 @@ import numpy.typing as npt
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPaintEvent
 
-from .label_overview_util import render_search_hits
-from .manual_label_widget import ManualLabelWidget
+from .label_detail_bar import LabelDetailBar
+from .timeline_util import render_search_hits
 
 
-class PredictedLabelWidget(ManualLabelWidget):
+class ClassPredictionDetailBar(LabelDetailBar):
     """
     Widget for visualizing predicted behavior labels and their probabilities in a video timeline.
 
     Displays a horizontal bar where each frame is color-coded according to the predicted label,
-    with transparency indicating the model's confidence (probability). Unlike ManualLabelWidget,
+    with transparency indicating the model's confidence (probability). Unlike LabelDetailBar,
     this widget is read-only and does not support selection or manual label editing.
 
     Args:
@@ -178,7 +178,7 @@ class PredictedLabelWidget(ManualLabelWidget):
         self.update()
 
     def start_selection(self, start_frame: int, end_frame: int | None = None) -> None:
-        """Not supported in PredictedLabelWidget.
+        """Not supported in ClassPredictionDetailBar.
 
         Raises:
             NotImplementedError: Always; selection is not supported on prediction widgets.
@@ -186,7 +186,7 @@ class PredictedLabelWidget(ManualLabelWidget):
         raise NotImplementedError
 
     def clear_selection(self) -> None:
-        """Not supported in PredictedLabelWidget"""
+        """Not supported in ClassPredictionDetailBar"""
         raise NotImplementedError
 
     def reset(self) -> None:

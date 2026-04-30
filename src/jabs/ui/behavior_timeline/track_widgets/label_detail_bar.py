@@ -25,10 +25,10 @@ from ...colors import (
     POSITION_MARKER_COLOR,
     SELECTION_COLOR,
 )
-from .label_overview_util import render_search_hits
+from .timeline_util import render_search_hits
 
 
-class ManualLabelWidget(QWidget):
+class LabelDetailBar(QWidget):
     """Widget for visualizing manual behavior labels in a video timeline.
 
     Displays a horizontal bar representing frame-wise labels, with color coding for behavior,
@@ -120,7 +120,7 @@ class ManualLabelWidget(QWidget):
         """Replace the color lookup table used to render label frames.
 
         In binary mode this is never called and the class-level ``COLOR_LUT``
-        is used.  In multi-class mode ``StackedTimelineWidget`` calls this with
+        is used.  In multi-class mode ``BehaviorTimelineWidget`` calls this with
         the per-behavior palette produced by
         :func:`jabs.ui.colors.build_multiclass_color_lut`.
 

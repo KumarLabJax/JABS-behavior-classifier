@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from .predicted_label_widget import PredictedLabelWidget
+from .class_prediction_detail_bar import ClassPredictionDetailBar
 
 
-class BehaviorProbabilityWidget(PredictedLabelWidget):
+class BehaviorProbabilityDetailBar(ClassPredictionDetailBar):
     """Renders a single behavior's probability as a color heatmap.
 
-    Unlike :class:`PredictedLabelWidget`, which uses a 3-entry LUT to paint a
+    Unlike :class:`ClassPredictionDetailBar`, which uses a 3-entry LUT to paint a
     "not this class" color for low-probability frames, this widget always uses
     the behavior color (LUT index 2) and controls visibility with alpha alone.
     The result is a white background with the behavior color overlaid at

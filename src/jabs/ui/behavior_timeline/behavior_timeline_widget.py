@@ -32,10 +32,10 @@ from ..colors import (
     build_multiclass_color_lut,
     make_behavior_color_map,
 )
-from .frame_labels_widget import FrameLabelsWidget
-from .label_overview_widget import LabelOverviewWidget, PredictionOverviewWidget
-from .label_overview_widget.per_class_prediction_overview_widget import (
-    PerClassPredictionOverviewWidget,
+from .frame_ruler_widget import FrameRulerWidget
+from .track_widgets import LabelTrackWidget, PredictionTrackWidget
+from .track_widgets.per_class_prediction_track_widget import (
+    PerClassPredictionTrackWidget,
 )
 
 
@@ -79,8 +79,8 @@ class _BehaviorLegendWidget(QWidget):
         layout.addStretch()
 
 
-class StackedTimelineWidget(QWidget):
-    """A widget that manages and displays multiple LabelOverviewWidgets, one for each identity.
+class BehaviorTimelineWidget(QWidget):
+    """A widget that manages and displays multiple LabelTrackWidgets, one for each identity.
 
     This widget allows toggling between showing all identities or only the active one,
     manages selection transfer between identities, and forwards label and frame updates
@@ -88,7 +88,7 @@ class StackedTimelineWidget(QWidget):
     such as behavioral video annotation tools.
 
     In multi-class mode (set via :meth:`set_classifier_mode`), each identity displays a
-    multi-color combined label bar and one :class:`PredictionOverviewWidget` per behavior
+    multi-color combined label bar and one :class:`PredictionTrackWidget` per behavior
     class.  In binary mode the original single-behavior view is retained.
 
     Properties:
@@ -125,12 +125,12 @@ class StackedTimelineWidget(QWidget):
         self._num_identities = 0
         self._num_frames = 0
         self._framerate = 0
-        self._label_overview_widgets: list[LabelOverviewWidget] = []
-        self._combined_prediction_widgets: list[PredictionOverviewWidget | None] = []
-        self._prediction_overview_widgets: list[list[PredictionOverviewWidget]] = []
+        self._label_overview_widgets: list[LabelTrackWidget] = []
+        self._combined_prediction_widgets: list[PredictionTrackWidget | None] = []
+        self._prediction_overview_widgets: list[list[PredictionTrackWidget]] = []
         self._per_class_separators: list[QFrame | None] = []
         self._identity_frames: list[QFrame] = []
-        self._frame_labels = FrameLabelsWidget(self)
+        self._frame_labels = FrameRulerWidget(self)
         self._pose: PoseEstimation | None = None
 
         self._classifier_mode: ClassifierMode = ClassifierMode.BINARY
@@ -152,16 +152,16 @@ class StackedTimelineWidget(QWidget):
         if app and hasattr(app, "paletteChanged"):
             app.paletteChanged.connect(self._on_palette_changed)
 
-    def _label_overview_widget_factory(self, parent) -> LabelOverviewWidget:
+    def _label_overview_widget_factory(self, parent) -> LabelTrackWidget:
         """Factory method to create a label overview widget."""
-        widget = LabelOverviewWidget(parent, compact=self._identity_mode == self.IdentityMode.ALL)
+        widget = LabelTrackWidget(parent, compact=self._identity_mode == self.IdentityMode.ALL)
         widget.num_frames = self.num_frames
         widget.framerate = self.framerate
         return widget
 
-    def _prediction_overview_widget_factory(self, parent) -> PredictionOverviewWidget:
+    def _prediction_overview_widget_factory(self, parent) -> PredictionTrackWidget:
         """Factory method to create a prediction overview widget."""
-        widget = PredictionOverviewWidget(
+        widget = PredictionTrackWidget(
             parent, compact=self._identity_mode == self.IdentityMode.ALL
         )
         widget.num_frames = self.num_frames
@@ -275,7 +275,7 @@ class StackedTimelineWidget(QWidget):
     def set_classifier_mode(self, mode: ClassifierMode, behavior_names: list[str]) -> None:
         """Set the classifier mode and rebuild the layout for multi-class or binary display.
 
-        In multi-class mode, each identity gets one :class:`PredictionOverviewWidget` per
+        In multi-class mode, each identity gets one :class:`PredictionTrackWidget` per
         behavior class, a multi-color label bar, and a behavior legend widget is added
         above the identity rows.  In binary mode the original single-widget view is used.
 
@@ -394,17 +394,17 @@ class StackedTimelineWidget(QWidget):
                 combined_pw.set_color_lut(self._multiclass_color_lut)
                 combined_pw.setVisible(False)
                 # Per-class detail bars (collapsible): None row first, then behaviors.
-                # Always compact; use PerClassPredictionOverviewWidget so the detail bar
+                # Always compact; use PerClassPredictionTrackWidget so the detail bar
                 # renders behavior color at probability-based alpha (no "not this class" gray).
-                prediction_widgets: list[PredictionOverviewWidget] = []
-                none_pw = PerClassPredictionOverviewWidget(frame, compact=True)
+                prediction_widgets: list[PredictionTrackWidget] = []
+                none_pw = PerClassPredictionTrackWidget(frame, compact=True)
                 none_pw.num_frames = self.num_frames
                 none_pw.framerate = self.framerate
                 none_pw.set_color_lut(self._build_none_lut())
                 none_pw.setVisible(False)
                 prediction_widgets.append(none_pw)
                 for behavior_name in self._behavior_names:
-                    pw = PerClassPredictionOverviewWidget(frame, compact=True)
+                    pw = PerClassPredictionTrackWidget(frame, compact=True)
                     pw.num_frames = self.num_frames
                     pw.framerate = self.framerate
                     pw.set_color_lut(self._build_class_lut(behavior_name))
@@ -588,16 +588,16 @@ class StackedTimelineWidget(QWidget):
                 self._combined_prediction_widgets[idx].compact = False  # type: ignore[union-attr]
             # Per-class bars are always compact regardless of identity view mode.
 
-        # Add FrameLabelsWidget last
+        # Add FrameRulerWidget last
         self._layout.addWidget(self._frame_labels)
         self._frame_labels.show()
         self._update_frame_border()
 
     def _set_widget_visibility(
         self,
-        label_widget: LabelOverviewWidget,
-        combined_widget: PredictionOverviewWidget | None,
-        prediction_widgets: list[PredictionOverviewWidget],
+        label_widget: LabelTrackWidget,
+        combined_widget: PredictionTrackWidget | None,
+        prediction_widgets: list[PredictionTrackWidget],
         separator: QFrame | None = None,
         is_active: bool = True,
     ) -> None:
@@ -609,10 +609,10 @@ class StackedTimelineWidget(QWidget):
         optionally collapsed on non-active identities.
 
         Args:
-            label_widget: The LabelOverviewWidget to show or hide.
-            combined_widget: The combined argmax PredictionOverviewWidget, or ``None`` in
+            label_widget: The LabelTrackWidget to show or hide.
+            combined_widget: The combined argmax PredictionTrackWidget, or ``None`` in
                 binary mode.
-            prediction_widgets: The per-class PredictionOverviewWidgets to show or hide.
+            prediction_widgets: The per-class PredictionTrackWidgets to show or hide.
             separator: Optional horizontal line separating the combined bar from the
                 per-class bars; shown whenever the per-class bars are shown.
             is_active: Whether this identity is the active one (used for layout compaction).
@@ -659,7 +659,7 @@ class StackedTimelineWidget(QWidget):
 
     @Slot(int)
     def set_current_frame(self, current_frame: int) -> None:
-        """Forward current frame to all LabelOverviewWidgets and PredictionOverviewWidgets."""
+        """Forward current frame to all LabelTrackWidgets and PredictionTrackWidgets."""
         for label_widget, combined_widget, pred_widgets in zip(
             self._label_overview_widgets,
             self._combined_prediction_widgets,
@@ -678,7 +678,7 @@ class StackedTimelineWidget(QWidget):
         labels_list: list[npt.NDArray[np.int16]],
         masks_list: list[np.ndarray],
     ) -> None:
-        """Set labels for all LabelOverviewWidgets.
+        """Set labels for all LabelTrackWidgets.
 
         ``labels_list`` must contain pre-normalized LUT-index arrays.  Callers
         are responsible for converting raw ``TrackLabels`` or multi-class arrays
@@ -715,11 +715,11 @@ class StackedTimelineWidget(QWidget):
         predictions_list: list[list[npt.NDArray[np.int16]]],
         probabilities_list: list[list[npt.NDArray[np.floating]]],
     ) -> None:
-        """Set predictions for all PredictionOverviewWidgets.
+        """Set predictions for all PredictionTrackWidgets.
 
         In binary mode, each inner list contains exactly one array.  In multi-class mode,
         each inner list contains one array per behavior class, matching the number of
-        PredictionOverviewWidgets created by :meth:`set_classifier_mode`.
+        PredictionTrackWidgets created by :meth:`set_classifier_mode`.
 
         Args:
             predictions_list: Nested list of class-index arrays, shape
