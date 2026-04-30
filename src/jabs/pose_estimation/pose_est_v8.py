@@ -59,22 +59,11 @@ class PoseEstimationV8(PoseEstimationV7):
 
             bboxes = ds[:]
 
-            # Load identity mapping arrays, needed to reorganize bboxes by identity
+            # Load identity mapping arrays, needed to reorganize bboxes by identity.
+            # _num_identities was already set correctly by PoseEstimationV4.__init__
+            # via super().__init__(); no need to re-derive it here.
             instance_embed_id = pose_h5["poseest/instance_embed_id"][:]
             id_mask = pose_h5["poseest/id_mask"][:]
-
-            # Determine number of identities the same way v4 does: mask out invalids and take max
-            if instance_embed_id.shape[1] > 0:
-                valid = id_mask == 0
-                if valid.any():
-                    # instance_embed_id is 1-based; take max over valid entries
-                    self._num_identities = int(instance_embed_id[valid].max())
-                else:
-                    print(f"Warning: All identities masked in pose file: {self._path}")
-                    self._num_identities = 0
-            else:
-                print(f"Warning: No identities found in pose file: {self._path}")
-                self._num_identities = 0
 
             # Prepare an array grouped by identity, matching the v4 keypoint transform logic.
             # Shapes:

@@ -18,10 +18,21 @@ import pandas as pd
 import jabs.feature_extraction as fe
 from jabs.core.constants import CACHE_FORMAT_KEY
 from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
-from jabs.pose_estimation import PoseEstimation, open_pose_file
+from jabs.pose_estimation import (
+    PoseEstimation,
+    get_pose_file_major_version,
+    get_pose_path,
+    open_pose_file,
+)
 
 from .feature_manager import FeatureManager
-from .parallel_workers import FeatureLoadJobSpec, collect_labeled_features
+from .parallel_workers import (
+    FeatureLoadJobSpec,
+    VideoScanJobSpec,
+    VideoScanResult,
+    collect_labeled_features,
+    scan_video_metadata,
+)
 from .prediction_manager import PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
@@ -104,9 +115,15 @@ class Project:
         is_new_project = not self._paths.project_file.exists()
 
         self._settings_manager = SettingsManager(self._paths)
-        self._video_manager = VideoManager(self._paths, self._settings_manager, enable_video_check)
+        scan_results = self._run_video_scan(enable_video_check, process_pool)
+        self._video_manager = VideoManager(
+            self._paths, self._settings_manager, enable_video_check, scan_results=scan_results
+        )
         self._feature_manager = FeatureManager(
-            self._paths, self._video_manager.videos, self._video_manager
+            self._paths,
+            self._video_manager.videos,
+            self._video_manager,
+            scan_results=scan_results,
         )
         self._prediction_manager = PredictionManager(self)
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
@@ -130,6 +147,68 @@ class Project:
         # Since the session has a reference to the Project, the Project should be fully initialized before starting
         # the session tracker.
         self._session_tracker.start_session()
+
+    def _run_video_scan(
+        self,
+        enable_video_check: bool,
+        process_pool: "ProcessPoolManager | None",
+    ) -> dict[str, VideoScanResult]:
+        """Collect per-video metadata via a parallel scan of all pose HDF5 files.
+
+        Discovers videos and their pose files, then dispatches one
+        :func:`~jabs.project.parallel_workers.scan_video_metadata` worker per
+        video. Workers open each HDF5 file exactly once and return everything
+        :class:`VideoManager` and :class:`FeatureManager` need at load time.
+
+        When ``process_pool`` is ``None`` (e.g. CLI scripts), workers run
+        sequentially — still reduces HDF5 opens compared to the legacy path.
+
+        Videos whose pose file cannot be located are skipped here;
+        :class:`VideoManager` will raise the appropriate error during its own
+        ``_validate_pose_files`` check.
+
+        Args:
+            enable_video_check: When ``True``, workers also read video frame
+                counts (mirrors the ``enable_video_check`` flag).
+            process_pool: Optional shared process pool for parallel execution.
+
+        Returns:
+            Mapping from video filename to scan result.
+        """
+        videos = sorted(VideoManager.get_videos(self._paths.video_dir))
+        jobs: list[VideoScanJobSpec] = []
+        for video in videos:
+            video_path = self._paths.video_dir / video
+            try:
+                pose_path = get_pose_path(video_path, self._paths.pose_dir)
+            except ValueError:
+                # Missing pose file — VideoManager._validate_pose_files will report it.
+                continue
+            major_version = get_pose_file_major_version(pose_path)
+            jobs.append(
+                VideoScanJobSpec(
+                    video=video,
+                    video_path=video_path,
+                    pose_path=pose_path,
+                    pose_major_version=major_version,
+                    scan_frame_counts=enable_video_check,
+                )
+            )
+
+        if not jobs:
+            return {}
+
+        if process_pool is not None:
+            future_to_video = {
+                process_pool.submit(scan_video_metadata, job): job["video"] for job in jobs
+            }
+            results: dict[str, VideoScanResult] = {}
+            for future in as_completed(future_to_video):
+                result: VideoScanResult = future.result()
+                results[result["video"]] = result
+            return results
+
+        return {job["video"]: scan_video_metadata(job) for job in jobs}
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""
