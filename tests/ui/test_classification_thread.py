@@ -30,6 +30,7 @@ class _FakeClassifier:
     def __init__(self, multiclass: bool = False) -> None:
         self._multiclass = multiclass
         self.project_settings = {"window_size": 7}
+        self.behavior_names = ["Walk", "Run"]
 
     @staticmethod
     def combine_data(per_frame, window):

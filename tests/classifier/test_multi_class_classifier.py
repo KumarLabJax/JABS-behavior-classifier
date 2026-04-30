@@ -372,6 +372,22 @@ class TestTrain:
         )
         assert clf.feature_names is not None
 
+    def test_train_persists_effective_settings(self, two_behavior_labels, synthetic_features):
+        """Training persists resolved settings for later classification reuse."""
+        per_frame, window = synthetic_features
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        clf.train(
+            {
+                "per_frame": per_frame,
+                "window": window,
+                "labels_by_behavior": two_behavior_labels,
+                "settings": {"window_size": 13, "balance_labels": True},
+            },
+            random_seed=42,
+        )
+        assert clf.project_settings["window_size"] == 13
+        assert clf.project_settings["balance_labels"] is True
+
     @pytest.mark.parametrize(
         "classifier_type",
         [
