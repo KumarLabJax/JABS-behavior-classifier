@@ -1,4 +1,5 @@
 import time
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -102,13 +103,14 @@ class ClassifyThread(QThread):
                 self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
             )
             if multiclass_mode:
+                multiclass_classifier = cast(MultiClassClassifier, self._classifier)
                 # Multiclass classification reuses one shared classifier/settings bundle
                 # across all behaviors and writes a single reserved prediction record.
                 project_settings = (
-                    self._classifier.project_settings or self._project.get_project_defaults()
+                    multiclass_classifier.project_settings or self._project.get_project_defaults()
                 )
                 prediction_behavior = MULTICLASS_PREDICTION_KEY
-                class_names = [MULTICLASS_NONE_BEHAVIOR, *self._classifier.behavior_names]
+                class_names = [MULTICLASS_NONE_BEHAVIOR, *multiclass_classifier.behavior_names]
                 postprocessing_pipeline = None
             else:
                 project_settings = self._project.settings_manager.get_behavior(self._behavior)
@@ -181,7 +183,7 @@ class ClassifyThread(QThread):
                             )
 
                     if not multiclass_mode and postprocessing_pipeline is not None:
-                        # Post-processing semantics are currently binary-only (see T6 step 12).
+                        # Post-processing semantics are currently binary-only
                         postprocessed_predictions[identity] = postprocessing_pipeline.run(
                             predictions[identity], probabilities[identity]
                         )
