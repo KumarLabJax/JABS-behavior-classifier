@@ -2,6 +2,8 @@ import enum
 import shutil
 from typing import TYPE_CHECKING
 
+from jabs.pose_estimation import open_pose_file
+
 if TYPE_CHECKING:
     from .project import Project
 
@@ -84,13 +86,29 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
             continue
 
         source_pose = source.load_pose_est(source.video_manager.video_path(video))
-        destination_pose = destination.load_pose_est(destination.video_manager.video_path(video))
+        if video in videos_unique_to_source:
+            # This video was just copied from source -> destination during this merge run.
+            # Destination's in-memory VideoManager inventory has not been refreshed yet,
+            # so check_video_name-based load paths may fail.
+            try:
+                destination_pose = destination.load_pose_est(
+                    destination.video_manager.video_path(video)
+                )
+            except ValueError:
+                destination_pose = open_pose_file(
+                    destination.video_manager.get_cached_pose_path(video),
+                    destination.project_paths.cache_dir,
+                )
+            destination_labels = None
+        else:
+            destination_pose = destination.load_pose_est(
+                destination.video_manager.video_path(video)
+            )
+            destination_labels = destination.video_manager.load_video_labels(video)
 
         if source_pose.hash != destination_pose.hash:
             print(f"WARNING: Pose hash mismatch for video {video}. Skipping annotation merge.")
             continue
-
-        destination_labels = destination.video_manager.load_video_labels(video)
 
         if destination_labels is None:
             # destination project does not have annotations for this video, so we can just copy the source annotations

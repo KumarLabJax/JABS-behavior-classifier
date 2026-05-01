@@ -106,12 +106,18 @@ class PredictionManager:
         file_base = Path(video).with_suffix("").name + ".h5"
         path = self._project.project_paths.prediction_dir / file_base
 
-        nident = self._project.settings_manager.project_settings["video_files"][video][
-            "identities"
-        ]
+        nident = (
+            self._project.settings_manager.project_settings.get("video_files", {})
+            .get(video, {})
+            .get("identities")
+        )
+        if nident is None:
+            nident = self._project.video_manager.get_video_identity_count(video)
 
         try:
             pred = io.load(path, BehaviorPrediction, behavior=behavior)
+            if nident is None:
+                nident = pred.predicted_class.shape[0]
             assert pred.predicted_class.shape[0] == nident
 
             for i in range(nident):
