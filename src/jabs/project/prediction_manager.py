@@ -118,7 +118,9 @@ class PredictionManager:
             pred = io.load(path, BehaviorPrediction, behavior=behavior)
             if nident is None or nident <= 0:
                 nident = pred.predicted_class.shape[0]
-            assert pred.predicted_class.shape[0] == nident
+            if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
+                print(f"unable to open saved inferences for {video}", file=sys.stderr)
+                return {}, {}, {}
 
             for i in range(nident):
                 predictions[i] = pred.predicted_class[i]
@@ -129,7 +131,4 @@ class PredictionManager:
         except (KeyError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
-        except AssertionError:
-            print(f"unable to open saved inferences for {video}", file=sys.stderr)
-
         return predictions, probabilities, postprocessed_predictions
