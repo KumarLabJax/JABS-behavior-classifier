@@ -104,10 +104,17 @@ class TrainingThread(QThread):
         try:
             self.current_status.emit("Extracting Features")
             if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                # Resolve effective settings before feature extraction so that window
+                # features are always built with the same settings the classifier trains on.
+                multiclass_settings = (
+                    self._classifier.project_settings or self._project.get_project_defaults()
+                )
+
                 # Multi-class training uses one shared labeled-feature set across all behaviors.
                 features, group_mapping = self._project.get_multiclass_labeled_features(
                     progress_callable=id_processed,
                     should_terminate_callable=check_termination_requested,
+                    behavior_settings=multiclass_settings,
                 )
                 check_termination_requested()
 
@@ -128,11 +135,6 @@ class TrainingThread(QThread):
                     features["per_frame"], features["window"]
                 )
                 feature_names = full_dataset.columns.to_list()
-                multiclass_settings = self._classifier.project_settings
-                # Reuse any settings already attached to the classifier; otherwise use
-                # project defaults for the initial multiclass training run.
-                if not multiclass_settings:
-                    multiclass_settings = self._project.get_project_defaults()
                 self._classifier.train(
                     {
                         "per_frame": features["per_frame"],
@@ -178,22 +180,17 @@ class TrainingThread(QThread):
                     else "pixel"
                 )
                 report_timestamp = datetime.now()
-                training_settings = (
-                    multiclass_settings
-                    if multiclass_settings
-                    else self._project.get_project_defaults()
-                )
                 training_data = TrainingReportData(
                     behavior_name=self._behavior,
                     classifier_type=self._classifier.classifier_name,
-                    balance_training_labels=training_settings.get("balance_labels", False),
-                    symmetric_behavior=training_settings.get("symmetric_behavior", False),
+                    balance_training_labels=multiclass_settings.get("balance_labels", False),
+                    symmetric_behavior=multiclass_settings.get("symmetric_behavior", False),
                     distance_unit=unit,
                     cv_results=cv_results,
                     final_top_features=final_top_features,
                     training_time_ms=elapsed_ms,
                     timestamp=report_timestamp,
-                    window_size=training_settings.get("window_size", 0),
+                    window_size=multiclass_settings.get("window_size", 0),
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
                     class_frame_counts=class_frame_counts,
                     class_bout_counts=class_bout_counts,

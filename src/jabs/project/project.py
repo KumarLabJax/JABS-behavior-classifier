@@ -934,12 +934,22 @@ class Project:
         progress_callable: Callable[[], None] | None = None,
         should_terminate_callable: Callable[[], None] | None = None,
         grouping_strategy: CrossValidationGroupingStrategy | None = None,
+        behavior_settings: dict[str, object] | None = None,
     ) -> tuple[dict, dict]:
         """Get multiclass-labeled features for training (parallel per-video).
 
         In multiclass mode, frames are included only when they have an explicit
         ``TrackLabels.Label.BEHAVIOR`` label in at least one class track (including
         ``MULTICLASS_NONE_BEHAVIOR``).
+
+        Args:
+            progress_callable: Called once per completed video; used to drive progress bars.
+            should_terminate_callable: If provided, called between jobs; should raise
+                ``ThreadTerminatedError`` on user cancellation.
+            grouping_strategy: Optional override for cross-validation grouping strategy.
+                If None, uses project settings.
+            behavior_settings: Feature-extraction settings (must include ``window_size``).
+                If None, falls back to ``get_project_defaults()``.
 
         Returns:
             tuple[dict, dict]: A tuple of ``(features, group_mapping)``.
@@ -955,7 +965,8 @@ class Project:
         all_group_keys: list[tuple[str, int]] = []
 
         behavior_names = list(self.settings_manager.behavior_names)
-        behavior_settings = self.get_project_defaults()
+        if behavior_settings is None:
+            behavior_settings = self.get_project_defaults()
         videos = list(self._video_manager.videos)
 
         if grouping_strategy is None:
