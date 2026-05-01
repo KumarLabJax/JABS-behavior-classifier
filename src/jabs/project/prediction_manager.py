@@ -111,12 +111,12 @@ class PredictionManager:
             .get(video, {})
             .get("identities")
         )
-        if nident is None:
+        if nident is None or nident <= 0:
             nident = self._project.video_manager.get_video_identity_count(video)
 
         try:
             pred = io.load(path, BehaviorPrediction, behavior=behavior)
-            if nident is None:
+            if nident is None or nident <= 0:
                 nident = pred.predicted_class.shape[0]
             assert pred.predicted_class.shape[0] == nident
 

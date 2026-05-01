@@ -178,3 +178,33 @@ def test_load_predictions_without_video_files_metadata(
     predictions, probabilities, _ = prediction_manager.load_predictions(video, behavior)
     assert np.array_equal(predictions[0], [1, 0, -1])
     assert np.array_equal(probabilities[1], [0.7, 0.6, -1])
+
+
+def test_load_predictions_infers_identity_count_when_unknown(
+    prediction_manager,
+    mock_project,
+):
+    """If metadata is missing and video manager returns 0, infer identities from prediction shape."""
+    video = "unknown_video.avi"
+    behavior = "Walking"
+    prediction_file = mock_project.project_paths.prediction_dir / "unknown_video.h5"
+    mock_project.settings_manager.project_settings = {"video_files": {}}
+
+    with h5py.File(prediction_file, "w") as h5:
+        h5.attrs["version"] = 2
+        h5.attrs["pose_file"] = "test_pose.h5"
+        h5.attrs["pose_hash"] = "testhash"
+        prediction_group = h5.create_group("predictions")
+        behavior_group = prediction_group.create_group(behavior)
+        behavior_group.attrs["classifier_file"] = "test_classifier.pkl"
+        behavior_group.attrs["classifier_hash"] = "clshash"
+        behavior_group.attrs["app_version"] = "1.0.0"
+        behavior_group.attrs["prediction_date"] = "2025-01-01"
+        behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
+        behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
+
+    predictions, probabilities, _ = prediction_manager.load_predictions(video, behavior)
+    assert np.array_equal(predictions[0], [1, 0, -1])
+    assert np.array_equal(predictions[1], [0, 1, -1])
+    assert np.array_equal(probabilities[0], [0.9, 0.8, -1])
+    assert np.array_equal(probabilities[1], [0.7, 0.6, -1])

@@ -1,8 +1,9 @@
 import enum
 import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jabs.pose_estimation import open_pose_file
+from jabs.pose_estimation import get_pose_path, open_pose_file
 
 if TYPE_CHECKING:
     from .project import Project
@@ -95,8 +96,9 @@ def merge_projects(destination: "Project", source: "Project", strategy: MergeStr
                     destination.video_manager.video_path(video)
                 )
             except ValueError:
+                destination_video_path = destination.project_paths.video_dir / Path(video).name
                 destination_pose = open_pose_file(
-                    destination.video_manager.get_cached_pose_path(video),
+                    get_pose_path(destination_video_path, destination.project_paths.pose_dir),
                     destination.project_paths.cache_dir,
                 )
             destination_labels = None
