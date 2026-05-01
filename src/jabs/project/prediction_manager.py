@@ -165,7 +165,7 @@ class PredictionManager:
         except (KeyError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
-        except AssertionError:
+        except (AssertionError, ValueError):
             print(f"unable to open saved inferences for {video}", file=sys.stderr)
 
         return predictions, probabilities, postprocessed_predictions, class_names

@@ -612,3 +612,52 @@ def test_get_multiclass_labeled_features_aligns_labels_and_features(
         ("video_a.avi", 0),
         ("video_b.avi", 1),
     }
+
+
+def test_get_multiclass_labeled_features_fills_missing_behavior_keys(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Missing behavior label keys are filled with NONE arrays aligned to feature rows."""
+    project = Project(
+        tmp_path,
+        enable_video_check=False,
+        enable_session_tracker=False,
+        validate_project_dir=False,
+    )
+    project.settings_manager.save_behavior("Walk", {"window_size": 3})
+    project.settings_manager.save_behavior("Run", {"window_size": 3})
+
+    mock_vm = MagicMock()
+    mock_vm.videos = ["video_a.avi"]
+    mock_vm.video_path.side_effect = lambda v: tmp_path / v
+    mock_vm.get_cached_pose_path.side_effect = lambda v: tmp_path / v.replace(
+        ".avi", "_pose_est_v6.h5"
+    )
+    project._video_manager = mock_vm
+
+    def _fake_collect(_job: dict) -> dict:
+        return {
+            "per_frame": [pd.DataFrame({"f": [1.0, 2.0]})],
+            "window": [pd.DataFrame({"w": [10.0, 20.0]})],
+            "labels": [np.array([1, 1], dtype=np.int8)],
+            "labels_by_behavior": [
+                {
+                    MULTICLASS_NONE_BEHAVIOR: np.array([TrackLabels.Label.BEHAVIOR, 0]),
+                    "Walk": np.array([0, TrackLabels.Label.BEHAVIOR]),
+                    # "Run" intentionally omitted
+                }
+            ],
+            "group_keys": [("video_a.avi", 0)],
+        }
+
+    monkeypatch.setattr("jabs.project.project.collect_labeled_features", _fake_collect)
+
+    features, _ = project.get_multiclass_labeled_features()
+
+    assert features["per_frame"].shape[0] == 2
+    assert "Run" in features["labels_by_behavior"]
+    np.testing.assert_array_equal(
+        features["labels_by_behavior"]["Run"],
+        np.full(2, TrackLabels.Label.NONE, dtype=np.int8),
+    )

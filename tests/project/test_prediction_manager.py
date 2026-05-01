@@ -183,6 +183,39 @@ def test_load_multiclass_predictions_missing(prediction_manager) -> None:
     assert class_names is None
 
 
+def test_load_multiclass_predictions_invalid_shape_returns_empty(
+    prediction_manager,
+    mock_project,
+) -> None:
+    """Invalid multiclass schema falls back to empty predictions instead of raising."""
+    prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
+    with h5py.File(prediction_file, "w") as h5:
+        h5.attrs["version"] = 2
+        h5.attrs["pose_file"] = "test_pose.h5"
+        h5.attrs["pose_hash"] = "testhash"
+        prediction_group = h5.create_group("predictions")
+        behavior_group = prediction_group.create_group(MULTICLASS_PREDICTION_KEY)
+        behavior_group.attrs["app_version"] = "1.0.0"
+        behavior_group.attrs["prediction_date"] = "2025-01-01"
+        behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
+        # Invalid for class_names-present multiclass data; should be 3-D.
+        behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
+        behavior_group.create_dataset(
+            "class_names",
+            data=np.array(["None", "Walk", "Run"], dtype=object),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+
+    predictions, probabilities, predictions_postprocessed, class_names = (
+        prediction_manager.load_multiclass_predictions("test_video.avi")
+    )
+
+    assert predictions == {}
+    assert probabilities == {}
+    assert predictions_postprocessed == {}
+    assert class_names is None
+
+
 def test_load_predictions_missing_behavior(prediction_manager, mock_project):
     """Test loading predictions when behavior is missing."""
     video = "test_video.avi"

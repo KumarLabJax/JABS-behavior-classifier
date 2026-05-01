@@ -154,10 +154,10 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
     lines.append("### Label Counts")
     lines.append("")
-    if data.class_frame_counts:
+    if data.class_frame_counts is not None:
         for name, count in data.class_frame_counts.items():
             lines.append(f"- **{_escape_markdown(name)} frames:** {count:,}")
-        if data.class_bout_counts:
+        if data.class_bout_counts is not None:
             for name, count in data.class_bout_counts.items():
                 lines.append(f"- **{_escape_markdown(name)} bouts:** {count:,}")
     else:

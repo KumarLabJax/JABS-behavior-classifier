@@ -1112,6 +1112,7 @@ class Project:
 
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
+        n_rows = per_frame_df.shape[0]
         labels_by_behavior_arr = {
             name: np.concatenate(arrays) if arrays else np.array([], dtype=np.int8)
             for name, arrays in all_labels_by_behavior.items()
@@ -1125,9 +1126,10 @@ class Project:
         if missing_labels:
             # Keep a stable key set for downstream multi-class consumers.
             for missing in missing_labels:
-                labels_by_behavior_arr[missing] = np.array([], dtype=np.int8)
+                labels_by_behavior_arr[missing] = np.full(
+                    n_rows, TrackLabels.Label.NONE, dtype=np.int8
+                )
 
-        n_rows = per_frame_df.shape[0]
         if not (n_rows == window_df.shape[0] == groups.shape[0]):
             raise RuntimeError(
                 "Mismatch among per_frame/window/groups lengths in multiclass features: "

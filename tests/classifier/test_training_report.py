@@ -455,3 +455,25 @@ class TestMulticlassReport:
         assert report["cv_results"][0]["precision_macro"] == pytest.approx(0.9)
         assert report["cv_results"][0]["class_names"] == ["None", "Walk"]
         assert report["cv_results"][0]["class_support"] == [6, 7]
+
+    def test_multiclass_markdown_empty_count_dicts_do_not_fall_back_to_binary(self):
+        """Empty multiclass count dicts should not render binary count labels."""
+        data = TrainingReportData(
+            behavior_name="Walk",
+            classifier_type="catboost",
+            window_size=5,
+            balance_training_labels=False,
+            symmetric_behavior=False,
+            distance_unit="pixel",
+            cv_results=[],
+            final_top_features=[("feat_a", 0.5)],
+            training_time_ms=1000,
+            timestamp=datetime(2026, 4, 30, 12, 0, 0),
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+            class_frame_counts={},
+            class_bout_counts={},
+        )
+
+        report = generate_markdown_report(data)
+        assert "**Behavior frames:**" not in report
+        assert "**Not-behavior frames:**" not in report

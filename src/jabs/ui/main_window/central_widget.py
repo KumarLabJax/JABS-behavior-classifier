@@ -1237,35 +1237,42 @@ class CentralWidget(QtWidgets.QWidget):
         prediction_rows: list[list[np.ndarray]] = []
         probability_rows: list[list[np.ndarray]] = []
         expected_classes = 1 + len(self._controls.behaviors)
+        expected_frames = self._player_widget.num_frames
+
+        def append_empty_rows() -> None:
+            empty_pred = np.zeros(expected_frames, dtype=np.int16)
+            empty_prob = np.zeros(expected_frames, dtype=np.float32)
+            prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
+            probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
 
         for i in range(self._pose_est.num_identities):
             identity_predictions = self._predictions.get(i)
             identity_probabilities = self._probabilities.get(i)
 
             if identity_predictions is None or identity_probabilities is None:
-                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
-                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
-                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
-                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                append_empty_rows()
+                continue
+
+            predicted_arr = np.asarray(identity_predictions)
+            probabilities_arr = np.asarray(identity_probabilities)
+            if (
+                predicted_arr.shape[0] != expected_frames
+                or probabilities_arr.shape[0] != expected_frames
+            ):
+                append_empty_rows()
                 continue
 
             try:
                 per_class_preds, per_class_probs = self._decompose_multiclass_prediction_rows(
-                    np.asarray(identity_predictions),
-                    np.asarray(identity_probabilities),
+                    predicted_arr,
+                    probabilities_arr,
                 )
             except ValueError:
-                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
-                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
-                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
-                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                append_empty_rows()
                 continue
 
             if len(per_class_preds) != expected_classes:
-                empty_pred = np.zeros(self._player_widget.num_frames, dtype=np.int16)
-                empty_prob = np.zeros(self._player_widget.num_frames, dtype=np.float32)
-                prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
-                probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+                append_empty_rows()
                 continue
             prediction_rows.append(per_class_preds)
             probability_rows.append(per_class_probs)
