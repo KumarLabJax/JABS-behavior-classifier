@@ -1,9 +1,10 @@
 """Cross-validation utilities for JABS classifier training."""
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import precision_recall_fscore_support
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
@@ -16,10 +17,20 @@ if TYPE_CHECKING:
     from jabs.project import Project
 
 
+class CVFeatures(TypedDict):
+    """Feature payload used by cross-validation helper."""
+
+    per_frame: pd.DataFrame
+    window: pd.DataFrame
+    groups: np.ndarray
+    labels: NotRequired[np.ndarray]
+    labels_by_behavior: NotRequired[dict[str, np.ndarray]]
+
+
 def run_leave_one_group_out_cv(
     classifier: "Classifier | MultiClassClassifier",
     project: "Project",
-    features: dict[str, np.ndarray],
+    features: CVFeatures,
     group_mapping: dict,
     behavior: str,
     k: int = 1,
@@ -58,11 +69,13 @@ def run_leave_one_group_out_cv(
     is_multiclass = "labels_by_behavior" in features
     labels = features.get("labels")
     class_names: list[str] | None = None
+    multiclass_settings: dict | None = None
 
     if is_multiclass:
         behavior_names = list(getattr(classifier, "behavior_names", []))
         labels, _ = classifier.merge_labels(features["labels_by_behavior"], behavior_names)
         class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+        multiclass_settings = classifier.project_settings or project.get_project_defaults()
 
     cv_results = []
     if k > 0:
@@ -94,8 +107,9 @@ def run_leave_one_group_out_cv(
                 break
             emit_status(f"cross validation iteration {i + 1} of {k}")
             test_info = group_mapping[data["test_group"]]
-            classifier.set_project_settings(project)
             if is_multiclass:
+                if multiclass_settings is None:
+                    raise RuntimeError("Internal error: multiclass settings were not initialized")
                 train_idx = data["training_idx"]
                 labels_by_behavior = {
                     name: arr[train_idx] for name, arr in features["labels_by_behavior"].items()
@@ -105,11 +119,12 @@ def run_leave_one_group_out_cv(
                         "per_frame": features["per_frame"].iloc[train_idx],
                         "window": features["window"].iloc[train_idx],
                         "labels_by_behavior": labels_by_behavior,
-                        "settings": classifier.project_settings,
+                        "settings": multiclass_settings,
                         "feature_names": data["feature_names"],
                     }
                 )
             else:
+                classifier.set_project_settings(project)
                 classifier.behavior_name = behavior
                 classifier.train(data)
             predictions = classifier.predict(data["test_data"])
