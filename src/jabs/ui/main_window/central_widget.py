@@ -13,7 +13,12 @@ import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode, ClassifierType, PredictionType
+from jabs.core.enums import (
+    ClassifierMode,
+    ClassifierType,
+    CrossValidationGroupingStrategy,
+    PredictionType,
+)
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
@@ -1089,6 +1094,8 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
+        if self._progress_dialog is None:
+            return
         if step > self._progress_dialog.maximum():
             self._progress_dialog.setMaximum(step)
         self._progress_dialog.setValue(step)
@@ -1137,6 +1144,8 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _update_classify_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
+        if self._progress_dialog is None:
+            return
         self._progress_dialog.setValue(step)
 
     def _set_prediction_vis(self) -> None:
@@ -1311,23 +1320,75 @@ class CentralWidget(QtWidgets.QWidget):
             self.export_training_status_change.emit(False)
 
     def _multiclass_train_threshold_met(self) -> bool:
-        """Return True when at least two classes meet the multiclass frame threshold."""
+        """Return True when multiclass labels support the requested number of LOGO splits."""
         behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
         if len(behavior_names) < 2:
             return False
 
-        class_frame_counts: dict[str, int] = {}
+        counts_by_behavior: dict[str, dict] = {}
         for behavior_name in behavior_names:
-            total = 0
-            for video_counts in self._project.counts(behavior_name).values():
-                for identity_counts in video_counts.values():
-                    total += identity_counts["fragmented_frame_counts"][0]
-            class_frame_counts[behavior_name] = total
+            counts_by_behavior[behavior_name] = self._project.counts(behavior_name)
 
-        eligible_classes = sum(
-            count >= MultiClassClassifier.LABEL_THRESHOLD for count in class_frame_counts.values()
+        valid_splits = self._count_multiclass_valid_logo_splits(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=behavior_names,
+            grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+            threshold=MultiClassClassifier.LABEL_THRESHOLD,
         )
-        return eligible_classes >= 2
+        requested_splits = valid_splits if self._controls.all_kfold else self._controls.kfold_value
+        return valid_splits >= max(1, requested_splits)
+
+    @staticmethod
+    def _count_multiclass_valid_logo_splits(
+        counts_by_behavior: dict[str, dict],
+        behavior_names: list[str],
+        grouping_strategy: CrossValidationGroupingStrategy,
+        threshold: int,
+    ) -> int:
+        """Count valid multiclass LOGO splits using fragmented per-group frame counts."""
+        if not behavior_names:
+            return 0
+
+        group_class_counts: dict[tuple[str, int] | str, dict[str, int]] = {}
+        for behavior_name in behavior_names:
+            behavior_counts = counts_by_behavior.get(behavior_name, {})
+            for video_name, video_counts in behavior_counts.items():
+                if grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+                    key: tuple[str, int] | str = video_name
+                    group_entry = group_class_counts.setdefault(key, {})
+                    group_entry[behavior_name] = group_entry.get(behavior_name, 0) + sum(
+                        identity_counts["fragmented_frame_counts"][0]
+                        for identity_counts in video_counts.values()
+                    )
+                else:
+                    for identity, identity_counts in video_counts.items():
+                        key = (video_name, int(identity))
+                        group_entry = group_class_counts.setdefault(key, {})
+                        group_entry[behavior_name] = identity_counts["fragmented_frame_counts"][0]
+
+        if not group_class_counts:
+            return 0
+
+        total_by_class = {
+            class_name: sum(
+                group_counts.get(class_name, 0) for group_counts in group_class_counts.values()
+            )
+            for class_name in behavior_names
+        }
+
+        valid_groups = 0
+        for group_counts in group_class_counts.values():
+            n_test_classes = sum(
+                group_counts.get(class_name, 0) >= threshold for class_name in behavior_names
+            )
+            train_has_all_classes = all(
+                (total_by_class[class_name] - group_counts.get(class_name, 0)) >= threshold
+                for class_name in behavior_names
+            )
+            if n_test_classes >= 2 and train_has_all_classes:
+                valid_groups += 1
+
+        return valid_groups
 
     def _update_label_counts(self) -> None:
         """update the widget with the labeled frame / bout counts

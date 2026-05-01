@@ -64,6 +64,20 @@ def run_leave_one_group_out_cv(
         labels, _ = classifier.merge_labels(features["labels_by_behavior"], behavior_names)
         class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
 
+    cv_results = []
+    if k > 0:
+        max_splits = classifier.get_leave_one_group_out_max(labels, features["groups"])
+        if max_splits == 0:
+            emit_status("No valid cross-validation splits found; skipping CV")
+            return cv_results
+        if k == np.inf:
+            k = max_splits
+        elif k > max_splits:
+            emit_status(
+                f"Requested {k} cross-validation splits, but only {max_splits} are valid; using {max_splits}"
+            )
+            k = max_splits
+
     emit_status("Generating train/test splits")
     data_generator = classifier.leave_one_group_out(
         features["per_frame"],
@@ -71,10 +85,6 @@ def run_leave_one_group_out_cv(
         labels,
         features["groups"],
     )
-
-    cv_results = []
-    if k == np.inf:
-        k = classifier.get_leave_one_group_out_max(labels, features["groups"])
 
     if k > 0:
         for i, data in enumerate(data_generator):
