@@ -106,13 +106,21 @@ class PredictionManager:
         file_base = Path(video).with_suffix("").name + ".h5"
         path = self._project.project_paths.prediction_dir / file_base
 
-        nident = self._project.settings_manager.project_settings["video_files"][video][
-            "identities"
-        ]
+        nident = (
+            self._project.settings_manager.project_settings.get("video_files", {})
+            .get(video, {})
+            .get("identities")
+        )
+        if nident is None or nident <= 0:
+            nident = self._project.video_manager.get_video_identity_count(video)
 
         try:
             pred = io.load(path, BehaviorPrediction, behavior=behavior)
-            assert pred.predicted_class.shape[0] == nident
+            if nident is None or nident <= 0:
+                nident = pred.predicted_class.shape[0]
+            if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
+                print(f"unable to open saved inferences for {video}", file=sys.stderr)
+                return {}, {}, {}
 
             for i in range(nident):
                 predictions[i] = pred.predicted_class[i]
@@ -123,7 +131,4 @@ class PredictionManager:
         except (KeyError, FileNotFoundError):
             # no saved predictions for this behavior for this video
             pass
-        except AssertionError:
-            print(f"unable to open saved inferences for {video}", file=sys.stderr)
-
         return predictions, probabilities, postprocessed_predictions
