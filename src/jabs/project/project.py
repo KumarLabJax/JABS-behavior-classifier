@@ -797,7 +797,7 @@ class Project:
                 "behavior_settings": behavior_settings,
                 "behavior_name": behavior,
                 "behavior_names": None,
-                "classifier_mode": ClassifierMode.BINARY.value,
+                "classifier_mode": ClassifierMode.BINARY,
                 "cache_format": self.cache_format.value,
             }
             jobs.append(job)
@@ -852,10 +852,10 @@ class Project:
             if video not in results_by_video:
                 continue
             res = results_by_video[video]
-            all_per_frame.extend(res.get("per_frame", []))
-            all_window.extend(res.get("window", []))
-            all_labels.extend(res.get("labels", []))
-            all_group_keys.extend(res.get("group_keys", []))
+            all_per_frame.extend(res["per_frame"])
+            all_window.extend(res["window"])
+            all_labels.extend(res["labels"])
+            all_group_keys.extend(res["group_keys"])
 
         # If nothing was produced anywhere, return empty structures
         if not (all_per_frame and all_window and all_labels):
@@ -984,7 +984,7 @@ class Project:
                 "behavior_settings": behavior_settings,
                 "behavior_name": None,
                 "behavior_names": behavior_names,
-                "classifier_mode": ClassifierMode.MULTICLASS.value,
+                "classifier_mode": ClassifierMode.MULTICLASS,
                 "cache_format": self.cache_format.value,
             }
             jobs.append(job)
@@ -1032,10 +1032,10 @@ class Project:
             if video not in results_by_video:
                 continue
             res = results_by_video[video]
-            per_frame_items = res.get("per_frame", [])
-            window_items = res.get("window", [])
-            labels_by_behavior_items = res.get("labels_by_behavior", [])
-            group_keys_items = res.get("group_keys", [])
+            per_frame_items = res["per_frame"]
+            window_items = res["window"]
+            labels_by_behavior_items = res["labels_by_behavior"] or []
+            group_keys_items = res["group_keys"]
 
             if not (
                 len(per_frame_items)

@@ -10,7 +10,7 @@ import logging
 import multiprocessing
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -45,8 +45,8 @@ class FeatureLoadJobSpec(TypedDict):
     cache_dir: Path | None
     behavior_settings: dict[str, object]
     behavior_name: str | None
-    behavior_names: NotRequired[list[str] | None]
-    classifier_mode: NotRequired[str]
+    behavior_names: list[str] | None
+    classifier_mode: ClassifierMode
     cache_format: str
 
 
@@ -56,7 +56,7 @@ class CollectFeatureLoadResult(TypedDict):
     per_frame: list[pd.DataFrame]
     window: list[pd.DataFrame]
     labels: list[np.ndarray]
-    labels_by_behavior: NotRequired[list[dict[str, np.ndarray]]]
+    labels_by_behavior: list[dict[str, np.ndarray]] | None
     group_keys: list[tuple[str, int]]
 
 
@@ -99,9 +99,9 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     feature_dir = job["feature_dir"]
     cache_dir = job["cache_dir"]
     behavior_settings: dict = job["behavior_settings"]
-    behavior_name = job.get("behavior_name")
-    behavior_names = job.get("behavior_names")
-    classifier_mode = ClassifierMode(job.get("classifier_mode", ClassifierMode.BINARY.value))
+    behavior_name = job["behavior_name"]
+    behavior_names = job["behavior_names"]
+    classifier_mode = job["classifier_mode"]
 
     # On macOS, scipy.linalg.lstsq (called by signal.stft's "linear" detrend)
     # uses Apple's Accelerate LAPACK, which segfaults when invoked from a
@@ -118,7 +118,13 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     # this loads all labels from the annotations file for any labeled behavior
     labels_obj = _load_video_labels(annotations_path, pose_est)
     if labels_obj is None:
-        return {"per_frame": [], "window": [], "labels": [], "group_keys": []}
+        return {
+            "per_frame": [],
+            "window": [],
+            "labels": [],
+            "labels_by_behavior": None,
+            "group_keys": [],
+        }
 
     per_frame_list: list[pd.DataFrame] = []
     window_list: list[pd.DataFrame] = []
@@ -197,12 +203,12 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
             )
         group_keys.append((video, int(identity)))
 
-    result: CollectFeatureLoadResult = {
+    return {
         "per_frame": per_frame_list,
         "window": window_list,
         "labels": labels_list,
+        "labels_by_behavior": labels_by_behavior_list
+        if classifier_mode == ClassifierMode.MULTICLASS
+        else None,
         "group_keys": group_keys,
     }
-    if classifier_mode == ClassifierMode.MULTICLASS:
-        result["labels_by_behavior"] = labels_by_behavior_list
-    return result
