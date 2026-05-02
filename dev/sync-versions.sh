@@ -47,10 +47,20 @@ if [ -n "$DRY_RUN" ]; then
         | sed "s/^/    /" \
         || echo "    (no matching lines found)"
 else
-    sed -i.bak -E \
-        's/"(jabs-behavior|jabs-core|jabs-io)(==[^"]*)?"$/"\1=='"${ROOT_VERSION}"'",/' \
-        pyproject.toml
-    rm -f pyproject.toml.bak
+    python3 - "${ROOT_VERSION}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+version = sys.argv[1]
+path = Path("pyproject.toml")
+packages = "jabs-behavior|jabs-core|jabs-io"
+pattern = re.compile(rf'^(\s*")({packages})(?:==[^"]*)?("\s*,?\s*)$', re.MULTILINE)
+
+contents = path.read_text()
+updated = pattern.sub(rf"\g<1>\g<2>=={version}\g<3>", contents)
+path.write_text(updated)
+PY
     echo "  pyproject.toml updated."
 fi
 
