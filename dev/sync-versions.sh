@@ -58,26 +58,23 @@ packages = "jabs-behavior|jabs-core|jabs-io"
 pattern = re.compile(rf'^(\s*")({packages})(?:==[^"]*)?("\s*,?\s*)$', re.MULTILINE)
 
 contents = path.read_text(encoding="utf-8")
-updated = pattern.sub(rf"\g<1>\g<2>=={version}\g<3>", contents)
-path.write_text(updated, encoding="utf-8")
-PY
-    python3 - "${ROOT_VERSION}" <<'PY'
-import sys
-from pathlib import Path
+updated, count = pattern.subn(rf"\g<1>\g<2>=={version}\g<3>", contents)
+if count > 0:
+    path.write_text(updated, encoding="utf-8")
+    print(f"  pyproject.toml updated ({count} substitution(s)).")
+else:
+    print("  pyproject.toml: no lines matched — verifying pins are already correct.")
 
-version = sys.argv[1]
-contents = Path("pyproject.toml").read_text(encoding="utf-8")
 missing = [
     package
     for package in ("jabs-behavior", "jabs-core", "jabs-io")
-    if f'"{package}=={version}"' not in contents
+    if f'"{package}=={version}"' not in updated
 ]
 if missing:
     raise SystemExit(
         "Root pyproject.toml is missing updated pins for: " + ", ".join(missing)
     )
 PY
-    echo "  pyproject.toml updated."
 fi
 
 if [ -n "$UPDATE_README" ]; then
