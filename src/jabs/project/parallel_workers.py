@@ -207,8 +207,10 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
         "per_frame": per_frame_list,
         "window": window_list,
         "labels": labels_list,
-        "labels_by_behavior": labels_by_behavior_list
-        if classifier_mode == ClassifierMode.MULTICLASS
-        else None,
+        "labels_by_behavior": (
+            labels_by_behavior_list
+            if classifier_mode == ClassifierMode.MULTICLASS
+            else None
+        ),
         "group_keys": group_keys,
     }
