@@ -180,10 +180,13 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         # create and show the context menu at the mouse position
         menu = QtWidgets.QMenu(self)
         get_info_action = menu.addAction("Get Info")
+        copy_video_name_action = menu.addAction("Copy Video Name")
         action = menu.exec(self._file_list.mapToGlobal(pos))
 
         if action == get_info_action:
             self._show_video_info(item.data(QtCore.Qt.ItemDataRole.UserRole))
+        elif action == copy_video_name_action:
+            QtWidgets.QApplication.clipboard().setText(item.data(QtCore.Qt.ItemDataRole.UserRole))
 
     def _show_video_info(self, video_name: str) -> None:
         """Open the VideoInfoDialog for the given video.
