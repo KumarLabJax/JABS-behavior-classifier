@@ -83,6 +83,14 @@ class CustomProgressDialog(QDialog):
         """Set the current value of the progress bar."""
         self._progress.setValue(value)
 
+    def maximum(self) -> int:
+        """Return the current maximum value of the progress bar."""
+        return self._progress.maximum()
+
+    def setMaximum(self, maximum: int) -> None:
+        """Set the maximum value of the progress bar."""
+        self._progress.setMaximum(maximum)
+
 
 class _ProgressDialogEventFilter(QObject):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:

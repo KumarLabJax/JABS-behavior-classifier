@@ -139,12 +139,12 @@ class TestClassifierProperties:
     def test_classifier_file_property_unset(self):
         """Test classifier_file property when not set."""
         clf = Classifier()
-        assert clf.classifier_file == "NO SAVED CLASSIFIER"
+        assert clf.classifier_file is None
 
     def test_classifier_hash_property_unset(self):
         """Test classifier_hash property when not set."""
         clf = Classifier()
-        assert clf.classifier_hash == "NO HASH"
+        assert clf.classifier_hash is None
 
     def test_project_settings_property(self):
         """Test project_settings property returns copy."""

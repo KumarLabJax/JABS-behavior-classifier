@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.enums import CacheFormat
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import CacheFormat, ClassifierMode
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader.utilities import get_fps
 
@@ -44,6 +45,8 @@ class FeatureLoadJobSpec(TypedDict):
     cache_dir: Path | None
     behavior_settings: dict[str, object]
     behavior_name: str | None
+    behavior_names: list[str] | None
+    classifier_mode: ClassifierMode
     cache_format: str
 
 
@@ -53,6 +56,7 @@ class CollectFeatureLoadResult(TypedDict):
     per_frame: list[pd.DataFrame]
     window: list[pd.DataFrame]
     labels: list[np.ndarray]
+    labels_by_behavior: list[dict[str, np.ndarray]] | None
     group_keys: list[tuple[str, int]]
 
 
@@ -95,7 +99,9 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     feature_dir = job["feature_dir"]
     cache_dir = job["cache_dir"]
     behavior_settings: dict = job["behavior_settings"]
-    behavior_name = job.get("behavior_name")
+    behavior_name = job["behavior_name"]
+    behavior_names = job["behavior_names"]
+    classifier_mode = job["classifier_mode"]
 
     # On macOS, scipy.linalg.lstsq (called by signal.stft's "linear" detrend)
     # uses Apple's Accelerate LAPACK, which segfaults when invoked from a
@@ -112,27 +118,56 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
     # this loads all labels from the annotations file for any labeled behavior
     labels_obj = _load_video_labels(annotations_path, pose_est)
     if labels_obj is None:
-        return {"per_frame": [], "window": [], "labels": [], "group_keys": []}
+        return {
+            "per_frame": [],
+            "window": [],
+            "labels": [],
+            "labels_by_behavior": None,
+            "group_keys": [],
+        }
 
     per_frame_list: list[pd.DataFrame] = []
     window_list: list[pd.DataFrame] = []
     labels_list: list[np.ndarray] = []
+    labels_by_behavior_list: list[dict[str, np.ndarray]] = []
     group_keys: list[tuple[str, int]] = []
 
     for identity in pose_est.identities:
-        # Extract labels for this (video, identity) pair for the specified behavior
-        labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
+        identity_mask = pose_est.identity_mask(identity).astype(bool)
+        labels = None
+        labels_by_behavior = None
 
-        # Exclude frames where identity does not exist
-        # NOTE: in the future we might want to handle this differently, since we can still predict
-        # behavior even when the identity is not detected in a frame (e.g., occluded) due to
-        # temporal context from surrounding frames provided by window features
-        labels[pose_est.identity_mask(identity) == 0] = TrackLabels.Label.NONE
+        if classifier_mode == ClassifierMode.MULTICLASS:
+            if behavior_names is None:
+                raise ValueError("behavior_names is required for multiclass feature collection")
 
-        # Skip identities without any BEHAVIOR/NOT_BEHAVIOR labels
-        if (
-            (labels == TrackLabels.Label.BEHAVIOR) | (labels == TrackLabels.Label.NOT_BEHAVIOR)
-        ).sum() == 0:
+            behavior_tracks = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+            labels_by_behavior = {}
+            include_mask = np.zeros(identity_mask.shape, dtype=bool)
+
+            for behavior_key in behavior_tracks:
+                behavior_labels = (
+                    labels_obj.get_track_labels(str(identity), behavior_key).get_labels().copy()
+                )
+                behavior_labels[~identity_mask] = TrackLabels.Label.NONE
+                labels_by_behavior[behavior_key] = behavior_labels
+                include_mask |= behavior_labels == TrackLabels.Label.BEHAVIOR
+
+            # Include only frames with explicit BEHAVIOR labels in any class.
+            labels = np.full(identity_mask.shape, TrackLabels.Label.NONE, dtype=np.int8)
+            labels[include_mask] = TrackLabels.Label.BEHAVIOR
+        else:
+            # Extract labels for this (video, identity) pair for the specified behavior
+            labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
+
+            # Exclude frames where identity does not exist
+            # NOTE: in the future we might want to handle this differently, since we can still predict
+            # behavior even when the identity is not detected in a frame (e.g., occluded) due to
+            # temporal context from surrounding frames provided by window features
+            labels[~identity_mask] = TrackLabels.Label.NONE
+
+        # Skip identities without any included labels
+        if (labels != TrackLabels.Label.NONE).sum() == 0:
             continue
 
         # Feature extraction for this identity
@@ -159,11 +194,23 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
         per_frame_list.append(pd.DataFrame(per_frame))
         window_list.append(pd.DataFrame(window_features))
         labels_list.append(labels[labels != TrackLabels.Label.NONE])
+        if labels_by_behavior is not None:
+            labels_by_behavior_list.append(
+                {
+                    key: arr[labels != TrackLabels.Label.NONE]
+                    for key, arr in labels_by_behavior.items()
+                }
+            )
         group_keys.append((video, int(identity)))
 
     return {
         "per_frame": per_frame_list,
         "window": window_list,
         "labels": labels_list,
+        "labels_by_behavior": (
+            labels_by_behavior_list
+            if classifier_mode == ClassifierMode.MULTICLASS
+            else None
+        ),
         "group_keys": group_keys,
     }

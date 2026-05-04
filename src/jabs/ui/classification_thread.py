@@ -1,4 +1,5 @@
 import time
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -6,9 +7,12 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
 from jabs.behavior.postprocessing import PostprocessingPipeline
-from jabs.classifier import Classifier
+from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ClassifierMode
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
+from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 
 from .exceptions import ThreadTerminatedError
 
@@ -52,7 +56,7 @@ class ClassifyThread(QThread):
 
     def __init__(
         self,
-        classifier: Classifier,
+        classifier: Classifier | MultiClassClassifier,
         project: Project,
         behavior: str,
         current_video: str,
@@ -95,11 +99,26 @@ class ClassifyThread(QThread):
                 raise ThreadTerminatedError("Classification was cancelled by the user")
 
         try:
-            project_settings = self._project.settings_manager.get_behavior(self._behavior)
-
-            postprocessing_pipeline = PostprocessingPipeline(
-                project_settings.get("postprocessing", [])
+            multiclass_mode = (
+                self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
             )
+            if multiclass_mode:
+                multiclass_classifier = cast(MultiClassClassifier, self._classifier)
+                # Multiclass classification reuses one shared classifier/settings bundle
+                # across all behaviors and writes a single reserved prediction record.
+                project_settings = (
+                    multiclass_classifier.project_settings or self._project.get_project_defaults()
+                )
+                prediction_behavior = MULTICLASS_PREDICTION_KEY
+                class_names = [MULTICLASS_NONE_BEHAVIOR, *multiclass_classifier.behavior_names]
+                postprocessing_pipeline = None
+            else:
+                project_settings = self._project.settings_manager.get_behavior(self._behavior)
+                prediction_behavior = self._behavior
+                class_names = None
+                postprocessing_pipeline = PostprocessingPipeline(
+                    project_settings.get("postprocessing", [])
+                )
 
             # iterate over each video in the project
             for video in self._project.video_manager.videos:
@@ -145,17 +164,29 @@ class ClassifyThread(QThread):
                             data, feature_values["frame_indexes"]
                         )
 
-                        predictions[identity], probabilities[identity] = (
-                            self._classifier.derive_predictions(prob)
+                        predictions[identity], confidence = self._classifier.derive_predictions(
+                            prob
                         )
+                        # Binary mode persists per-frame confidence; multiclass mode persists
+                        # the full class-probability matrix for timeline decomposition.
+                        probabilities[identity] = prob if multiclass_mode else confidence
                     else:
-                        predictions[identity] = np.array(0)
-                        probabilities[identity] = np.array(0)
+                        predictions[identity] = np.full(pose_est.num_frames, -1, dtype=np.int8)
+                        if multiclass_mode:
+                            probabilities[identity] = np.zeros(
+                                (pose_est.num_frames, len(class_names)),
+                                dtype=np.float32,
+                            )
+                        else:
+                            probabilities[identity] = np.zeros(
+                                pose_est.num_frames, dtype=np.float32
+                            )
 
-                    # apply post-processing to the predictions.
-                    postprocessed_predictions[identity] = postprocessing_pipeline.run(
-                        predictions[identity], probabilities[identity]
-                    )
+                    if not multiclass_mode and postprocessing_pipeline is not None:
+                        # Post-processing semantics are currently binary-only
+                        postprocessed_predictions[identity] = postprocessing_pipeline.run(
+                            predictions[identity], probabilities[identity]
+                        )
 
                 if video == self._current_video:
                     # keep predictions for the video currently loaded in the video player
@@ -170,9 +201,10 @@ class ClassifyThread(QThread):
                     video,
                     predictions,
                     probabilities,
-                    self._behavior,
+                    prediction_behavior,
                     self._classifier,
                     postprocessed_predictions=postprocessed_predictions,
+                    class_names=class_names,
                 )
 
                 self._tasks_complete += 1
@@ -186,6 +218,7 @@ class ClassifyThread(QThread):
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
                     "predictions_postprocessed": current_video_predictions_postprocessed,
+                    "class_names": class_names,
                 },
                 elapsed_ms,
             )

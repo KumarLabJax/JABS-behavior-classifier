@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 import pytest
 
-from jabs.project.prediction_manager import PredictionManager
+from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
 
 class MockProjectPaths:
@@ -38,6 +38,31 @@ def mock_project(tmp_path):
 def prediction_manager(mock_project):
     """Fixture to create a PredictionManager instance."""
     return PredictionManager(mock_project)
+
+
+@pytest.fixture
+def mock_pose():
+    """Fixture to create a minimal pose object for prediction writes."""
+    return type(
+        "PoseEstimation",
+        (object,),
+        {
+            "pose_file": "pose_file.h5",
+            "hash": "12345",
+            "identity_to_track": None,
+            "external_identities": None,
+        },
+    )()
+
+
+@pytest.fixture
+def mock_classifier():
+    """Fixture to create a minimal classifier object for prediction writes."""
+    return type(
+        "Classifier",
+        (object,),
+        {"classifier_file": "classifier.pkl", "classifier_hash": "67890"},
+    )()
 
 
 def test_write_predictions(prediction_manager, tmp_path):
@@ -104,6 +129,91 @@ def test_load_predictions(prediction_manager, mock_project):
     assert 1 in predictions
     assert np.array_equal(predictions[0], [1, 0, -1])
     assert np.array_equal(probabilities[0], [0.9, 0.8, -1])
+
+
+def test_load_multiclass_predictions_roundtrip(
+    prediction_manager,
+    mock_project,
+    mock_pose,
+    mock_classifier,
+) -> None:
+    """Multi-class predictions load with class names and per-identity probability matrices."""
+    prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
+    predictions = np.array([[1, 0, -1], [2, 1, -1]], dtype=np.int8)
+    probabilities = np.array(
+        [
+            [[0.1, 0.8, 0.1], [0.7, 0.2, 0.1], [0.0, 0.0, 0.0]],
+            [[0.2, 0.3, 0.5], [0.1, 0.7, 0.2], [0.0, 0.0, 0.0]],
+        ],
+        dtype=np.float32,
+    )
+    class_names = ["None", "Walking", "Rearing"]
+
+    PredictionManager.write_predictions(
+        MULTICLASS_PREDICTION_KEY,
+        prediction_file,
+        predictions,
+        probabilities,
+        mock_pose,
+        mock_classifier,
+        class_names=class_names,
+    )
+
+    loaded_predictions, loaded_probabilities, loaded_postprocessed, loaded_class_names = (
+        prediction_manager.load_multiclass_predictions("test_video.avi")
+    )
+
+    assert loaded_class_names == class_names
+    assert loaded_postprocessed == {}
+    assert np.array_equal(loaded_predictions[0], predictions[0])
+    assert np.array_equal(loaded_predictions[1], predictions[1])
+    assert np.array_equal(loaded_probabilities[0], probabilities[0])
+    assert np.array_equal(loaded_probabilities[1], probabilities[1])
+
+
+def test_load_multiclass_predictions_missing(prediction_manager) -> None:
+    """Missing multi-class predictions return empty dicts and no class names."""
+    predictions, probabilities, predictions_postprocessed, class_names = (
+        prediction_manager.load_multiclass_predictions("test_video.avi")
+    )
+
+    assert predictions == {}
+    assert probabilities == {}
+    assert predictions_postprocessed == {}
+    assert class_names is None
+
+
+def test_load_multiclass_predictions_invalid_shape_returns_empty(
+    prediction_manager,
+    mock_project,
+) -> None:
+    """Invalid multiclass schema falls back to empty predictions instead of raising."""
+    prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
+    with h5py.File(prediction_file, "w") as h5:
+        h5.attrs["version"] = 2
+        h5.attrs["pose_file"] = "test_pose.h5"
+        h5.attrs["pose_hash"] = "testhash"
+        prediction_group = h5.create_group("predictions")
+        behavior_group = prediction_group.create_group(MULTICLASS_PREDICTION_KEY)
+        behavior_group.attrs["app_version"] = "1.0.0"
+        behavior_group.attrs["prediction_date"] = "2025-01-01"
+        behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])
+        # Invalid for class_names-present multiclass data; should be 3-D.
+        behavior_group.create_dataset("probabilities", data=[[0.9, 0.8, -1], [0.7, 0.6, -1]])
+        behavior_group.create_dataset(
+            "class_names",
+            data=np.array(["None", "Walk", "Run"], dtype=object),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+
+    predictions, probabilities, predictions_postprocessed, class_names = (
+        prediction_manager.load_multiclass_predictions("test_video.avi")
+    )
+
+    assert predictions == {}
+    assert probabilities == {}
+    assert predictions_postprocessed == {}
+    assert class_names is None
 
 
 def test_load_predictions_missing_behavior(prediction_manager, mock_project):

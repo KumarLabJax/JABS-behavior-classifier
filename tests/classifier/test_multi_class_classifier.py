@@ -246,6 +246,98 @@ def test_get_class_names():
 
 
 # ---------------------------------------------------------------------------
+# Classifier compatibility surface
+# ---------------------------------------------------------------------------
+
+
+class TestClassifierCompatibility:
+    """Tests for Classifier-compatible API used by GUI threads."""
+
+    def test_classifier_metadata_properties_defaults(self):
+        """Unsaved classifier exposes binary-compatible metadata defaults."""
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        assert clf.classifier_name == ClassifierType.RANDOM_FOREST.value
+        assert clf.classifier_file is None
+        assert clf.classifier_hash is None
+        assert clf.project_settings == {}
+        assert clf.behavior_name is None
+
+    def test_behavior_name_property(self):
+        """behavior_name getter/setter round-trips values."""
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        clf.behavior_name = "Running"
+        assert clf.behavior_name == "Running"
+
+    def test_set_dict_settings_copies(self):
+        """set_dict_settings stores and returns a defensive copy."""
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        settings = {"window_size": 9, "balance_labels": True}
+        clf.set_dict_settings(settings)
+        settings["window_size"] = 99
+
+        stored = clf.project_settings
+        stored["balance_labels"] = False
+        assert clf.project_settings["window_size"] == 9
+        assert clf.project_settings["balance_labels"] is True
+
+    def test_set_classifier(self):
+        """set_classifier updates classifier_type for supported values."""
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        clf.set_classifier(ClassifierType.CATBOOST)
+        assert clf.classifier_type == ClassifierType.CATBOOST
+
+    def test_set_classifier_invalid_raises(self):
+        """set_classifier raises for unsupported classifier types."""
+        from unittest.mock import patch
+
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        with (
+            patch.object(
+                MultiClassClassifier,
+                "_supported_classifier_choices",
+                return_value={ClassifierType.RANDOM_FOREST},
+            ),
+            pytest.raises(ValueError, match="Invalid Classifier Type"),
+        ):
+            clf.set_classifier(ClassifierType.CATBOOST)
+
+    def test_classifier_choices(self):
+        """classifier_choices returns enum->name mapping for supported classifiers."""
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        choices = clf.classifier_choices()
+        assert clf.classifier_type in choices
+        assert choices[clf.classifier_type] == clf.classifier_type.value
+
+    def test_combine_data(self, synthetic_features):
+        """combine_data concatenates per-frame and window features."""
+        per_frame, window = synthetic_features
+        combined = MultiClassClassifier.combine_data(per_frame, window)
+        assert list(combined.columns) == ["feat_a", "feat_b", "feat_c"]
+        assert combined.shape[0] == per_frame.shape[0]
+
+    def test_derive_predictions(self):
+        """derive_predictions returns argmax class plus confidence and handles no-pose rows."""
+        probabilities = np.array(
+            [
+                [0.1, 0.7, 0.2],
+                [0.0, 0.0, 0.0],
+                [0.6, 0.2, 0.2],
+            ],
+            dtype=np.float32,
+        )
+        predictions, confidence = MultiClassClassifier.derive_predictions(probabilities)
+        np.testing.assert_array_equal(predictions, np.array([1, -1, 0], dtype=np.int8))
+        np.testing.assert_allclose(confidence, np.array([0.7, 0.0, 0.6], dtype=np.float32))
+
+    def test_get_feature_importance(self, trained_clf):
+        """get_feature_importance returns ranked feature tuples after training."""
+        top = trained_clf.get_feature_importance(limit=2)
+        assert len(top) <= 2
+        assert len(top) > 0
+        assert all(isinstance(name, str) and isinstance(score, float) for name, score in top)
+
+
+# ---------------------------------------------------------------------------
 # train
 # ---------------------------------------------------------------------------
 
@@ -279,6 +371,22 @@ class TestTrain:
             random_seed=42,
         )
         assert clf.feature_names is not None
+
+    def test_train_persists_effective_settings(self, two_behavior_labels, synthetic_features):
+        """Training persists resolved settings for later classification reuse."""
+        per_frame, window = synthetic_features
+        clf = MultiClassClassifier(BEHAVIOR_NAMES)
+        clf.train(
+            {
+                "per_frame": per_frame,
+                "window": window,
+                "labels_by_behavior": two_behavior_labels,
+                "settings": {"window_size": 13, "balance_labels": True},
+            },
+            random_seed=42,
+        )
+        assert clf.project_settings["window_size"] == 13
+        assert clf.project_settings["balance_labels"] is True
 
     @pytest.mark.parametrize(
         "classifier_type",
