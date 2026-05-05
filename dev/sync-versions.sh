@@ -47,11 +47,34 @@ if [ -n "$DRY_RUN" ]; then
         | sed "s/^/    /" \
         || echo "    (no matching lines found)"
 else
-    sed -i.bak -E \
-        's/"(jabs-behavior|jabs-core|jabs-io)(==[^"]*)?"$/"\1=='"${ROOT_VERSION}"'",/' \
-        pyproject.toml
-    rm -f pyproject.toml.bak
-    echo "  pyproject.toml updated."
+    python3 - "${ROOT_VERSION}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+version = sys.argv[1]
+path = Path("pyproject.toml")
+packages = "jabs-behavior|jabs-core|jabs-io"
+pattern = re.compile(rf'^(\s*")({packages})(?:==[^"]*)?("\s*,?\s*)$', re.MULTILINE)
+
+contents = path.read_text(encoding="utf-8")
+updated, count = pattern.subn(rf"\g<1>\g<2>=={version}\g<3>", contents)
+if count > 0:
+    path.write_text(updated, encoding="utf-8")
+    print(f"  pyproject.toml updated ({count} substitution(s)).")
+else:
+    print("  pyproject.toml: no lines matched — verifying pins are already correct.")
+
+missing = [
+    package
+    for package in ("jabs-behavior", "jabs-core", "jabs-io")
+    if f'"{package}=={version}"' not in updated
+]
+if missing:
+    raise SystemExit(
+        "Root pyproject.toml is missing updated pins for: " + ", ".join(missing)
+    )
+PY
 fi
 
 if [ -n "$UPDATE_README" ]; then

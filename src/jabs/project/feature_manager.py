@@ -1,15 +1,17 @@
+from typing import TYPE_CHECKING
+
 import jabs.feature_extraction as feature_extraction
 from jabs.core.enums import ProjectDistanceUnit
 from jabs.pose_estimation import (
-    PoseEstimation,
-    get_points_per_lixit,
     get_pose_file_major_version,
     get_pose_path,
-    get_static_objects_in_file,
 )
 
 from .project_paths import ProjectPaths
 from .video_manager import VideoManager
+
+if TYPE_CHECKING:
+    from .parallel_workers import VideoScanResult
 
 
 class FeatureManager:
@@ -20,9 +22,16 @@ class FeatureManager:
     units, and extended feature support, ensuring consistency across the project.
 
     Args:
-        project_paths (ProjectPaths): Paths object for the project.
-        videos (list[str]): List of video filenames in the project.
-        video_manager: Optional VideoManager instance to use for cached pose path lookups.
+        project_paths: Paths object for the project.
+        videos: List of video filenames in the project.
+        video_manager: Optional VideoManager instance used for cached pose path
+            lookups. When ``None``, pose paths are resolved directly from
+            ``project_paths``.
+        scan_results: Per-video metadata collected by
+            :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
+            by video filename. Every entry in ``videos`` must have a
+            corresponding key. Required fields: ``static_objects``,
+            ``lixit_keypoints``, ``has_cm_per_pixel``.
     """
 
     def __init__(
@@ -30,13 +39,15 @@ class FeatureManager:
         project_paths: ProjectPaths,
         videos: list[str],
         video_manager: VideoManager | None = None,
+        *,
+        scan_results: "dict[str, VideoScanResult]",
     ):
         """Initialize the FeatureManager."""
         self._lixit_keypoints = 0
 
         self._project_paths = project_paths
         self._video_manager = video_manager
-        self.__initialize_pose_data(videos)
+        self.__initialize_pose_data(videos, scan_results)
 
         # determine if this project can use social features or not
         # social data is available for V3+
@@ -47,14 +58,17 @@ class FeatureManager:
 
         self._extended_features = self.__initialize_extended_features()
 
-    def __initialize_pose_data(self, videos: list[str]):
+    def __initialize_pose_data(
+        self,
+        videos: list[str],
+        scan_results: "dict[str, VideoScanResult]",
+    ) -> None:
         """Initialize pose version, static object, distance unit, and lixit data.
-
-        Consolidates all pose file metadata gathering into a single pass through videos
-        to minimize file I/O operations.
 
         Args:
             videos: List of video filenames to process for metadata extraction.
+            scan_results: Per-video metadata from the project scan, keyed by
+                video filename.
         """
         pose_versions = []
         static_object_sets = []
@@ -72,23 +86,17 @@ class FeatureManager:
                     self._project_paths.pose_dir,
                 )
 
-            # Get pose version
+            # Get pose version (filename regex — no I/O)
             pose_versions.append(get_pose_file_major_version(pose_path))
 
-            # Get static objects
-            static_objs = get_static_objects_in_file(pose_path)
-            static_object_sets.append(set(static_objs))
-
-            # Get lixit keypoints if lixit is present in this video
+            result = scan_results[vid]
+            static_objs = result["static_objects"]
             if "lixit" in static_objs:
-                lixit_keypoints.append(get_points_per_lixit(pose_path))
+                lixit_keypoints.append(result["lixit_keypoints"])
+            if distance_unit_valid and not result["has_cm_per_pixel"]:
+                distance_unit_valid = False
 
-            # Check distance unit - if any video lacks cm_per_pixel, use pixels
-            if distance_unit_valid:
-                attrs = PoseEstimation.get_pose_file_attributes(pose_path)
-                cm_per_pixel = attrs["poseest"].get("cm_per_pixel", None)
-                if cm_per_pixel is None:
-                    distance_unit_valid = False
+            static_object_sets.append(set(static_objs))
 
         # Set pose version to minimum across all videos
         self._min_pose_version = min(pose_versions) if pose_versions else 0

@@ -186,3 +186,59 @@ def test_merge_projects_copies_unique_video_and_pose_to_split_dirs(tmp_path):
     assert (dest.project_paths.pose_dir / "video2_pose_est_v6.h5").read_bytes() == (
         b"dummy pose content"
     )
+
+
+def test_merge_projects_unique_labeled_video_falls_back_to_direct_pose_path(tmp_path):
+    """Unique labeled videos should recover from stale destination inventory via direct pose path."""
+    dest = MagicMock()
+    src = MagicMock()
+
+    dest.project_paths.project_dir = tmp_path / "dest"
+    dest.project_paths.video_dir = dest.project_paths.project_dir / "videos"
+    dest.project_paths.pose_dir = dest.project_paths.project_dir / "poses"
+    dest.project_paths.cache_dir = dest.project_paths.project_dir / "cache"
+    src.project_paths.project_dir = tmp_path / "src"
+    src.project_paths.video_dir = src.project_paths.project_dir / "videos"
+    src.project_paths.pose_dir = src.project_paths.project_dir / "poses"
+
+    for path in (
+        dest.project_paths.video_dir,
+        dest.project_paths.pose_dir,
+        src.project_paths.video_dir,
+        src.project_paths.pose_dir,
+    ):
+        path.mkdir(parents=True)
+
+    (src.project_paths.video_dir / "video2.mp4").write_bytes(b"dummy video content")
+    (src.project_paths.pose_dir / "video2_pose_est_v6.h5").write_bytes(b"dummy pose content")
+
+    dest.video_manager.videos = []
+    src.video_manager.videos = ["video2.mp4"]
+    src.video_manager.video_path.side_effect = lambda v: src.project_paths.video_dir / v
+    src.video_manager.get_cached_pose_path.side_effect = (
+        lambda v: src.project_paths.pose_dir / f"{Path(v).stem}_pose_est_v6.h5"
+    )
+    dest.video_manager.get_cached_pose_path.side_effect = ValueError("video2.mp4 not in project")
+
+    dest.settings_manager.behavior_names = []
+    src.settings_manager.behavior_names = []
+
+    src_labels = VideoLabels("video2.mp4", 100)
+    src_labels.get_track_labels("0", "foo").label_behavior(1, 10)
+    src.video_manager.load_video_labels.return_value = src_labels
+
+    src_pose = MagicMock()
+    src_pose.hash = "hash1"
+    src.load_pose_est.return_value = src_pose
+
+    # Destination check_video_name-gated path can fail for unique videos.
+    dest.load_pose_est.side_effect = ValueError("video2.mp4 not in project")
+
+    dest_pose = MagicMock()
+    dest_pose.hash = "hash1"
+    with patch("jabs.project.project_merge.open_pose_file", return_value=dest_pose):
+        merge_projects(dest, src, MergeStrategy.DESTINATION_WINS)
+
+    dest.load_pose_est.assert_called_once()
+    dest.video_manager.get_cached_pose_path.assert_not_called()
+    dest.save_annotations.assert_called_once_with(src_labels, dest_pose)

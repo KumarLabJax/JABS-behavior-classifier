@@ -125,6 +125,7 @@ Options:
   --help     Show this message and exit.
 
 Commands:
+  convert-parquet       Convert a parquet pose file to JABS HDF5 pose format.
   postprocess           Apply a postprocessing pipeline to a JABS prediction HDF5 file.
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
@@ -449,3 +450,47 @@ Each stage entry has the following fields:
 Stages are applied in the order they appear in the list. A typical pipeline runs
 `GapInterpolationStage` or `BoutStitchingStage` before `BoutDurationFilterStage` so
 that short gaps are merged prior to duration filtering.
+
+## jabs-cli convert-parquet
+
+The `jabs-cli convert-parquet` command converts a parquet pose file to the JABS HDF5 pose format (v5).
+The output file is named after the input with `.parquet` replaced by `_pose_est_v8.h5`.
+
+### Usage
+
+```bash
+jabs-cli convert-parquet PARQUET_PATH [OPTIONS]
+```
+
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--lixit-parquet PATH` | - | Single-row summary parquet with lixit keypoints. The `keypoints` value contains `(x, y)` pairs; each consecutive group of 3 keypoints (`tip`, `left_side`, `right_side`) defines one lixit. 6 keypoints = 2 lixits. |
+| `--num-frames INT` | 1800 | Total number of frames in the video. |
+| `--out-dir PATH` | same as input | Output directory for the converted HDF5 file. Created if it does not exist. |
+
+### Input format
+
+The input parquet file must have the following columns:
+
+- `frame` - frame number
+- `eartag_code` - external identity string (used for `external_identity_mapping`); rows with empty, `"00"`, or `"01"` values are treated as no-reads and excluded
+- `kpt_1_x` / `kpt_1_y` - nose
+- `kpt_2_x` / `kpt_2_y` - left ear
+- `kpt_3_x` / `kpt_3_y` - right ear
+- `kpt_4_x` / `kpt_4_y` - base of tail
+- `kpt_5_x` / `kpt_5_y` - tip of tail
+
+### Examples
+
+```bash
+# Basic conversion
+jabs-cli convert-parquet session_poses.parquet
+
+# With lixit landmarks, custom frame count, and custom output directory
+jabs-cli convert-parquet session_poses.parquet \
+    --lixit-parquet lixit_summary.parquet \
+    --num-frames 3600 \
+    --out-dir /path/to/output
+```

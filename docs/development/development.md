@@ -957,6 +957,7 @@ jabs-cli --help
 `jabs-cli` is a unified command-line interface that consolidates smaller JABS utilities under a single entry point. Instead of having many separate standalone scripts, `jabs-cli` uses Click's group/command pattern to organize related functionality.
 
 **Current commands:**
+- `jabs-cli convert-parquet` - Convert a parquet pose file to JABS HDF5 pose format
 - `jabs-cli export-training` - Export training data from a project
 - `jabs-cli rename-behavior` - Rename a behavior across a project
 - `jabs-cli prune` - Remove videos from a project based on criteria

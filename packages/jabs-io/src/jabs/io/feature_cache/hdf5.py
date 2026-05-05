@@ -109,7 +109,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
             if "wall_distances" in f:
                 wall_distances = {key: f["wall_distances"][key][:] for key in f["wall_distances"]}
 
-            closest_lixit: npt.NDArray[np.float64] | None = None
+            closest_lixit: npt.NDArray[np.uint8] | None = None
             if "closest_lixit" in f:
                 closest_lixit = f["closest_lixit"][:]
 

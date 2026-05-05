@@ -1,8 +1,8 @@
 """parallel_workers.py
 
 Provides stateless, picklable worker functions for parallel feature extraction
-across multiple videos. These functions are designed to
-be executed by ProcessPoolExecutor workers, managed by Project.get_labeled_features().
+and per-video metadata scanning. These functions are designed to
+be executed by ProcessPoolExecutor workers, managed by Project.
 """
 
 import json
@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -19,6 +20,7 @@ import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierMode
 from jabs.pose_estimation import open_pose_file
+from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps
 
 from .track_labels import TrackLabels
@@ -58,6 +60,120 @@ class CollectFeatureLoadResult(TypedDict):
     labels: list[np.ndarray]
     labels_by_behavior: list[dict[str, np.ndarray]] | None
     group_keys: list[tuple[str, int]]
+
+
+class VideoScanJobSpec(TypedDict):
+    """Specification for a single-video metadata scan job.
+
+    All fields needed by :func:`scan_video_metadata` to open one HDF5 file
+    and collect everything :class:`~jabs.project.video_manager.VideoManager`
+    and :class:`~jabs.project.feature_manager.FeatureManager` require at
+    project-load time.
+    """
+
+    video: str
+    video_path: Path
+    pose_path: Path
+    pose_major_version: int
+    scan_frame_counts: bool
+
+
+class VideoScanResult(TypedDict):
+    """Per-video metadata collected by :func:`scan_video_metadata`."""
+
+    video: str
+    hdf5_frame_count: int
+    video_frame_count: int | None
+    identity_count: int
+    static_objects: list[str]
+    lixit_keypoints: int
+    has_cm_per_pixel: bool
+
+
+def _get_identity_count(pose_h5: "h5py.File", major_version: int) -> int:
+    """Read identity count from an open HDF5 file without loading keypoint data.
+
+    Args:
+        pose_h5: Open h5py File object for a pose estimation HDF5 file.
+        major_version: Pose file major version (from filename).
+
+    Returns:
+        Number of identities encoded in the pose file.
+    """
+    if major_version <= 2:
+        return 1
+    pose_grp = pose_h5["poseest"]
+    if major_version == 3:
+        # Shape is (n_frames, n_instances, n_keypoints, 2); shape read only.
+        return pose_grp["points"].shape[1]
+    # V4+: prefer instance_id_center (shape attribute only, no data load).
+    if "instance_id_center" in pose_grp:
+        return pose_grp["instance_id_center"].shape[0]
+    # Fallback: compute max identity from instance_embed_id (smaller dataset).
+    if "instance_embed_id" in pose_grp and "id_mask" in pose_grp:
+        id_mask = pose_grp["id_mask"][:]
+        instance_embed_id = pose_grp["instance_embed_id"][:]
+        if instance_embed_id.shape[1] > 0:
+            valid = id_mask == 0
+            if valid.any():
+                return int(instance_embed_id[valid].max())
+    return 0
+
+
+def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
+    """Collect per-video metadata by opening each HDF5 pose file exactly once.
+
+    Reads everything :class:`~jabs.project.video_manager.VideoManager` and
+    :class:`~jabs.project.feature_manager.FeatureManager` need at project-load
+    time — frame counts, identity count, static objects, lixit keypoints, and
+    distance-unit attributes — in a single ``h5py.File`` open.
+
+    This function is stateless and picklable so it can be dispatched to
+    :class:`~jabs.core.utils.process_pool_manager.ProcessPoolManager` workers.
+
+    Args:
+        job: Scan job specification, including paths and options.
+
+    Returns:
+        Per-video metadata collected from the pose HDF5 file (and optionally
+        the video file when ``scan_frame_counts`` is ``True``).
+    """
+    video = job["video"]
+    video_path = job["video_path"]
+    pose_path = job["pose_path"]
+    major_version = job["pose_major_version"]
+    scan_frame_counts = job["scan_frame_counts"]
+
+    with h5py.File(pose_path, "r") as pose_h5:
+        hdf5_frame_count: int = pose_h5["poseest"]["points"].shape[0]
+        identity_count: int = _get_identity_count(pose_h5, major_version)
+
+        # Static objects are only present in V5+.
+        static_objects: list[str] = []
+        if major_version >= 5 and "static_objects" in pose_h5:
+            static_objects = list(pose_h5["static_objects"].keys())
+
+        # Lixit keypoint count (0 if no lixit present).
+        lixit_keypoints: int = 0
+        if "lixit" in static_objects:
+            lixit_keypoints = 3 if pose_h5["static_objects"]["lixit"].ndim == 3 else 1
+
+        # Distance unit: check for cm_per_pixel in poseest group attributes.
+        has_cm_per_pixel: bool = pose_h5["poseest"].attrs.get("cm_per_pixel") is not None
+
+    video_frame_count: int | None = None
+    if scan_frame_counts:
+        video_frame_count = VideoReader.get_nframes_from_file(video_path)
+
+    return VideoScanResult(
+        video=video,
+        hdf5_frame_count=hdf5_frame_count,
+        video_frame_count=video_frame_count,
+        identity_count=identity_count,
+        static_objects=static_objects,
+        lixit_keypoints=lixit_keypoints,
+        has_cm_per_pixel=has_cm_per_pixel,
+    )
 
 
 def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> VideoLabels | None:
@@ -208,9 +324,7 @@ def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResul
         "window": window_list,
         "labels": labels_list,
         "labels_by_behavior": (
-            labels_by_behavior_list
-            if classifier_mode == ClassifierMode.MULTICLASS
-            else None
+            labels_by_behavior_list if classifier_mode == ClassifierMode.MULTICLASS else None
         ),
         "group_keys": group_keys,
     }

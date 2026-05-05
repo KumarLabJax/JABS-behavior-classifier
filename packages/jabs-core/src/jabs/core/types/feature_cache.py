@@ -72,7 +72,7 @@ class PerFrameCacheData:
             ``closest_identities``.
         closest_corners: Distance to the nearest arena corner per frame, shape
             ``(n_frames,)``. ``None`` when no landmark features were computed.
-        closest_lixit: Distance to the nearest lixit per frame, shape
+        closest_lixit: Index of the nearest lixit per frame, shape
             ``(n_frames,)``. ``None`` when no landmark features were computed.
         wall_distances: Per-wall distance arrays keyed by wall direction (e.g.
             ``"top"``, ``"bottom"``), each shape ``(n_frames,)``. Empty dict
@@ -84,5 +84,5 @@ class PerFrameCacheData:
     closest_identities: npt.NDArray[np.int64] | None = None
     closest_fov_identities: npt.NDArray[np.int64] | None = None
     closest_corners: npt.NDArray[np.float64] | None = None
-    closest_lixit: npt.NDArray[np.float64] | None = None
+    closest_lixit: npt.NDArray[np.uint8] | None = None
     wall_distances: dict[str, npt.NDArray[np.float64]] = field(default_factory=dict)

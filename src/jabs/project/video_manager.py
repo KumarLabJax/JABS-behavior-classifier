@@ -1,18 +1,20 @@
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jabs.pose_estimation import (
     PoseEstimation,
-    get_frames_from_file,
     get_pose_path,
     open_pose_file,
 )
-from jabs.video_reader import VideoReader
 
 from .project_paths import ProjectPaths
 from .settings_manager import SettingsManager
 from .video_labels import VideoLabels
+
+if TYPE_CHECKING:
+    from .parallel_workers import VideoScanResult
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,18 @@ class VideoManager:
     information required for project processing.
 
     Args:
-        paths (ProjectPaths): Object containing project directory paths.
-        settings_manager (SettingsManager): Manages project settings and metadata.
-        enable_video_check (bool, optional): Whether to validate video frame counts. Defaults to True.
+        paths: Object containing project directory paths.
+        settings_manager: Manages project settings and metadata.
+        enable_video_check: Whether to validate that video and pose file frame
+            counts match. Defaults to True.
+        scan_results: Per-video metadata collected by
+            :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
+            by video filename. Every video in the project directory must have an
+            entry. Required fields for all callers: ``identity_count``,
+            ``hdf5_frame_count``, ``static_objects``, ``lixit_keypoints``,
+            ``has_cm_per_pixel``. When ``enable_video_check=True``,
+            ``video_frame_count`` must also be populated (i.e. the scan job
+            must have been run with ``scan_frame_counts=True``).
     """
 
     def __init__(
@@ -37,6 +48,8 @@ class VideoManager:
         paths: ProjectPaths,
         settings_manager: SettingsManager,
         enable_video_check: bool = True,
+        *,
+        scan_results: "dict[str, VideoScanResult]",
     ):
         self._paths = paths
         self._settings_manager = settings_manager
@@ -45,18 +58,22 @@ class VideoManager:
         self._total_project_identities = 0
         self._pose_path_cache = {}  # Cache mapping video names to their pose file paths to avoid repeated lookups
 
-        self._initialize_videos(enable_video_check)
+        self._initialize_videos(enable_video_check, scan_results)
 
-    def _initialize_videos(self, enable_video_check):
+    def _initialize_videos(
+        self,
+        enable_video_check: bool,
+        scan_results: "dict[str, VideoScanResult]",
+    ) -> None:
         """Initialize video-related data and perform checks."""
         self._videos = self.get_videos(self._paths.video_dir)
         self._videos.sort()
 
         self._validate_pose_files()
         if enable_video_check:
-            self._validate_video_frame_counts()
+            self._validate_video_frame_counts(scan_results)
 
-        self._load_video_metadata()
+        self._load_video_metadata(scan_results)
 
     @property
     def videos(self):
@@ -165,33 +182,35 @@ class VideoManager:
             self._pose_path_cache[video_name] = get_pose_path(video_path, self._paths.pose_dir)
         return self._pose_path_cache[video_name]
 
-    def _load_video_metadata(self):
-        """Load metadata for each video and calculate total identities."""
-        video_metadata = self._settings_manager.project_settings.get("video_files", {})
-        flush = False
+    def _load_video_metadata(self, scan_results: "dict[str, VideoScanResult]") -> None:
+        """Load identity counts from pre-scanned metadata.
+
+        Args:
+            scan_results: Per-video metadata from the project scan, keyed by
+                video filename.
+        """
         for video in self._videos:
-            vinfo = video_metadata.get(video, {})
-            nidentities = vinfo.get("identities")
-
-            if not nidentities:
-                pose_file = open_pose_file(self.get_cached_pose_path(video), self._paths.cache_dir)
-                nidentities = pose_file.num_identities
-                vinfo["identities"] = nidentities
-                flush = True
-
+            nidentities = scan_results[video]["identity_count"]
             self._video_identity_count[video] = nidentities
             self._total_project_identities += nidentities
-            video_metadata[video] = vinfo
-        if flush:
-            self._settings_manager.save_project_file({"video_files": video_metadata})
 
-    def _validate_video_frame_counts(self):
-        """Ensure video and pose file frame counts match."""
+    def _validate_video_frame_counts(self, scan_results: "dict[str, VideoScanResult]") -> None:
+        """Ensure video and pose file frame counts match.
+
+        Args:
+            scan_results: Per-video metadata from the project scan, keyed by
+                video filename. Must include ``hdf5_frame_count`` and
+                ``video_frame_count`` (i.e. scanned with ``scan_frame_counts=True``).
+        """
         err = False
         for v in self._videos:
-            path = self.get_cached_pose_path(v)
-            pose_frames = get_frames_from_file(path)
-            vid_frames = VideoReader.get_nframes_from_file(self.video_path(v))
+            pose_frames = scan_results[v]["hdf5_frame_count"]
+            vid_frames = scan_results[v]["video_frame_count"]
+            if vid_frames is None:
+                raise ValueError(
+                    f"{v}: video_frame_count is missing from scan_results — "
+                    "re-run the scan with scan_frame_counts=True"
+                )
             if pose_frames != vid_frames:
                 logger.error(
                     "%s: video and pose file have different number of frames (video=%s, pose=%s)",
