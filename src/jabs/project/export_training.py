@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -74,9 +75,11 @@ def export_training_data(
         out_h5.create_dataset("label", data=features["labels"])
 
         # store the video/identity to group mapping in the h5 file
+        # identity is None when VIDEO grouping strategy is used; store -1 as a sentinel
         for group in group_mapping:
             dset = out_h5.create_dataset(f"group_mapping/{group}/identity", (1,), dtype=np.int64)
-            dset[:] = group_mapping[group]["identity"]
+            identity = group_mapping[group]["identity"]
+            dset[:] = identity if identity is not None else -1
             dset = out_h5.create_dataset(
                 f"group_mapping/{group}/video_name", (1,), dtype=string_type
             )
@@ -101,5 +104,9 @@ def write_project_settings(
     for key, val in settings.items():
         if type(val) is dict:
             write_project_settings(current_group, val, key)
+        elif isinstance(val, list):
+            # Lists (e.g. postprocessing stage configs) have no direct HDF5 equivalent;
+            # store as a JSON string so the data round-trips without loss.
+            current_group.create_dataset(key, data=json.dumps(val))
         else:
             current_group.create_dataset(key, data=val)

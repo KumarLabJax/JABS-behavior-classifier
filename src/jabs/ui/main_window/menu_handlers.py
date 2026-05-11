@@ -5,6 +5,7 @@ This module contains all the callback methods for menu actions, extracted from
 MainWindow to improve code organization and maintainability.
 """
 
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -198,6 +199,7 @@ class MenuHandlers:
             self.window,
             "Export Failed",
             f"Unable to export training data:\n{error}",
+            details="".join(traceback.format_exception(error)),
         )
 
     def _cleanup_export_thread(self) -> None:
