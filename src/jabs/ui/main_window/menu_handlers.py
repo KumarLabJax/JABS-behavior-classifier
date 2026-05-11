@@ -5,7 +5,7 @@ This module contains all the callback methods for menu actions, extracted from
 MainWindow to improve code organization and maintainability.
 """
 
-import sys
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +15,6 @@ from PySide6.QtGui import QAction
 
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import PredictionType
-from jabs.project import export_training_data
 from jabs.utils import check_for_update
 
 from ..dialogs import (
@@ -28,6 +27,8 @@ from ..dialogs import (
     UpdateCheckDialog,
     UserGuideDialog,
 )
+from ..dialogs.progress_dialog import create_progress_dialog
+from ..export_training_thread import ExportTrainingDataThread
 from ..player_widget import PlayerWidget
 from ..settings_dialog import (
     JabsSettingsDialog,
@@ -77,6 +78,8 @@ class MenuHandlers:
             main_window: The MainWindow instance that owns these handlers
         """
         self.window = main_window
+        self._export_thread: ExportTrainingDataThread | None = None
+        self._export_progress_dialog = None
 
     # ========== File Menu Handlers ==========
 
@@ -151,9 +154,8 @@ class MenuHandlers:
         self.window.display_status_message(f"Frame exported: {save_path}", 5000)
 
     def export_training_data(self) -> None:
-        """Export training data for the current classifier."""
+        """Export training data for the current classifier in a background thread."""
         if not self.window._central_widget.classify_button_enabled:
-            # Classify button disabled, don't allow exporting training data
             MessageDialog.warning(
                 self.window,
                 "Unable to export training data",
@@ -163,17 +165,55 @@ class MenuHandlers:
             )
             return
 
-        try:
-            out_path = export_training_data(
-                self.window._project,
-                self.window._central_widget.behavior,
-                self.window._project.feature_manager.min_pose_version,
-                self.window._central_widget.classifier_type,
-                FINAL_TRAIN_SEED,
-            )
-            self.window.display_status_message(f"Training data exported: {out_path}", 5000)
-        except OSError as e:
-            print(f"Unable to export training data: {e}", file=sys.stderr)
+        self._export_thread = ExportTrainingDataThread(
+            project=self.window._project,
+            behavior=self.window._central_widget.behavior,
+            pose_version=self.window._project.feature_manager.min_pose_version,
+            classifier_type=self.window._central_widget.classifier_type,
+            training_seed=FINAL_TRAIN_SEED,
+            parent=self.window,
+        )
+        self._export_thread.export_complete.connect(self._on_export_complete)
+        self._export_thread.error_callback.connect(self._on_export_error)
+        self._export_thread.current_status.connect(
+            lambda m: self.window.display_status_message(m, 0)
+        )
+        self._export_thread.finished.connect(self._cleanup_export_thread)
+
+        self._export_progress_dialog = create_progress_dialog(
+            self.window, "Exporting training data...", 0
+        )
+        self._export_progress_dialog.show()
+
+        self._export_thread.start()
+
+    def _on_export_complete(self, out_path: Path) -> None:
+        """Handle successful export completion."""
+        self._cleanup_export_progress_dialog()
+        self.window.display_status_message(f"Training data exported: {out_path}", 5000)
+
+    def _on_export_error(self, error: Exception) -> None:
+        """Handle export failure."""
+        self._cleanup_export_progress_dialog()
+        MessageDialog.error(
+            self.window,
+            "Export Failed",
+            f"Unable to export training data:\n{error}",
+            details="".join(traceback.format_exception(error)),
+        )
+
+    def _cleanup_export_thread(self) -> None:
+        """Clean up the export thread after it finishes."""
+        if self._export_thread:
+            self._export_thread.deleteLater()
+            self._export_thread = None
+
+    def _cleanup_export_progress_dialog(self) -> None:
+        """Close and destroy the export progress dialog."""
+        if self._export_progress_dialog:
+            self._export_progress_dialog.close()
+            self._export_progress_dialog.deleteLater()
+            self._export_progress_dialog = None
 
     def open_archive_behavior_dialog(self) -> None:
         """Open dialog to archive a behavior and its labels."""
