@@ -1,6 +1,6 @@
 """jabs project module"""
 
-from .export_training import export_training_data
+from .export_training import export_training_data, export_training_data_multiclass
 from .project import Project
 from .project_pruning import get_videos_to_prune
 from .read_training import load_training_data
@@ -14,6 +14,7 @@ __all__ = [
     "TrackLabels",
     "VideoLabels",
     "export_training_data",
+    "export_training_data_multiclass",
     "get_videos_to_prune",
     "load_training_data",
 ]

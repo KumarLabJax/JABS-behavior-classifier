@@ -102,6 +102,7 @@ class _FakeProject:
         self,
         progress_callable=None,
         should_terminate_callable=None,
+        behavior_settings=None,
     ) -> tuple[dict, dict]:
         self.multiclass_calls += 1
         if should_terminate_callable is not None:

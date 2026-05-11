@@ -9,8 +9,8 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
 from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import ClassifierType
-from jabs.project import export_training_data
+from jabs.core.enums import ClassifierMode, ClassifierType
+from jabs.project import export_training_data, export_training_data_multiclass
 
 if TYPE_CHECKING:
     from jabs.project import Project
@@ -32,9 +32,10 @@ class ExportTrainingDataThread(QThread):
     def __init__(
         self,
         project: Project,
-        behavior: str,
         pose_version: int,
         classifier_type: ClassifierType,
+        classifier_mode: ClassifierMode = ClassifierMode.BINARY,
+        behavior: str | None = None,
         training_seed: int = FINAL_TRAIN_SEED,
         parent: QWidget | None = None,
     ) -> None:
@@ -42,9 +43,11 @@ class ExportTrainingDataThread(QThread):
 
         Args:
             project: The JABS project to export training data from.
-            behavior: Name of the behavior to export.
             pose_version: Minimum required pose version for the classifier.
             classifier_type: Classifier algorithm type for the export metadata.
+            classifier_mode: Whether to export in binary or multi-class format.
+            behavior: Name of the behavior to export. Required when
+                ``classifier_mode`` is ``BINARY``; ignored for ``MULTICLASS``.
             training_seed: Random seed for reproducible training splits.
             parent: Optional parent widget.
         """
@@ -53,19 +56,28 @@ class ExportTrainingDataThread(QThread):
         self._behavior = behavior
         self._pose_version = pose_version
         self._classifier_type = classifier_type
+        self._classifier_mode = classifier_mode
         self._training_seed = training_seed
 
     def run(self) -> None:
         """Run the export in the background thread."""
         try:
             self.current_status.emit("Exporting training data...")
-            out_path = export_training_data(
-                self._project,
-                self._behavior,
-                self._pose_version,
-                self._classifier_type,
-                self._training_seed,
-            )
+            if self._classifier_mode == ClassifierMode.MULTICLASS:
+                out_path = export_training_data_multiclass(
+                    self._project,
+                    self._pose_version,
+                    self._classifier_type,
+                    self._training_seed,
+                )
+            else:
+                out_path = export_training_data(
+                    self._project,
+                    self._behavior,
+                    self._pose_version,
+                    self._classifier_type,
+                    self._training_seed,
+                )
             self.export_complete.emit(out_path)
         except Exception as e:
             self.error_callback.emit(e)
