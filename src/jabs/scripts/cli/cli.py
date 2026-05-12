@@ -87,7 +87,8 @@ cli.add_command(sample_frames_command)
     required=False,
     help=(
         "Optional path to write the exported training data file. "
-        "Default is <project_dir>/<behavior>_training_<YYYYMMDD_HHMMSS>.h5"
+        "Default is <project_dir>/<behavior>_training_<YYYYMMDD_HHMMSS>.h5 (binary) "
+        "or <project_dir>/multiclass_training_<YYYYMMDD_HHMMSS>.h5 (multi-class)."
     ),
 )
 @click.pass_context

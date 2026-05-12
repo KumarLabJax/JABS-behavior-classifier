@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 try:
+    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
     from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
     from jabs.ui.classification_thread import ClassifyThread
@@ -61,7 +62,7 @@ class _FakeClassifier:
 
     @staticmethod
     def get_class_names() -> list[str]:
-        return ["background", "Walk", "Run"]
+        return [MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"]
 
 
 class _FakePose:

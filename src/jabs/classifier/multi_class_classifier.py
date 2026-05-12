@@ -17,7 +17,7 @@ from sklearn.exceptions import InconsistentVersionWarning
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
 from jabs.core.utils import hash_file
-from jabs.project import TrackLabels
+from jabs.project import TrackLabels, load_multiclass_training_data
 
 from . import classifier_utils
 from .factories import (
@@ -173,9 +173,9 @@ class MultiClassClassifier:
         """Return the ordered list of class names for this classifier.
 
         Returns:
-            List with ``"background"`` at index 0 followed by behavior names.
+            List with ``MULTICLASS_NONE_BEHAVIOR`` at index 0 followed by behavior names.
         """
-        return ["background", *self._behavior_names]
+        return [MULTICLASS_NONE_BEHAVIOR, *self._behavior_names]
 
     @staticmethod
     def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
@@ -416,6 +416,41 @@ class MultiClassClassifier:
             self._classifier_source = "pickle"
 
         logger.info("MultiClassClassifier loaded from %s", path)
+
+    @classmethod
+    def from_training_file(cls, path: Path) -> MultiClassClassifier:
+        """Train a new MultiClassClassifier from an exported training file.
+
+        Args:
+            path: Path to a multi-class training HDF5 file produced by
+                ``export_training_data_multiclass()``.
+
+        Returns:
+            A freshly trained ``MultiClassClassifier`` instance.
+
+        Raises:
+            ValueError: If the file is not a valid multi-class training export or
+                the stored classifier type is unsupported in the current environment.
+        """
+        loaded, _ = load_multiclass_training_data(path)
+
+        classifier = cls(
+            behavior_names=loaded["behavior_names"],
+            classifier_type=loaded["classifier_type"],
+        )
+        classifier.set_dict_settings(loaded["settings"])
+        classifier.train(
+            {
+                "per_frame": loaded["per_frame"],
+                "window": loaded["window"],
+                "labels_by_behavior": loaded["labels_by_behavior"],
+            },
+            random_seed=loaded["training_seed"],
+        )
+        classifier._classifier_file = Path(path).name
+        classifier._classifier_hash = hash_file(Path(path))
+        classifier._classifier_source = "training_file"
+        return classifier
 
     @staticmethod
     def leave_one_group_out(

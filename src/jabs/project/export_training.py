@@ -8,7 +8,7 @@ import numpy as np
 
 import jabs.feature_extraction
 import jabs.version
-from jabs.core.constants import FINAL_TRAIN_SEED
+from jabs.core.constants import FINAL_TRAIN_SEED, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
 from jabs.project.project_utils import to_safe_name
 
@@ -126,6 +126,8 @@ def export_training_data_multiclass(
 
     string_type = h5py.special_dtype(vlen=str)
     behavior_names = project.settings_manager.behavior_names
+    # class_names[0] is always the background class; behavior_names[i] maps to class i+1.
+    class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
 
     with h5py.File(out_file, "w") as out_h5:
         out_h5.attrs["file_version"] = jabs.feature_extraction.FEATURE_VERSION
@@ -135,11 +137,11 @@ def export_training_data_multiclass(
         out_h5.attrs["classifier_type"] = classifier_type.value
         out_h5.attrs["training_seed"] = training_seed
 
-        # Ordered list defines the class-index mapping: behavior_names[i] -> class i+1.
+        # Full ordered class list: class_names[i] is the name for class index i.
         names_ds = out_h5.create_dataset(
-            "behavior_names", shape=(len(behavior_names),), dtype=string_type
+            "class_names", shape=(len(class_names),), dtype=string_type
         )
-        for i, name in enumerate(behavior_names):
+        for i, name in enumerate(class_names):
             names_ds[i] = name
 
         write_project_settings(out_h5, project.get_project_defaults(), "settings")
@@ -150,10 +152,10 @@ def export_training_data_multiclass(
         for feature, data in features["window"].items():
             feature_group.create_dataset(f"window/{feature}", data=data)
 
-        # Per-behavior label arrays (TrackLabels.Label int8 values), row-aligned with features.
+        # Label arrays stored by class index so behavior names are never used as HDF5 paths.
         labels_group = out_h5.create_group("labels")
-        for behavior_name, label_array in features["labels_by_behavior"].items():
-            labels_group.create_dataset(behavior_name, data=label_array)
+        for i, name in enumerate(class_names):
+            labels_group.create_dataset(str(i), data=features["labels_by_behavior"][name])
 
         out_h5.create_dataset("group", data=features["groups"])
 

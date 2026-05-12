@@ -161,7 +161,7 @@ class TrainingThread(QThread):
                     features["labels_by_behavior"],
                     behavior_names,
                 )
-                class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+                class_names = self._classifier.get_class_names()
                 class_frame_counts = {
                     name: int(np.sum(merged_labels == class_idx))
                     for class_idx, name in enumerate(class_names)

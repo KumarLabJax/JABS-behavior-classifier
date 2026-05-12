@@ -136,3 +136,74 @@ def load_training_data(training_file: Path):
             features["extended_features"] = None
 
     return features, group_mapping
+
+
+def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], dict]:
+    """Load multi-class training data from an exported HDF5 file.
+
+    Args:
+        training_file: Path to a multi-class training HDF5 file produced by
+            ``export_training_data_multiclass()``.
+
+    Returns:
+        Tuple of ``(features, group_mapping)`` where ``features`` contains:
+            - ``class_names``: ordered list of all class names (index 0 = background)
+            - ``behavior_names``: behavior names only (class_names[1:])
+            - ``labels_by_behavior``: dict mapping each class name to its label array
+            - ``per_frame``: DataFrame of per-frame features
+            - ``window``: DataFrame of window features
+            - ``groups``: ndarray of group IDs
+            - ``classifier_type``: ClassifierType enum
+            - ``training_seed``: int
+            - ``settings``: dict of project settings
+            - ``min_pose_version``: int
+
+        ``group_mapping`` maps group ID → ``{"identity": int | None, "video": str}``.
+
+    Raises:
+        ValueError: If the file does not contain a multi-class training export.
+    """
+    features: dict[str, Any] = {"per_frame": {}, "window": {}}
+    group_mapping: dict[int, dict[str, Any]] = {}
+
+    with h5py.File(training_file, "r") as in_h5:
+        classifier_mode = in_h5.attrs.get("classifier_mode", "")
+        if classifier_mode != "multiclass":
+            raise ValueError(
+                f"{training_file} is not a multi-class training file "
+                f"(classifier_mode={classifier_mode!r})."
+            )
+
+        features["min_pose_version"] = in_h5.attrs["min_pose_version"]
+        features["training_seed"] = in_h5.attrs["training_seed"]
+        features["classifier_type"] = ClassifierType(in_h5.attrs["classifier_type"])
+        features["settings"] = read_project_settings(in_h5["settings"])
+
+        raw = in_h5["class_names"][:]
+        class_names = [n.decode() if isinstance(n, bytes) else str(n) for n in raw]
+        features["class_names"] = class_names
+        features["behavior_names"] = class_names[1:]
+
+        labels_by_behavior: dict[str, np.ndarray] = {}
+        for i, name in enumerate(class_names):
+            labels_by_behavior[name] = in_h5[f"labels/{i}"][:]
+        features["labels_by_behavior"] = labels_by_behavior
+
+        features["groups"] = in_h5["group"][:]
+
+        for name, val in in_h5["features/per_frame"].items():
+            features["per_frame"][name] = val[:]
+        features["per_frame"] = pd.DataFrame(features["per_frame"])
+
+        for name, val in in_h5["features/window"].items():
+            features["window"][name] = val[:]
+        features["window"] = pd.DataFrame(features["window"])
+
+        for name, val in in_h5["group_mapping"].items():
+            identity_raw = int(val["identity"][0])
+            group_mapping[int(name)] = {
+                "identity": None if identity_raw == -1 else identity_raw,
+                "video": val["video_name"][0],
+            }
+
+    return features, group_mapping

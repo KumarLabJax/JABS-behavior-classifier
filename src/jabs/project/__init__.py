@@ -3,7 +3,7 @@
 from .export_training import export_training_data, export_training_data_multiclass
 from .project import Project
 from .project_pruning import get_videos_to_prune
-from .read_training import load_training_data
+from .read_training import load_multiclass_training_data, load_training_data
 from .timeline_annotations import TimelineAnnotations
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
@@ -16,5 +16,6 @@ __all__ = [
     "export_training_data",
     "export_training_data_multiclass",
     "get_videos_to_prune",
+    "load_multiclass_training_data",
     "load_training_data",
 ]

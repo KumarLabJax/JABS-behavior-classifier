@@ -71,6 +71,8 @@ class ExportTrainingDataThread(QThread):
                     self._training_seed,
                 )
             else:
+                if self._behavior is None:
+                    raise ValueError("behavior is required for binary training-data export")
                 out_path = export_training_data(
                     self._project,
                     self._behavior,
