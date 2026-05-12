@@ -262,6 +262,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
                 restore binary-mode coloring.
         """
         self._label_color_lut = lut
+        self.update()
 
     def set_label_overlay(self, labels: list[np.ndarray]) -> None:
         """set label values to use for overlaying on the frame.

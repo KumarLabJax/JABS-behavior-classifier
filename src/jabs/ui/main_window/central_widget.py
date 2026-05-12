@@ -285,10 +285,13 @@ class CentralWidget(QtWidgets.QWidget):
                         self._labels.build_multiclass_label_array(str(i), behavior_names)
                         for i in range(self._pose_est.num_identities)
                     ]
-                    self._player_widget.set_label_color_lut(
-                        self._jabs_timeline.multiclass_color_lut
-                    )
-                    self._player_widget.set_labels(multiclass_arrays)
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(multiclass_arrays)
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
                 else:
                     self._player_widget.set_label_color_lut(None)
                     self._player_widget.set_labels(
@@ -300,19 +303,13 @@ class CentralWidget(QtWidgets.QWidget):
                     and self._loaded_video is not None
                     and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
                 ):
-                    n_frames = self._player_widget.num_frames
-                    overlay_labels = []
-                    for i in range(self._pose_est.num_identities):
-                        arr = self._predictions.get(i)
-                        if arr is None:
-                            arr = np.full(n_frames, -1, dtype=np.int16)
-                        overlay_labels.append(
-                            np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1)
-                        )
-                    self._player_widget.set_label_color_lut(
-                        self._jabs_timeline.multiclass_color_lut
-                    )
-                    self._player_widget.set_labels(overlay_labels)
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(self._build_multiclass_overlay_labels())
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
                 else:
                     self._player_widget.set_label_color_lut(None)
                     self._player_widget.set_labels(self._prediction_list)
@@ -857,10 +854,13 @@ class CentralWidget(QtWidgets.QWidget):
                 ]
                 self._jabs_timeline.set_labels(multiclass_arrays, mask_list)
                 if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                    self._player_widget.set_label_color_lut(
-                        self._jabs_timeline.multiclass_color_lut
-                    )
-                    self._player_widget.set_labels(multiclass_arrays)
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(multiclass_arrays)
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
             else:
                 label_list = self._get_label_list()
                 self._jabs_timeline.set_labels(
@@ -1182,6 +1182,24 @@ class CentralWidget(QtWidgets.QWidget):
             return
         self._progress_dialog.setValue(step)
 
+    def _build_multiclass_overlay_labels(self) -> list[np.ndarray]:
+        """Build per-identity LUT-index arrays for the multiclass prediction overlay.
+
+        Maps prediction class indices from ``self._predictions`` to LUT indices:
+        -1 (no pose) -> 0, 0..N-1 -> 1..N.
+
+        Returns:
+            List of arrays, one per identity, with LUT indices for each frame.
+        """
+        n_frames = self._player_widget.num_frames
+        overlay_labels = []
+        for i in range(self._pose_est.num_identities):
+            arr = self._predictions.get(i)
+            if arr is None:
+                arr = np.full(n_frames, -1, dtype=np.int16)
+            overlay_labels.append(np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1))
+        return overlay_labels
+
     def _set_prediction_vis(self) -> None:
         """update data being displayed by the prediction visualization widget"""
         if self._project is None or self._loaded_video is None:
@@ -1191,18 +1209,13 @@ class CentralWidget(QtWidgets.QWidget):
             predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
             self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                n_frames = self._player_widget.num_frames
-                overlay_labels = []
-                for i in range(self._pose_est.num_identities):
-                    arr = self._predictions.get(i)
-                    if arr is None:
-                        arr = np.full(n_frames, -1, dtype=np.int16)
-                    # Map class indices to LUT indices: -1 (no pose) → 0, 0..N → 1..N+1
-                    overlay_labels.append(
-                        np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1)
-                    )
-                self._player_widget.set_label_color_lut(self._jabs_timeline.multiclass_color_lut)
-                self._player_widget.set_labels(overlay_labels)
+                lut = self._jabs_timeline.multiclass_color_lut
+                if lut is not None:
+                    self._player_widget.set_label_color_lut(lut)
+                    self._player_widget.set_labels(self._build_multiclass_overlay_labels())
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(None)
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
