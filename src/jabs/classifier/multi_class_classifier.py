@@ -464,25 +464,32 @@ class MultiClassClassifier:
         return c
 
     @classmethod
-    def from_training_file(cls, path: Path) -> MultiClassClassifier:
+    def from_training_file(
+        cls, path: Path, classifier_type: ClassifierType | None = None
+    ) -> MultiClassClassifier:
         """Train a new MultiClassClassifier from an exported training file.
 
         Args:
             path: Path to a multi-class training HDF5 file produced by
                 ``export_training_data_multiclass()``.
+            classifier_type: Override the classifier algorithm stored in the training
+                file. If ``None``, the type recorded in the file is used.
 
         Returns:
             A freshly trained ``MultiClassClassifier`` instance.
 
         Raises:
             ValueError: If the file is not a valid multi-class training export or
-                the stored classifier type is unsupported in the current environment.
+                the effective classifier type is unsupported in the current environment.
         """
         loaded, _ = load_multiclass_training_data(path)
 
+        effective_type = (
+            classifier_type if classifier_type is not None else loaded["classifier_type"]
+        )
         classifier = cls(
             behavior_names=loaded["behavior_names"],
-            classifier_type=loaded["classifier_type"],
+            classifier_type=effective_type,
         )
         classifier.set_dict_settings(loaded["settings"])
         classifier.train(

@@ -67,13 +67,15 @@ class Classifier:
             raise ValueError("Invalid classifier type")
 
     @classmethod
-    def from_training_file(cls, path: Path):
+    def from_training_file(cls, path: Path, classifier_type: ClassifierType | None = None):
         """Initialize a classifier from an exported training data file.
 
         This method will load the training data and train a classifier.
 
         Args:
             path: exported training data file
+            classifier_type: Override the classifier algorithm stored in the training
+                file. If ``None``, the type recorded in the file is used.
 
         Returns:
             trained classifier object
@@ -84,12 +86,13 @@ class Classifier:
         classifier = cls()
         classifier.behavior_name = behavior
         classifier.set_dict_settings(loaded_training_data["settings"])
-        classifier_type = ClassifierType(loaded_training_data["classifier_type"])
-        if classifier_type in classifier._supported_classifiers:
-            classifier.set_classifier(classifier_type)
+        file_classifier_type = ClassifierType(loaded_training_data["classifier_type"])
+        effective_type = classifier_type if classifier_type is not None else file_classifier_type
+        if effective_type in classifier._supported_classifiers:
+            classifier.set_classifier(effective_type)
         else:
             logging.warning(
-                f"Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}"
+                f"Specified classifier type {effective_type.name} is unavailable, using default: {classifier.classifier_type.name}"
             )
         training_features = classifier.combine_data(
             loaded_training_data["per_frame"], loaded_training_data["window"]

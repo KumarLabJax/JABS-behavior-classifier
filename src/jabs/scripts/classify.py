@@ -21,7 +21,7 @@ from sklearn.exceptions import InconsistentVersionWarning
 
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import CacheFormat
+from jabs.core.enums import CacheFormat, ClassifierType
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
@@ -100,7 +100,9 @@ def _is_multiclass_training_file(path: Path) -> bool:
         return f.attrs.get("classifier_mode", "") == "multiclass"
 
 
-def train_multiclass(training_file: Path) -> MultiClassClassifier:
+def train_multiclass(
+    training_file: Path, classifier_type: ClassifierType | None = None
+) -> MultiClassClassifier:
     """Train a multi-class classifier using the provided training file.
 
     Loads training data from the specified HDF5 file, initializes a
@@ -109,11 +111,15 @@ def train_multiclass(training_file: Path) -> MultiClassClassifier:
 
     Args:
         training_file: Path to the multi-class training HDF5 file exported by JABS.
+        classifier_type: Override the classifier algorithm stored in the training file.
+            If ``None``, the type recorded in the file is used.
 
     Returns:
         Trained ``MultiClassClassifier`` instance.
     """
-    classifier = MultiClassClassifier.from_training_file(training_file)
+    classifier = MultiClassClassifier.from_training_file(
+        training_file, classifier_type=classifier_type
+    )
     classifier_settings = classifier.project_settings
 
     print("Training multi-class classifier for:", ", ".join(classifier.behavior_names))
@@ -135,6 +141,7 @@ def train_and_classify(
     feature_dir: str | None = None,
     cache_window: bool = False,
     use_pose_hash: bool = False,
+    classifier_type: ClassifierType | None = None,
 ) -> None:
     """Train a classifier using the provided training file and classify behaviors in a pose file.
 
@@ -149,14 +156,18 @@ def train_and_classify(
         feature_dir: Directory for feature cache. If provided, features are cached here.
         cache_window: Whether to cache window features.
         use_pose_hash: Include pose file hash as a subdirectory in the cache path.
+        classifier_type: Override the classifier algorithm stored in the training file.
+            If ``None``, the type recorded in the file is used.
     """
     if not training_file_path.exists():
         sys.exit("Unable to open training data\n")
 
     if _is_multiclass_training_file(training_file_path):
-        classifier: Classifier | MultiClassClassifier = train_multiclass(training_file_path)
+        classifier: Classifier | MultiClassClassifier = train_multiclass(
+            training_file_path, classifier_type=classifier_type
+        )
     else:
-        classifier = train(training_file_path)
+        classifier = train(training_file_path, classifier_type=classifier_type)
     classify_pose(
         classifier,
         input_pose_file,
@@ -284,7 +295,7 @@ def classify_pose(
     )
 
 
-def train(training_file: Path) -> Classifier:
+def train(training_file: Path, classifier_type: ClassifierType | None = None) -> Classifier:
     """Train a binary classifier using the provided training file.
 
     Loads training data from the specified HDF5 file, initializes a classifier,
@@ -293,11 +304,13 @@ def train(training_file: Path) -> Classifier:
 
     Args:
         training_file: Path to the training HDF5 file exported by JABS.
+        classifier_type: Override the classifier algorithm stored in the training file.
+            If ``None``, the type recorded in the file is used.
 
     Returns:
         Trained ``Classifier`` instance.
     """
-    classifier = Classifier.from_training_file(training_file)
+    classifier = Classifier.from_training_file(training_file, classifier_type=classifier_type)
     classifier_settings = classifier.project_settings
 
     print("Training classifier for:", classifier.behavior_name)
@@ -428,6 +441,7 @@ def classify_main() -> None:
             feature_dir=args.feature_dir,
             cache_window=not args.skip_window_cache,
             use_pose_hash=args.use_pose_hash,
+            classifier_type=args.classifier_type,
         )
     elif args.classifier is not None:
         try:
