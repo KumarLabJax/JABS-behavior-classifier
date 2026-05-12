@@ -68,9 +68,13 @@ def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifie
         Loaded ``Classifier`` or ``MultiClassClassifier`` instance.
 
     Raises:
-        ValueError: If the file cannot be deserialized, was trained with an
-            incompatible sklearn or JABS version, uses an unsupported classifier
-            type, or contains an unrecognized object type.
+        ValueError: If the file was trained with an incompatible sklearn or JABS
+            version, uses an unsupported classifier type, or contains an
+            unrecognized object type.
+        FileNotFoundError: If ``path`` does not exist.
+        PermissionError: If the file cannot be read.
+        Exception: Other exceptions raised by joblib/pickle during deserialization
+            (e.g. corrupt file).
     """
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always", InconsistentVersionWarning)
@@ -446,7 +450,7 @@ def classify_main() -> None:
     elif args.classifier is not None:
         try:
             classifier = _load_classifier_from_pickle(Path(args.classifier))
-        except ValueError as e:
+        except Exception as e:
             print(f"Unable to load classifier from {args.classifier}:")
             sys.exit(str(e))
 
