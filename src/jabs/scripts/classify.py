@@ -236,7 +236,8 @@ def classify_pose(
 
     prediction_labels = np.full((n_identities, n_frames), -1, dtype=np.int8)
     if multiclass:
-        n_classes = len(class_names)  # type: ignore[arg-type]
+        assert class_names is not None
+        n_classes = len(class_names)
         prediction_prob: np.ndarray = np.zeros(
             (n_identities, n_frames, n_classes), dtype=np.float32
         )
