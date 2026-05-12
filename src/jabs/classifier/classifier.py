@@ -423,6 +423,51 @@ class Classifier:
             self._classifier_hash = hash_file(Path(path))
             self._classifier_source = "serialized"
 
+    @classmethod
+    def from_pickle(cls, path: Path) -> "Classifier":
+        """Load a Classifier from a pickle file with full validation and metadata backfill.
+
+        Applies the same version, classifier-type, and metadata checks as ``load()``,
+        but as a classmethod factory so no dummy instance is required.
+
+        Args:
+            path: Path to the saved classifier pickle file.
+
+        Returns:
+            Loaded and validated ``Classifier`` instance.
+
+        Raises:
+            ValueError: If the file is not a ``Classifier``, was trained with an
+                incompatible sklearn or JABS version, or uses an unsupported
+                classifier type.
+        """
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", InconsistentVersionWarning)
+            c = joblib.load(path)
+            for warning in caught_warnings:
+                if issubclass(warning.category, InconsistentVersionWarning):
+                    raise ValueError("Classifier trained with different version of sklearn.")
+                else:
+                    warnings.warn(warning.message, warning.category, stacklevel=2)
+
+        if not isinstance(c, cls):
+            raise ValueError(f"{path} is not an instance of Classifier")
+
+        if c.version != _VERSION:
+            raise ValueError(
+                f"Unable to deserialize pickled classifier. File version {c.version}, expected {_VERSION}."
+            )
+
+        if c._classifier_type not in cls._supported_classifier_choices():
+            raise ValueError("Invalid classifier type")
+
+        if c._classifier_file is None:
+            c._classifier_file = Path(path).name
+            c._classifier_hash = hash_file(Path(path))
+            c._classifier_source = "pickle"
+
+        return c
+
     def load(self, path: Path):
         """load a classifier from a file
 

@@ -418,6 +418,52 @@ class MultiClassClassifier:
         logger.info("MultiClassClassifier loaded from %s", path)
 
     @classmethod
+    def from_pickle(cls, path: Path) -> MultiClassClassifier:
+        """Load a MultiClassClassifier from a pickle file with full validation and metadata backfill.
+
+        Applies the same version, classifier-type, and metadata checks as ``load()``,
+        but as a classmethod factory so no dummy instance is required.
+
+        Args:
+            path: Path to the saved classifier pickle file.
+
+        Returns:
+            Loaded and validated ``MultiClassClassifier`` instance.
+
+        Raises:
+            ValueError: If the file is not a ``MultiClassClassifier``, was saved
+                with a different version, or uses an unsupported classifier type.
+        """
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", InconsistentVersionWarning)
+            c = joblib.load(path)
+            for warning in caught_warnings:
+                if issubclass(warning.category, InconsistentVersionWarning):
+                    raise ValueError("Classifier trained with different version of sklearn.")
+                else:
+                    warnings.warn(warning.message, warning.category, stacklevel=2)
+
+        if not isinstance(c, cls):
+            raise ValueError(f"{path} is not an instance of MultiClassClassifier")
+
+        if c._version != _VERSION:
+            raise ValueError(
+                f"Unable to deserialize pickled classifier. "
+                f"File version {c._version}, expected {_VERSION}."
+            )
+
+        if c._classifier_type not in cls._supported_classifier_choices():
+            raise ValueError("Invalid classifier type")
+
+        if c._classifier_file is None:
+            c._classifier_file = Path(path).name
+            c._classifier_hash = hash_file(Path(path))
+            c._classifier_source = "pickle"
+
+        logger.info("MultiClassClassifier loaded from %s", path)
+        return c
+
+    @classmethod
     def from_training_file(cls, path: Path) -> MultiClassClassifier:
         """Train a new MultiClassClassifier from an exported training file.
 

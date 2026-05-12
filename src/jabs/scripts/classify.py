@@ -57,7 +57,9 @@ def get_pose_stem(pose_path: Path) -> str:
 def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifier:
     """Load a binary or multi-class classifier from a pickle file.
 
-    Auto-detects the classifier type by inspecting the deserialized object.
+    Peeks at the deserialized type, then delegates to the class-specific
+    ``from_pickle()`` classmethod so that version checks, supported
+    classifier-type checks, and metadata backfill are applied consistently.
 
     Args:
         path: Path to the saved classifier pickle file.
@@ -67,7 +69,8 @@ def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifie
 
     Raises:
         ValueError: If the file cannot be deserialized, was trained with an
-            incompatible sklearn version, or contains an unrecognized type.
+            incompatible sklearn or JABS version, uses an unsupported classifier
+            type, or contains an unrecognized object type.
     """
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always", InconsistentVersionWarning)
@@ -78,9 +81,9 @@ def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifie
             warnings.warn(w.message, w.category, stacklevel=2)
 
     if isinstance(obj, MultiClassClassifier):
-        return obj
+        return MultiClassClassifier.from_pickle(path)
     if isinstance(obj, Classifier):
-        return obj
+        return Classifier.from_pickle(path)
     raise ValueError(f"Unrecognized classifier type in {path}: {type(obj).__name__}")
 
 
