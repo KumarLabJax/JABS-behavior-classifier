@@ -147,7 +147,7 @@ def load_multiclass_training_data(training_file: Path) -> tuple[dict[str, Any], 
 
     Returns:
         Tuple of ``(features, group_mapping)`` where ``features`` contains:
-            - ``class_names``: ordered list of all class names (index 0 = background)
+            - ``class_names``: ordered list of all class names (index 0 = ``MULTICLASS_NONE_BEHAVIOR``)
             - ``behavior_names``: behavior names only (class_names[1:])
             - ``labels_by_behavior``: dict mapping each class name to its label array
             - ``per_frame``: DataFrame of per-frame features

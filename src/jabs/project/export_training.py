@@ -126,7 +126,7 @@ def export_training_data_multiclass(
 
     string_type = h5py.special_dtype(vlen=str)
     behavior_names = project.settings_manager.behavior_names
-    # class_names[0] is always the background class; behavior_names[i] maps to class i+1.
+    # class_names[0] is always MULTICLASS_NONE_BEHAVIOR; behavior_names[i] maps to class i+1.
     class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
 
     with h5py.File(out_file, "w") as out_h5:
