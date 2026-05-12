@@ -1,6 +1,7 @@
 import enum
 
 import numpy as np
+import numpy.typing as npt
 from intervaltree import IntervalTree
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -79,6 +80,7 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
 
         self._pose_overlay_mode = self.PoseOverlayMode.NONE
         self._id_overlay_mode = self.IdentityOverlayMode.BBOX
+        self._label_color_lut: npt.NDArray[np.uint8] | None = None
 
         self._control_overlay = ControlOverlay(self)
         self._control_overlay.playback_speed_changed.connect(self.playback_speed_changed)
@@ -242,6 +244,24 @@ class FrameWithOverlaysWidget(QtWidgets.QLabel):
         This identity will be highlighted in the frame.
         """
         self._active_identity = identity
+
+    @property
+    def label_color_lut(self) -> npt.NDArray[np.uint8] | None:
+        """Return the per-class RGBA color LUT used by the label overlay, or None for binary mode."""
+        return self._label_color_lut
+
+    def set_label_color_lut(self, lut: npt.NDArray[np.uint8] | None) -> None:
+        """Set the color LUT for label overlay rendering.
+
+        When set, the label overlay treats each label value as a LUT index and
+        looks up its RGBA color directly, enabling multi-class coloring. When
+        ``None``, the overlay falls back to the hardcoded binary color scheme.
+
+        Args:
+            lut: RGBA array of shape ``(N, 4)`` dtype ``uint8``, or ``None`` to
+                restore binary-mode coloring.
+        """
+        self._label_color_lut = lut
 
     def set_label_overlay(self, labels: list[np.ndarray]) -> None:
         """set label values to use for overlaying on the frame.

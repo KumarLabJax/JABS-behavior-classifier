@@ -274,16 +274,50 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if mode != self._label_overlay_mode:
             self._label_overlay_mode = mode
-            # also update self._player_widget labels
             if mode == PlayerWidget.LabelOverlayMode.LABEL:
-                self._player_widget.set_labels(
-                    [labels.get_labels() for labels in self._get_label_list()]
-                )
+                if (
+                    self._project is not None
+                    and self._labels is not None
+                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+                ):
+                    behavior_names = self._controls.behaviors
+                    multiclass_arrays = [
+                        self._labels.build_multiclass_label_array(str(i), behavior_names)
+                        for i in range(self._pose_est.num_identities)
+                    ]
+                    self._player_widget.set_label_color_lut(
+                        self._jabs_timeline.multiclass_color_lut
+                    )
+                    self._player_widget.set_labels(multiclass_arrays)
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(
+                        [labels.get_labels() for labels in self._get_label_list()]
+                    )
             elif mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                # prediction_list, _ = self._get_prediction_list()
-                self._player_widget.set_labels(self._prediction_list)
+                if (
+                    self._project is not None
+                    and self._loaded_video is not None
+                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+                ):
+                    n_frames = self._player_widget.num_frames
+                    overlay_labels = []
+                    for i in range(self._pose_est.num_identities):
+                        arr = self._predictions.get(i)
+                        if arr is None:
+                            arr = np.full(n_frames, -1, dtype=np.int16)
+                        overlay_labels.append(
+                            np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1)
+                        )
+                    self._player_widget.set_label_color_lut(
+                        self._jabs_timeline.multiclass_color_lut
+                    )
+                    self._player_widget.set_labels(overlay_labels)
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(self._prediction_list)
             else:
-                # if the player is set to show nothing, clear the labels
+                self._player_widget.set_label_color_lut(None)
                 self._player_widget.set_labels(None)
 
     @property
@@ -817,16 +851,16 @@ class CentralWidget(QtWidgets.QWidget):
             ]
             if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
                 behavior_names = self._controls.behaviors
-                self._jabs_timeline.set_labels(
-                    [
-                        self._labels.build_multiclass_label_array(str(i), behavior_names)
-                        for i in range(self._pose_est.num_identities)
-                    ],
-                    mask_list,
-                )
+                multiclass_arrays = [
+                    self._labels.build_multiclass_label_array(str(i), behavior_names)
+                    for i in range(self._pose_est.num_identities)
+                ]
+                self._jabs_timeline.set_labels(multiclass_arrays, mask_list)
                 if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                    label_list = self._get_label_list()
-                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+                    self._player_widget.set_label_color_lut(
+                        self._jabs_timeline.multiclass_color_lut
+                    )
+                    self._player_widget.set_labels(multiclass_arrays)
             else:
                 label_list = self._get_label_list()
                 self._jabs_timeline.set_labels(
@@ -834,7 +868,7 @@ class CentralWidget(QtWidgets.QWidget):
                     mask_list,
                 )
                 if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                    # if configured to show labels, update the player widget with the new labels
+                    self._player_widget.set_label_color_lut(None)
                     self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
@@ -1157,8 +1191,18 @@ class CentralWidget(QtWidgets.QWidget):
             predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
             self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                # Multi-class frame overlay is tracked under T9; keep disabled for now.
-                self._player_widget.set_labels(None)
+                n_frames = self._player_widget.num_frames
+                overlay_labels = []
+                for i in range(self._pose_est.num_identities):
+                    arr = self._predictions.get(i)
+                    if arr is None:
+                        arr = np.full(n_frames, -1, dtype=np.int16)
+                    # Map class indices to LUT indices: -1 (no pose) → 0, 0..N → 1..N+1
+                    overlay_labels.append(
+                        np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1)
+                    )
+                self._player_widget.set_label_color_lut(self._jabs_timeline.multiclass_color_lut)
+                self._player_widget.set_labels(overlay_labels)
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
@@ -1167,7 +1211,7 @@ class CentralWidget(QtWidgets.QWidget):
             [[prob] for prob in self._probability_list],
         )
         if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-            # if the player is set to show predictions, update the player widget
+            self._player_widget.set_label_color_lut(None)
             self._player_widget.set_labels(self._prediction_list)
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
