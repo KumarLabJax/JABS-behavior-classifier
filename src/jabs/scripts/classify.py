@@ -12,6 +12,7 @@ import sys
 import warnings
 from pathlib import Path
 
+import h5py
 import joblib
 import numpy as np
 import pandas as pd
@@ -83,6 +84,46 @@ def _load_classifier_from_pickle(path: Path) -> Classifier | MultiClassClassifie
     raise ValueError(f"Unrecognized classifier type in {path}: {type(obj).__name__}")
 
 
+def _is_multiclass_training_file(path: Path) -> bool:
+    """Return True if the training file contains multi-class training data.
+
+    Args:
+        path: Path to the training HDF5 file.
+
+    Returns:
+        True if the file has ``classifier_mode == "multiclass"``, False otherwise.
+    """
+    with h5py.File(path, "r") as f:
+        return f.attrs.get("classifier_mode", "") == "multiclass"
+
+
+def train_multiclass(training_file: Path) -> MultiClassClassifier:
+    """Train a multi-class classifier using the provided training file.
+
+    Loads training data from the specified HDF5 file, initializes a
+    ``MultiClassClassifier``, and prints training details such as behavior names,
+    classifier type, window size, and other relevant settings.
+
+    Args:
+        training_file: Path to the multi-class training HDF5 file exported by JABS.
+
+    Returns:
+        Trained ``MultiClassClassifier`` instance.
+    """
+    classifier = MultiClassClassifier.from_training_file(training_file)
+    classifier_settings = classifier.project_settings
+
+    print("Training multi-class classifier for:", ", ".join(classifier.behavior_names))
+    print(f"  Classifier Type: {classifier.classifier_name}")
+    print(f"  Window Size: {classifier_settings['window_size']}")
+    print(f"  Social: {classifier_settings['social']}")
+    print(f"  Balanced Labels: {classifier_settings['balance_labels']}")
+    print(f"  Symmetric Behavior: {classifier_settings['symmetric_behavior']}")
+    print(f"  CM Units: {bool(classifier_settings['cm_units'])}")
+
+    return classifier
+
+
 def train_and_classify(
     training_file_path: Path,
     input_pose_file: Path,
@@ -109,7 +150,10 @@ def train_and_classify(
     if not training_file_path.exists():
         sys.exit("Unable to open training data\n")
 
-    classifier = train(training_file_path)
+    if _is_multiclass_training_file(training_file_path):
+        classifier: Classifier | MultiClassClassifier = train_multiclass(training_file_path)
+    else:
+        classifier = train(training_file_path)
     classify_pose(
         classifier,
         input_pose_file,
@@ -429,10 +473,19 @@ def train_main() -> None:
     parser.add_argument("out_file", help="output filename")
 
     args = parser.parse_args(train_args)
-    classifier = train(Path(args.training_file))
+    training_path = Path(args.training_file)
+
+    if not training_path.exists():
+        sys.exit("Unable to open training data\n")
+
+    trained: Classifier | MultiClassClassifier
+    if _is_multiclass_training_file(training_path):
+        trained = train_multiclass(training_path)
+    else:
+        trained = train(training_path)
 
     print(f"Saving trained classifier to '{args.out_file}'")
-    classifier.save(Path(args.out_file))
+    trained.save(Path(args.out_file))
 
 
 def script_name() -> str:
