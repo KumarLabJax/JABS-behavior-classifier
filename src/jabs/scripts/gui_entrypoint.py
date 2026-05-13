@@ -102,10 +102,6 @@ def main():
     )
     main_window.show()
 
-    # prompt user to accept license terms (main_window won't show the dialog again if already accepted)
-    if main_window.show_license_dialog() != QtWidgets.QDialog.DialogCode.Accepted:
-        sys.exit(1)
-
     if args.project_dir is not None:
         # this forces the GUI to process events before opening the project
         # this is necessary to avoid a race condition where the main window

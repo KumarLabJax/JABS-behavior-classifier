@@ -4,7 +4,7 @@ version = "0.44.2"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 
 authors = [
   { name = "Glen Beane" },
