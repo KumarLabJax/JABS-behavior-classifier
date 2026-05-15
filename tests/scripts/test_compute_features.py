@@ -210,6 +210,7 @@ def test_identity_features_invoked_with_expected_args(tmp_path: Path) -> None:
         args, kwargs = call
         assert args == (pose_file, expected_id, feature_dir, pose)
         assert kwargs == {
+            "force": False,
             "fps": 60,
             "op_settings": settings,
             "cache_window": False,
@@ -255,4 +256,36 @@ def test_window_sizes_iterated_dedup_sorted(tmp_path: Path) -> None:
     called_sizes = [call.args[0] for call in fake_features.get_window_features.call_args_list]
     assert called_sizes == [5, 10]
     for call in fake_features.get_window_features.call_args_list:
-        assert call.kwargs == {"force": True}
+        assert call.kwargs == {"force": False}
+
+
+def test_force_flag_forwarded(tmp_path: Path) -> None:
+    """--force is forwarded to IdentityFeatures and get_window_features."""
+    pose_file = _make_pose_file(tmp_path)
+    pose = _fake_pose(cm_per_pixel=0.05, identities=(0,))
+
+    fake_features = MagicMock()
+    with (
+        patch(f"{MODULE}.open_pose_file", return_value=pose),
+        patch(f"{MODULE}.Project.settings_by_pose_version", return_value={"social": False}),
+        patch(f"{MODULE}.IdentityFeatures", return_value=fake_features) as mock_features_cls,
+    ):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "compute-features",
+                "--pose-file",
+                str(pose_file),
+                "--feature-dir",
+                str(tmp_path),
+                "-w",
+                "5",
+                "--force",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    _, kwargs = mock_features_cls.call_args
+    assert kwargs["force"] is True
+    fake_features.get_window_features.assert_called_once_with(5, force=True)

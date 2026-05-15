@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import click
+from rich.console import Console
 
 from jabs.core.enums import CacheFormat, ProjectDistanceUnit
 from jabs.feature_extraction.features import IdentityFeatures
@@ -67,6 +68,12 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Storage format for the feature cache.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Recompute features and overwrite the cache even when a valid cache exists.",
+)
 def compute_features_command(
     pose_file: Path,
     feature_dir: Path,
@@ -75,6 +82,7 @@ def compute_features_command(
     fps: int,
     use_pose_hash: bool,
     cache_format: str,
+    force: bool,
 ) -> None:
     """Compute and cache JABS features for a pose file.
 
@@ -90,7 +98,9 @@ def compute_features_command(
             "expected a name like '*_pose_est_v<N>.h5'."
         ) from e
 
-    pose_est = open_pose_file(pose_file)
+    console = Console()
+    with console.status(f"Opening pose file {pose_file.name}...", spinner="dots"):
+        pose_est = open_pose_file(pose_file)
 
     if use_pixel_distances or pose_est.cm_per_pixel is None:
         distance_unit = ProjectDistanceUnit.PIXEL
@@ -112,19 +122,30 @@ def compute_features_command(
         cache_format_enum.value,
     )
 
-    for curr_id in pose_est.identities:
-        # Note: Features are still cached with the highest pose version.
-        # It isn't until get_features is called that filtering occurs.
-        features = IdentityFeatures(
-            pose_file,
-            curr_id,
-            feature_dir,
-            pose_est,
-            fps=fps,
-            op_settings=settings,
-            cache_window=cache_window,
-            cache_format=cache_format_enum,
-            include_pose_hash=use_pose_hash,
-        )
-        for ws in sorted_window_sizes:
-            _ = features.get_window_features(ws, force=True)
+    identities = list(pose_est.identities)
+    with console.status("Computing features...", spinner="dots") as status:
+        for curr_id in identities:
+            status.update(
+                f"Computing per-frame features for identity {curr_id} "
+                f"({identities.index(curr_id) + 1}/{len(identities)})..."
+            )
+            # Note: Features are still cached with the highest pose version.
+            # It isn't until get_features is called that filtering occurs.
+            features = IdentityFeatures(
+                pose_file,
+                curr_id,
+                feature_dir,
+                pose_est,
+                force=force,
+                fps=fps,
+                op_settings=settings,
+                cache_window=cache_window,
+                cache_format=cache_format_enum,
+                include_pose_hash=use_pose_hash,
+            )
+            for ws in sorted_window_sizes:
+                status.update(
+                    f"Computing window features (size={ws}) for identity {curr_id} "
+                    f"({identities.index(curr_id) + 1}/{len(identities)})..."
+                )
+                _ = features.get_window_features(ws, force=force)

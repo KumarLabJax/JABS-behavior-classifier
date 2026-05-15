@@ -691,6 +691,9 @@ class IdentityFeatures:
             ...
         }
         """
+        if self._per_frame is None:
+            self._per_frame = self._unflatten_per_frame(self._per_frame_flat)
+
         window_features = {}
 
         for key in self._feature_modules:
