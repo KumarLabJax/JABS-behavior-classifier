@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
     "-w",
     "--window-size",
     "window_sizes",
-    type=int,
+    type=click.IntRange(min=1),
     multiple=True,
     help=(
         "Window size for features. Repeat to compute multiple window sizes "
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--fps",
-    type=int,
+    type=click.IntRange(min=1),
     default=30,
     show_default=True,
     help="Frames per second to use for feature calculation.",
@@ -127,4 +127,4 @@ def compute_features_command(
             include_pose_hash=use_pose_hash,
         )
         for ws in sorted_window_sizes:
-            _ = features.get_window_features(ws, settings["social"], force=True)
+            _ = features.get_window_features(ws, force=True)
