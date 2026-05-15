@@ -242,7 +242,7 @@ class TestMultiClassClassifierInit:
 def test_get_class_names():
     """get_class_names returns background + behavior names in order."""
     clf = MultiClassClassifier(["walking", "rearing"])
-    assert clf.get_class_names() == ["background", "walking", "rearing"]
+    assert clf.get_class_names() == [MULTICLASS_NONE_BEHAVIOR, "walking", "rearing"]
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 try:
+    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.core.enums import (
         ClassifierMode,
         CrossValidationGroupingStrategy,
@@ -44,6 +45,9 @@ class _FakeClassifier:
         call = dict(data)
         call["random_seed"] = random_seed
         self.train_calls.append(call)
+
+    def get_class_names(self) -> list[str]:
+        return [MULTICLASS_NONE_BEHAVIOR, *self.behavior_names]
 
     @staticmethod
     def get_feature_importance(limit: int = 20) -> list[tuple[str, float]]:
@@ -102,6 +106,7 @@ class _FakeProject:
         self,
         progress_callable=None,
         should_terminate_callable=None,
+        behavior_settings=None,
     ) -> tuple[dict, dict]:
         self.multiclass_calls += 1
         if should_terminate_callable is not None:

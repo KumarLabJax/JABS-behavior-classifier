@@ -17,7 +17,7 @@ from sklearn.exceptions import InconsistentVersionWarning
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
 from jabs.core.utils import hash_file
-from jabs.project import TrackLabels
+from jabs.project import TrackLabels, load_multiclass_training_data
 
 from . import classifier_utils
 from .factories import (
@@ -44,17 +44,17 @@ class MultiClassClassifier:
     """Multi-class behavior classifier for simultaneous classification of N behaviors.
 
     Trains a single classifier over all annotated behaviors, outputting one of N
-    behavior classes (or background) per frame. Per-behavior TrackLabels arrays are
-    merged into a single class-index array before training.
+    behavior classes (or ``MULTICLASS_NONE_BEHAVIOR``) per frame. Per-behavior
+    TrackLabels arrays are merged into a single class-index array before training.
 
-    The background class (index 0) is the multi-class analog of the binary
-    classifier's "not {behavior}" class, except that it represents the absence of
-    *all* annotated behaviors rather than the negation of a single one. It is
+    The ``MULTICLASS_NONE_BEHAVIOR`` class (index 0) is the multi-class analog of the
+    binary classifier's "not {behavior}" class, except that it represents the absence
+    of *all* annotated behaviors rather than the negation of a single one. It is
     populated exclusively via explicit ``MULTICLASS_NONE_BEHAVIOR`` labels; frames
     that are simply unlabeled are excluded from training entirely.
 
     Merging rules:
-        - BEHAVIOR in ``MULTICLASS_NONE_BEHAVIOR`` TrackLabels → class 0 (background)
+        - BEHAVIOR in ``MULTICLASS_NONE_BEHAVIOR`` TrackLabels → class 0
         - BEHAVIOR in behavior X's TrackLabels → class X's 1-based index
         - All other frames → excluded from training
 
@@ -84,8 +84,8 @@ class MultiClassClassifier:
 
         Args:
             behavior_names: Ordered list of behavior names to classify (must not include
-                ``MULTICLASS_NONE_BEHAVIOR``). Class index 0 is reserved for background;
-                ``behavior_names[i]`` maps to class index ``i + 1``.
+                ``MULTICLASS_NONE_BEHAVIOR``). Class index 0 is reserved for
+                ``MULTICLASS_NONE_BEHAVIOR``; ``behavior_names[i]`` maps to class index ``i + 1``.
             classifier_type: Underlying algorithm to use.
             n_jobs: Number of parallel jobs for training and inference.
 
@@ -124,7 +124,7 @@ class MultiClassClassifier:
 
     @property
     def behavior_names(self) -> list[str]:
-        """Ordered list of behavior names (does not include background)."""
+        """Ordered list of behavior names (does not include ``MULTICLASS_NONE_BEHAVIOR``)."""
         return list(self._behavior_names)
 
     @property
@@ -173,9 +173,9 @@ class MultiClassClassifier:
         """Return the ordered list of class names for this classifier.
 
         Returns:
-            List with ``"background"`` at index 0 followed by behavior names.
+            List with ``MULTICLASS_NONE_BEHAVIOR`` at index 0 followed by behavior names.
         """
-        return ["background", *self._behavior_names]
+        return [MULTICLASS_NONE_BEHAVIOR, *self._behavior_names]
 
     @staticmethod
     def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
@@ -340,7 +340,7 @@ class MultiClassClassifier:
 
         Returns:
             Float array of shape ``(n_frames, N+1)`` where N is the number of
-            behaviors. Column 0 is the background class.
+            behaviors. Column 0 is the ``MULTICLASS_NONE_BEHAVIOR`` class.
         """
         cleaned = self._get_features_to_classify(
             classifier_utils.clean_features(features, self._classifier_type)
@@ -416,6 +416,41 @@ class MultiClassClassifier:
             self._classifier_source = "pickle"
 
         logger.info("MultiClassClassifier loaded from %s", path)
+
+    @classmethod
+    def from_training_file(cls, path: Path) -> MultiClassClassifier:
+        """Train a new MultiClassClassifier from an exported training file.
+
+        Args:
+            path: Path to a multi-class training HDF5 file produced by
+                ``export_training_data_multiclass()``.
+
+        Returns:
+            A freshly trained ``MultiClassClassifier`` instance.
+
+        Raises:
+            ValueError: If the file is not a valid multi-class training export or
+                the stored classifier type is unsupported in the current environment.
+        """
+        loaded, _ = load_multiclass_training_data(path)
+
+        classifier = cls(
+            behavior_names=loaded["behavior_names"],
+            classifier_type=loaded["classifier_type"],
+        )
+        classifier.set_dict_settings(loaded["settings"])
+        classifier.train(
+            {
+                "per_frame": loaded["per_frame"],
+                "window": loaded["window"],
+                "labels_by_behavior": loaded["labels_by_behavior"],
+            },
+            random_seed=loaded["training_seed"],
+        )
+        classifier._classifier_file = Path(path).name
+        classifier._classifier_hash = hash_file(Path(path))
+        classifier._classifier_source = "training_file"
+        return classifier
 
     @staticmethod
     def leave_one_group_out(
@@ -500,7 +535,7 @@ class MultiClassClassifier:
 
         Merging rules:
             - ``TrackLabels.Label.BEHAVIOR`` in ``MULTICLASS_NONE_BEHAVIOR`` entry
-              → class 0 (background)
+              → class 0
             - ``TrackLabels.Label.BEHAVIOR`` in behavior X's entry
               → class index (1-based, by position in ``behavior_names``)
             - All other frames → excluded (not in the returned mask)
@@ -550,7 +585,7 @@ class MultiClassClassifier:
 
         class_indices = np.full(n_frames, -1, dtype=np.intp)
 
-        # MULTICLASS_NONE_BEHAVIOR BEHAVIOR frames → class 0 (explicit background)
+        # MULTICLASS_NONE_BEHAVIOR BEHAVIOR frames → class 0
         if MULTICLASS_NONE_BEHAVIOR in labels_by_behavior:
             none_arr = labels_by_behavior[MULTICLASS_NONE_BEHAVIOR]
             class_indices[none_arr == TrackLabels.Label.BEHAVIOR] = 0

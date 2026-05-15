@@ -166,11 +166,17 @@ class MenuHandlers:
             )
             return
 
+        classifier_mode = self.window._project.settings_manager.classifier_mode
         self._export_thread = ExportTrainingDataThread(
             project=self.window._project,
-            behavior=self.window._central_widget.behavior,
             pose_version=self.window._project.feature_manager.min_pose_version,
             classifier_type=self.window._central_widget.classifier_type,
+            classifier_mode=classifier_mode,
+            behavior=(
+                self.window._central_widget.behavior
+                if classifier_mode == ClassifierMode.BINARY
+                else None
+            ),
             training_seed=FINAL_TRAIN_SEED,
             parent=self.window,
         )
