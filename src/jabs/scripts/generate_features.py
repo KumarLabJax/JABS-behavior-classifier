@@ -59,7 +59,12 @@ def generate_feature_cache(args):
 
 def main():
     """jabs-features"""
-    parser = argparse.ArgumentParser(prog=f"{script_name()} features")
+    script = Path(sys.argv[0]).name
+    print(
+        f"{script} is deprecated, use `jabs-cli compute-features` instead.",
+        file=sys.stderr,
+    )
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--pose-file",
         required=True,
@@ -108,11 +113,6 @@ def main():
     args = parser.parse_args()
 
     generate_feature_cache(args)
-
-
-def script_name() -> str:
-    """return the script name"""
-    return Path(sys.argv[0]).name
 
 
 if __name__ == "__main__":
