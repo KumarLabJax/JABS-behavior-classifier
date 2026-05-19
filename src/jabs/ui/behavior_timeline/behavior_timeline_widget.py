@@ -272,6 +272,11 @@ class BehaviorTimelineWidget(QWidget):
         self._num_frames = pose_est.num_frames
         self._reset_layout()
 
+    @property
+    def multiclass_color_lut(self) -> npt.NDArray[np.uint8] | None:
+        """Return the multiclass color LUT, or None when in binary mode."""
+        return self._multiclass_color_lut
+
     def set_classifier_mode(self, mode: ClassifierMode, behavior_names: list[str]) -> None:
         """Set the classifier mode and rebuild the layout for multi-class or binary display.
 

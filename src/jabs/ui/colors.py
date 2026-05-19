@@ -39,6 +39,7 @@ _EXCLUDED_BEHAVIOR_PALETTE_COLORS: list[tuple[float, float, float]] = [
     (BACKGROUND_COLOR.redF(), BACKGROUND_COLOR.greenF(), BACKGROUND_COLOR.blueF()),
     (NOT_BEHAVIOR_COLOR.redF(), NOT_BEHAVIOR_COLOR.greenF(), NOT_BEHAVIOR_COLOR.blueF()),
     (BEHAVIOR_COLOR.redF(), BEHAVIOR_COLOR.greenF(), BEHAVIOR_COLOR.blueF()),
+    (0.0, 0.0, 0.0),  # black is hard to read on dark backgrounds
 ]
 
 

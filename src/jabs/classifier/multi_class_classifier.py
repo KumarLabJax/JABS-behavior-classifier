@@ -418,25 +418,78 @@ class MultiClassClassifier:
         logger.info("MultiClassClassifier loaded from %s", path)
 
     @classmethod
-    def from_training_file(cls, path: Path) -> MultiClassClassifier:
+    def from_pickle(cls, path: Path) -> MultiClassClassifier:
+        """Load a MultiClassClassifier from a pickle file with full validation and metadata backfill.
+
+        Applies the same version, classifier-type, and metadata checks as ``load()``,
+        but as a classmethod factory so no dummy instance is required.
+
+        Args:
+            path: Path to the saved classifier pickle file.
+
+        Returns:
+            Loaded and validated ``MultiClassClassifier`` instance.
+
+        Raises:
+            ValueError: If the file is not a ``MultiClassClassifier``, was saved
+                with a different version, or uses an unsupported classifier type.
+        """
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", InconsistentVersionWarning)
+            c = joblib.load(path)
+            for warning in caught_warnings:
+                if issubclass(warning.category, InconsistentVersionWarning):
+                    raise ValueError("Classifier trained with different version of sklearn.")
+                else:
+                    warnings.warn(warning.message, warning.category, stacklevel=2)
+
+        if not isinstance(c, cls):
+            raise ValueError(f"{path} is not an instance of MultiClassClassifier")
+
+        if c._version != _VERSION:
+            raise ValueError(
+                f"Unable to deserialize pickled classifier. "
+                f"File version {c._version}, expected {_VERSION}."
+            )
+
+        if c._classifier_type not in cls._supported_classifier_choices():
+            raise ValueError("Invalid classifier type")
+
+        if c._classifier_file is None:
+            c._classifier_file = Path(path).name
+            c._classifier_hash = hash_file(Path(path))
+            c._classifier_source = "pickle"
+
+        logger.info("MultiClassClassifier loaded from %s", path)
+        return c
+
+    @classmethod
+    def from_training_file(
+        cls, path: Path, classifier_type: ClassifierType | None = None
+    ) -> MultiClassClassifier:
         """Train a new MultiClassClassifier from an exported training file.
 
         Args:
             path: Path to a multi-class training HDF5 file produced by
                 ``export_training_data_multiclass()``.
+            classifier_type: Override the classifier algorithm stored in the training
+                file. If ``None``, the type recorded in the file is used.
 
         Returns:
             A freshly trained ``MultiClassClassifier`` instance.
 
         Raises:
             ValueError: If the file is not a valid multi-class training export or
-                the stored classifier type is unsupported in the current environment.
+                the effective classifier type is unsupported in the current environment.
         """
         loaded, _ = load_multiclass_training_data(path)
 
+        effective_type = (
+            classifier_type if classifier_type is not None else loaded["classifier_type"]
+        )
         classifier = cls(
             behavior_names=loaded["behavior_names"],
-            classifier_type=loaded["classifier_type"],
+            classifier_type=effective_type,
         )
         classifier.set_dict_settings(loaded["settings"])
         classifier.train(
