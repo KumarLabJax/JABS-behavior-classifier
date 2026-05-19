@@ -9,6 +9,7 @@ import jabs.project.track_labels
 from jabs.core.enums import CacheFormat
 from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+from jabs.core.utils import pose_file_stem
 from jabs.io.feature_cache import clear_cache, detect_cache_format
 from jabs.io.feature_cache.base import FeatureCacheReader, FeatureCacheWriter
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
@@ -45,6 +46,33 @@ _BASE_FILTERS: dict[str, dict[str, list[str]]] = {
     "segmentation": {"_all": SegmentationFeatureGroup.module_names()},
     "static_objects": LandmarkFeatureGroup.feature_map,
 }
+
+
+def _migrate_legacy_cache_dir(directory: Path, source_file: str | Path) -> None:
+    """One-shot rename of a legacy ``<name>_pose_est_vN`` cache dir to ``<name>``.
+
+    Earlier versions of jabs-classify and jabs-cli compute-features wrote feature
+    caches to a subdirectory whose name kept the ``_pose_est_vN`` suffix from the
+    pose filename, while jabs-init / the GUI used the bare video stem. We now
+    normalize on the bare stem; this helper renames an existing legacy directory
+    so previously-computed caches are still found.
+
+    The rename is skipped (and the legacy directory left alone) if any of:
+      * ``source_file`` does not carry a ``_pose_est_vN`` suffix.
+      * The legacy directory does not exist.
+      * The normalized destination already exists (avoids collisions when two
+        pose files in the same dir would normalize to the same stem).
+    """
+    raw_stem = Path(source_file).stem
+    normalized_stem = pose_file_stem(source_file)
+    if raw_stem == normalized_stem:
+        return
+    legacy = directory / raw_stem
+    normalized = directory / normalized_stem
+    if not legacy.is_dir() or normalized.exists():
+        return
+    logger.info("renaming legacy feature cache subdirectory %s -> %s", legacy, normalized)
+    legacy.rename(normalized)
 
 
 def _normalize_op_settings(settings: dict) -> dict:
@@ -129,7 +157,13 @@ class IdentityFeatures:
         if directory is None:
             self._identity_feature_dir = None
         else:
-            base = Path(directory) / Path(source_file).stem
+            # Normalize the cache subdirectory so paths derived from a pose file
+            # (e.g. "video_pose_est_v6.h5") match those derived from a video file
+            # (e.g. "video.mp4"). Without this, jabs-classify / jabs-cli
+            # compute-features wrote to "<dir>/video_pose_est_v6/" while the GUI
+            # / jabs-init wrote to "<dir>/video/".
+            _migrate_legacy_cache_dir(Path(directory), source_file)
+            base = Path(directory) / pose_file_stem(source_file)
             if include_pose_hash:
                 base = base / self._pose_hash
             self._identity_feature_dir = base / str(self._identity)
