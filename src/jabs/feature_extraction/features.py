@@ -72,7 +72,19 @@ def _migrate_legacy_cache_dir(directory: Path, source_file: str | Path) -> None:
     if not legacy.is_dir() or normalized.exists():
         return
     logger.info("renaming legacy feature cache subdirectory %s -> %s", legacy, normalized)
-    legacy.rename(normalized)
+    try:
+        legacy.rename(normalized)
+    except OSError:
+        # Best-effort migration: a permissions or filesystem error here would
+        # only cost a cache recompute, so log and continue rather than aborting
+        # feature extraction.
+        logger.warning(
+            "failed to rename legacy feature cache subdirectory %s -> %s; "
+            "features will be recomputed",
+            legacy,
+            normalized,
+            exc_info=True,
+        )
 
 
 def _normalize_op_settings(settings: dict) -> dict:

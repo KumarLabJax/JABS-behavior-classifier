@@ -7,6 +7,7 @@ Todo:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -24,8 +25,21 @@ from jabs.project.prediction_manager import PredictionManager
 
 DEFAULT_FPS = 30
 
+_POSE_FILE_NAME_RE = re.compile(r"^.+_pose_est_v[0-9]+\.h5$")
+
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
+
+
+def _require_pose_file_name(pose_path: Path) -> None:
+    """Validate that the filename matches the canonical ``*_pose_est_vN.h5`` pattern.
+
+    Raises:
+        ValueError: If the filename does not match the canonical pose-file
+            pattern.
+    """
+    if not _POSE_FILE_NAME_RE.match(pose_path.name):
+        raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
 def train_and_classify(
@@ -92,6 +106,7 @@ def classify_pose(
         cache_window (bool, optional): Whether to cache window features. Defaults to False.
         use_pose_hash (bool, optional): Include pose file hash as a subdirectory in the cache path. Defaults to False.
     """
+    _require_pose_file_name(input_pose_file)
     pose_est = open_pose_file(input_pose_file)
     pose_stem = pose_file_stem(input_pose_file)
 

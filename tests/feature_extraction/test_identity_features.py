@@ -265,6 +265,29 @@ def test_legacy_cache_dir_left_alone_on_collision(tmp_path, pose_est_v5) -> None
     assert (normalized / "other_marker").exists()
 
 
+def test_legacy_rename_failure_is_non_fatal(tmp_path, pose_est_v5, caplog, monkeypatch) -> None:
+    """A rename failure logs a warning and lets construction proceed.
+
+    Best-effort migration: an OS-level rename error must not abort feature
+    extraction. The worst case is a recomputed cache.
+    """
+    legacy = tmp_path / "sample_pose_est_v5"
+    legacy.mkdir()
+    (legacy / "marker").touch()
+
+    def _raise(self, *args, **kwargs):
+        raise PermissionError("simulated rename failure")
+
+    monkeypatch.setattr(Path, "rename", _raise)
+
+    with caplog.at_level("WARNING", logger="jabs.feature_extraction.features"):
+        instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
+
+    assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
+    assert legacy.exists(), "legacy dir untouched after failed rename"
+    assert any("failed to rename" in r.message for r in caplog.records)
+
+
 def test_no_rename_when_video_stem_used(tmp_path, pose_est_v5) -> None:
     """If the source filename has no ``_pose_est_vN`` suffix, no rename is attempted."""
     instance = IdentityFeatures(
