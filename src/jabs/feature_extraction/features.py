@@ -104,7 +104,7 @@ class IdentityFeatures:
 
     def __init__(
         self,
-        source_file: str,
+        source_file: str | Path,
         identity: int,
         directory: str | Path | None,
         pose_est: PoseEstimation,
@@ -691,6 +691,9 @@ class IdentityFeatures:
             ...
         }
         """
+        if self._per_frame is None:
+            self._per_frame = self._unflatten_per_frame(self._per_frame_flat)
+
         window_features = {}
 
         for key in self._feature_modules:
