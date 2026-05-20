@@ -9,6 +9,7 @@ from jabs.classifier import (
     Classifier,
     MultiClassClassifier,
     TrainingReportData,
+    classifier_utils,
     generate_markdown_report,
     save_training_report,
 )
@@ -157,7 +158,7 @@ class TrainingThread(QThread):
                         if name != MULTICLASS_NONE_BEHAVIOR
                     ]
 
-                merged_labels, _ = MultiClassClassifier.merge_labels(
+                merged_labels, _ = classifier_utils.merge_labels(
                     features["labels_by_behavior"],
                     behavior_names,
                 )

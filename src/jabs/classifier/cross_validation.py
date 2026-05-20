@@ -73,7 +73,7 @@ def run_leave_one_group_out_cv(
 
     if is_multiclass:
         behavior_names = list(getattr(classifier, "behavior_names", []))
-        labels, _ = classifier.merge_labels(features["labels_by_behavior"], behavior_names)
+        labels, _ = classifier_utils.merge_labels(features["labels_by_behavior"], behavior_names)
         class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
         multiclass_settings = classifier.project_settings or project.get_project_defaults()
 

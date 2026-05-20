@@ -492,7 +492,7 @@ def test_overlapping_labels_conflict_detected(tmp_path: Path) -> None:
 def test_overlapping_labels_none_behavior_is_a_conflict(tmp_path: Path) -> None:
     """A behavior and the None behavior sharing a BEHAVIOR-labeled frame is a conflict.
 
-    This keeps the validator consistent with MultiClassClassifier.merge_labels(),
+    This keeps the validator consistent with classifier_utils.merge_labels(),
     which raises ValueError for the same condition at training time.
     """
     labels = VideoLabels("video1.avi", 100)

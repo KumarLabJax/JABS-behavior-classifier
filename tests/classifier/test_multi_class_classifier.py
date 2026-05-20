@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from jabs.classifier import classifier_utils
 from jabs.classifier.multi_class_classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
@@ -98,11 +99,11 @@ def combined_features(synthetic_features) -> pd.DataFrame:
 
 
 class TestMergeLabels:
-    """Tests for MultiClassClassifier.merge_labels."""
+    """Tests for classifier_utils.merge_labels (multi-class label merging)."""
 
     def test_behavior_frames_map_to_correct_class_index(self, two_behavior_labels):
         """Frames labeled BEHAVIOR for each behavior map to class 1 and 2."""
-        labels, mask = MultiClassClassifier.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
+        labels, mask = classifier_utils.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
 
         # 9 frames included: 3 running (class 1) + 3 grooming (class 2) + 3 none (class 0)
         assert mask.sum() == 9
@@ -112,7 +113,7 @@ class TestMergeLabels:
 
     def test_none_label_frames_excluded(self, two_behavior_labels):
         """Frames with NONE label on all behaviors are excluded from training."""
-        _, mask = MultiClassClassifier.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
+        _, mask = classifier_utils.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
 
         # frames 9-11 are unlabeled → excluded
         assert not mask[9]
@@ -124,7 +125,7 @@ class TestMergeLabels:
         labels_by_behavior = {
             "walking": np.array([_B, _B, _N, _N, _X, _X], dtype=np.int8),
         }
-        _, mask = MultiClassClassifier.merge_labels(labels_by_behavior, ["walking"])
+        _, mask = classifier_utils.merge_labels(labels_by_behavior, ["walking"])
 
         # only the first two BEHAVIOR frames are included
         assert mask.sum() == 2
@@ -137,7 +138,7 @@ class TestMergeLabels:
             "walking": np.array([_B, _B, _X, _X], dtype=np.int8),
             MULTICLASS_NONE_BEHAVIOR: np.array([_X, _X, _B, _B], dtype=np.int8),
         }
-        labels, mask = MultiClassClassifier.merge_labels(labels_by_behavior, ["walking"])
+        labels, mask = classifier_utils.merge_labels(labels_by_behavior, ["walking"])
 
         assert mask.sum() == 4
         np.testing.assert_array_equal(labels, [1, 1, 0, 0])
@@ -150,7 +151,7 @@ class TestMergeLabels:
             "b": np.array([_X, _X, _X, _X, _B, _X], dtype=np.int8),
         }
         behavior_names = ["a", "b", "c"]  # alphabetical, class 1/2/3
-        labels, _ = MultiClassClassifier.merge_labels(labels_by_behavior, behavior_names)
+        labels, _ = classifier_utils.merge_labels(labels_by_behavior, behavior_names)
 
         # "a" → class 1, "b" → class 2, "c" → class 3
         assert 3 in labels  # "c" at frame 0
@@ -160,7 +161,7 @@ class TestMergeLabels:
     def test_empty_labels_by_behavior_raises(self):
         """Empty labels_by_behavior raises ValueError."""
         with pytest.raises(ValueError, match="must not be empty"):
-            MultiClassClassifier.merge_labels({}, ["running"])
+            classifier_utils.merge_labels({}, ["running"])
 
     def test_conflicting_behavior_labels_raises(self):
         """Frames with BEHAVIOR in more than one behavior raise ValueError."""
@@ -169,7 +170,7 @@ class TestMergeLabels:
             "grooming": np.array([_B, _B, _X, _X], dtype=np.int8),
         }
         with pytest.raises(ValueError, match="Conflicting BEHAVIOR labels"):
-            MultiClassClassifier.merge_labels(labels_by_behavior, ["running", "grooming"])
+            classifier_utils.merge_labels(labels_by_behavior, ["running", "grooming"])
 
     def test_missing_behavior_in_dict_is_skipped(self):
         """Behavior names not present in labels_by_behavior are silently skipped."""
@@ -177,9 +178,7 @@ class TestMergeLabels:
             "running": np.array([_B, _B, _X, _X], dtype=np.int8),
             # "grooming" intentionally absent
         }
-        labels, mask = MultiClassClassifier.merge_labels(
-            labels_by_behavior, ["running", "grooming"]
-        )
+        labels, mask = classifier_utils.merge_labels(labels_by_behavior, ["running", "grooming"])
         assert mask.sum() == 2
         np.testing.assert_array_equal(labels, [1, 1])
 
@@ -260,13 +259,6 @@ class TestClassifierCompatibility:
         assert clf.classifier_file is None
         assert clf.classifier_hash is None
         assert clf.project_settings == {}
-        assert clf.behavior_name is None
-
-    def test_behavior_name_property(self):
-        """behavior_name getter/setter round-trips values."""
-        clf = MultiClassClassifier(BEHAVIOR_NAMES)
-        clf.behavior_name = "Running"
-        assert clf.behavior_name == "Running"
 
     def test_set_dict_settings_copies(self):
         """set_dict_settings stores and returns a defensive copy."""

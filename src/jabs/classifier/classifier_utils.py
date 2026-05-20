@@ -21,7 +21,9 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import LeaveOneGroupOut
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
+from jabs.project import TrackLabels
 
 LABEL_THRESHOLD: int = 20
 
@@ -261,3 +263,78 @@ def confusion_matrix(truth: npt.NDArray, predictions: npt.NDArray) -> npt.NDArra
         Confusion matrix as a 2D integer array.
     """
     return _confusion_matrix(truth, predictions)
+
+
+def merge_labels(
+    labels_by_behavior: dict[str, npt.NDArray[np.int8]],
+    behavior_names: list[str],
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.bool_]]:
+    """Merge per-behavior label arrays into a single multi-class label array.
+
+    Merging rules:
+        - ``TrackLabels.Label.BEHAVIOR`` in the ``MULTICLASS_NONE_BEHAVIOR``
+          entry → class 0 (background).
+        - ``TrackLabels.Label.BEHAVIOR`` in behavior X's entry → class index
+          (1-based, by position in ``behavior_names``).
+        - All other frames → excluded (not in the returned mask).
+
+    Args:
+        labels_by_behavior: dict mapping behavior name to a label array of
+            ``TrackLabels.Label`` integer values, one element per frame.
+        behavior_names: Ordered list of N behavior names (must not include
+            ``MULTICLASS_NONE_BEHAVIOR``).
+
+    Returns:
+        Tuple of ``(multiclass_labels, include_mask)`` where:
+
+        - ``multiclass_labels``: integer array of class indices (0..N) for
+          the included frames only, length M <= n_frames.
+        - ``include_mask``: boolean array of length n_frames; True where the
+          frame is included in training.
+
+    Raises:
+        ValueError: If ``labels_by_behavior`` is empty, an entry has an
+            invalid shape, or any frame is labeled ``BEHAVIOR`` for more than
+            one behavior.
+    """
+    if not labels_by_behavior:
+        raise ValueError("labels_by_behavior must not be empty")
+
+    n_frames = next(iter(labels_by_behavior.values())).shape[0]
+
+    for name, arr in labels_by_behavior.items():
+        if arr.ndim != 1:
+            raise ValueError(f"Label array for '{name}' must be 1-D, got shape {arr.shape}")
+        if arr.shape[0] != n_frames:
+            raise ValueError(
+                f"Label array for '{name}' has length {arr.shape[0]}, expected {n_frames}"
+            )
+
+    all_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+    behavior_mask = np.zeros(n_frames, dtype=np.intp)
+    for name in all_names:
+        if name in labels_by_behavior:
+            behavior_mask += (labels_by_behavior[name] == TrackLabels.Label.BEHAVIOR).astype(
+                np.intp
+            )
+    conflict_frames = np.where(behavior_mask > 1)[0]
+    if len(conflict_frames) > 0:
+        raise ValueError(
+            f"Conflicting BEHAVIOR labels found on {len(conflict_frames)} frame(s): "
+            f"{conflict_frames.tolist()}. Each frame may be labeled for at "
+            f"most one behavior."
+        )
+
+    class_indices = np.full(n_frames, -1, dtype=np.intp)
+
+    if MULTICLASS_NONE_BEHAVIOR in labels_by_behavior:
+        none_arr = labels_by_behavior[MULTICLASS_NONE_BEHAVIOR]
+        class_indices[none_arr == TrackLabels.Label.BEHAVIOR] = 0
+
+    for i, behavior in enumerate(behavior_names, start=1):
+        if behavior in labels_by_behavior:
+            beh_arr = labels_by_behavior[behavior]
+            class_indices[beh_arr == TrackLabels.Label.BEHAVIOR] = i
+
+    include_mask = class_indices >= 0
+    return class_indices[include_mask], include_mask

@@ -532,7 +532,7 @@ class TestClassifierSaveLoad:
         joblib.dump({"not": "a classifier"}, invalid_file)
 
         clf = Classifier()
-        with pytest.raises(ValueError, match="not instance of Classifier"):
+        with pytest.raises(ValueError, match="not an instance of Classifier"):
             clf.load(invalid_file)
 
 

@@ -669,7 +669,7 @@ class Project:
         Scans every video in the project for annotation conflicts where a single
         identity has the same frame labeled BEHAVIOR for two or more behaviors
         simultaneously. Includes the reserved "None" behavior track, consistent
-        with how MultiClassClassifier.merge_labels() detects conflicts at training time.
+        with how classifier_utils.merge_labels() detects conflicts at training time.
 
         Returns:
             Sorted list of video filenames containing at least one overlap.
