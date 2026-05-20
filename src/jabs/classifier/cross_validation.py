@@ -10,7 +10,7 @@ from sklearn.metrics import precision_recall_fscore_support
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 
 from . import classifier_utils
-from .training_report import CrossValidationResult
+from .training_report import BinaryCVResult, CrossValidationResult, MultiClassCVResult
 
 if TYPE_CHECKING:
     from jabs.classifier import Classifier, MultiClassClassifier
@@ -168,7 +168,7 @@ def run_leave_one_group_out_cv(
                     for idx, name in enumerate(class_names)
                 ]
                 cv_results.append(
-                    CrossValidationResult(
+                    MultiClassCVResult(
                         iteration=i + 1,
                         test_label=test_label,
                         accuracy=accuracy,
@@ -188,10 +188,12 @@ def run_leave_one_group_out_cv(
             else:
                 pr = classifier_utils.precision_recall_score(data["test_labels"], predictions)
                 cv_results.append(
-                    CrossValidationResult(
+                    BinaryCVResult(
                         iteration=i + 1,
                         test_label=test_label,
                         accuracy=accuracy,
+                        confusion_matrix=confusion,
+                        top_features=top_features,
                         precision_behavior=float(pr[0][1]),
                         precision_not_behavior=float(pr[0][0]),
                         recall_behavior=float(pr[1][1]),
@@ -199,8 +201,6 @@ def run_leave_one_group_out_cv(
                         f1_behavior=float(pr[2][1]),
                         support_behavior=int(pr[3][1]),
                         support_not_behavior=int(pr[3][0]),
-                        confusion_matrix=confusion,
-                        top_features=top_features,
                     )
                 )
             emit_progress()

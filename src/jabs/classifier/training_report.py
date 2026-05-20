@@ -13,30 +13,17 @@ from jabs.core.enums import CrossValidationGroupingStrategy
 
 @dataclass
 class CrossValidationResult:
-    """Results from a single cross-validation iteration.
+    """Common fields shared by binary and multi-class CV iteration results.
 
     Attributes:
-        iteration: The iteration number (1-indexed)
-        test_label: Label of the test grouping (e.g., video filename and possibly identity index)
-        accuracy: Classification accuracy (0.0 to 1.0)
-        precision_behavior: Precision for behavior class (binary mode)
-        precision_not_behavior: Precision for not-behavior class (binary mode)
-        recall_behavior: Recall for behavior class (binary mode)
-        recall_not_behavior: Recall for not-behavior class (binary mode)
-        f1_behavior: F1 score for behavior class (binary mode)
-        support_behavior: Number of behavior frames in test set (binary mode)
-        support_not_behavior: Number of not-behavior frames in test set (binary mode)
-        class_names: Ordered class names for multiclass mode
-        class_support: Per-class support values for multiclass mode
-        precision_macro: Macro precision for multiclass mode
-        recall_macro: Macro recall for multiclass mode
-        f1_macro: Macro F1 for multiclass mode
-        precision_micro: Micro precision for multiclass mode
-        recall_micro: Micro recall for multiclass mode
-        f1_micro: Micro F1 for multiclass mode
-        per_class_metrics: Per-class metric records for multiclass mode
-        confusion_matrix: 2x2 confusion matrix
-        top_features: List of (feature_name, importance) tuples for this iteration
+        iteration: The iteration number (1-indexed).
+        test_label: Label of the test grouping (e.g., video filename and
+            possibly identity index).
+        accuracy: Classification accuracy (0.0 to 1.0).
+        confusion_matrix: Confusion matrix for this iteration. Shape ``(2, 2)``
+            for binary mode, ``(n_classes, n_classes)`` for multi-class.
+        top_features: List of ``(feature_name, importance)`` tuples for this
+            iteration.
     """
 
     iteration: int
@@ -44,22 +31,56 @@ class CrossValidationResult:
     accuracy: float
     confusion_matrix: np.ndarray
     top_features: list[tuple[str, float]] = field(default_factory=list)
-    precision_behavior: float | None = None
-    precision_not_behavior: float | None = None
-    recall_behavior: float | None = None
-    recall_not_behavior: float | None = None
-    f1_behavior: float | None = None
-    support_behavior: int | None = None
-    support_not_behavior: int | None = None
-    class_names: list[str] | None = None
-    class_support: list[int] | None = None
-    precision_macro: float | None = None
-    recall_macro: float | None = None
-    f1_macro: float | None = None
-    precision_micro: float | None = None
-    recall_micro: float | None = None
-    f1_micro: float | None = None
-    per_class_metrics: list[dict[str, float | int | str]] | None = None
+
+
+@dataclass
+class BinaryCVResult(CrossValidationResult):
+    """Binary cross-validation iteration result.
+
+    Attributes:
+        precision_behavior: Precision for the behavior class.
+        precision_not_behavior: Precision for the not-behavior class.
+        recall_behavior: Recall for the behavior class.
+        recall_not_behavior: Recall for the not-behavior class.
+        f1_behavior: F1 score for the behavior class.
+        support_behavior: Number of behavior frames in the test set.
+        support_not_behavior: Number of not-behavior frames in the test set.
+    """
+
+    precision_behavior: float = 0.0
+    precision_not_behavior: float = 0.0
+    recall_behavior: float = 0.0
+    recall_not_behavior: float = 0.0
+    f1_behavior: float = 0.0
+    support_behavior: int = 0
+    support_not_behavior: int = 0
+
+
+@dataclass
+class MultiClassCVResult(CrossValidationResult):
+    """Multi-class cross-validation iteration result.
+
+    Attributes:
+        class_names: Ordered class names (e.g., ``["None", "Walk", "Run"]``).
+        class_support: Per-class support values in the test set.
+        precision_macro: Macro-averaged precision.
+        recall_macro: Macro-averaged recall.
+        f1_macro: Macro-averaged F1 score.
+        precision_micro: Micro-averaged precision.
+        recall_micro: Micro-averaged recall.
+        f1_micro: Micro-averaged F1 score.
+        per_class_metrics: Per-class metric records.
+    """
+
+    class_names: list[str] = field(default_factory=list)
+    class_support: list[int] = field(default_factory=list)
+    precision_macro: float = 0.0
+    recall_macro: float = 0.0
+    f1_macro: float = 0.0
+    precision_micro: float = 0.0
+    recall_micro: float = 0.0
+    f1_micro: float = 0.0
+    per_class_metrics: list[dict[str, float | int | str]] = field(default_factory=list)
 
 
 @dataclass
@@ -67,23 +88,23 @@ class TrainingReportData:
     """Complete training information for generating a report.
 
     Attributes:
-        behavior_name: Name of the behavior being trained
-        classifier_type: Type/name of the classifier (e.g., "Random Forest")
-        window_size: Window size used for feature extraction
-        balance_training_labels: Whether training labels were balanced
-        symmetric_behavior: Whether the behavior is symmetric
-        distance_unit: Unit used for distance features ("cm" or "pixel")
-        cv_results: List of CrossValidationResult objects, one per iteration
-        final_top_features: Top features from final model (trained on all data)
-        frames_behavior: Total number of frames labeled as behavior (binary mode)
-        frames_not_behavior: Total number of frames labeled as not behavior (binary mode)
-        bouts_behavior: Total number of behavior bouts labeled (binary mode)
-        bouts_not_behavior: Total number of not-behavior bouts labeled (binary mode)
-        class_frame_counts: Optional per-class frame counts (multiclass mode)
-        class_bout_counts: Optional per-class bout counts (multiclass mode)
-        training_time_ms: Total training time in milliseconds
-        timestamp: Datetime when training was completed
-        cv_grouping_strategy: Strategy used for cross-validation grouping
+        behavior_name: Name of the behavior being trained.
+        classifier_type: Type/name of the classifier (e.g., "Random Forest").
+        window_size: Window size used for feature extraction.
+        balance_training_labels: Whether training labels were balanced.
+        symmetric_behavior: Whether the behavior is symmetric.
+        distance_unit: Unit used for distance features ("cm" or "pixel").
+        cv_results: List of cross-validation iteration results.
+        final_top_features: Top features from final model (trained on all data).
+        frames_behavior: Total behavior frames (binary mode).
+        frames_not_behavior: Total not-behavior frames (binary mode).
+        bouts_behavior: Total behavior bouts (binary mode).
+        bouts_not_behavior: Total not-behavior bouts (binary mode).
+        class_frame_counts: Per-class frame counts (multi-class mode).
+        class_bout_counts: Per-class bout counts (multi-class mode).
+        training_time_ms: Total training time in milliseconds.
+        timestamp: Datetime when training was completed.
+        cv_grouping_strategy: Strategy used for cross-validation grouping.
     """
 
     behavior_name: str
@@ -106,33 +127,132 @@ class TrainingReportData:
 
 
 def _escape_markdown(text: str) -> str:
-    """Escape markdown special characters in text.
-
-    Args:
-        text: Text that may contain markdown special characters
-
-    Returns:
-        Text with markdown special characters escaped
-    """
-    # Escape common markdown characters that might appear in filenames
-    # Most important: _ (underscore) which creates italics
-    # Also escape: * (asterisk), [ ] (brackets), ( ) (parentheses)
+    """Escape markdown special characters that might appear in identifiers."""
     chars_to_escape = ["_", "*", "[", "]", "(", ")", "`", "#"]
     for char in chars_to_escape:
         text = text.replace(char, f"\\{char}")
     return text
 
 
+def _is_multiclass_cv(cv_results: list[CrossValidationResult]) -> bool:
+    """Return True if the CV result list belongs to multi-class mode."""
+    return bool(cv_results) and isinstance(cv_results[0], MultiClassCVResult)
+
+
+def _format_label_counts(data: TrainingReportData) -> list[str]:
+    """Return markdown lines for the label-counts section."""
+    lines: list[str] = []
+    if data.class_frame_counts is not None:
+        for name, count in data.class_frame_counts.items():
+            lines.append(f"- **{_escape_markdown(name)} frames:** {count:,}")
+        if data.class_bout_counts is not None:
+            for name, count in data.class_bout_counts.items():
+                lines.append(f"- **{_escape_markdown(name)} bouts:** {count:,}")
+    else:
+        lines.append(f"- **Behavior frames:** {data.frames_behavior:,}")
+        lines.append(f"- **Not-behavior frames:** {data.frames_not_behavior:,}")
+        lines.append(f"- **Behavior bouts:** {data.bouts_behavior:,}")
+        lines.append(f"- **Not-behavior bouts:** {data.bouts_not_behavior:,}")
+    return lines
+
+
+def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list[str]:
+    """Return markdown lines summarizing accuracy and F1 across iterations."""
+    accuracies = [r.accuracy for r in cv_results]
+    lines = [f"- **Mean Accuracy:** {np.mean(accuracies):.4f} (± {np.std(accuracies):.4f})"]
+    if _is_multiclass_cv(cv_results):
+        f1_macro = [r.f1_macro for r in cv_results if isinstance(r, MultiClassCVResult)]
+        f1_micro = [r.f1_micro for r in cv_results if isinstance(r, MultiClassCVResult)]
+        if f1_macro:
+            lines.append(
+                f"- **Mean F1 Score (Macro):** {np.mean(f1_macro):.4f} (± {np.std(f1_macro):.4f})"
+            )
+        if f1_micro:
+            lines.append(
+                f"- **Mean F1 Score (Micro):** {np.mean(f1_micro):.4f} (± {np.std(f1_micro):.4f})"
+            )
+    else:
+        f1_behavior = [r.f1_behavior for r in cv_results if isinstance(r, BinaryCVResult)]
+        if f1_behavior:
+            lines.append(
+                f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} "
+                f"(± {np.std(f1_behavior):.4f})"
+            )
+    return lines
+
+
+def _binary_iteration_row(result: BinaryCVResult) -> list[str | int]:
+    """Return a single iteration row for the binary CV table."""
+    return [
+        result.iteration,
+        f"{result.accuracy:.4f}",
+        f"{result.precision_not_behavior:.4f}",
+        f"{result.precision_behavior:.4f}",
+        f"{result.recall_not_behavior:.4f}",
+        f"{result.recall_behavior:.4f}",
+        f"{result.f1_behavior:.4f}",
+        _escape_markdown(result.test_label),
+    ]
+
+
+def _multiclass_iteration_row(result: MultiClassCVResult) -> list[str | int]:
+    """Return a single iteration row for the multi-class CV table."""
+    return [
+        result.iteration,
+        f"{result.accuracy:.4f}",
+        f"{result.precision_macro:.4f}",
+        f"{result.recall_macro:.4f}",
+        f"{result.f1_macro:.4f}",
+        f"{result.f1_micro:.4f}",
+        _escape_markdown(result.test_label),
+    ]
+
+
+_BINARY_HEADERS = [
+    "Iter",
+    "Accuracy",
+    "Precision (Not Behavior)",
+    "Precision (Behavior)",
+    "Recall (Not Behavior)",
+    "Recall (Behavior)",
+    "F1 Score",
+    "Test Group",
+]
+
+_MULTICLASS_HEADERS = [
+    "Iter",
+    "Accuracy",
+    "Precision (Macro)",
+    "Recall (Macro)",
+    "F1 Score (Macro)",
+    "F1 Score (Micro)",
+    "Test Group",
+]
+
+
+def _format_iteration_table(cv_results: list[CrossValidationResult]) -> str:
+    """Return the markdown iteration-details table."""
+    if _is_multiclass_cv(cv_results):
+        rows = [
+            _multiclass_iteration_row(r) for r in cv_results if isinstance(r, MultiClassCVResult)
+        ]
+        headers = _MULTICLASS_HEADERS
+    else:
+        rows = [_binary_iteration_row(r) for r in cv_results if isinstance(r, BinaryCVResult)]
+        headers = _BINARY_HEADERS
+    return tabulate(rows, headers=headers, tablefmt="github")
+
+
 def generate_markdown_report(data: TrainingReportData) -> str:
     """Generate a markdown-formatted training report.
 
     Args:
-        data: TrainingData object containing all training information
+        data: ``TrainingReportData`` object containing all training information.
 
     Returns:
-        Markdown-formatted string
+        Markdown-formatted string.
     """
-    lines = []
+    lines: list[str] = []
 
     lines.append(f"# Training Report: {data.behavior_name}")
     lines.append("")
@@ -154,129 +274,37 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
     lines.append("### Label Counts")
     lines.append("")
-    if data.class_frame_counts is not None:
-        for name, count in data.class_frame_counts.items():
-            lines.append(f"- **{_escape_markdown(name)} frames:** {count:,}")
-        if data.class_bout_counts is not None:
-            for name, count in data.class_bout_counts.items():
-                lines.append(f"- **{_escape_markdown(name)} bouts:** {count:,}")
-    else:
-        lines.append(f"- **Behavior frames:** {data.frames_behavior:,}")
-        lines.append(f"- **Not-behavior frames:** {data.frames_not_behavior:,}")
-        lines.append(f"- **Behavior bouts:** {data.bouts_behavior:,}")
-        lines.append(f"- **Not-behavior bouts:** {data.bouts_not_behavior:,}")
+    lines.extend(_format_label_counts(data))
     lines.append("")
 
-    # Cross-validation results
     if data.cv_results:
         lines.append("## Cross-Validation Results")
         lines.append("")
-
-        # Summary statistics
-        accuracies = [r.accuracy for r in data.cv_results]
-        is_multiclass_cv = data.cv_results[0].precision_macro is not None
-
         lines.append("### Performance Summary")
         lines.append("")
-        lines.append(
-            f"- **Mean Accuracy:** {np.mean(accuracies):.4f} (± {np.std(accuracies):.4f})"
-        )
-        if is_multiclass_cv:
-            f1_macro = [r.f1_macro for r in data.cv_results if r.f1_macro is not None]
-            f1_micro = [r.f1_micro for r in data.cv_results if r.f1_micro is not None]
-            if f1_macro:
-                lines.append(
-                    f"- **Mean F1 Score (Macro):** {np.mean(f1_macro):.4f} (± {np.std(f1_macro):.4f})"
-                )
-            if f1_micro:
-                lines.append(
-                    f"- **Mean F1 Score (Micro):** {np.mean(f1_micro):.4f} (± {np.std(f1_micro):.4f})"
-                )
-        else:
-            f1_behavior = [r.f1_behavior for r in data.cv_results if r.f1_behavior is not None]
-            if f1_behavior:
-                lines.append(
-                    f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} (± {np.std(f1_behavior):.4f})"
-                )
+        lines.extend(_format_performance_summary(data.cv_results))
         lines.append("")
 
-        # Detailed results table
         lines.append("### Iteration Details")
         lines.append(f"CV Grouping Strategy: {data.cv_grouping_strategy.value}")
         lines.append("")
-
-        table_data = []
-        if is_multiclass_cv:
-            for result in data.cv_results:
-                escaped_video = _escape_markdown(result.test_label)
-                table_data.append(
-                    [
-                        result.iteration,
-                        f"{result.accuracy:.4f}",
-                        f"{(result.precision_macro if result.precision_macro is not None else 0.0):.4f}",
-                        f"{(result.recall_macro if result.recall_macro is not None else 0.0):.4f}",
-                        f"{(result.f1_macro if result.f1_macro is not None else 0.0):.4f}",
-                        f"{(result.f1_micro if result.f1_micro is not None else 0.0):.4f}",
-                        f"{escaped_video}",
-                    ]
-                )
-
-            headers = [
-                "Iter",
-                "Accuracy",
-                "Precision (Macro)",
-                "Recall (Macro)",
-                "F1 Score (Macro)",
-                "F1 Score (Micro)",
-                "Test Group",
-            ]
-        else:
-            for result in data.cv_results:
-                escaped_video = _escape_markdown(result.test_label)
-                table_data.append(
-                    [
-                        result.iteration,
-                        f"{result.accuracy:.4f}",
-                        f"{(result.precision_not_behavior if result.precision_not_behavior is not None else 0.0):.4f}",
-                        f"{(result.precision_behavior if result.precision_behavior is not None else 0.0):.4f}",
-                        f"{(result.recall_not_behavior if result.recall_not_behavior is not None else 0.0):.4f}",
-                        f"{(result.recall_behavior if result.recall_behavior is not None else 0.0):.4f}",
-                        f"{(result.f1_behavior if result.f1_behavior is not None else 0.0):.4f}",
-                        f"{escaped_video}",
-                    ]
-                )
-
-            headers = [
-                "Iter",
-                "Accuracy",
-                "Precision (Not Behavior)",
-                "Precision (Behavior)",
-                "Recall (Not Behavior)",
-                "Recall (Behavior)",
-                "F1 Score",
-                "Test Group",
-            ]
-
-        table_markdown = tabulate(table_data, headers=headers, tablefmt="github")
-        lines.append(table_markdown)
+        lines.append(_format_iteration_table(data.cv_results))
         lines.append("")
     else:
-        # No cross-validation was performed
         lines.append("## Cross-Validation")
         lines.append("")
         lines.append("*No cross-validation was performed for this training.*")
         lines.append("")
 
-    # Final model feature importance
     lines.append("## Feature Importance")
     lines.append("")
     lines.append("Top 20 features from final model (trained on all labeled data):")
     lines.append("")
 
-    feature_table = []
-    for rank, (feature_name, importance) in enumerate(data.final_top_features, start=1):
-        feature_table.append([rank, _escape_markdown(feature_name), f"{importance:.2f}"])
-
+    feature_table = [
+        [rank, _escape_markdown(feature_name), f"{importance:.2f}"]
+        for rank, (feature_name, importance) in enumerate(data.final_top_features, start=1)
+    ]
     feature_markdown = tabulate(
         feature_table, headers=["Rank", "Feature Name", "Importance"], tablefmt="github"
     )
@@ -299,26 +327,80 @@ def _to_python_type(val):
     return val
 
 
+def _common_cv_dict(result: CrossValidationResult) -> dict:
+    """Return the dict fields common to all CV result types."""
+    return {
+        "iteration": int(result.iteration),
+        "test_label": str(result.test_label),
+        "accuracy": float(result.accuracy),
+        "confusion_matrix": _to_python_type(result.confusion_matrix),
+        "top_features": [
+            {"feature_name": str(name), "importance": float(importance)}
+            for name, importance in result.top_features
+        ],
+    }
+
+
+def _binary_cv_to_dict(result: BinaryCVResult) -> dict:
+    """Convert a binary CV result to its JSON-serializable dict."""
+    payload = _common_cv_dict(result)
+    payload.update(
+        {
+            "precision_behavior": float(result.precision_behavior),
+            "precision_not_behavior": float(result.precision_not_behavior),
+            "recall_behavior": float(result.recall_behavior),
+            "recall_not_behavior": float(result.recall_not_behavior),
+            "f1_behavior": float(result.f1_behavior),
+            "support_behavior": int(result.support_behavior),
+            "support_not_behavior": int(result.support_not_behavior),
+        }
+    )
+    return payload
+
+
+def _multiclass_cv_to_dict(result: MultiClassCVResult) -> dict:
+    """Convert a multi-class CV result to its JSON-serializable dict."""
+    payload = _common_cv_dict(result)
+    payload.update(
+        {
+            "class_names": [str(name) for name in result.class_names],
+            "class_support": [int(v) for v in result.class_support],
+            "precision_macro": float(result.precision_macro),
+            "recall_macro": float(result.recall_macro),
+            "f1_macro": float(result.f1_macro),
+            "precision_micro": float(result.precision_micro),
+            "recall_micro": float(result.recall_micro),
+            "f1_micro": float(result.f1_micro),
+            "per_class_metrics": _to_python_type(result.per_class_metrics),
+        }
+    )
+    return payload
+
+
+def _cv_result_to_dict(result: CrossValidationResult) -> dict:
+    """Dispatch a CV result to its type-specific dict converter."""
+    if isinstance(result, MultiClassCVResult):
+        return _multiclass_cv_to_dict(result)
+    if isinstance(result, BinaryCVResult):
+        return _binary_cv_to_dict(result)
+    return _common_cv_dict(result)
+
+
 def generate_json_report(data: TrainingReportData) -> dict:
     """Generate a JSON-serializable training report.
 
     Ensures all numpy types are converted to native Python types.
 
     Args:
-        data: TrainingReportData object containing all training information
+        data: ``TrainingReportData`` object containing all training information.
 
     Returns:
-        Dictionary suitable for JSON serialization
+        Dictionary suitable for JSON serialization.
     """
-    # Convert timestamp to UTC and use ISO format with 'Z' suffix
-    if data.timestamp.tzinfo is None:
-        # Assume naive datetime is local time; convert to UTC
-        timestamp_utc = data.timestamp.astimezone(timezone.utc)
-    else:
-        timestamp_utc = data.timestamp.astimezone(timezone.utc)
+    timestamp_utc = data.timestamp.astimezone(timezone.utc)
     timestamp_str = timestamp_utc.replace(tzinfo=None).isoformat() + "Z"
 
-    report = {
+    return {
         "behavior_name": data.behavior_name,
         "classifier_type": data.classifier_type,
         "window_size": int(data.window_size),
@@ -342,70 +424,26 @@ def generate_json_report(data: TrainingReportData) -> dict:
             if data.class_bout_counts is not None
             else None
         ),
-        "cv_results": [],
+        "cv_results": [_cv_result_to_dict(r) for r in data.cv_results],
         "final_top_features": [
             {"feature_name": str(name), "importance": float(importance)}
             for name, importance in data.final_top_features
         ],
     }
 
-    for result in data.cv_results:
-        result_dict = {
-            "iteration": int(result.iteration),
-            "test_label": str(result.test_label),
-            "accuracy": float(result.accuracy),
-            "confusion_matrix": _to_python_type(result.confusion_matrix),
-            "top_features": [
-                {"feature_name": str(name), "importance": float(importance)}
-                for name, importance in result.top_features
-            ],
-        }
-        if result.precision_behavior is not None:
-            result_dict["precision_behavior"] = float(result.precision_behavior)
-        if result.precision_not_behavior is not None:
-            result_dict["precision_not_behavior"] = float(result.precision_not_behavior)
-        if result.recall_behavior is not None:
-            result_dict["recall_behavior"] = float(result.recall_behavior)
-        if result.recall_not_behavior is not None:
-            result_dict["recall_not_behavior"] = float(result.recall_not_behavior)
-        if result.f1_behavior is not None:
-            result_dict["f1_behavior"] = float(result.f1_behavior)
-        if result.support_behavior is not None:
-            result_dict["support_behavior"] = int(result.support_behavior)
-        if result.support_not_behavior is not None:
-            result_dict["support_not_behavior"] = int(result.support_not_behavior)
-        if result.class_names is not None:
-            result_dict["class_names"] = [str(name) for name in result.class_names]
-        if result.class_support is not None:
-            result_dict["class_support"] = [int(v) for v in result.class_support]
-        if result.precision_macro is not None:
-            result_dict["precision_macro"] = float(result.precision_macro)
-        if result.recall_macro is not None:
-            result_dict["recall_macro"] = float(result.recall_macro)
-        if result.f1_macro is not None:
-            result_dict["f1_macro"] = float(result.f1_macro)
-        if result.precision_micro is not None:
-            result_dict["precision_micro"] = float(result.precision_micro)
-        if result.recall_micro is not None:
-            result_dict["recall_micro"] = float(result.recall_micro)
-        if result.f1_micro is not None:
-            result_dict["f1_micro"] = float(result.f1_micro)
-        if result.per_class_metrics is not None:
-            result_dict["per_class_metrics"] = _to_python_type(result.per_class_metrics)
-        report["cv_results"].append(result_dict)
-
-    return report
-
 
 def save_training_report(data: TrainingReportData, output_path: Path) -> None:
     """Generate and save a training report.
 
-    The report format is determined by the file extension of output_path.
-    Currently, markdown (.md) and JSON (.json) are supported.
+    The report format is determined by the file extension of ``output_path``.
+    Currently, markdown (``.md``) and JSON (``.json``) are supported.
 
     Args:
-        data: TrainingData object containing all training information
-        output_path: Path where the report file should be saved
+        data: ``TrainingReportData`` object containing all training information.
+        output_path: Path where the report file should be saved.
+
+    Raises:
+        ValueError: If the output path has an unsupported extension.
     """
     if output_path.suffix.lower() == ".md":
         markdown_content = generate_markdown_report(data)

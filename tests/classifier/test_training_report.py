@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from jabs.classifier.training_report import (
-    CrossValidationResult,
+    BinaryCVResult,
+    MultiClassCVResult,
     TrainingReportData,
     generate_json_report,
     generate_markdown_report,
@@ -23,7 +24,7 @@ def sample_cv_results():
         List of CrossValidationResult objects.
     """
     return [
-        CrossValidationResult(
+        BinaryCVResult(
             iteration=1,
             test_label="video_1.mp4 [0]",
             accuracy=0.9234,
@@ -37,7 +38,7 @@ def sample_cv_results():
             confusion_matrix=np.array([[180, 20], [15, 135]]),
             top_features=[("nose_speed", 0.16), ("ear_angle", 0.14)],
         ),
-        CrossValidationResult(
+        BinaryCVResult(
             iteration=2,
             test_label="video_2.mp4 [1]",
             accuracy=0.8912,
@@ -87,11 +88,11 @@ def sample_training_data(sample_cv_results):
 
 
 class TestCrossValidationResult:
-    """Tests for CrossValidationResult dataclass."""
+    """Tests for BinaryCVResult dataclass."""
 
     def test_create_cv_result(self):
-        """Test creating a CrossValidationResult instance."""
-        result = CrossValidationResult(
+        """Test creating a BinaryCVResult instance."""
+        result = BinaryCVResult(
             iteration=1,
             test_label="test.mp4 [0]",
             accuracy=0.95,
@@ -360,7 +361,7 @@ class TestMulticlassReport:
     def test_multiclass_markdown_contains_multiclass_metrics(self):
         """Markdown report uses multiclass summary/table and class counts."""
         cv_results = [
-            CrossValidationResult(
+            MultiClassCVResult(
                 iteration=1,
                 test_label="video_a.mp4 [0]",
                 accuracy=0.82,
@@ -402,7 +403,7 @@ class TestMulticlassReport:
     def test_multiclass_json_contains_optional_metrics(self):
         """JSON report serializes multiclass-only CV and class-count fields."""
         cv_results = [
-            CrossValidationResult(
+            MultiClassCVResult(
                 iteration=1,
                 test_label="video_a.mp4",
                 accuracy=0.9,
