@@ -470,8 +470,23 @@ def _validate_live_update_targets(
     project_dir: Path,
     videos: list[str],
     live_annotation_videos: set[str],
+    *,
+    require_writable_pose_files: bool = True,
+    derived_dir_names: tuple[str, ...] = ("predictions", "cache"),
 ) -> None:
-    """Best-effort preflight check that live update targets can be replaced or removed."""
+    """Best-effort preflight check that live update targets can be replaced or removed.
+
+    Args:
+        project_dir: Live project directory.
+        videos: Video filenames that may need pose-file writability checks.
+        live_annotation_videos: Subset of ``videos`` that have existing annotation files
+            in the live project. These are checked for writability.
+        require_writable_pose_files: When ``True`` (default), require that live pose files
+            for every video are writable. Disable when the operation does not replace
+            pose files (e.g. ``update-labels``).
+        derived_dir_names: Derived jabs/ subdirectories that the apply step may remove.
+            Each is checked for writability if it exists.
+    """
     jabs_dir = project_dir / "jabs"
     annotations_dir = jabs_dir / "annotations"
     backup_dir = project_dir / ".backup"
@@ -486,15 +501,16 @@ def _validate_live_update_targets(
 
     _require_writable_existing_path(jabs_dir / "project.json", "live project file")
 
-    for video in videos:
-        for live_pose_path in _pose_files_for_video(video, project_dir):
-            _require_writable_existing_path(live_pose_path, "live pose file")
+    if require_writable_pose_files:
+        for video in videos:
+            for live_pose_path in _pose_files_for_video(video, project_dir):
+                _require_writable_existing_path(live_pose_path, "live pose file")
 
     for video in live_annotation_videos:
         annotation_path = annotations_dir / Path(video).with_suffix(".json")
         _require_writable_existing_path(annotation_path, "live annotation file")
 
-    for derived_dir_name in ("predictions", "cache"):
+    for derived_dir_name in derived_dir_names:
         derived_dir = jabs_dir / derived_dir_name
         if not derived_dir.exists():
             continue
@@ -596,15 +612,30 @@ def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
 def _create_backup_archive(
     project_dir: Path,
     videos: list[str],
+    *,
+    include_pose_files: bool = True,
+    prefix: str = "update_pose",
 ) -> Path:
-    """Create a timestamped backup archive of live files that will be replaced or removed."""
+    """Create a timestamped backup archive of live files that will be replaced or removed.
+
+    Args:
+        project_dir: Live project directory whose files should be backed up.
+        videos: Video filenames whose pose files should be included when
+            ``include_pose_files`` is true.
+        include_pose_files: When ``True`` (default), include every per-video pose file
+            in the archive. Disable when the operation does not replace pose files
+            (e.g. ``update-labels``).
+        prefix: Filename prefix for the generated archive. The full name is
+            ``{prefix}_{YYYYMMDD_HHMMSS}.zip``.
+    """
     backup_dir = project_dir / ".backup"
     backup_dir.mkdir(exist_ok=True)
-    backup_path = backup_dir / f"update_pose_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    backup_path = backup_dir / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 
     files_to_backup: set[Path] = set()
-    for video in videos:
-        files_to_backup.update(_pose_files_for_video(video, project_dir))
+    if include_pose_files:
+        for video in videos:
+            files_to_backup.update(_pose_files_for_video(video, project_dir))
 
     project_file = project_dir / "jabs" / "project.json"
     if project_file.exists():
@@ -749,13 +780,24 @@ def _copy_file_atomic(source: Path, destination: Path) -> None:
 def _restore_cleanup_paths(
     project_dir: Path,
     videos: list[str],
-    replacement_pose_files: dict[str, Path],
+    replacement_pose_files: dict[str, Path] | None,
     staged_annotations_dir: Path,
 ) -> list[Path]:
-    """Return live-project files that may have been created during the failed apply step."""
+    """Return live-project files that may have been created during the failed apply step.
+
+    Args:
+        project_dir: Live project directory.
+        videos: Videos that the apply step would touch.
+        replacement_pose_files: Per-video replacement pose paths whose basenames may have
+            been freshly written into ``project_dir``. Pass ``None`` (or omit entries) for
+            operations that do not write new pose files (e.g. ``update-labels``).
+        staged_annotations_dir: Directory containing staged annotation JSON files that
+            may have been copied into the live annotations directory.
+    """
     cleanup_paths: set[Path] = set()
     for video in videos:
-        cleanup_paths.add(project_dir / replacement_pose_files[video].name)
+        if replacement_pose_files is not None and video in replacement_pose_files:
+            cleanup_paths.add(project_dir / replacement_pose_files[video].name)
 
         staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
         if staged_annotation.exists():
