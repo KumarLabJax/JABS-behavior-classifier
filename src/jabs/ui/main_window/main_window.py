@@ -10,13 +10,11 @@ from jabs.core.utils.process_pool_manager import ProcessPoolManager
 from jabs.version import version_str
 
 from ..constants import (
-    LICENSE_ACCEPTED_KEY,
-    LICENSE_VERSION_KEY,
     RECENT_PROJECTS_KEY,
     SESSION_TRACKING_ENABLED_KEY,
     WINDOW_SIZE_KEY,
 )
-from ..dialogs import LicenseAgreementDialog, MessageDialog
+from ..dialogs import MessageDialog
 from ..dialogs.progress_dialog import create_progress_dialog
 from ..player_widget import PlayerWidget
 from ..project_loader_thread import ProjectLoaderThread
@@ -355,24 +353,6 @@ class MainWindow(QtWidgets.QMainWindow):
             message=str(error),
             details="".join(traceback.format_exception(error)),
         )
-
-    def show_license_dialog(self) -> QtWidgets.QDialog.DialogCode:
-        """prompt the user to accept the license agreement if they haven't already"""
-        # check to see if user already accepted the license
-        if self._settings.value(LICENSE_ACCEPTED_KEY, False, type=bool):
-            return QtWidgets.QDialog.DialogCode.Accepted
-
-        # show dialog
-        dialog = LicenseAgreementDialog(self)
-        result = dialog.exec_()
-
-        # persist the license acceptance
-        if result == QtWidgets.QDialog.DialogCode.Accepted:
-            self._settings.setValue(LICENSE_ACCEPTED_KEY, True)
-            self._settings.setValue(LICENSE_VERSION_KEY, version_str())
-            self._settings.sync()
-
-        return QtWidgets.QDialog.DialogCode(result)
 
     def _update_recent_projects(self) -> None:
         """update the contents of the Recent Projects menu"""

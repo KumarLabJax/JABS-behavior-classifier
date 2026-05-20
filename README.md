@@ -2,11 +2,13 @@
 
 # JAX Animal Behavior System (JABS)
 
+## JABS Behavior Classifier
+
 **An open-source platform for standardized mouse behavioral phenotyping.**
 
 [![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
-[![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-orange.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.44.2/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/main/LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.2-green.svg)](https://doi.org/10.7554/eLife.107259.2)
 
 [Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.44.2/docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
@@ -196,11 +198,9 @@ If you use JABS in your research, please cite:
 
 ## License
 
-Copyright 2023 The Jackson Laboratory — All rights reserved.
+Copyright (c) 2023-2026 The Jackson Laboratory.
 
-JABS is licensed under a **non-commercial use license**. See [LICENSE](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.44.2/LICENSE) for details.
-
-For commercial licensing inquiries, [contact us](mailto:jabs@jax.org).
+The JABS Behavior Classifier is released under the [MIT License](LICENSE).
 
 ## Acknowledgements
 
