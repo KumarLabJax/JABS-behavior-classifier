@@ -225,7 +225,7 @@ jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLO
 - `<source_project_dir>`: Path to a JABS project providing the replacement labels and the pose used for IoU matching. Must already be a valid JABS project; every source-labeled video must also exist in the target.
 - `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
 - `--verbose`: Print successful label remap assignments in addition to warnings.
-- `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Failure tags use the `update-labels-` prefix to distinguish them from `update-pose` failures.
+- `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Annotations use the same `behavior-remap-failed` / `not-behavior-remap-failed` tags as `update-pose`; the description text distinguishes the originating operation.
 - `--drop-timeline-annotations`: Discard source timeline annotations instead of copying or remapping them.
 
 Before modifying the project, the command validates both inputs, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup` covering `jabs/project.json`, annotations, and predictions (pose files are not touched). Labels are processed block by block, matched by median bbox IoU between the source pose and the target's existing pose, and written to the staged destination label track. By default, source timeline annotations are also carried forward and remapped the same way as label blocks; use `--drop-timeline-annotations` to discard them.

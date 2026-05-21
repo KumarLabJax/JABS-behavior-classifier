@@ -11,6 +11,7 @@ from click.testing import CliRunner
 
 import jabs.scripts.cli.update_pose as update_pose
 from jabs.project import TimelineAnnotations, VideoLabels
+from jabs.project.timeline_annotations import MAX_TAG_LEN
 from jabs.scripts.cli.cli import cli
 
 
@@ -823,8 +824,14 @@ def test_run_staged_label_remap_falls_back_to_source_videos(monkeypatch):
     assert captured == ["a.avi", "b.avi"]
 
 
-def test_remap_labels_for_video_failure_uses_custom_tag_prefix():
-    """Failure annotations should use the configured tag prefix and description phrase."""
+def test_remap_labels_for_video_failure_tag_fits_within_max_tag_len():
+    """Failure tags must fit within the timeline-annotation MAX_TAG_LEN limit.
+
+    Without this constraint the failure annotation would be written to disk but
+    silently dropped on the next load (``TimelineAnnotations.load`` rejects tags
+    longer than ``MAX_TAG_LEN``). The description phrase customization should not
+    influence the tag itself.
+    """
     src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
     dst_boxes = np.array([[[50.0, 50.0], [60.0, 60.0]]] * 10)
 
@@ -851,14 +858,14 @@ def test_remap_labels_for_video_failure_uses_custom_tag_prefix():
         label_dest_project,
         min_iou=0.5,
         annotate_failures=True,
-        failure_tag_prefix="update-labels",
         failure_description_phrase="label update",
     )
 
     saved_labels = label_dest_project.save_annotations.call_args[0][0]
     annotations = saved_labels.timeline_annotations.serialize()
     assert len(annotations) == 1
-    assert annotations[0]["tag"] == "update-labels-behavior-remap-failed"
+    assert annotations[0]["tag"] == "behavior-remap-failed"
+    assert len(annotations[0]["tag"]) <= MAX_TAG_LEN
     assert "label remap failed during label update" in annotations[0]["description"]
 
 

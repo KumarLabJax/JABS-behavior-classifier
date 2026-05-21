@@ -440,7 +440,6 @@ def update_project_labels_in_place(
             annotate_failures,
             drop_timeline_annotations,
             videos=labeled_videos,
-            failure_tag_prefix="update-labels",
             failure_description_phrase="label update",
         )
 

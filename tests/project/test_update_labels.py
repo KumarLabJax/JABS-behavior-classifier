@@ -644,10 +644,10 @@ def test_update_project_labels_in_place_invokes_pipeline(tmp_path, monkeypatch):
     assert sequence.index("remap") < sequence.index("apply")
 
 
-def test_update_project_labels_in_place_passes_labeled_videos_and_tag_overrides(
+def test_update_project_labels_in_place_passes_labeled_videos_and_description_phrase(
     tmp_path, monkeypatch
 ):
-    """The orchestrator should thread labeled_videos and the update-labels tag overrides."""
+    """The orchestrator should thread labeled_videos and the update-labels description phrase."""
     target_dir = tmp_path / "project"
     source_dir = tmp_path / "source"
     target_dir.mkdir()
@@ -687,7 +687,6 @@ def test_update_project_labels_in_place_passes_labeled_videos_and_tag_overrides(
     update_labels.update_project_labels_in_place(target_dir, source_dir, min_iou=0.5)
 
     assert captured_remap["videos"] == ["video1.avi"]
-    assert captured_remap["failure_tag_prefix"] == "update-labels"
     assert captured_remap["failure_description_phrase"] == "label update"
 
 
