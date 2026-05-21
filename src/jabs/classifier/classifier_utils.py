@@ -123,6 +123,50 @@ def downsample_balance(
     return features, labels
 
 
+def logo_split_is_valid(
+    test_labels: npt.NDArray,
+    train_labels: npt.NDArray,
+    all_classes: npt.NDArray,
+    label_threshold: int,
+    min_test_classes: int | None,
+) -> bool:
+    """Return True if a leave-one-group-out split satisfies threshold criteria.
+
+    The training portion must always contain every class above
+    ``label_threshold`` so the model can learn each class regardless of the
+    held-out group.
+
+    The test portion criterion depends on ``min_test_classes``:
+
+    - ``None`` (binary default): every class must be above ``label_threshold``.
+    - integer (multi-class): at least ``min_test_classes`` distinct classes
+      must be above ``label_threshold``.
+
+    Args:
+        test_labels: Label array for the test split.
+        train_labels: Label array for the training split.
+        all_classes: All class values to consider (typically ``np.unique`` of
+            the full label array).
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split, or ``None`` to require every class.
+
+    Returns:
+        True if the split is acceptable for cross-validation.
+    """
+    train_has_all = all(
+        np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
+    )
+    if not train_has_all:
+        return False
+    if min_test_classes is None:
+        return all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes)
+    n_test_classes = sum(
+        np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
+    )
+    return n_test_classes >= min_test_classes
+
+
 def leave_one_group_out(
     per_frame_features: pd.DataFrame,
     window_features: pd.DataFrame,
@@ -133,26 +177,8 @@ def leave_one_group_out(
 ) -> Generator[dict, None, None]:
     """Implement the leave-one-group-out data splitting strategy.
 
-    A split is accepted only when **both** the test and training portions satisfy
-    their respective class-count requirements.
-
-    When ``min_test_classes`` is ``None`` (default, binary mode), a split is
-    accepted when:
-
-    - Every class present in the full ``labels`` array appears at least
-      ``label_threshold`` times in the test split.
-    - The training split also contains every class at least ``label_threshold``
-      times (guards against the held-out group being the sole source of a rare
-      class).
-
-    When ``min_test_classes`` is an integer (multi-class mode), a split is
-    accepted when:
-
-    - The test split contains at least ``min_test_classes`` distinct classes each
-      with at least ``label_threshold`` samples.
-    - The training split contains **all** classes at least ``label_threshold``
-      times (so the model can learn every class regardless of what appears in
-      the test split).
+    A split is accepted only when both the test and training portions satisfy
+    :func:`logo_split_is_valid`.
 
     Args:
         per_frame_features: Per-frame feature DataFrame for labeled data.
@@ -181,45 +207,63 @@ def leave_one_group_out(
     random.shuffle(splits)
     count = 0
     for split in splits:
-        test_labels = labels[split[1]]
-        if min_test_classes is None:
-            # Binary mode: all classes must appear above threshold in both splits.
-            test_ok = all(
-                np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
-            )
-            if test_ok:
-                # Also require all classes above threshold in the training split
-                # so the model can learn every class regardless of the test group.
-                train_labels = labels[split[0]]
-                test_ok = all(
-                    np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
-                )
-        else:
-            # Multi-class mode: test split needs at least min_test_classes
-            # classes above threshold; training split must have all classes.
-            n_test_classes = sum(
-                np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
-            )
-            train_labels = labels[split[0]]
-            train_has_all = all(
-                np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
-            )
-            test_ok = n_test_classes >= min_test_classes and train_has_all
-
-        if test_ok:
-            count += 1
-            yield {
-                "training_data": x.iloc[split[0]],
-                "training_labels": labels[split[0]],
-                "training_idx": split[0],
-                "test_data": x.iloc[split[1]],
-                "test_labels": labels[split[1]],
-                "test_idx": split[1],
-                "test_group": groups[split[1]][0],
-                "feature_names": x.columns.to_list(),
-            }
+        if not logo_split_is_valid(
+            labels[split[1]], labels[split[0]], all_classes, label_threshold, min_test_classes
+        ):
+            continue
+        count += 1
+        yield {
+            "training_data": x.iloc[split[0]],
+            "training_labels": labels[split[0]],
+            "training_idx": split[0],
+            "test_data": x.iloc[split[1]],
+            "test_labels": labels[split[1]],
+            "test_idx": split[1],
+            "test_group": groups[split[1]][0],
+            "feature_names": x.columns.to_list(),
+        }
     if count == 0:
         raise ValueError("unable to split data")
+
+
+def count_valid_logo_splits(
+    labels: npt.NDArray,
+    groups: npt.NDArray,
+    label_threshold: int = LABEL_THRESHOLD,
+    min_test_classes: int | None = None,
+) -> int:
+    """Count groups that would yield a valid LOGO split.
+
+    Mirrors the per-split acceptance rule used by :func:`leave_one_group_out`
+    without constructing feature matrices, so callers can pre-flight how many
+    iterations a CV run will produce.
+
+    Args:
+        labels: Label array corresponding to each frame.
+        groups: Group ID array corresponding to each label.
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split, or ``None`` to require every class.
+
+    Returns:
+        Number of groups that can serve as a valid LOGO test split.
+    """
+    labels = np.asarray(labels)
+    groups = np.asarray(groups)
+    all_classes = np.unique(labels)
+    unique_groups = np.unique(groups)
+    count = 0
+    for g in unique_groups:
+        test_mask = groups == g
+        if logo_split_is_valid(
+            labels[test_mask],
+            labels[~test_mask],
+            all_classes,
+            label_threshold,
+            min_test_classes,
+        ):
+            count += 1
+    return count
 
 
 def accuracy_score(truth: npt.NDArray, predictions: npt.NDArray) -> float:

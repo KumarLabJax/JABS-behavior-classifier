@@ -306,22 +306,9 @@ class MultiClassClassifier(BaseClassifier):
         Returns:
             Number of groups that can serve as a valid test split.
         """
-        all_classes = np.unique(labels)
-        unique_groups = np.unique(groups)
-        count = 0
-        for g in unique_groups:
-            test_mask = np.asarray(groups) == g
-            test_labels = np.asarray(labels)[test_mask]
-            train_labels = np.asarray(labels)[~test_mask]
-
-            n_test_classes = sum(
-                np.count_nonzero(test_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
-                for cls in all_classes
-            )
-            train_has_all = all(
-                np.count_nonzero(train_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
-                for cls in all_classes
-            )
-            if n_test_classes >= 2 and train_has_all:
-                count += 1
-        return count
+        return classifier_utils.count_valid_logo_splits(
+            labels,
+            groups,
+            label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
+            min_test_classes=2,
+        )

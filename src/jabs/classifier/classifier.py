@@ -14,7 +14,7 @@ from jabs.core.enums import (
     CrossValidationGroupingStrategy,
 )
 from jabs.core.utils import hash_file
-from jabs.project import Project, TrackLabels, load_training_data
+from jabs.project import Project, load_training_data
 
 from . import classifier_utils
 from .base import BaseClassifier
@@ -120,27 +120,9 @@ class Classifier(BaseClassifier):
 
         Note: labels excludes label for frames with no identity.
         """
-        labels = np.asarray(labels)
-        groups = np.asarray(groups)
-        unique_groups = np.unique(groups)
-        count = 0
-        for g in unique_groups:
-            test_mask = groups == g
-            test_labels = labels[test_mask]
-            train_labels = labels[~test_mask]
-            test_ok = (
-                np.sum(test_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
-                and np.sum(test_labels == TrackLabels.Label.NOT_BEHAVIOR)
-                >= Classifier.LABEL_THRESHOLD
-            )
-            train_ok = (
-                np.sum(train_labels == TrackLabels.Label.BEHAVIOR) >= Classifier.LABEL_THRESHOLD
-                and np.sum(train_labels == TrackLabels.Label.NOT_BEHAVIOR)
-                >= Classifier.LABEL_THRESHOLD
-            )
-            if test_ok and train_ok:
-                count += 1
-        return count
+        return classifier_utils.count_valid_logo_splits(
+            labels, groups, label_threshold=Classifier.LABEL_THRESHOLD
+        )
 
     @staticmethod
     def leave_one_group_out(
