@@ -768,6 +768,100 @@ def test_remap_labels_for_video_drops_source_timeline_annotations():
     assert saved_labels.timeline_annotations.serialize() == []
 
 
+def test_run_staged_label_remap_uses_explicit_videos_list_when_provided(monkeypatch):
+    """When ``videos`` is passed, ``_run_staged_label_remap`` should only iterate that list."""
+    source_videos = ["a.avi", "b.avi"]
+    captured = []
+
+    def fake_remap(video, *_args, **_kwargs):
+        captured.append(video)
+        return (1, 0)
+
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", fake_remap)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.videos = source_videos
+    label_dest_project = MagicMock()
+
+    success, skipped = update_pose._run_staged_label_remap(
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        verbose=False,
+        annotate_failures=False,
+        drop_timeline_annotations=False,
+        videos=["a.avi"],
+    )
+
+    assert captured == ["a.avi"]
+    assert (success, skipped) == (1, 0)
+
+
+def test_run_staged_label_remap_falls_back_to_source_videos(monkeypatch):
+    """When ``videos`` is None, iteration should default to ``label_source_project``'s videos."""
+    captured = []
+
+    def fake_remap(video, *_args, **_kwargs):
+        captured.append(video)
+        return (1, 0)
+
+    monkeypatch.setattr(update_pose, "_remap_labels_for_video", fake_remap)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.videos = ["a.avi", "b.avi"]
+    label_dest_project = MagicMock()
+
+    update_pose._run_staged_label_remap(
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        verbose=False,
+        annotate_failures=False,
+        drop_timeline_annotations=False,
+    )
+
+    assert captured == ["a.avi", "b.avi"]
+
+
+def test_remap_labels_for_video_failure_uses_custom_tag_prefix():
+    """Failure annotations should use the configured tag prefix and description phrase."""
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[50.0, 50.0], [60.0, 60.0]]] * 10)
+
+    source_pose = _make_pose([0], {0: src_boxes})
+    dest_pose = _make_pose([1], {1: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    track_labels = source_labels.get_track_labels("0", "Grooming")
+    track_labels.label_behavior(3, 4)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+        failure_tag_prefix="update-labels",
+        failure_description_phrase="label update",
+    )
+
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
+    annotations = saved_labels.timeline_annotations.serialize()
+    assert len(annotations) == 1
+    assert annotations[0]["tag"] == "update-labels-behavior-remap-failed"
+    assert "label remap failed during label update" in annotations[0]["description"]
+
+
 def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
     """Applying a staged pose update should replace annotations/project metadata and swap the pose set."""
     project_dir = tmp_path / "project"

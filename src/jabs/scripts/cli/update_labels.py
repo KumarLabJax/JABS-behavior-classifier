@@ -161,12 +161,15 @@ def _preflight_label_update_inputs(
     target_dir: Path,
     source_project_dir: Path,
 ) -> tuple[list[str], set[str]]:
-    """Validate target and source inputs before any live mutation occurs.
+    """Validate target and source inputs, scaffolding the target if needed.
 
-    If ``target_dir`` is a directory of videos + pose files without a ``jabs/``
-    directory, a minimal JABS project is scaffolded automatically (no features
-    are computed). The source must already be a valid JABS project with
-    annotations.
+    The source is validated as a JABS project first, so an invalid source path
+    cannot leave a partially initialized target on disk. Only after the source
+    looks valid is ``target_dir`` either accepted (if it is already a JABS
+    project) or scaffolded (if it is a videos + pose directory with no
+    ``jabs/``). Scaffolding only creates an empty ``jabs/`` skeleton — no labels,
+    features, or pose changes — so on any subsequent failure the user is left
+    with a harmless no-op directory that the next run reuses.
 
     Returns:
         Tuple ``(videos, live_annotation_videos)`` where ``videos`` is the sorted
@@ -174,14 +177,15 @@ def _preflight_label_update_inputs(
         target project) and ``live_annotation_videos`` is the subset of those
         videos that already have an annotation file in the live target.
     """
-    _scaffold_target_project_if_missing(target_dir)
-
-    if not Project.is_valid_project_directory(target_dir):
-        raise ValueError(f"{target_dir} is not a valid JABS project directory")
     if not Project.is_valid_project_directory(source_project_dir):
         raise ValueError(
             f"{source_project_dir} is not a valid JABS project directory (source labels)"
         )
+
+    _scaffold_target_project_if_missing(target_dir)
+
+    if not Project.is_valid_project_directory(target_dir):
+        raise ValueError(f"{target_dir} is not a valid JABS project directory")
 
     target_videos = set(_project_videos(target_dir))
     if not target_videos:
@@ -435,6 +439,9 @@ def update_project_labels_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            videos=labeled_videos,
+            failure_tag_prefix="update-labels",
+            failure_description_phrase="label update",
         )
 
         _apply_live_label_update(

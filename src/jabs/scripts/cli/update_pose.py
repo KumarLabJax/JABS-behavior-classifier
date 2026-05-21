@@ -250,6 +250,9 @@ def _remap_labels_for_video(
     verbose: bool = False,
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
+    *,
+    failure_tag_prefix: str = "update-pose",
+    failure_description_phrase: str = "pose update",
 ):
     """Remap labels for a single video.
 
@@ -269,6 +272,12 @@ def _remap_labels_for_video(
         annotate_failures: Whether to add timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard existing source timeline annotations
             instead of copying or remapping them.
+        failure_tag_prefix: Tag prefix used for failure annotations written when
+            ``annotate_failures`` is set. Defaults to ``"update-pose"`` for backward
+            compatibility; ``update-labels`` passes ``"update-labels"``.
+        failure_description_phrase: Human-readable phrase used in the failure
+            annotation description (e.g. ``"pose update"`` → "label remap failed
+            during pose update: ...").
 
     Returns:
         Tuple of ``(success_count, skipped_count)``.
@@ -391,9 +400,9 @@ def _remap_labels_for_video(
                 skipped_count += 1
 
                 tag = (
-                    "update-pose-behavior-remap-failed"
+                    f"{failure_tag_prefix}-behavior-remap-failed"
                     if present
-                    else "update-pose-not-behavior-remap-failed"
+                    else f"{failure_tag_prefix}-not-behavior-remap-failed"
                 )
                 if annotate_failures and not dest_labels.timeline_annotations.annotation_exists(
                     start=start, end=end, tag=tag, identity_index=None
@@ -405,8 +414,8 @@ def _remap_labels_for_video(
                             tag=tag,
                             color="#FF8800" if present else "#8888FF",
                             description=(
-                                f"label remap failed during pose update: behavior={behavior}, "
-                                f"present={present}, "
+                                f"label remap failed during {failure_description_phrase}: "
+                                f"behavior={behavior}, present={present}, "
                                 f"src_id={src_identity}, best_iou={iou:.2f}"
                             ),
                             identity_index=None,
@@ -940,12 +949,38 @@ def _run_staged_label_remap(
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
+    *,
+    videos: list[str] | None = None,
+    failure_tag_prefix: str = "update-pose",
+    failure_description_phrase: str = "pose update",
 ) -> tuple[int, int]:
-    """Run the existing per-video label-remap semantics from source to destination."""
+    """Run the existing per-video label-remap semantics from source to destination.
+
+    Args:
+        label_source_project: Source-side staged project providing labels and source pose.
+        label_dest_project: Destination-side staged project receiving the remapped labels.
+        min_iou: Minimum acceptable median IoU for a block match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to write timeline annotations for failed block matches.
+        drop_timeline_annotations: Whether to discard source timeline annotations
+            instead of copying or remapping them.
+        videos: Optional explicit list of video filenames to process. When ``None``
+            (the default), iterate ``label_source_project.video_manager.videos``.
+            Callers should pass the preflighted set of videos to ensure the source
+            and destination projects can both load pose for every video processed.
+        failure_tag_prefix: Tag prefix used when ``annotate_failures`` writes a
+            timeline annotation for a skipped block. The resulting tag is
+            ``f"{prefix}-behavior-remap-failed"`` (or ``-not-behavior-remap-failed``).
+        failure_description_phrase: Human-readable phrase used in the failure
+            annotation description (e.g. ``"pose update"`` → "label remap failed
+            during pose update: ...").
+    """
     total_success = 0
     total_skipped = 0
 
-    for video in label_source_project.video_manager.videos:
+    iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
+
+    for video in iteration_videos:
         success, skipped = _remap_labels_for_video(
             video,
             label_source_project,
@@ -954,6 +989,8 @@ def _run_staged_label_remap(
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
+            failure_tag_prefix=failure_tag_prefix,
+            failure_description_phrase=failure_description_phrase,
         )
         total_success += success
         total_skipped += skipped
@@ -1027,6 +1064,7 @@ def update_project_pose_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            videos=videos,
         )
         _refresh_project_identity_counts(label_dest_project)
         _apply_live_update(

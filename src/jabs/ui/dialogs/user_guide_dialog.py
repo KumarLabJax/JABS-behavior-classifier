@@ -196,7 +196,11 @@ class UserGuideDialog(QDialog):
                 "_file": "cli-tools.md",
                 "jabs-classify": "cli-tools.md#jabs-classify",
                 "jabs-features": "cli-tools.md#jabs-features",
-                "jabs-cli": "cli-tools.md#jabs-cli",
+                "jabs-cli": {
+                    "_file": "cli-tools.md#jabs-cli",
+                    "update-pose": "cli-tools.md#jabs-cli-update-pose",
+                    "update-labels": "cli-tools.md#jabs-cli-update-labels",
+                },
                 "jabs-init": "cli-tools.md#jabs-init",
             },
             "File Formats": {
