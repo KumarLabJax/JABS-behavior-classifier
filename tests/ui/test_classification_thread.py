@@ -126,7 +126,7 @@ def test_classify_thread_binary_path(monkeypatch) -> None:
 
     monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", _FakeIdentityFeatures)
     monkeypatch.setattr(
-        "jabs.ui.classification_thread.PostprocessingPipeline",
+        "jabs.ui.classify_strategy.PostprocessingPipeline",
         _FakePostprocessingPipeline,
     )
 
@@ -180,7 +180,7 @@ def test_classify_thread_multiclass_path(monkeypatch) -> None:
 
     monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", _FakeIdentityFeatures)
     monkeypatch.setattr(
-        "jabs.ui.classification_thread.PostprocessingPipeline",
+        "jabs.ui.classify_strategy.PostprocessingPipeline",
         _PostprocessingMustNotRun,
     )
 
