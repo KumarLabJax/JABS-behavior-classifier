@@ -33,10 +33,12 @@ from jabs.pose_estimation import (
 
 from .feature_manager import FeatureManager
 from .parallel_workers import (
-    FeatureLoadJobSpec,
+    BinaryFeatureLoadJobSpec,
+    MulticlassFeatureLoadJobSpec,
     VideoScanJobSpec,
     VideoScanResult,
-    collect_labeled_features,
+    collect_binary_labeled_features,
+    collect_multiclass_labeled_features,
     scan_video_metadata,
 )
 from .prediction_manager import PredictionManager
@@ -796,6 +798,132 @@ class Project:
             counts[video] = self.load_counts(video, behavior)
         return counts
 
+    def _build_feature_load_job_base(self, video: str, behavior_settings: dict) -> dict:
+        """Construct the per-video fields shared by every feature-load job spec."""
+        return {
+            "video": video,
+            "video_path": self._video_manager.video_path(video),
+            "pose_path": self._video_manager.get_cached_pose_path(video),
+            "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
+            "feature_dir": self.feature_dir,
+            "cache_dir": self._paths.cache_dir,
+            "behavior_settings": behavior_settings,
+            "cache_format": self.cache_format.value,
+        }
+
+    def _collect_features_parallel(
+        self,
+        jobs: list[dict],
+        worker_fn: Callable[[dict], dict],
+        progress_callable: Callable[[], None] | None,
+        should_terminate_callable: Callable[[], None] | None,
+    ) -> dict[str, dict]:
+        """Run feature-collection jobs in parallel (or single-threaded fallback).
+
+        Args:
+            jobs: One job spec per video.
+            worker_fn: Worker function to apply to each job spec.
+            progress_callable: Called once per completed video, if provided.
+            should_terminate_callable: Called between submissions and completions,
+                if provided; should raise on user-requested cancellation.
+
+        Returns:
+            Dict keyed by video name. Callers reorder by their canonical
+            ``videos`` list for deterministic concatenation.
+        """
+        executor = self._process_pool
+        results_by_video: dict[str, dict] = {}
+
+        if executor is not None:
+            future_to_video = {executor.submit(worker_fn, job): job["video"] for job in jobs}
+            for future in as_completed(future_to_video):
+                if should_terminate_callable:
+                    should_terminate_callable()
+                video_name = future_to_video[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
+                results_by_video[video_name] = res
+                if progress_callable:
+                    progress_callable()
+        else:
+            for job in jobs:
+                if should_terminate_callable:
+                    should_terminate_callable()
+                try:
+                    res = worker_fn(job)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Feature collection failed for video: {job['video']}"
+                    ) from e
+                results_by_video[job["video"]] = res
+                if progress_callable:
+                    progress_callable()
+
+        return results_by_video
+
+    @staticmethod
+    def _assign_cv_group_ids(
+        all_group_keys: list[tuple[str, int]],
+        videos: list[str],
+        grouping_strategy: CrossValidationGroupingStrategy,
+    ) -> tuple[dict[tuple[str, int], int], dict[int, dict]]:
+        """Assign deterministic cross-validation group ids.
+
+        Args:
+            all_group_keys: ``(video, identity)`` tuples in row order.
+            videos: Canonical list of project videos; ids are assigned in this order.
+            grouping_strategy: ``INDIVIDUAL`` groups one (video, identity) pair per
+                gid; ``VIDEO`` groups all identities of a video together.
+
+        Returns:
+            Tuple of ``(key_to_gid, group_mapping)`` where ``key_to_gid`` maps each
+            ``(video, identity)`` pair to its group id and ``group_mapping`` maps
+            each group id back to ``{"video": ..., "identity": ...}``.
+        """
+        key_to_gid: dict[tuple[str, int], int] = {}
+        group_mapping: dict[int, dict] = {}
+        gid = 0
+        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
+            for v in videos:
+                seen: list[int] = []
+                for video_name, ident in all_group_keys:
+                    if video_name == v and ident not in seen:
+                        seen.append(ident)
+                for ident in seen:
+                    key = (v, ident)
+                    if key not in key_to_gid:
+                        key_to_gid[key] = gid
+                        group_mapping[gid] = {"video": v, "identity": ident}
+                        gid += 1
+        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+            video_to_gid: dict[str, int] = {}
+            for v in videos:
+                if v not in video_to_gid:
+                    video_to_gid[v] = gid
+                    group_mapping[gid] = {"video": v, "identity": None}
+                    gid += 1
+                for video_name, ident in all_group_keys:
+                    if video_name == v:
+                        key_to_gid[(v, ident)] = video_to_gid[v]
+        else:
+            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
+        return key_to_gid, group_mapping
+
+    @staticmethod
+    def _build_groups_array(
+        all_group_keys: list[tuple[str, int]],
+        all_per_frame: list[pd.DataFrame],
+        key_to_gid: dict[tuple[str, int], int],
+    ) -> np.ndarray:
+        """Build the per-row group id array aligned to concatenated feature matrices."""
+        groups_list: list[np.ndarray] = [
+            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
+            for key, df in zip(all_group_keys, all_per_frame, strict=True)
+        ]
+        return np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
+
     def get_labeled_features(
         self,
         behavior: str | None = None,
@@ -836,22 +964,11 @@ class Project:
                 The second dict maps group ids to their source:
                     { <group id>: {'video': <video filename>, 'identity': <identity>}, ... }
         """
-        # Parallel per-video feature collection using process workers.
-        # Progress increments once per video.
-        all_per_frame: list[pd.DataFrame] = []
-        all_window: list[pd.DataFrame] = []
-        all_labels: list[np.ndarray] = []
-        all_group_keys: list[tuple[str, int]] = []
-
-        # Snapshot behavior settings once
         behavior_settings = self._settings_manager.get_behavior(behavior)
         videos = list(self._video_manager.videos)
-
-        # get the cross validation grouping strategy from project settings
         if grouping_strategy is None:
             grouping_strategy = self.settings_manager.cv_grouping_strategy
 
-        # Early exit if no videos
         if not videos:
             return {
                 "window": pd.DataFrame(),
@@ -860,73 +977,27 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        # Prepare per-video jobs with Path types (workers open resources)
-        jobs: list[FeatureLoadJobSpec] = []
+        jobs: list[BinaryFeatureLoadJobSpec] = []
         for video in videos:
             if should_terminate_callable:
                 should_terminate_callable()
-
-            job: FeatureLoadJobSpec = {
-                "video": video,
-                "video_path": self._video_manager.video_path(video),
-                "pose_path": self._video_manager.get_cached_pose_path(video),
-                "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
-                "feature_dir": self.feature_dir,
-                "cache_dir": self._paths.cache_dir,
-                "behavior_settings": behavior_settings,
+            job: BinaryFeatureLoadJobSpec = {
+                **self._build_feature_load_job_base(video, behavior_settings),
                 "behavior_name": behavior,
-                "behavior_names": None,
-                "classifier_mode": ClassifierMode.BINARY,
-                "cache_format": self.cache_format.value,
             }
             jobs.append(job)
 
-        executor = self._process_pool
-        results_by_video: dict[str, dict] = {}
+        results_by_video = self._collect_features_parallel(
+            jobs,
+            collect_binary_labeled_features,
+            progress_callable,
+            should_terminate_callable,
+        )
 
-        if executor is not None:
-            # Parallel execution using the process pool
-            future_to_video = {
-                executor.submit(collect_labeled_features, job): job["video"] for job in jobs
-            }
-
-            for future in as_completed(future_to_video):
-                # check for early exit
-                if should_terminate_callable:
-                    should_terminate_callable()
-
-                video_name = future_to_video[future]
-                try:
-                    res = future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
-
-                # Stage results by video for deterministic finalization
-                results_by_video[video_name] = res
-
-                if progress_callable:
-                    progress_callable()  # once per video
-        else:
-            # Single-threaded execution
-            for job in jobs:
-                # check for early exit
-                if should_terminate_callable:
-                    should_terminate_callable()
-
-                try:
-                    res = collect_labeled_features(job)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Feature collection failed for video: {job['video']}"
-                    ) from e
-
-                # Stage results by video for deterministic finalization
-                results_by_video[job["video"]] = res
-
-                if progress_callable:
-                    progress_callable()  # once per video
-
-        # Deterministic finalize: append results in original 'videos' order
+        all_per_frame: list[pd.DataFrame] = []
+        all_window: list[pd.DataFrame] = []
+        all_labels: list[np.ndarray] = []
+        all_group_keys: list[tuple[str, int]] = []
         for video in videos:
             if video not in results_by_video:
                 continue
@@ -936,7 +1007,6 @@ class Project:
             all_labels.extend(res["labels"])
             all_group_keys.extend(res["group_keys"])
 
-        # If nothing was produced anywhere, return empty structures
         if not (all_per_frame and all_window and all_labels):
             return {
                 "window": pd.DataFrame(),
@@ -945,55 +1015,14 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        # Build stable group ids based on grouping strategy
-        key_to_gid: dict[tuple[str, int], int] = {}
-        video_to_gid: dict[str, int] = {}
-        gid = 0
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            for v in videos:
-                seen: list[int] = []
-                for video_name, ident in all_group_keys:
-                    if video_name == v and ident not in seen:
-                        seen.append(ident)
-                for ident in seen:
-                    key = (v, ident)
-                    if key not in key_to_gid:
-                        key_to_gid[key] = gid
-                        gid += 1
-        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
-            for v in videos:
-                if v not in video_to_gid:
-                    video_to_gid[v] = gid
-                    gid += 1
-                for video_name, ident in all_group_keys:
-                    if video_name == v:
-                        key = (v, ident)
-                        key_to_gid[key] = video_to_gid[v]
-        else:
-            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
-
-        # groups vector aligned with all_per_frame entries
-        groups_list: list[np.ndarray] = [
-            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
-            for key, df in zip(all_group_keys, all_per_frame, strict=True)
-        ]
-        groups = np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
-
-        # group_mapping: for INDIVIDUAL, maps gid to (video, identity); for VIDEO, maps gid to video only
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            group_mapping: dict[int, dict[str, int | str]] = {
-                gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
-            }
-        else:
-            group_mapping: dict[int, dict[str, str | None]] = {
-                gid: {"video": v, "identity": None} for v, gid in video_to_gid.items()
-            }
-
+        key_to_gid, group_mapping = self._assign_cv_group_ids(
+            all_group_keys, videos, grouping_strategy
+        )
+        groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
         labels_arr = np.concatenate(all_labels)
 
-        # Sanity check: ensure all outputs are aligned
         if not (len(labels_arr) == per_frame_df.shape[0] == window_df.shape[0] == groups.shape[0]):
             raise RuntimeError(
                 "Mismatch among labels/per_frame/window/groups lengths: "
@@ -1038,16 +1067,10 @@ class Project:
                 - ``labels_by_behavior``: dict[str, np.ndarray] of aligned labels
                 - ``groups``: np.ndarray of group ids
         """
-        all_per_frame: list[pd.DataFrame] = []
-        all_window: list[pd.DataFrame] = []
-        all_labels_by_behavior: dict[str, list[np.ndarray]] = {}
-        all_group_keys: list[tuple[str, int]] = []
-
         behavior_names = list(self.settings_manager.behavior_names)
         if behavior_settings is None:
             behavior_settings = self.get_project_defaults()
         videos = list(self._video_manager.videos)
-
         if grouping_strategy is None:
             grouping_strategy = self.settings_manager.cv_grouping_strategy
 
@@ -1059,72 +1082,34 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        jobs: list[FeatureLoadJobSpec] = []
+        jobs: list[MulticlassFeatureLoadJobSpec] = []
         for video in videos:
             if should_terminate_callable:
                 should_terminate_callable()
-
-            job: FeatureLoadJobSpec = {
-                "video": video,
-                "video_path": self._video_manager.video_path(video),
-                "pose_path": self._video_manager.get_cached_pose_path(video),
-                "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
-                "feature_dir": self.feature_dir,
-                "cache_dir": self._paths.cache_dir,
-                "behavior_settings": behavior_settings,
-                "behavior_name": None,
+            job: MulticlassFeatureLoadJobSpec = {
+                **self._build_feature_load_job_base(video, behavior_settings),
                 "behavior_names": behavior_names,
-                "classifier_mode": ClassifierMode.MULTICLASS,
-                "cache_format": self.cache_format.value,
             }
             jobs.append(job)
 
-        executor = self._process_pool
-        results_by_video: dict[str, dict] = {}
+        results_by_video = self._collect_features_parallel(
+            jobs,
+            collect_multiclass_labeled_features,
+            progress_callable,
+            should_terminate_callable,
+        )
 
-        if executor is not None:
-            future_to_video = {
-                executor.submit(collect_labeled_features, job): job["video"] for job in jobs
-            }
-
-            for future in as_completed(future_to_video):
-                if should_terminate_callable:
-                    should_terminate_callable()
-
-                video_name = future_to_video[future]
-                try:
-                    res = future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
-
-                results_by_video[video_name] = res
-
-                if progress_callable:
-                    progress_callable()
-        else:
-            for job in jobs:
-                if should_terminate_callable:
-                    should_terminate_callable()
-                try:
-                    res = collect_labeled_features(job)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Feature collection failed for video: {job['video']}"
-                    ) from e
-
-                results_by_video[job["video"]] = res
-
-                if progress_callable:
-                    progress_callable()
-
-        # Finalize in the original `videos` order so group ids are deterministic.
+        all_per_frame: list[pd.DataFrame] = []
+        all_window: list[pd.DataFrame] = []
+        all_labels_by_behavior: dict[str, list[np.ndarray]] = {}
+        all_group_keys: list[tuple[str, int]] = []
         for video in videos:
             if video not in results_by_video:
                 continue
             res = results_by_video[video]
             per_frame_items = res["per_frame"]
             window_items = res["window"]
-            labels_by_behavior_items = res["labels_by_behavior"] or []
+            labels_by_behavior_items = res["labels_by_behavior"]
             group_keys_items = res["group_keys"]
 
             if not (
@@ -1144,8 +1129,8 @@ class Project:
             all_per_frame.extend(per_frame_items)
             all_window.extend(window_items)
             all_group_keys.extend(group_keys_items)
-            # Preserve per-identity row alignment by appending label slices in the
-            # same order as per_frame/window/group entries.
+            # Append per-identity label slices in the same order as per_frame/window
+            # entries so they stay row-aligned after concatenation.
             for labels_by_behavior in labels_by_behavior_items:
                 for name, arr in labels_by_behavior.items():
                     all_labels_by_behavior.setdefault(name, []).append(arr)
@@ -1158,48 +1143,10 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        key_to_gid: dict[tuple[str, int], int] = {}
-        video_to_gid: dict[str, int] = {}
-        gid = 0
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            for v in videos:
-                seen: list[int] = []
-                for video_name, ident in all_group_keys:
-                    if video_name == v and ident not in seen:
-                        seen.append(ident)
-                for ident in seen:
-                    key = (v, ident)
-                    if key not in key_to_gid:
-                        key_to_gid[key] = gid
-                        gid += 1
-        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
-            # All identities from the same video share one CV group id.
-            for v in videos:
-                if v not in video_to_gid:
-                    video_to_gid[v] = gid
-                    gid += 1
-                for video_name, ident in all_group_keys:
-                    if video_name == v:
-                        key = (v, ident)
-                        key_to_gid[key] = video_to_gid[v]
-        else:
-            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
-
-        groups_list: list[np.ndarray] = [
-            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
-            for key, df in zip(all_group_keys, all_per_frame, strict=True)
-        ]
-        groups = np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
-
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            group_mapping: dict[int, dict[str, int | str]] = {
-                gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
-            }
-        else:
-            group_mapping: dict[int, dict[str, str | None]] = {
-                gid: {"video": v, "identity": None} for v, gid in video_to_gid.items()
-            }
-
+        key_to_gid, group_mapping = self._assign_cv_group_ids(
+            all_group_keys, videos, grouping_strategy
+        )
+        groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
         n_rows = per_frame_df.shape[0]
@@ -1208,17 +1155,13 @@ class Project:
             for name, arrays in all_labels_by_behavior.items()
         }
 
-        expected_labels = {
-            MULTICLASS_NONE_BEHAVIOR,
-            *behavior_names,
-        }
-        missing_labels = expected_labels.difference(labels_by_behavior_arr.keys())
-        if missing_labels:
-            # Keep a stable key set for downstream multi-class consumers.
-            for missing in missing_labels:
-                labels_by_behavior_arr[missing] = np.full(
-                    n_rows, TrackLabels.Label.NONE, dtype=np.int8
-                )
+        # Ensure every expected behavior key is present so downstream consumers
+        # can rely on a stable key set even if a behavior had no labels anywhere.
+        expected_labels = {MULTICLASS_NONE_BEHAVIOR, *behavior_names}
+        for missing in expected_labels.difference(labels_by_behavior_arr.keys()):
+            labels_by_behavior_arr[missing] = np.full(
+                n_rows, TrackLabels.Label.NONE, dtype=np.int8
+            )
 
         if not (n_rows == window_df.shape[0] == groups.shape[0]):
             raise RuntimeError(
@@ -1226,7 +1169,6 @@ class Project:
                 f"per_frame={n_rows}, window={window_df.shape[0]}, groups={groups.shape[0]}"
             )
         for name, arr in labels_by_behavior_arr.items():
-            # Every behavior label vector must stay row-aligned with feature matrices.
             if arr.shape[0] != n_rows:
                 raise RuntimeError(
                     "Mismatch between multiclass label rows and features: "

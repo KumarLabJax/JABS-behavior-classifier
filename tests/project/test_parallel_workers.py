@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import CacheFormat, ClassifierMode
+from jabs.core.enums import CacheFormat
 from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
     _get_identity_count,
-    collect_labeled_features,
+    collect_multiclass_labeled_features,
     scan_video_metadata,
 )
 from jabs.project.track_labels import TrackLabels
@@ -68,7 +68,7 @@ def test_collect_labeled_features_multiclass_filters_and_aligns(
     monkeypatch.setattr("jabs.project.parallel_workers._load_video_labels", lambda *_: labels)
     monkeypatch.setattr("jabs.project.parallel_workers.fe.IdentityFeatures", _FakeIdentityFeatures)
 
-    result = collect_labeled_features(
+    result = collect_multiclass_labeled_features(
         {
             "video": "video.avi",
             "video_path": tmp_path / "video.avi",
@@ -77,9 +77,7 @@ def test_collect_labeled_features_multiclass_filters_and_aligns(
             "feature_dir": tmp_path / "features",
             "cache_dir": tmp_path / "cache",
             "behavior_settings": {"window_size": 3},
-            "behavior_name": None,
             "behavior_names": ["Walk", "Run"],
-            "classifier_mode": ClassifierMode.MULTICLASS.value,
             "cache_format": CacheFormat.HDF5.value,
         }
     )
@@ -140,7 +138,7 @@ def test_collect_labeled_features_multiclass_requires_behavior_names(
     monkeypatch.setattr("jabs.project.parallel_workers._load_video_labels", lambda *_: labels)
 
     with pytest.raises(ValueError, match="behavior_names is required"):
-        collect_labeled_features(
+        collect_multiclass_labeled_features(
             {
                 "video": "video.avi",
                 "video_path": tmp_path / "video.avi",
@@ -149,9 +147,7 @@ def test_collect_labeled_features_multiclass_requires_behavior_names(
                 "feature_dir": tmp_path / "features",
                 "cache_dir": tmp_path / "cache",
                 "behavior_settings": {"window_size": 3},
-                "behavior_name": None,
                 "behavior_names": None,
-                "classifier_mode": ClassifierMode.MULTICLASS.value,
                 "cache_format": CacheFormat.HDF5.value,
             }
         )
