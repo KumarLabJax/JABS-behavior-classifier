@@ -24,7 +24,6 @@ from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
     binary_predictions_to_lut_indices,
-    track_labels_to_lut_indices,
 )
 from ..classification_thread import ClassifyThread
 from ..dialogs import AnnotationEditDialog, TrainingReportDialog
@@ -35,6 +34,7 @@ from ..main_control_widget import MainControlWidget
 from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
 from ..training_thread import TrainingThread
+from . import central_widget_mode
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
@@ -360,18 +360,17 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
-            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-                (
-                    self._predictions,
-                    self._probabilities,
-                    self._predictions_postprocessed,
-                    self._multiclass_class_names,
-                ) = self._project.prediction_manager.load_multiclass_predictions(path.name)
-            else:
-                self._predictions, self._probabilities, self._predictions_postprocessed = (
-                    self._project.prediction_manager.load_predictions(path.name, self.behavior)
-                )
-                self._multiclass_class_names = None
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                path.name,
+                self.behavior,
+            )
 
             # update ui components with properties of new video
             display_identities = [
@@ -704,52 +703,46 @@ class CentralWidget(QtWidgets.QWidget):
     def _label_behavior(self) -> None:
         """Apply behavior label to currently selected range of frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            identity_str = str(self._controls.current_identity_index)
-            current_behavior = self._controls.current_behavior
-            for behavior, track in self._labels.iter_behavior_labels(identity_str):
-                if behavior != current_behavior:
-                    track.clear_labels(start, end)
+        identity_index = self._controls.current_identity_index
+        current_behavior = self._controls.current_behavior
+        central_widget_mode.apply_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
+            current_behavior,
+            start,
+            end,
+        )
         self._project.session_tracker.label_created(
             self._loaded_video,
-            self._controls.current_identity_index,
-            self._controls.current_behavior,
+            identity_index,
+            current_behavior,
             True,
             start,
             end,
         )
-        self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self) -> None:
         """Apply not-behavior label (binary) or None label (multi-class) to selected frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            identity_str = str(self._controls.current_identity_index)
-            for behavior, track in self._labels.iter_behavior_labels(identity_str):
-                if behavior != MULTICLASS_NONE_BEHAVIOR:
-                    track.clear_labels(start, end)
-            self._project.session_tracker.label_created(
-                self._loaded_video,
-                self._controls.current_identity_index,
-                MULTICLASS_NONE_BEHAVIOR,
-                True,
-                start,
-                end,
-            )
-            self._labels.get_track_labels(identity_str, MULTICLASS_NONE_BEHAVIOR).label_behavior(
-                start, end
-            )
-        else:
-            self._project.session_tracker.label_created(
-                self._loaded_video,
-                self._controls.current_identity_index,
-                self._controls.current_behavior,
-                False,
-                start,
-                end,
-            )
-            self._get_label_track().label_not_behavior(start, end)
+        identity_index = self._controls.current_identity_index
+        behavior_key, is_positive_label = central_widget_mode.apply_not_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
+            self._controls.current_behavior,
+            start,
+            end,
+        )
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            identity_index,
+            behavior_key,
+            is_positive_label,
+            start,
+            end,
+        )
         self._label_button_common()
 
     def _clear_behavior_label(self) -> None:
@@ -814,27 +807,17 @@ class CentralWidget(QtWidgets.QWidget):
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-                behavior_names = self._controls.behaviors
-                self._jabs_timeline.set_labels(
-                    [
-                        self._labels.build_multiclass_label_array(str(i), behavior_names)
-                        for i in range(self._pose_est.num_identities)
-                    ],
-                    mask_list,
-                )
-                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                    label_list = self._get_label_list()
-                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
-            else:
+            timeline_labels = central_widget_mode.build_timeline_label_arrays(
+                self._labels,
+                self._project.settings_manager.classifier_mode,
+                self._pose_est.num_identities,
+                current_behavior=behavior,
+                behaviors=self._controls.behaviors,
+            )
+            self._jabs_timeline.set_labels(timeline_labels, mask_list)
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
                 label_list = self._get_label_list()
-                self._jabs_timeline.set_labels(
-                    [track_labels_to_lut_indices(t) for t in label_list],
-                    mask_list,
-                )
-                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                    # if configured to show labels, update the player widget with the new labels
-                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
