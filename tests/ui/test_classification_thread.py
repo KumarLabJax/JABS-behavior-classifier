@@ -1,15 +1,16 @@
 """Tests for ClassifyThread binary and multiclass branches."""
 
-from types import SimpleNamespace
 from typing import ClassVar
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
+from jabs.core.enums import ClassifierMode
+from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
+
+from ._fakes import FakeClassifyingClassifier, FakeClassifyingProject
+
 try:
-    from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
-    from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
     from jabs.ui.classification_thread import ClassifyThread
 
     SKIP_UI_TESTS = False
@@ -22,83 +23,6 @@ pytestmark = pytest.mark.skipif(
     SKIP_UI_TESTS,
     reason=SKIP_REASON if SKIP_UI_TESTS else "",
 )
-
-
-class _FakeClassifier:
-    """Simple classifier test double for ClassifyThread."""
-
-    def __init__(self, multiclass: bool = False) -> None:
-        self._multiclass = multiclass
-        self.project_settings = {"window_size": 7}
-        self.behavior_names = ["Walk", "Run"]
-
-    @staticmethod
-    def combine_data(per_frame, window):
-        import pandas as pd
-
-        return pd.concat([per_frame, window], axis=1)
-
-    def predict_proba(self, data, frame_indexes):
-        n = len(data)
-        if self._multiclass:
-            probs = np.zeros((n, 3), dtype=np.float32)
-            probs[:, 0] = 0.1
-            probs[:, 1] = 0.7
-            probs[:, 2] = 0.2
-            probs[frame_indexes == -1] = 0.0
-            return probs
-
-        probs = np.zeros((n, 2), dtype=np.float32)
-        probs[:, 0] = 0.2
-        probs[:, 1] = 0.8
-        return probs
-
-    def derive_predictions(self, probabilities):
-        predictions = np.argmax(probabilities, axis=1).astype(np.int8)
-        confidence = probabilities[np.arange(len(probabilities)), predictions].astype(np.float32)
-        predictions[confidence == 0] = -1
-        return predictions, confidence
-
-    @staticmethod
-    def get_class_names() -> list[str]:
-        return ["background", "Walk", "Run"]
-
-
-class _FakePose:
-    """Pose-estimation test double."""
-
-    def __init__(self) -> None:
-        self.identities = [0]
-        self.num_identities = 1
-        self.num_frames = 5
-        self.fps = 30
-
-
-class _FakeProject:
-    """Project test double for classification thread tests."""
-
-    def __init__(self, mode: ClassifierMode) -> None:
-        self.settings_manager = SimpleNamespace(
-            classifier_mode=mode,
-            get_behavior=lambda _behavior: {"window_size": 5, "postprocessing": []},
-        )
-        self.feature_manager = SimpleNamespace(distance_unit=ProjectDistanceUnit.PIXEL)
-        self.video_manager = SimpleNamespace(
-            videos=["video.avi"],
-            video_path=lambda _video: "video.avi",
-            num_videos=1,
-        )
-        self.feature_dir = "feature_dir"
-        self.cache_format = "hdf5"
-        self.save_predictions = MagicMock()
-        self._pose = _FakePose()
-
-    def load_pose_est(self, _video_path):
-        return self._pose
-
-    @staticmethod
-    def get_project_defaults() -> dict:
-        return {"window_size": 9}
 
 
 def test_classify_thread_binary_path(monkeypatch) -> None:
@@ -130,8 +54,8 @@ def test_classify_thread_binary_path(monkeypatch) -> None:
         _FakePostprocessingPipeline,
     )
 
-    project = _FakeProject(ClassifierMode.BINARY)
-    classifier = _FakeClassifier(multiclass=False)
+    project = FakeClassifyingProject(ClassifierMode.BINARY)
+    classifier = FakeClassifyingClassifier(multiclass=False)
     thread = ClassifyThread(classifier, project, "Walk", "video.avi")
     completions: list[dict] = []
     errors: list[Exception] = []
@@ -184,8 +108,8 @@ def test_classify_thread_multiclass_path(monkeypatch) -> None:
         _PostprocessingMustNotRun,
     )
 
-    project = _FakeProject(ClassifierMode.MULTICLASS)
-    classifier = _FakeClassifier(multiclass=True)
+    project = FakeClassifyingProject(ClassifierMode.MULTICLASS)
+    classifier = FakeClassifyingClassifier(multiclass=True)
     thread = ClassifyThread(classifier, project, "Walk", "video.avi")
     completions: list[dict] = []
     errors: list[Exception] = []
