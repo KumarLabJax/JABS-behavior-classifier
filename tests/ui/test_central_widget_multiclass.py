@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 try:
-    from jabs.core.enums import CrossValidationGroupingStrategy
     from jabs.ui.main_window.central_widget import CentralWidget
 
     SKIP_UI_TESTS = False
@@ -115,66 +114,3 @@ def test_get_multiclass_prediction_rows_falls_back_on_frame_mismatch() -> None:
         np.testing.assert_array_equal(row, np.zeros(4, dtype=np.int16))
     for row in probability_rows[0]:
         np.testing.assert_array_equal(row, np.zeros(4, dtype=np.float32))
-
-
-def test_count_multiclass_valid_logo_splits_individual() -> None:
-    """Valid-split counting matches multiclass LOGO constraints for per-identity groups."""
-    counts_by_behavior = {
-        "None": {
-            "video_a.avi": {
-                0: {"fragmented_frame_counts": (20, 0)},
-                1: {"fragmented_frame_counts": (20, 0)},
-                2: {"fragmented_frame_counts": (20, 0)},
-            }
-        },
-        "Walk": {
-            "video_a.avi": {
-                0: {"fragmented_frame_counts": (20, 0)},
-                1: {"fragmented_frame_counts": (20, 0)},
-                2: {"fragmented_frame_counts": (20, 0)},
-            }
-        },
-        "Run": {
-            "video_a.avi": {
-                0: {"fragmented_frame_counts": (0, 0)},
-                1: {"fragmented_frame_counts": (20, 0)},
-                2: {"fragmented_frame_counts": (20, 0)},
-            }
-        },
-    }
-
-    valid = CentralWidget._count_multiclass_valid_logo_splits(
-        counts_by_behavior=counts_by_behavior,
-        behavior_names=["None", "Walk", "Run"],
-        grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
-        threshold=20,
-    )
-
-    assert valid == 3
-
-
-def test_count_multiclass_valid_logo_splits_video_grouping() -> None:
-    """Video grouping aggregates identities per video before validity checks."""
-    counts_by_behavior = {
-        "None": {
-            "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
-            "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
-        },
-        "Walk": {
-            "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
-            "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
-        },
-        "Run": {
-            "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
-            "video_b.avi": {0: {"fragmented_frame_counts": (0, 0)}},
-        },
-    }
-
-    valid = CentralWidget._count_multiclass_valid_logo_splits(
-        counts_by_behavior=counts_by_behavior,
-        behavior_names=["None", "Walk", "Run"],
-        grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
-        threshold=20,
-    )
-
-    assert valid == 1

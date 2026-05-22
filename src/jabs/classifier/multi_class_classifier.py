@@ -12,7 +12,11 @@ import numpy.typing as npt
 import pandas as pd
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import (
+    DEFAULT_CV_GROUPING_STRATEGY,
+    ClassifierType,
+    CrossValidationGroupingStrategy,
+)
 
 from . import classifier_utils
 from .base import BaseClassifier
@@ -312,3 +316,109 @@ class MultiClassClassifier(BaseClassifier):
             label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
             min_test_classes=2,
         )
+
+    @staticmethod
+    def count_label_threshold(
+        counts_by_behavior: dict[str, dict],
+        behavior_names: list[str],
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> int:
+        """Count multi-class LOGO groups that satisfy the relaxed acceptance rule.
+
+        A group is counted as a valid test split when it contains at least 2
+        distinct classes above ``LABEL_THRESHOLD`` and the remaining training
+        groups collectively contain all classes above ``LABEL_THRESHOLD``.
+
+        Args:
+            counts_by_behavior: Maps each class name to its labeled-frame count
+                dict (the structure returned by ``Project.counts(name)``),
+                shaped as ``dict[video_name][identity]`` of fragmented and
+                unfragmented frame/bout count tuples.
+            behavior_names: Ordered class names whose counts appear in
+                ``counts_by_behavior``. Typically includes
+                ``MULTICLASS_NONE_BEHAVIOR``.
+            cv_grouping_strategy: Cross-validation grouping strategy.
+
+        Returns:
+            Number of groups that can serve as a valid multi-class LOGO test split.
+
+        Note:
+            Uses "fragmented" label counts since these reflect labels usable
+            for training.
+        """
+        if not behavior_names:
+            return 0
+
+        threshold = MultiClassClassifier.LABEL_THRESHOLD
+        group_class_counts: dict[tuple[str, int] | str, dict[str, int]] = {}
+        for behavior_name in behavior_names:
+            behavior_counts = counts_by_behavior.get(behavior_name, {})
+            for video_name, video_counts in behavior_counts.items():
+                if cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+                    key: tuple[str, int] | str = video_name
+                    group_entry = group_class_counts.setdefault(key, {})
+                    group_entry[behavior_name] = group_entry.get(behavior_name, 0) + sum(
+                        identity_counts["fragmented_frame_counts"][0]
+                        for identity_counts in video_counts.values()
+                    )
+                else:
+                    for identity, identity_counts in video_counts.items():
+                        key = (video_name, int(identity))
+                        group_entry = group_class_counts.setdefault(key, {})
+                        group_entry[behavior_name] = identity_counts["fragmented_frame_counts"][0]
+
+        if not group_class_counts:
+            return 0
+
+        total_by_class = {
+            class_name: sum(
+                group_counts.get(class_name, 0) for group_counts in group_class_counts.values()
+            )
+            for class_name in behavior_names
+        }
+
+        valid_groups = 0
+        for group_counts in group_class_counts.values():
+            n_test_classes = sum(
+                group_counts.get(class_name, 0) >= threshold for class_name in behavior_names
+            )
+            train_has_all_classes = all(
+                (total_by_class[class_name] - group_counts.get(class_name, 0)) >= threshold
+                for class_name in behavior_names
+            )
+            if n_test_classes >= 2 and train_has_all_classes:
+                valid_groups += 1
+
+        return valid_groups
+
+    @staticmethod
+    def label_threshold_met(
+        counts_by_behavior: dict[str, dict],
+        behavior_names: list[str],
+        min_groups: int,
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> bool:
+        """Determine whether multi-class labels support ``min_groups`` LOGO splits.
+
+        Args:
+            counts_by_behavior: Maps each class name to its labeled-frame count
+                dict (see :meth:`count_label_threshold`).
+            behavior_names: Ordered class names whose counts appear in
+                ``counts_by_behavior``. Returns ``False`` when fewer than two
+                class names are supplied.
+            min_groups: Minimum number of valid LOGO splits required. Floored
+                at 1, since multi-class training requires at least one valid
+                split.
+            cv_grouping_strategy: Cross-validation grouping strategy.
+
+        Returns:
+            True if the count of valid splits meets ``max(1, min_groups)``.
+        """
+        if len(behavior_names) < 2:
+            return False
+        valid_splits = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=behavior_names,
+            cv_grouping_strategy=cv_grouping_strategy,
+        )
+        return valid_splits >= max(1, min_groups)

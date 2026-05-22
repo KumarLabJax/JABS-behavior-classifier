@@ -7,7 +7,7 @@ import pytest
 from jabs.classifier import classifier_utils
 from jabs.classifier.multi_class_classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import TrackLabels
 
 try:
@@ -587,6 +587,131 @@ class TestLeaveOneGroupOut:
         groups = np.array([0] * 30 + [1] * 30)
         # group 0 test: training only has class 1; group 1 test: training only has class 0
         assert MultiClassClassifier.get_leave_one_group_out_max(labels, groups) == 0
+
+
+# ---------------------------------------------------------------------------
+# count_label_threshold / label_threshold_met
+# ---------------------------------------------------------------------------
+
+
+class TestLabelThreshold:
+    """Tests for MultiClassClassifier.count_label_threshold and label_threshold_met.
+
+    Test counts use 20 frames, matching ``classifier_utils.LABEL_THRESHOLD``.
+    """
+
+    def test_count_label_threshold_individual(self) -> None:
+        """Valid-split counting matches multiclass LOGO constraints for per-identity groups."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Walk": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Run": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (0, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+        }
+
+        valid = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
+        assert valid == 3
+
+    def test_count_label_threshold_video_grouping(self) -> None:
+        """Video grouping aggregates identities per video before validity checks."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Walk": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Run": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (0, 0)}},
+            },
+        }
+
+        valid = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+
+        assert valid == 1
+
+    def test_count_label_threshold_empty_behavior_names_returns_zero(self) -> None:
+        """No behaviors → no valid splits."""
+        assert (
+            MultiClassClassifier.count_label_threshold(
+                counts_by_behavior={},
+                behavior_names=[],
+            )
+            == 0
+        )
+
+    def test_label_threshold_met_requires_at_least_two_behaviors(self) -> None:
+        """Returns False when fewer than two class names are supplied."""
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior={"None": {}},
+            behavior_names=["None"],
+            min_groups=1,
+        )
+
+    def test_label_threshold_met_true_when_min_groups_satisfied(self) -> None:
+        """Returns True when valid-split count meets ``min_groups``."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Walk": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+        }
+        assert MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
+    def test_label_threshold_met_false_when_below_min_groups(self) -> None:
+        """Returns False when ``min_groups`` exceeds the valid-split count."""
+        counts_by_behavior = {
+            "None": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+        }
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=5,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
 
 
 # ---------------------------------------------------------------------------
