@@ -1,14 +1,15 @@
 """Tests for ClassifyThread binary and multiclass branches."""
 
-from typing import ClassVar
-
-import numpy as np
 import pytest
 
 from jabs.core.enums import ClassifierMode
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 
-from ._fakes import FakeClassifyingClassifier, FakeClassifyingProject
+from ._fakes import (
+    FakeClassifyingClassifier,
+    FakeClassifyingProject,
+    make_fake_identity_features,
+)
 
 try:
     from jabs.ui.classification_thread import ClassifyThread
@@ -28,18 +29,6 @@ pytestmark = pytest.mark.skipif(
 def test_classify_thread_binary_path(monkeypatch) -> None:
     """Binary mode applies postprocessing and writes behavior-scoped predictions."""
 
-    class _FakeIdentityFeatures:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        @staticmethod
-        def get_features(_window_size):
-            return {
-                "per_frame": {"a": np.arange(5, dtype=np.float32)},
-                "window": {"b": np.arange(5, dtype=np.float32)},
-                "frame_indexes": np.arange(5, dtype=np.intp),
-            }
-
     class _FakePostprocessingPipeline:
         def __init__(self, _config):
             pass
@@ -48,7 +37,10 @@ def test_classify_thread_binary_path(monkeypatch) -> None:
         def run(predictions, _probabilities):
             return predictions.copy()
 
-    monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", _FakeIdentityFeatures)
+    monkeypatch.setattr(
+        "jabs.ui.classification_thread.IdentityFeatures",
+        make_fake_identity_features(),
+    )
     monkeypatch.setattr(
         "jabs.ui.classify_strategy.PostprocessingPipeline",
         _FakePostprocessingPipeline,
@@ -82,27 +74,14 @@ def test_classify_thread_binary_path(monkeypatch) -> None:
 def test_classify_thread_multiclass_path(monkeypatch) -> None:
     """Multiclass mode skips postprocessing and writes reserved-key predictions with class names."""
 
-    class _FakeIdentityFeatures:
-        op_settings_seen: ClassVar[list[dict]] = []
-
-        def __init__(self, *_args, **kwargs):
-            self.__class__.op_settings_seen.append(kwargs["op_settings"])
-
-        @staticmethod
-        def get_features(_window_size):
-            return {
-                "per_frame": {"a": np.arange(5, dtype=np.float32)},
-                "window": {"b": np.arange(5, dtype=np.float32)},
-                "frame_indexes": np.arange(5, dtype=np.intp),
-            }
-
     class _PostprocessingMustNotRun:
         def __init__(self, _config):
             raise AssertionError(
                 "PostprocessingPipeline should not be instantiated in multiclass mode"
             )
 
-    monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", _FakeIdentityFeatures)
+    fake_features_cls = make_fake_identity_features()
+    monkeypatch.setattr("jabs.ui.classification_thread.IdentityFeatures", fake_features_cls)
     monkeypatch.setattr(
         "jabs.ui.classify_strategy.PostprocessingPipeline",
         _PostprocessingMustNotRun,
@@ -131,4 +110,4 @@ def test_classify_thread_multiclass_path(monkeypatch) -> None:
     assert args[4] == MULTICLASS_PREDICTION_KEY
     assert kwargs["class_names"] == ["None", "Walk", "Run"]
     assert kwargs["postprocessed_predictions"] == {}
-    assert _FakeIdentityFeatures.op_settings_seen[0]["window_size"] == 7
+    assert fake_features_cls.op_settings_seen[0]["window_size"] == 7

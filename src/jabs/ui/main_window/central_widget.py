@@ -1143,7 +1143,8 @@ class CentralWidget(QtWidgets.QWidget):
             predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
             self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                # Multi-class frame overlay is tracked under T9; keep disabled for now.
+                # Multi-class frame overlay on the player widget is not yet implemented;
+                # clear any stale labels until per-class overlay rendering is added.
                 self._player_widget.set_labels(None)
             return
 

@@ -234,3 +234,37 @@ class FakeClassifyingProject:
     def get_project_defaults() -> dict:
         """Return the default project settings used when classifier has none."""
         return {"window_size": 9}
+
+
+# ---------------------------------------------------------------------------
+# IdentityFeatures factory
+# ---------------------------------------------------------------------------
+
+
+def make_fake_identity_features() -> type:
+    """Return a fresh ``IdentityFeatures`` stand-in class with isolated state.
+
+    Tests typically ``monkeypatch.setattr(..., make_fake_identity_features())``
+    onto the production import site. Each call returns a fresh class so the
+    ``op_settings_seen`` record does not leak between tests.
+
+    The returned class exposes the same surface ``ClassifyThread`` uses:
+    ``__init__(*args, **kwargs)`` records the ``op_settings`` kwarg, and
+    ``get_features(window_size)`` returns a fixed 5-frame feature payload.
+    """
+
+    class FakeIdentityFeatures:
+        op_settings_seen: list[dict] = []  # noqa: RUF012 - per-class fresh state
+
+        def __init__(self, *_args, **kwargs) -> None:
+            self.__class__.op_settings_seen.append(kwargs.get("op_settings", {}))
+
+        @staticmethod
+        def get_features(_window_size: int) -> dict:
+            return {
+                "per_frame": {"a": np.arange(5, dtype=np.float32)},
+                "window": {"b": np.arange(5, dtype=np.float32)},
+                "frame_indexes": np.arange(5, dtype=np.intp),
+            }
+
+    return FakeIdentityFeatures
