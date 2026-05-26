@@ -582,6 +582,17 @@ class PlayerWidget(QtWidgets.QWidget):
         self._player_thread.setActiveIdentity.emit(identity)
         self.reload_frame()
 
+    def set_label_color_lut(self, lut: np.ndarray | None) -> None:
+        """Set the color LUT for the label overlay.
+
+        When set, each label value is treated as a LUT index for RGBA color
+        lookup. Pass ``None`` to restore binary-mode coloring.
+
+        Args:
+            lut: RGBA array of shape ``(N, 4)`` dtype ``uint8``, or ``None``.
+        """
+        self._frame_widget.set_label_color_lut(lut)
+
     def set_labels(self, labels: list[np.ndarray] | None) -> None:
         """set labels used for overlay in the frame widget
 

@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import (
     ClassifierMode,
     CrossValidationGroupingStrategy,
@@ -63,6 +64,10 @@ class FakeTrainingClassifier:
     def get_feature_importance(limit: int = 20) -> list[tuple[str, float]]:
         """Return a placeholder feature-importance list capped at ``limit``."""
         return [("feat_a", 1.0)][:limit]
+
+    def get_class_names(self) -> list[str]:
+        """Return ``[MULTICLASS_NONE_BEHAVIOR, *behavior_names]`` for multi-class reporting."""
+        return [MULTICLASS_NONE_BEHAVIOR, *self.behavior_names]
 
 
 class FakeClassifyingClassifier:
@@ -116,7 +121,7 @@ class FakeClassifyingClassifier:
     @staticmethod
     def get_class_names() -> list[str]:
         """Return the ordered class names for multi-class persistence."""
-        return ["background", "Walk", "Run"]
+        return [MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"]
 
 
 # ---------------------------------------------------------------------------

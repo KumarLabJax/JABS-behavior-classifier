@@ -14,8 +14,13 @@ import click
 from rich.console import Console
 
 from jabs.classifier import Classifier
-from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
-from jabs.project import Project, export_training_data, get_videos_to_prune
+from jabs.core.enums import ClassifierMode, ClassifierType, CrossValidationGroupingStrategy
+from jabs.project import (
+    Project,
+    export_training_data,
+    export_training_data_multiclass,
+    get_videos_to_prune,
+)
 
 from .convert_parquet import convert_parquet_command
 from .convert_to_nwb import run_conversion
@@ -62,9 +67,10 @@ cli.add_command(sample_frames_command)
 )
 @click.option(
     "--behavior",
-    required=True,
+    required=False,
+    default=None,
     type=str,
-    help="Specify the behavior to export (required).",
+    help="Behavior to export. Required for binary-mode projects; ignored for multi-class projects.",
 )
 @click.option(
     "--classifier",
@@ -81,46 +87,65 @@ cli.add_command(sample_frames_command)
     required=False,
     help=(
         "Optional path to write the exported training data file. "
-        "Default is <project_dir>/<behavior>_training_<YYYYMMDD_HHMMSS>.h5"
+        "Default is <project_dir>/<behavior>_training_<YYYYMMDD_HHMMSS>.h5 (binary) "
+        "or <project_dir>/multiclass_training_<YYYYMMDD_HHMMSS>.h5 (multi-class)."
     ),
 )
 @click.pass_context
 def export_training(
-    ctx: click.Context, directory: Path, behavior: str, classifier: str, outfile: Path | None
+    ctx: click.Context,
+    directory: Path,
+    behavior: str | None,
+    classifier: str,
+    outfile: Path | None,
 ):
-    """Export training data for a specified behavior and JABS project directory."""
-    #    ctx: Click context.
-    #    directory (Path): Path to the JABS project directory.
-    #    behavior (str): Behavior to export.
-    #    classifier (str): Default classifier type set in the training file,
-    #        can be overridden by the jabs-classify train command.
-    #    outfile (Path | None): Optional path to write the exported training data
-    #        file. If not provided, export_training_data will generate a unique
-    #        filename in the project directory using .
+    """Export training data for a JABS project directory.
 
-    if ctx.obj["VERBOSE"]:
-        click.echo("Exporting training data with the following parameters:")
-        click.echo(f"\tBehavior: {behavior}")
-        click.echo(f"\tClassifier type: {classifier}")
-        click.echo(f"\tJABS project directory: {directory}")
-
-    classifier = ClassifierType[classifier.upper()]
+    For binary-mode projects, --behavior is required. For multi-class projects, all
+    behaviors are exported together and --behavior is not used.
+    """
+    classifier_type = ClassifierType[classifier.upper()]
     jabs_project = Project(directory, enable_session_tracker=False)
+    classifier_mode = jabs_project.settings_manager.classifier_mode
 
-    # validate that the behavior exists in the project
-    if behavior not in jabs_project.settings["behavior"]:
-        raise click.ClickException(f"Behavior '{behavior}' not found in project.")
-
-    console = Console()
-    status_text = f"Exporting training data (behavior={behavior}, classifier={classifier.name})"
-    with console.status(status_text, spinner="dots"):
-        outfile = export_training_data(
-            jabs_project,
-            behavior,
-            jabs_project.feature_manager.min_pose_version,
-            classifier,
-            out_file=outfile,
+    if classifier_mode == ClassifierMode.MULTICLASS:
+        if behavior is not None:
+            click.echo("Note: --behavior is ignored for multi-class projects.")
+        if ctx.obj["VERBOSE"]:
+            click.echo("Exporting multi-class training data with the following parameters:")
+            click.echo(f"\tClassifier type: {classifier}")
+            click.echo(f"\tJABS project directory: {directory}")
+        console = Console()
+        status_text = f"Exporting multi-class training data (classifier={classifier_type.name})"
+        with console.status(status_text, spinner="dots"):
+            outfile = export_training_data_multiclass(
+                jabs_project,
+                jabs_project.feature_manager.min_pose_version,
+                classifier_type,
+                out_file=outfile,
+            )
+    else:
+        if behavior is None:
+            raise click.ClickException("--behavior is required for binary-mode projects.")
+        if behavior not in jabs_project.settings["behavior"]:
+            raise click.ClickException(f"Behavior '{behavior}' not found in project.")
+        if ctx.obj["VERBOSE"]:
+            click.echo("Exporting training data with the following parameters:")
+            click.echo(f"\tBehavior: {behavior}")
+            click.echo(f"\tClassifier type: {classifier}")
+            click.echo(f"\tJABS project directory: {directory}")
+        console = Console()
+        status_text = (
+            f"Exporting training data (behavior={behavior}, classifier={classifier_type.name})"
         )
+        with console.status(status_text, spinner="dots"):
+            outfile = export_training_data(
+                jabs_project,
+                behavior,
+                jabs_project.feature_manager.min_pose_version,
+                classifier_type,
+                out_file=outfile,
+            )
 
     click.echo(f"Exported training data to {outfile}")
 

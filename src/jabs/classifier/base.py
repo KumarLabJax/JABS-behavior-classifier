@@ -235,6 +235,54 @@ class BaseClassifier:
             self._classifier_hash = hash_file(Path(path))
             self._classifier_source = "serialized"
 
+    @classmethod
+    def from_pickle(cls, path: Path) -> BaseClassifier:
+        """Load a classifier from a pickle file with full validation and metadata backfill.
+
+        Applies the same version, classifier-type, and metadata checks as
+        :meth:`load`, but as a classmethod factory so no dummy instance is
+        required. The class of the returned object is determined by the
+        calling class - ``Classifier.from_pickle(...)`` rejects pickled
+        ``MultiClassClassifier`` instances and vice versa.
+
+        Args:
+            path: Path to the saved classifier pickle file.
+
+        Returns:
+            Loaded and validated classifier instance of type ``cls``.
+
+        Raises:
+            ValueError: If the file is not an instance of ``cls``, was trained
+                with an incompatible sklearn or JABS version, or uses an
+                unsupported classifier type.
+        """
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", InconsistentVersionWarning)
+            c = joblib.load(path)
+            for warning in caught_warnings:
+                if issubclass(warning.category, InconsistentVersionWarning):
+                    raise ValueError("Classifier trained with different version of sklearn.")
+                warnings.warn(warning.message, warning.category, stacklevel=2)
+
+        if not isinstance(c, cls):
+            raise ValueError(f"{path} is not an instance of {cls.__name__}")
+
+        if c._version != cls._VERSION:
+            raise ValueError(
+                f"Unable to deserialize pickled classifier. "
+                f"File version {c._version}, expected {cls._VERSION}."
+            )
+
+        if c._classifier_type not in cls._supported_classifier_choices():
+            raise ValueError("Invalid classifier type")
+
+        if c._classifier_file is None:
+            c._classifier_file = Path(path).name
+            c._classifier_hash = hash_file(Path(path))
+            c._classifier_source = "pickle"
+
+        return c
+
     def load(self, path: Path) -> None:
         """Deserialize a classifier from disk, updating this instance in place.
 

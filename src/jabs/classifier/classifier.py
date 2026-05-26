@@ -54,13 +54,17 @@ class Classifier(BaseClassifier):
         self._behavior: str | None = None
 
     @classmethod
-    def from_training_file(cls, path: Path) -> "Classifier":
+    def from_training_file(
+        cls, path: Path, classifier_type: ClassifierType | None = None
+    ) -> "Classifier":
         """Initialize a classifier from an exported training data file.
 
         This method loads the training data and trains a classifier.
 
         Args:
             path: exported training data file
+            classifier_type: Override the classifier algorithm stored in the training
+                file. If ``None``, the type recorded in the file is used.
 
         Returns:
             trained Classifier object
@@ -71,13 +75,14 @@ class Classifier(BaseClassifier):
         classifier = cls()
         classifier.behavior_name = behavior
         classifier.set_dict_settings(loaded_training_data["settings"])
-        classifier_type = ClassifierType(loaded_training_data["classifier_type"])
-        if classifier_type in classifier._supported_classifiers:
-            classifier.set_classifier(classifier_type)
+        file_classifier_type = ClassifierType(loaded_training_data["classifier_type"])
+        effective_type = classifier_type if classifier_type is not None else file_classifier_type
+        if effective_type in classifier._supported_classifiers:
+            classifier.set_classifier(effective_type)
         else:
             logger.warning(
                 "Specified classifier type %s is unavailable, using default: %s",
-                classifier_type.name,
+                effective_type.name,
                 classifier.classifier_type.name,
             )
         training_features = classifier.combine_data(

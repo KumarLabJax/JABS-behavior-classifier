@@ -18,7 +18,6 @@ import numpy.typing as npt
 
 from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier, MultiClassClassifier
-from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 
 if TYPE_CHECKING:
@@ -149,10 +148,7 @@ class MultiClassClassifyStrategy(ClassifyStrategy):
         self._project_settings = (
             multiclass_classifier.project_settings or project.get_project_defaults()
         )
-        self._class_names: list[str] = [
-            MULTICLASS_NONE_BEHAVIOR,
-            *multiclass_classifier.behavior_names,
-        ]
+        self._class_names: list[str] = multiclass_classifier.get_class_names()
 
     def project_settings(self) -> dict:
         """Return the captured project settings used at construction time."""

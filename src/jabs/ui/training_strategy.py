@@ -23,7 +23,6 @@ from jabs.classifier import (
     TrainingReportData,
     classifier_utils,
 )
-from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 
 if TYPE_CHECKING:
     from jabs.classifier import CrossValidationResult
@@ -236,16 +235,12 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         settings: dict,
     ) -> TrainingReportData:
         """Build the multi-class training report with per-class frame and bout counts."""
-        behavior_names = list(getattr(self._classifier, "behavior_names", []))
-        if not behavior_names:
-            behavior_names = [
-                name for name in features["labels_by_behavior"] if name != MULTICLASS_NONE_BEHAVIOR
-            ]
+        class_names = self._classifier.get_class_names()
+        behavior_names = self._classifier.behavior_names
 
         merged_labels, _ = classifier_utils.merge_labels(
             features["labels_by_behavior"], behavior_names
         )
-        class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
         class_frame_counts = {
             name: int(np.sum(merged_labels == class_idx))
             for class_idx, name in enumerate(class_names)
