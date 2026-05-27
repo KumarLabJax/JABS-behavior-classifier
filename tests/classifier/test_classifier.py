@@ -486,11 +486,7 @@ class TestClassifierSaveLoad:
     """Test classifier save and load functionality."""
 
     def test_save_and_load(self, sample_features, sample_labels, mock_project, tmp_path):
-        """Test saving and loading a trained classifier.
-
-        Note: Currently, feature_names is not preserved during save/load.
-        If this is changed, we should check that after loading, feature_names match.
-        """
+        """Test saving and loading a trained classifier."""
         # Train a classifier
         clf = Classifier()
         clf.behavior_name = "Grooming"
@@ -517,6 +513,11 @@ class TestClassifierSaveLoad:
 
         assert clf2.behavior_name == "Grooming"
         assert clf2.classifier_type == clf.classifier_type
+        assert clf2.feature_names == clf.feature_names
+        # feature_names round-tripping is what makes get_feature_importance work
+        # after a load - guard against the regression by checking the report is
+        # non-empty on the loaded instance.
+        assert clf2.get_feature_importance(limit=5)
 
         # Predictions should still work and match
         pred1 = clf.predict(sample_features)

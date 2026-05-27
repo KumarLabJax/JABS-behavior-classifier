@@ -269,9 +269,12 @@ def _extract_identity_features(
 def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeatureResult:
     """Extract per-frame and window features for one video, binary mode.
 
-    For every identity in the video, frames not assigned the requested behavior
-    label are dropped before feature extraction. Identities with no labeled
-    frames are skipped entirely.
+    For every identity in the video, label arrays are loaded from the requested
+    behavior track. Frames where the identity does not exist are forced to
+    ``TrackLabels.Label.NONE``, and only ``NONE`` frames are dropped before
+    feature extraction - both ``BEHAVIOR`` and ``NOT_BEHAVIOR`` frames for the
+    requested behavior are retained as training rows. Identities with no
+    labeled frames after that filter are skipped entirely.
 
     This function is stateless and picklable so it can be dispatched to
     process-pool workers from :class:`~jabs.project.Project`.

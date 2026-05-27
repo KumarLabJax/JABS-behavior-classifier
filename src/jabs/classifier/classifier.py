@@ -43,6 +43,7 @@ class Classifier(BaseClassifier):
         "_behavior",
         "_project_settings",
         "_classifier_type",
+        "_feature_names",
     )
 
     def __init__(
