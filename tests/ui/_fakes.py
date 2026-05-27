@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class FakeTrainingClassifier:
-    """Classifier test double exposing the API ``TrainingThread`` calls.
+    """Minimal Classifier stand-in implementing the methods and attributes ``TrainingThread`` calls.
 
     Records ``train(...)`` calls for assertion; ``get_feature_importance`` and
     ``combine_data`` return deterministic placeholders.
@@ -71,7 +71,7 @@ class FakeTrainingClassifier:
 
 
 class FakeClassifyingClassifier:
-    """Classifier test double exposing the API ``ClassifyThread`` calls.
+    """Minimal Classifier stand-in implementing the methods and attributes ``ClassifyThread`` calls.
 
     ``predict_proba`` returns a fixed probability matrix shaped by ``multiclass``
     (binary: ``(n, 2)``; multi-class: ``(n, 3)``). ``derive_predictions`` argmax-es
@@ -130,7 +130,7 @@ class FakeClassifyingClassifier:
 
 
 class FakeTrainingProject:
-    """Project test double exposing the API ``TrainingThread`` calls.
+    """Minimal Project stand-in implementing the methods and attributes ``TrainingThread`` calls.
 
     Counts calls to ``get_labeled_features`` / ``get_multiclass_labeled_features``
     so tests can assert which mode path ran. ``save_classifier`` is a ``MagicMock``
@@ -204,7 +204,7 @@ class FakeTrainingProject:
 
 
 class FakeClassifyingProject:
-    """Project test double exposing the API ``ClassifyThread`` calls.
+    """Minimal Project stand-in implementing the methods and attributes ``ClassifyThread`` calls.
 
     ``save_predictions`` is a ``MagicMock`` so tests can assert how predictions
     were persisted; ``load_pose_est`` returns a fixed five-frame pose stand-in.
