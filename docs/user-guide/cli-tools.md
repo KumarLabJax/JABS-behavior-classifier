@@ -135,6 +135,7 @@ Commands:
   sample-frames         Sample PNG frames from a JABS project filtered by a behavior label.
   sample-pose-intervals Sample contiguous intervals from a batch of JABS pose and video files.
   update-pose           Update a JABS project to use updated pose files while remapping labels.
+  update-labels         Replace a JABS project's labels with labels imported from another project.
 ```
 
 For full documentation of the `convert-to-nwb` command, including output modes, subjects
@@ -207,6 +208,41 @@ After a successful live pose update, features are regenerated automatically only
 ```bash
 jabs-cli update-pose /path/to/project /path/to/updated_pose_dir --min-iou-thresh 0.5
 ```
+
+If instead you want to import labels from another JABS project while keeping the target's pose untouched, see [`jabs-cli update-labels`](#jabs-cli-update-labels).
+
+## jabs-cli update-labels
+
+The `jabs-cli update-labels` command is the inverse of [`update-pose`](#jabs-cli-update-pose): instead of keeping the target's labels and replacing its pose, it keeps the target's pose and replaces its labels with labels imported from another JABS project. The source project provides both the labels and the pose used for IoU-based identity matching.
+
+**Usage:**
+
+```bash
+jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations]
+```
+
+- `<project_dir>`: Path to the target JABS project whose labels will be replaced in place. The target's pose is unchanged. If `<project_dir>` is a directory of videos + pose files with no `jabs/` subdirectory, a minimal JABS project is scaffolded automatically — features are not generated, so you may want to run `jabs-init` separately afterwards.
+- `<source_project_dir>`: Path to a JABS project providing the replacement labels and the pose used for IoU matching. Must already be a valid JABS project; every source-labeled video must also exist in the target.
+- `--min-iou-thresh <FLOAT>`: Minimum acceptable median IoU for a label remap match. Blocks below this threshold are skipped. Default: `0.5`.
+- `--verbose`: Print successful label remap assignments in addition to warnings.
+- `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Annotations use the same `behavior-remap-failed` / `not-behavior-remap-failed` tags as `update-pose`; the description text distinguishes the originating operation.
+- `--drop-timeline-annotations`: Discard source timeline annotations instead of copying or remapping them.
+
+Before modifying the project, the command validates both inputs, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup` covering `jabs/project.json`, annotations, and predictions (pose files are not touched). Labels are processed block by block, matched by median bbox IoU between the source pose and the target's existing pose, and written to the staged destination label track. By default, source timeline annotations are also carried forward and remapped the same way as label blocks; use `--drop-timeline-annotations` to discard them.
+
+Existing target labels for videos that the source does not cover are left untouched (per-video replace). Behaviors named in the source's `project.json` but not present in the target are merged into the target's `project.json` so the imported labels are usable in the GUI; behaviors already configured in the target keep their existing settings.
+
+The target's pose is unchanged, so the feature cache stays valid and is **not** regenerated. Predictions are cleared because they are stale relative to the new labels; classifiers, the performance cache, and feature files are all left in place. If you need to retrain after a label import, run training from the GUI or via `jabs-classify`.
+
+If a failure occurs after the live apply begins, the command prints the backup path plus cleanup and manual restore instructions instead of restoring automatically.
+
+**Example:**
+
+```bash
+jabs-cli update-labels /path/to/target_project /path/to/source_project --min-iou-thresh 0.5
+```
+
+If instead you want to replace the target's pose while keeping its labels, see [`jabs-cli update-pose`](#jabs-cli-update-pose).
 
 ## jabs-cli sample-frames
 

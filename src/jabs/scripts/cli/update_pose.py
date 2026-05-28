@@ -50,6 +50,7 @@ import click
 import h5py
 import numpy as np
 
+from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
@@ -250,6 +251,8 @@ def _remap_labels_for_video(
     verbose: bool = False,
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
+    *,
+    failure_description_phrase: str = "pose update",
 ):
     """Remap labels for a single video.
 
@@ -269,6 +272,10 @@ def _remap_labels_for_video(
         annotate_failures: Whether to add timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard existing source timeline annotations
             instead of copying or remapping them.
+        failure_description_phrase: Human-readable phrase used in the failure
+            annotation description (e.g. ``"pose update"`` → "label remap failed
+            during pose update: ..."). Both ``update-pose`` and ``update-labels``
+            share the same tag names; this only affects the description text.
 
     Returns:
         Tuple of ``(success_count, skipped_count)``.
@@ -390,11 +397,7 @@ def _remap_labels_for_video(
                 )
                 skipped_count += 1
 
-                tag = (
-                    "update-pose-behavior-remap-failed"
-                    if present
-                    else "update-pose-not-behavior-remap-failed"
-                )
+                tag = "behavior-remap-failed" if present else "not-behavior-remap-failed"
                 if annotate_failures and not dest_labels.timeline_annotations.annotation_exists(
                     start=start, end=end, tag=tag, identity_index=None
                 ):
@@ -405,8 +408,8 @@ def _remap_labels_for_video(
                             tag=tag,
                             color="#FF8800" if present else "#8888FF",
                             description=(
-                                f"label remap failed during pose update: behavior={behavior}, "
-                                f"present={present}, "
+                                f"label remap failed during {failure_description_phrase}: "
+                                f"behavior={behavior}, present={present}, "
                                 f"src_id={src_identity}, best_iou={iou:.2f}"
                             ),
                             identity_index=None,
@@ -470,8 +473,23 @@ def _validate_live_update_targets(
     project_dir: Path,
     videos: list[str],
     live_annotation_videos: set[str],
+    *,
+    require_writable_pose_files: bool = True,
+    derived_dir_names: tuple[str, ...] = ("predictions", "cache"),
 ) -> None:
-    """Best-effort preflight check that live update targets can be replaced or removed."""
+    """Best-effort preflight check that live update targets can be replaced or removed.
+
+    Args:
+        project_dir: Live project directory.
+        videos: Video filenames that may need pose-file writability checks.
+        live_annotation_videos: Subset of ``videos`` that have existing annotation files
+            in the live project. These are checked for writability.
+        require_writable_pose_files: When ``True`` (default), require that live pose files
+            for every video are writable. Disable when the operation does not replace
+            pose files (e.g. ``update-labels``).
+        derived_dir_names: Derived jabs/ subdirectories that the apply step may remove.
+            Each is checked for writability if it exists.
+    """
     jabs_dir = project_dir / "jabs"
     annotations_dir = jabs_dir / "annotations"
     backup_dir = project_dir / ".backup"
@@ -486,15 +504,16 @@ def _validate_live_update_targets(
 
     _require_writable_existing_path(jabs_dir / "project.json", "live project file")
 
-    for video in videos:
-        for live_pose_path in _pose_files_for_video(video, project_dir):
-            _require_writable_existing_path(live_pose_path, "live pose file")
+    if require_writable_pose_files:
+        for video in videos:
+            for live_pose_path in _pose_files_for_video(video, project_dir):
+                _require_writable_existing_path(live_pose_path, "live pose file")
 
     for video in live_annotation_videos:
         annotation_path = annotations_dir / Path(video).with_suffix(".json")
         _require_writable_existing_path(annotation_path, "live annotation file")
 
-    for derived_dir_name in ("predictions", "cache"):
+    for derived_dir_name in derived_dir_names:
         derived_dir = jabs_dir / derived_dir_name
         if not derived_dir.exists():
             continue
@@ -596,15 +615,30 @@ def _load_preexisting_window_sizes(project_dir: Path) -> tuple[int, ...]:
 def _create_backup_archive(
     project_dir: Path,
     videos: list[str],
+    *,
+    include_pose_files: bool = True,
+    prefix: str = "update_pose",
 ) -> Path:
-    """Create a timestamped backup archive of live files that will be replaced or removed."""
+    """Create a timestamped backup archive of live files that will be replaced or removed.
+
+    Args:
+        project_dir: Live project directory whose files should be backed up.
+        videos: Video filenames whose pose files should be included when
+            ``include_pose_files`` is true.
+        include_pose_files: When ``True`` (default), include every per-video pose file
+            in the archive. Disable when the operation does not replace pose files
+            (e.g. ``update-labels``).
+        prefix: Filename prefix for the generated archive. The full name is
+            ``{prefix}_{YYYYMMDD_HHMMSS}.zip``.
+    """
     backup_dir = project_dir / ".backup"
     backup_dir.mkdir(exist_ok=True)
-    backup_path = backup_dir / f"update_pose_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    backup_path = backup_dir / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 
     files_to_backup: set[Path] = set()
-    for video in videos:
-        files_to_backup.update(_pose_files_for_video(video, project_dir))
+    if include_pose_files:
+        for video in videos:
+            files_to_backup.update(_pose_files_for_video(video, project_dir))
 
     project_file = project_dir / "jabs" / "project.json"
     if project_file.exists():
@@ -738,24 +772,27 @@ def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object
     return first_metadata
 
 
-def _copy_file_atomic(source: Path, destination: Path) -> None:
-    """Copy a file into place via a temporary file and atomic replace."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
-    shutil.copy2(source, tmp_path)
-    tmp_path.replace(destination)
-
-
 def _restore_cleanup_paths(
     project_dir: Path,
     videos: list[str],
-    replacement_pose_files: dict[str, Path],
+    replacement_pose_files: dict[str, Path] | None,
     staged_annotations_dir: Path,
 ) -> list[Path]:
-    """Return live-project files that may have been created during the failed apply step."""
+    """Return live-project files that may have been created during the failed apply step.
+
+    Args:
+        project_dir: Live project directory.
+        videos: Videos that the apply step would touch.
+        replacement_pose_files: Per-video replacement pose paths whose basenames may have
+            been freshly written into ``project_dir``. Pass ``None`` (or omit entries) for
+            operations that do not write new pose files (e.g. ``update-labels``).
+        staged_annotations_dir: Directory containing staged annotation JSON files that
+            may have been copied into the live annotations directory.
+    """
     cleanup_paths: set[Path] = set()
     for video in videos:
-        cleanup_paths.add(project_dir / replacement_pose_files[video].name)
+        if replacement_pose_files is not None and video in replacement_pose_files:
+            cleanup_paths.add(project_dir / replacement_pose_files[video].name)
 
         staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
         if staged_annotation.exists():
@@ -823,12 +860,12 @@ def _apply_live_update(
         for video in videos:
             staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
             if staged_annotation.exists():
-                _copy_file_atomic(
+                copy_file_atomic(
                     staged_annotation,
                     live_annotations_dir / Path(video).with_suffix(".json"),
                 )
 
-        _copy_file_atomic(
+        copy_file_atomic(
             label_dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
         )
 
@@ -838,10 +875,12 @@ def _apply_live_update(
 
         for video in videos:
             replacement_pose_path = replacement_pose_files[video]
-            _copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
+            copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
 
-        shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
-        shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)
+        for derived_dir_name in ("predictions", "cache"):
+            derived_dir = project_dir / "jabs" / derived_dir_name
+            if derived_dir.exists():
+                shutil.rmtree(derived_dir)
     except Exception as exc:
         print(
             f"ERROR: Failed while applying the pose update to the live project: {exc}",
@@ -898,12 +937,35 @@ def _run_staged_label_remap(
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
+    *,
+    videos: list[str] | None = None,
+    failure_description_phrase: str = "pose update",
 ) -> tuple[int, int]:
-    """Run the existing per-video label-remap semantics from source to destination."""
+    """Run the existing per-video label-remap semantics from source to destination.
+
+    Args:
+        label_source_project: Source-side staged project providing labels and source pose.
+        label_dest_project: Destination-side staged project receiving the remapped labels.
+        min_iou: Minimum acceptable median IoU for a block match.
+        verbose: Whether to print successful block matches.
+        annotate_failures: Whether to write timeline annotations for failed block matches.
+        drop_timeline_annotations: Whether to discard source timeline annotations
+            instead of copying or remapping them.
+        videos: Optional explicit list of video filenames to process. When ``None``
+            (the default), iterate ``label_source_project.video_manager.videos``.
+            Callers should pass the preflighted set of videos to ensure the source
+            and destination projects can both load pose for every video processed.
+        failure_description_phrase: Human-readable phrase used in the failure
+            annotation description (e.g. ``"pose update"`` → "label remap failed
+            during pose update: ..."). Both ``update-pose`` and ``update-labels``
+            share the same tag names; this only affects the description text.
+    """
     total_success = 0
     total_skipped = 0
 
-    for video in label_source_project.video_manager.videos:
+    iteration_videos = videos if videos is not None else label_source_project.video_manager.videos
+
+    for video in iteration_videos:
         success, skipped = _remap_labels_for_video(
             video,
             label_source_project,
@@ -912,6 +974,7 @@ def _run_staged_label_remap(
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
+            failure_description_phrase=failure_description_phrase,
         )
         total_success += success
         total_skipped += skipped
@@ -985,6 +1048,7 @@ def update_project_pose_in_place(
             verbose,
             annotate_failures,
             drop_timeline_annotations,
+            videos=videos,
         )
         _refresh_project_identity_counts(label_dest_project)
         _apply_live_update(
