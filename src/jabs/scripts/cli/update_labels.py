@@ -48,11 +48,11 @@ from pathlib import Path
 
 import click
 
+from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import get_pose_path
 from jabs.project import Project
 
 from .update_pose import (
-    _copy_file_atomic,
     _create_backup_archive,
     _print_manual_restore,
     _project_videos,
@@ -340,12 +340,12 @@ def _apply_live_label_update(
         for video in videos:
             staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
             if staged_annotation.exists():
-                _copy_file_atomic(
+                copy_file_atomic(
                     staged_annotation,
                     live_annotations_dir / Path(video).with_suffix(".json"),
                 )
 
-        _copy_file_atomic(
+        copy_file_atomic(
             label_dest_project.project_paths.project_file,
             project_dir / "jabs" / "project.json",
         )

@@ -50,6 +50,7 @@ import click
 import h5py
 import numpy as np
 
+from jabs.core.utils import copy_file_atomic
 from jabs.pose_estimation import PoseEstimation, get_pose_path, open_pose_file
 from jabs.project import Project
 from jabs.project.timeline_annotations import TimelineAnnotations
@@ -771,14 +772,6 @@ def _inject_consistent_pose_model_metadata(project: Project) -> dict[str, object
     return first_metadata
 
 
-def _copy_file_atomic(source: Path, destination: Path) -> None:
-    """Copy a file into place via a temporary file and atomic replace."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
-    shutil.copy2(source, tmp_path)
-    tmp_path.replace(destination)
-
-
 def _restore_cleanup_paths(
     project_dir: Path,
     videos: list[str],
@@ -867,12 +860,12 @@ def _apply_live_update(
         for video in videos:
             staged_annotation = staged_annotations_dir / Path(video).with_suffix(".json")
             if staged_annotation.exists():
-                _copy_file_atomic(
+                copy_file_atomic(
                     staged_annotation,
                     live_annotations_dir / Path(video).with_suffix(".json"),
                 )
 
-        _copy_file_atomic(
+        copy_file_atomic(
             label_dest_project.project_paths.project_file, project_dir / "jabs" / "project.json"
         )
 
@@ -882,7 +875,7 @@ def _apply_live_update(
 
         for video in videos:
             replacement_pose_path = replacement_pose_files[video]
-            _copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
+            copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
 
         shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
         shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)

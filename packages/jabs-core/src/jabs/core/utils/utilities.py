@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import shutil
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -84,6 +85,34 @@ def pose_file_stem(path: str | Path) -> str:
         The stem with any trailing ``_pose_est_vN`` suffix stripped.
     """
     return _POSE_SUFFIX_RE.sub("", Path(path).stem)
+
+
+def copy_file_atomic(source: Path, destination: Path) -> None:
+    """Copy a file to ``destination`` so the replacement is atomic.
+
+    The file is copied (via :func:`shutil.copy2`) into a sibling temporary file
+    in ``destination``'s parent directory, then renamed into place with
+    :meth:`pathlib.Path.replace`. ``destination``'s parent directory is created
+    if it does not exist.
+
+    Because the temporary file is created in the same directory as
+    ``destination``, the final rename is on the same filesystem and is
+    therefore atomic on POSIX and Windows. ``source`` may live on a different
+    filesystem (e.g. a ``tempfile.TemporaryDirectory()`` on ``tmpfs``); the
+    intermediate copy is what makes cross-filesystem sources safe.
+
+    Readers of ``destination`` never observe a partially written file: they
+    see either the previous contents or the new contents.
+
+    Args:
+        source: Path to the file whose contents should be installed at
+            ``destination``. Metadata is preserved via :func:`shutil.copy2`.
+        destination: Final path. Any existing file at this path is replaced.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
+    shutil.copy2(source, tmp_path)
+    tmp_path.replace(destination)
 
 
 def to_safe_name(behavior: str) -> str:
