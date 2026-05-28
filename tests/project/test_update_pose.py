@@ -983,7 +983,7 @@ def test_apply_live_update_failure_prints_cleanup_and_restore_instructions(
         )
     )
 
-    def fail_rmtree(_path, ignore_errors=False):
+    def fail_rmtree(_path):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(update_pose.shutil, "rmtree", fail_rmtree)

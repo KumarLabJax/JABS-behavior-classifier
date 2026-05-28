@@ -877,8 +877,10 @@ def _apply_live_update(
             replacement_pose_path = replacement_pose_files[video]
             copy_file_atomic(replacement_pose_path, project_dir / replacement_pose_path.name)
 
-        shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
-        shutil.rmtree(project_dir / "jabs" / "cache", ignore_errors=True)
+        for derived_dir_name in ("predictions", "cache"):
+            derived_dir = project_dir / "jabs" / derived_dir_name
+            if derived_dir.exists():
+                shutil.rmtree(derived_dir)
     except Exception as exc:
         print(
             f"ERROR: Failed while applying the pose update to the live project: {exc}",

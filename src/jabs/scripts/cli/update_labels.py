@@ -350,7 +350,9 @@ def _apply_live_label_update(
             project_dir / "jabs" / "project.json",
         )
 
-        shutil.rmtree(project_dir / "jabs" / "predictions", ignore_errors=True)
+        predictions_dir = project_dir / "jabs" / "predictions"
+        if predictions_dir.exists():
+            shutil.rmtree(predictions_dir)
     except Exception as exc:
         print(
             f"ERROR: Failed while applying the label update to the live project: {exc}",

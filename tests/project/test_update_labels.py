@@ -419,10 +419,19 @@ def test_apply_live_label_update_replaces_annotations_and_clears_predictions(tmp
 def test_apply_live_label_update_failure_prints_cleanup_instructions(
     tmp_path, monkeypatch, capsys
 ):
-    """A failed apply should print restore instructions and exit non-zero."""
+    """A predictions-rmtree failure must propagate so the manual-restore path runs.
+
+    Predictions are deliberately invalidated by ``update-labels`` because they were
+    trained against the previous labels. If their removal silently fails, the
+    project ends with new labels alongside stale predictions and the command
+    misleadingly reports success.
+    """
     project_dir = tmp_path / "project"
     live_annotations_dir = project_dir / "jabs" / "annotations"
+    live_predictions_dir = project_dir / "jabs" / "predictions"
     live_annotations_dir.mkdir(parents=True)
+    live_predictions_dir.mkdir(parents=True)
+    (live_predictions_dir / "video1.h5").write_text("prediction")
     (project_dir / "jabs" / "project.json").write_text("live-project")
 
     stage_root = tmp_path / "stage"
@@ -439,7 +448,7 @@ def test_apply_live_label_update_failure_prints_cleanup_instructions(
         )
     )
 
-    def fail_rmtree(_path, ignore_errors=False):
+    def fail_rmtree(_path):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(update_labels.shutil, "rmtree", fail_rmtree)
@@ -457,6 +466,41 @@ def test_apply_live_label_update_failure_prints_cleanup_instructions(
     assert "rm -f" in stderr
     assert "jabs/annotations/video1.json" in stderr
     assert "unzip -o .backup/update_labels_test.zip" in stderr
+
+
+def test_apply_live_label_update_no_op_when_predictions_dir_absent(tmp_path, monkeypatch):
+    """A missing predictions directory must not be treated as an error."""
+    project_dir = tmp_path / "project"
+    (project_dir / "jabs" / "annotations").mkdir(parents=True)
+    # Intentionally do not create jabs/predictions.
+    (project_dir / "jabs" / "project.json").write_text("live-project")
+
+    stage_root = tmp_path / "stage"
+    staged_annotations_dir = stage_root / "jabs" / "annotations"
+    staged_annotations_dir.mkdir(parents=True)
+    (staged_annotations_dir / "video1.json").write_text("staged-annotation")
+    staged_project_file = stage_root / "jabs" / "project.json"
+    staged_project_file.write_text("staged-project")
+
+    label_dest_project = SimpleNamespace(
+        project_paths=SimpleNamespace(
+            annotations_dir=staged_annotations_dir,
+            project_file=staged_project_file,
+        )
+    )
+
+    def fail_rmtree(_path):  # pragma: no cover - asserted not to be called
+        raise AssertionError("rmtree should not be called when predictions dir is absent")
+
+    monkeypatch.setattr(update_labels.shutil, "rmtree", fail_rmtree)
+
+    # Should complete normally; no rmtree attempted on a non-existent path.
+    update_labels._apply_live_label_update(
+        project_dir,
+        label_dest_project,
+        ["video1.avi"],
+        project_dir / ".backup" / "update_labels_test.zip",
+    )
 
 
 def test_apply_live_label_update_raises_when_staged_annotation_missing(tmp_path):
