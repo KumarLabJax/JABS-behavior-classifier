@@ -18,25 +18,27 @@ from rich.progress import BarColumn, Progress, TextColumn
 from jabs.classifier import Classifier
 from jabs.core.constants import APP_NAME
 from jabs.core.enums import CacheFormat
+from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import PredictionManager
 
 DEFAULT_FPS = 30
 
+_POSE_FILE_NAME_RE = re.compile(r"^.+_pose_est_v[0-9]+\.h5$")
+
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
-def get_pose_stem(pose_path: Path):
-    """get the stem name of a pose file
+def _require_pose_file_name(pose_path: Path) -> None:
+    """Validate that the filename matches the canonical ``*_pose_est_vN.h5`` pattern.
 
-    takes a pose path as input and returns the name component with the '_pose_est_v#.h5' suffix removed
+    Raises:
+        ValueError: If the filename does not match the canonical pose-file
+            pattern.
     """
-    m = re.match(r"^(.+)(_pose_est_v[0-9]+\.h5)$", pose_path.name)
-    if m:
-        return m.group(1)
-    else:
+    if not _POSE_FILE_NAME_RE.match(pose_path.name):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
@@ -104,8 +106,9 @@ def classify_pose(
         cache_window (bool, optional): Whether to cache window features. Defaults to False.
         use_pose_hash (bool, optional): Include pose file hash as a subdirectory in the cache path. Defaults to False.
     """
+    _require_pose_file_name(input_pose_file)
     pose_est = open_pose_file(input_pose_file)
-    pose_stem = get_pose_stem(input_pose_file)
+    pose_stem = pose_file_stem(input_pose_file)
 
     # allocate numpy arrays to write to h5 file
     prediction_labels = np.full((pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8)
