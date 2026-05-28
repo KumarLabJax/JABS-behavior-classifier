@@ -1,18 +1,20 @@
 import time
-from typing import cast
 
 import numpy as np
 import pandas as pd
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
-from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.enums import ClassifierMode
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
-from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 
+from .classify_strategy import (
+    BinaryClassifyStrategy,
+    ClassifyStrategy,
+    MultiClassClassifyStrategy,
+)
 from .exceptions import ThreadTerminatedError
 
 
@@ -21,10 +23,11 @@ class ClassifyThread(QThread):
     Thread used to run classification in the background, keeping the Qt main GUI thread responsive.
 
     Signals:
-        classification_complete: QtCore.Signal(dict)
-            Emitted when classification is finished successfully. The emitted dict
-            contains predictions, probabilities, and frame indexes for the current video so that
-            the UI can update accordingly.
+        classification_complete: QtCore.Signal(dict, int)
+            Emitted when classification is finished successfully. The dict carries
+            predictions, probabilities, post-processed predictions, and class_names
+            for the current video so the UI can update; the int is the elapsed
+            wall-clock time in milliseconds.
         current_status: QtCore.Signal(str)
             Emitted to update the main GUI thread with a status message (e.g., for a status bar).
         update_progress: QtCore.Signal(int)
@@ -35,7 +38,7 @@ class ClassifyThread(QThread):
             to the main GUI thread.
 
     Args:
-        classifier (Classifier): The classifier instance to use for predictions.
+        classifier (Classifier | MultiClassClassifier): The classifier to use for predictions.
         project (Project): The project containing data and settings.
         behavior (str): The behavior label to classify.
         current_video (str): The video currently loaded in the video player.
@@ -82,15 +85,29 @@ class ClassifyThread(QThread):
         """
         self._should_terminate = True
 
-    def run(self) -> None:
-        """thread's main function.
+    def _build_strategy(self) -> ClassifyStrategy:
+        """Construct the per-mode classification strategy for this run."""
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return MultiClassClassifyStrategy(
+                classifier=self._classifier,
+                project=self._project,
+                behavior=self._behavior,
+            )
+        return BinaryClassifyStrategy(
+            classifier=self._classifier,
+            project=self._project,
+            behavior=self._behavior,
+        )
 
-        runs the classifier for each identity in each video
+    def run(self) -> None:
+        """Thread's main function.
+
+        Runs the classifier for each identity in each video.
         """
         self._tasks_complete = 0
-        current_video_predictions = {}
-        current_video_probabilities = {}
-        current_video_predictions_postprocessed = {}
+        current_video_predictions: dict = {}
+        current_video_probabilities: dict = {}
+        current_video_predictions_postprocessed: dict = {}
         t0_ns = time.perf_counter_ns()
 
         def check_termination_requested() -> None:
@@ -98,28 +115,9 @@ class ClassifyThread(QThread):
                 raise ThreadTerminatedError("Classification was cancelled by the user")
 
         try:
-            multiclass_mode = (
-                self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
-            )
-            if multiclass_mode:
-                multiclass_classifier = cast(MultiClassClassifier, self._classifier)
-                # Multiclass classification reuses one shared classifier/settings bundle
-                # across all behaviors and writes a single reserved prediction record.
-                project_settings = (
-                    multiclass_classifier.project_settings or self._project.get_project_defaults()
-                )
-                prediction_behavior = MULTICLASS_PREDICTION_KEY
-                class_names = multiclass_classifier.get_class_names()
-                postprocessing_pipeline = None
-            else:
-                project_settings = self._project.settings_manager.get_behavior(self._behavior)
-                prediction_behavior = self._behavior
-                class_names = None
-                postprocessing_pipeline = PostprocessingPipeline(
-                    project_settings.get("postprocessing", [])
-                )
+            strategy = self._build_strategy()
+            project_settings = strategy.project_settings()
 
-            # iterate over each video in the project
             for video in self._project.video_manager.videos:
                 check_termination_requested()
 
@@ -127,17 +125,15 @@ class ClassifyThread(QThread):
                 pose_est = self._project.load_pose_est(video_path)
                 fps = pose_est.fps
 
-                # collect predictions, probabilities, and frame indexes for each identity in the video
-                predictions = {}
-                probabilities = {}
-                postprocessed_predictions = {}
+                predictions: dict = {}
+                probabilities: dict = {}
+                postprocessed_predictions: dict = {}
 
                 for identity in pose_est.identities:
                     check_termination_requested()
 
                     self.current_status.emit(f"Classifying {video},  Identity {identity}")
 
-                    # get the features for this identity
                     features = IdentityFeatures(
                         video,
                         identity,
@@ -158,70 +154,54 @@ class ClassifyThread(QThread):
 
                     check_termination_requested()
                     if data.shape[0] > 0:
-                        # Get probabilities for all classes
                         prob = self._classifier.predict_proba(
                             data, feature_values["frame_indexes"]
                         )
-
                         predictions[identity], confidence = self._classifier.derive_predictions(
                             prob
                         )
-                        # Binary mode persists per-frame confidence; multiclass mode persists
-                        # the full class-probability matrix for timeline decomposition.
-                        probabilities[identity] = prob if multiclass_mode else confidence
+                        probabilities[identity] = strategy.probabilities_for_storage(
+                            prob, confidence
+                        )
                     else:
                         predictions[identity] = np.full(pose_est.num_frames, -1, dtype=np.int8)
-                        if multiclass_mode:
-                            probabilities[identity] = np.zeros(
-                                (pose_est.num_frames, len(class_names)),
-                                dtype=np.float32,
-                            )
-                        else:
-                            probabilities[identity] = np.zeros(
-                                pose_est.num_frames, dtype=np.float32
-                            )
+                        probabilities[identity] = strategy.empty_probabilities(pose_est.num_frames)
 
-                    if not multiclass_mode and postprocessing_pipeline is not None:
-                        # Post-processing semantics are currently binary-only
-                        postprocessed_predictions[identity] = postprocessing_pipeline.run(
-                            predictions[identity], probabilities[identity]
-                        )
+                    postprocessed = strategy.postprocess_identity(
+                        predictions[identity], probabilities[identity]
+                    )
+                    if postprocessed is not None:
+                        postprocessed_predictions[identity] = postprocessed
 
                 if video == self._current_video:
-                    # keep predictions for the video currently loaded in the video player
                     current_video_predictions = predictions
                     current_video_probabilities = probabilities
                     current_video_predictions_postprocessed = postprocessed_predictions
 
-                # save predictions to disk
                 self.current_status.emit("Saving Predictions")
                 self._project.save_predictions(
                     pose_est,
                     video,
                     predictions,
                     probabilities,
-                    prediction_behavior,
+                    strategy.prediction_behavior(),
                     self._classifier,
                     postprocessed_predictions=postprocessed_predictions,
-                    class_names=class_names,
+                    class_names=strategy.class_names(),
                 )
 
                 self._tasks_complete += 1
                 self.update_progress.emit(self._tasks_complete)
 
             elapsed_ms = int((time.perf_counter_ns() - t0_ns) // 1_000_000)
-            # emits the predictions, probabilities, and frame indexes for the video currently loaded in
-            # the video player, so that it can update the UI accordingly to show the new predictions
             self.classification_complete.emit(
                 {
                     "predictions": current_video_predictions,
                     "probabilities": current_video_probabilities,
                     "predictions_postprocessed": current_video_predictions_postprocessed,
-                    "class_names": class_names,
+                    "class_names": strategy.class_names(),
                 },
                 elapsed_ms,
             )
         except Exception as e:
-            # if there was an exception, we'll emit the Exception as a signal so that
-            # the main GUI thread can handle it
             self.error_callback.emit(e)

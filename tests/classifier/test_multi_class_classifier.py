@@ -4,9 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from jabs.classifier import classifier_utils
 from jabs.classifier.multi_class_classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import TrackLabels
 
 try:
@@ -98,11 +99,11 @@ def combined_features(synthetic_features) -> pd.DataFrame:
 
 
 class TestMergeLabels:
-    """Tests for MultiClassClassifier.merge_labels."""
+    """Tests for classifier_utils.merge_labels (multi-class label merging)."""
 
     def test_behavior_frames_map_to_correct_class_index(self, two_behavior_labels):
         """Frames labeled BEHAVIOR for each behavior map to class 1 and 2."""
-        labels, mask = MultiClassClassifier.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
+        labels, mask = classifier_utils.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
 
         # 9 frames included: 3 running (class 1) + 3 grooming (class 2) + 3 none (class 0)
         assert mask.sum() == 9
@@ -112,7 +113,7 @@ class TestMergeLabels:
 
     def test_none_label_frames_excluded(self, two_behavior_labels):
         """Frames with NONE label on all behaviors are excluded from training."""
-        _, mask = MultiClassClassifier.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
+        _, mask = classifier_utils.merge_labels(two_behavior_labels, BEHAVIOR_NAMES)
 
         # frames 9-11 are unlabeled → excluded
         assert not mask[9]
@@ -124,7 +125,7 @@ class TestMergeLabels:
         labels_by_behavior = {
             "walking": np.array([_B, _B, _N, _N, _X, _X], dtype=np.int8),
         }
-        _, mask = MultiClassClassifier.merge_labels(labels_by_behavior, ["walking"])
+        _, mask = classifier_utils.merge_labels(labels_by_behavior, ["walking"])
 
         # only the first two BEHAVIOR frames are included
         assert mask.sum() == 2
@@ -137,7 +138,7 @@ class TestMergeLabels:
             "walking": np.array([_B, _B, _X, _X], dtype=np.int8),
             MULTICLASS_NONE_BEHAVIOR: np.array([_X, _X, _B, _B], dtype=np.int8),
         }
-        labels, mask = MultiClassClassifier.merge_labels(labels_by_behavior, ["walking"])
+        labels, mask = classifier_utils.merge_labels(labels_by_behavior, ["walking"])
 
         assert mask.sum() == 4
         np.testing.assert_array_equal(labels, [1, 1, 0, 0])
@@ -150,7 +151,7 @@ class TestMergeLabels:
             "b": np.array([_X, _X, _X, _X, _B, _X], dtype=np.int8),
         }
         behavior_names = ["a", "b", "c"]  # alphabetical, class 1/2/3
-        labels, _ = MultiClassClassifier.merge_labels(labels_by_behavior, behavior_names)
+        labels, _ = classifier_utils.merge_labels(labels_by_behavior, behavior_names)
 
         # "a" → class 1, "b" → class 2, "c" → class 3
         assert 3 in labels  # "c" at frame 0
@@ -160,7 +161,7 @@ class TestMergeLabels:
     def test_empty_labels_by_behavior_raises(self):
         """Empty labels_by_behavior raises ValueError."""
         with pytest.raises(ValueError, match="must not be empty"):
-            MultiClassClassifier.merge_labels({}, ["running"])
+            classifier_utils.merge_labels({}, ["running"])
 
     def test_conflicting_behavior_labels_raises(self):
         """Frames with BEHAVIOR in more than one behavior raise ValueError."""
@@ -169,7 +170,7 @@ class TestMergeLabels:
             "grooming": np.array([_B, _B, _X, _X], dtype=np.int8),
         }
         with pytest.raises(ValueError, match="Conflicting BEHAVIOR labels"):
-            MultiClassClassifier.merge_labels(labels_by_behavior, ["running", "grooming"])
+            classifier_utils.merge_labels(labels_by_behavior, ["running", "grooming"])
 
     def test_missing_behavior_in_dict_is_skipped(self):
         """Behavior names not present in labels_by_behavior are silently skipped."""
@@ -177,9 +178,7 @@ class TestMergeLabels:
             "running": np.array([_B, _B, _X, _X], dtype=np.int8),
             # "grooming" intentionally absent
         }
-        labels, mask = MultiClassClassifier.merge_labels(
-            labels_by_behavior, ["running", "grooming"]
-        )
+        labels, mask = classifier_utils.merge_labels(labels_by_behavior, ["running", "grooming"])
         assert mask.sum() == 2
         np.testing.assert_array_equal(labels, [1, 1])
 
@@ -260,13 +259,6 @@ class TestClassifierCompatibility:
         assert clf.classifier_file is None
         assert clf.classifier_hash is None
         assert clf.project_settings == {}
-        assert clf.behavior_name is None
-
-    def test_behavior_name_property(self):
-        """behavior_name getter/setter round-trips values."""
-        clf = MultiClassClassifier(BEHAVIOR_NAMES)
-        clf.behavior_name = "Running"
-        assert clf.behavior_name == "Running"
 
     def test_set_dict_settings_copies(self):
         """set_dict_settings stores and returns a defensive copy."""
@@ -595,6 +587,131 @@ class TestLeaveOneGroupOut:
         groups = np.array([0] * 30 + [1] * 30)
         # group 0 test: training only has class 1; group 1 test: training only has class 0
         assert MultiClassClassifier.get_leave_one_group_out_max(labels, groups) == 0
+
+
+# ---------------------------------------------------------------------------
+# count_label_threshold / label_threshold_met
+# ---------------------------------------------------------------------------
+
+
+class TestLabelThreshold:
+    """Tests for MultiClassClassifier.count_label_threshold and label_threshold_met.
+
+    Test counts use 20 frames, matching ``classifier_utils.LABEL_THRESHOLD``.
+    """
+
+    def test_count_label_threshold_individual(self) -> None:
+        """Valid-split counting matches multiclass LOGO constraints for per-identity groups."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Walk": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Run": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (0, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                    2: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+        }
+
+        valid = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
+        assert valid == 3
+
+    def test_count_label_threshold_video_grouping(self) -> None:
+        """Video grouping aggregates identities per video before validity checks."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Walk": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Run": {
+                "video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "video_b.avi": {0: {"fragmented_frame_counts": (0, 0)}},
+            },
+        }
+
+        valid = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+
+        assert valid == 1
+
+    def test_count_label_threshold_empty_behavior_names_returns_zero(self) -> None:
+        """No behaviors → no valid splits."""
+        assert (
+            MultiClassClassifier.count_label_threshold(
+                counts_by_behavior={},
+                behavior_names=[],
+            )
+            == 0
+        )
+
+    def test_label_threshold_met_requires_at_least_two_behaviors(self) -> None:
+        """Returns False when fewer than two class names are supplied."""
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior={"None": {}},
+            behavior_names=["None"],
+            min_groups=1,
+        )
+
+    def test_label_threshold_met_true_when_min_groups_satisfied(self) -> None:
+        """Returns True when valid-split count meets ``min_groups``."""
+        counts_by_behavior = {
+            "None": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+            "Walk": {
+                "video_a.avi": {
+                    0: {"fragmented_frame_counts": (20, 0)},
+                    1: {"fragmented_frame_counts": (20, 0)},
+                }
+            },
+        }
+        assert MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
+
+    def test_label_threshold_met_false_when_below_min_groups(self) -> None:
+        """Returns False when ``min_groups`` exceeds the valid-split count."""
+        counts_by_behavior = {
+            "None": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"video_a.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+        }
+        assert not MultiClassClassifier.label_threshold_met(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk"],
+            min_groups=5,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+        )
 
 
 # ---------------------------------------------------------------------------

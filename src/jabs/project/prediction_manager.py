@@ -12,7 +12,7 @@ from jabs.version import version_str
 MULTICLASS_PREDICTION_KEY = "__multiclass__"
 
 if typing.TYPE_CHECKING:
-    from jabs.classifier import Classifier
+    from jabs.classifier import Classifier, MultiClassClassifier
     from jabs.pose_estimation import PoseEstimation
 
     from .project import Project
@@ -32,9 +32,6 @@ class PredictionManager:
 
     """
 
-    _PREDICTION_FILE_VERSION = 2
-    MULTICLASS_PREDICTION_KEY = MULTICLASS_PREDICTION_KEY
-
     def __init__(self, project: "Project"):
         """Initialize the PredictionManager with a project.
 
@@ -51,7 +48,7 @@ class PredictionManager:
         predictions: np.ndarray,
         probabilities: np.ndarray,
         poses: "PoseEstimation",
-        classifier: "Classifier",
+        classifier: "Classifier | MultiClassClassifier",
         postprocessed_predictions: np.ndarray | None = None,
         class_names: list[str] | None = None,
     ) -> None:
@@ -69,7 +66,7 @@ class PredictionManager:
                 (n_animals, n_frames); multi-class predictions use shape
                 (n_animals, n_frames, n_classes).
             poses: PoseEstimation object corresponding to the video.
-            classifier: Classifier object used to generate predictions.
+            classifier: Binary or multi-class classifier instance used to generate predictions.
             postprocessed_predictions (np.ndarray | None): Optional array of post-processed predictions.
             class_names (list[str] | None): Optional ordered class names for multi-class predictions.
 
@@ -131,7 +128,7 @@ class PredictionManager:
             names. Missing predictions return empty dicts and ``None`` for
             class names.
         """
-        return self._load_prediction_record(video, self.MULTICLASS_PREDICTION_KEY)
+        return self._load_prediction_record(video, MULTICLASS_PREDICTION_KEY)
 
     def _load_prediction_record(
         self, video: str, behavior: str

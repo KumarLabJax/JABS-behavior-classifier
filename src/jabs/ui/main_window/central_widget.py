@@ -16,7 +16,6 @@ from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import (
     ClassifierMode,
     ClassifierType,
-    CrossValidationGroupingStrategy,
     PredictionType,
 )
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
@@ -25,7 +24,6 @@ from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
     binary_predictions_to_lut_indices,
-    track_labels_to_lut_indices,
 )
 from ..classification_thread import ClassifyThread
 from ..dialogs import AnnotationEditDialog, TrainingReportDialog
@@ -36,6 +34,7 @@ from ..main_control_widget import MainControlWidget
 from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
 from ..training_thread import TrainingThread
+from . import central_widget_mode
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
@@ -392,18 +391,17 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
-            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-                (
-                    self._predictions,
-                    self._probabilities,
-                    self._predictions_postprocessed,
-                    self._multiclass_class_names,
-                ) = self._project.prediction_manager.load_multiclass_predictions(path.name)
-            else:
-                self._predictions, self._probabilities, self._predictions_postprocessed = (
-                    self._project.prediction_manager.load_predictions(path.name, self.behavior)
-                )
-                self._multiclass_class_names = None
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                path.name,
+                self.behavior,
+            )
 
             # update ui components with properties of new video
             display_identities = [
@@ -736,52 +734,46 @@ class CentralWidget(QtWidgets.QWidget):
     def _label_behavior(self) -> None:
         """Apply behavior label to currently selected range of frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            identity_str = str(self._controls.current_identity_index)
-            current_behavior = self._controls.current_behavior
-            for behavior, track in self._labels.iter_behavior_labels(identity_str):
-                if behavior != current_behavior:
-                    track.clear_labels(start, end)
+        identity_index = self._controls.current_identity_index
+        current_behavior = self._controls.current_behavior
+        central_widget_mode.apply_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
+            current_behavior,
+            start,
+            end,
+        )
         self._project.session_tracker.label_created(
             self._loaded_video,
-            self._controls.current_identity_index,
-            self._controls.current_behavior,
+            identity_index,
+            current_behavior,
             True,
             start,
             end,
         )
-        self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self) -> None:
         """Apply not-behavior label (binary) or None label (multi-class) to selected frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            identity_str = str(self._controls.current_identity_index)
-            for behavior, track in self._labels.iter_behavior_labels(identity_str):
-                if behavior != MULTICLASS_NONE_BEHAVIOR:
-                    track.clear_labels(start, end)
-            self._project.session_tracker.label_created(
-                self._loaded_video,
-                self._controls.current_identity_index,
-                MULTICLASS_NONE_BEHAVIOR,
-                True,
-                start,
-                end,
-            )
-            self._labels.get_track_labels(identity_str, MULTICLASS_NONE_BEHAVIOR).label_behavior(
-                start, end
-            )
-        else:
-            self._project.session_tracker.label_created(
-                self._loaded_video,
-                self._controls.current_identity_index,
-                self._controls.current_behavior,
-                False,
-                start,
-                end,
-            )
-            self._get_label_track().label_not_behavior(start, end)
+        identity_index = self._controls.current_identity_index
+        behavior_key, is_positive_label = central_widget_mode.apply_not_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
+            self._controls.current_behavior,
+            start,
+            end,
+        )
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            identity_index,
+            behavior_key,
+            is_positive_label,
+            start,
+            end,
+        )
         self._label_button_common()
 
     def _clear_behavior_label(self) -> None:
@@ -846,28 +838,26 @@ class CentralWidget(QtWidgets.QWidget):
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-                behavior_names = self._controls.behaviors
-                multiclass_arrays = [
-                    self._labels.build_multiclass_label_array(str(i), behavior_names)
-                    for i in range(self._pose_est.num_identities)
-                ]
-                self._jabs_timeline.set_labels(multiclass_arrays, mask_list)
-                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+            mode = self._project.settings_manager.classifier_mode
+            timeline_labels = central_widget_mode.build_timeline_label_arrays(
+                self._labels,
+                mode,
+                self._pose_est.num_identities,
+                current_behavior=behavior,
+                behaviors=self._controls.behaviors,
+            )
+            self._jabs_timeline.set_labels(timeline_labels, mask_list)
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                if mode == ClassifierMode.MULTICLASS:
                     lut = self._jabs_timeline.multiclass_color_lut
                     if lut is not None:
                         self._player_widget.set_label_color_lut(lut)
-                        self._player_widget.set_labels(multiclass_arrays)
+                        self._player_widget.set_labels(timeline_labels)
                     else:
                         self._player_widget.set_label_color_lut(None)
                         self._player_widget.set_labels(None)
-            else:
-                label_list = self._get_label_list()
-                self._jabs_timeline.set_labels(
-                    [track_labels_to_lut_indices(t) for t in label_list],
-                    mask_list,
-                )
-                if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
+                else:
+                    label_list = self._get_label_list()
                     self._player_widget.set_label_color_lut(None)
                     self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
@@ -939,16 +929,20 @@ class CentralWidget(QtWidgets.QWidget):
         # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
         total_steps = self._project.video_manager.num_videos + 1
         if self._controls.all_kfold:
-            if self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS:
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+                counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+                total_steps += MultiClassClassifier.count_label_threshold(
+                    counts_by_behavior=counts_by_behavior,
+                    behavior_names=behavior_names,
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                )
+            else:
                 project_counts = self._project.counts(self._controls.current_behavior)
                 total_steps += self._classifier.count_label_threshold(
                     project_counts,
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
                 )
-            else:
-                # For multiclass all-kfold mode we do not know valid split count until
-                # feature extraction completes; start with a conservative estimate.
-                total_steps += self._project.video_manager.num_videos
         else:
             total_steps += self._controls.kfold_value
 
@@ -1368,7 +1362,15 @@ class CentralWidget(QtWidgets.QWidget):
             return
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            threshold_met = self._multiclass_train_threshold_met()
+            behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+            counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+            min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
+            threshold_met = MultiClassClassifier.label_threshold_met(
+                counts_by_behavior=counts_by_behavior,
+                behavior_names=behavior_names,
+                min_groups=min_groups,
+                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+            )
         else:
             threshold_met = Classifier.label_threshold_met(
                 self._counts,
@@ -1382,77 +1384,6 @@ class CentralWidget(QtWidgets.QWidget):
         else:
             self._controls.train_button_enabled = False
             self.export_training_status_change.emit(False)
-
-    def _multiclass_train_threshold_met(self) -> bool:
-        """Return True when multiclass labels support the requested number of LOGO splits."""
-        behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-        if len(behavior_names) < 2:
-            return False
-
-        counts_by_behavior: dict[str, dict] = {}
-        for behavior_name in behavior_names:
-            counts_by_behavior[behavior_name] = self._project.counts(behavior_name)
-
-        valid_splits = self._count_multiclass_valid_logo_splits(
-            counts_by_behavior=counts_by_behavior,
-            behavior_names=behavior_names,
-            grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-            threshold=MultiClassClassifier.LABEL_THRESHOLD,
-        )
-        requested_splits = valid_splits if self._controls.all_kfold else self._controls.kfold_value
-        return valid_splits >= max(1, requested_splits)
-
-    @staticmethod
-    def _count_multiclass_valid_logo_splits(
-        counts_by_behavior: dict[str, dict],
-        behavior_names: list[str],
-        grouping_strategy: CrossValidationGroupingStrategy,
-        threshold: int,
-    ) -> int:
-        """Count valid multiclass LOGO splits using fragmented per-group frame counts."""
-        if not behavior_names:
-            return 0
-
-        group_class_counts: dict[tuple[str, int] | str, dict[str, int]] = {}
-        for behavior_name in behavior_names:
-            behavior_counts = counts_by_behavior.get(behavior_name, {})
-            for video_name, video_counts in behavior_counts.items():
-                if grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
-                    key: tuple[str, int] | str = video_name
-                    group_entry = group_class_counts.setdefault(key, {})
-                    group_entry[behavior_name] = group_entry.get(behavior_name, 0) + sum(
-                        identity_counts["fragmented_frame_counts"][0]
-                        for identity_counts in video_counts.values()
-                    )
-                else:
-                    for identity, identity_counts in video_counts.items():
-                        key = (video_name, int(identity))
-                        group_entry = group_class_counts.setdefault(key, {})
-                        group_entry[behavior_name] = identity_counts["fragmented_frame_counts"][0]
-
-        if not group_class_counts:
-            return 0
-
-        total_by_class = {
-            class_name: sum(
-                group_counts.get(class_name, 0) for group_counts in group_class_counts.values()
-            )
-            for class_name in behavior_names
-        }
-
-        valid_groups = 0
-        for group_counts in group_class_counts.values():
-            n_test_classes = sum(
-                group_counts.get(class_name, 0) >= threshold for class_name in behavior_names
-            )
-            train_has_all_classes = all(
-                (total_by_class[class_name] - group_counts.get(class_name, 0)) >= threshold
-                for class_name in behavior_names
-            )
-            if n_test_classes >= 2 and train_has_all_classes:
-                valid_groups += 1
-
-        return valid_groups
 
     def _update_label_counts(self) -> None:
         """update the widget with the labeled frame / bout counts

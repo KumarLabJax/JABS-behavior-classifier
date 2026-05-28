@@ -492,7 +492,7 @@ def test_overlapping_labels_conflict_detected(tmp_path: Path) -> None:
 def test_overlapping_labels_none_behavior_is_a_conflict(tmp_path: Path) -> None:
     """A behavior and the None behavior sharing a BEHAVIOR-labeled frame is a conflict.
 
-    This keeps the validator consistent with MultiClassClassifier.merge_labels(),
+    This keeps the validator consistent with classifier_utils.merge_labels(),
     which raises ValueError for the same condition at training time.
     """
     labels = VideoLabels("video1.avi", 100)
@@ -581,7 +581,7 @@ def test_get_multiclass_labeled_features_aligns_labels_and_features(
             "group_keys": [("video_b.avi", 1)],
         }
 
-    monkeypatch.setattr("jabs.project.project.collect_labeled_features", _fake_collect)
+    monkeypatch.setattr("jabs.project.project.collect_multiclass_labeled_features", _fake_collect)
 
     progress_calls = {"count": 0}
     features, group_mapping = project.get_multiclass_labeled_features(
@@ -589,7 +589,6 @@ def test_get_multiclass_labeled_features_aligns_labels_and_features(
     )
 
     assert progress_calls["count"] == 2
-    assert all(job["classifier_mode"] == ClassifierMode.MULTICLASS.value for job in jobs_seen)
     assert all(job["behavior_names"] == ["Walk", "Run"] for job in jobs_seen)
 
     assert features["per_frame"].shape[0] == 3
@@ -651,7 +650,7 @@ def test_get_multiclass_labeled_features_fills_missing_behavior_keys(
             "group_keys": [("video_a.avi", 0)],
         }
 
-    monkeypatch.setattr("jabs.project.project.collect_labeled_features", _fake_collect)
+    monkeypatch.setattr("jabs.project.project.collect_multiclass_labeled_features", _fake_collect)
 
     features, _ = project.get_multiclass_labeled_features()
 

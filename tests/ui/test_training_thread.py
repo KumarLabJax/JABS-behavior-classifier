@@ -1,19 +1,14 @@
 """Tests for TrainingThread binary and multiclass training branches."""
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
 import numpy as np
 import pandas as pd
 import pytest
 
+from jabs.core.enums import ClassifierMode
+
+from ._fakes import FakeTrainingClassifier, FakeTrainingProject
+
 try:
-    from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-    from jabs.core.enums import (
-        ClassifierMode,
-        CrossValidationGroupingStrategy,
-        ProjectDistanceUnit,
-    )
     from jabs.ui.training_thread import TrainingThread
 
     SKIP_UI_TESTS = False
@@ -28,104 +23,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-class _FakeClassifier:
-    """Small classifier test double for TrainingThread."""
-
-    def __init__(self, name: str = "random_forest", project_settings: dict | None = None) -> None:
-        self.classifier_name = name
-        self.project_settings = {} if project_settings is None else dict(project_settings)
-        self.behavior_names = ["Walk", "Run"]
-        self.train_calls: list[dict] = []
-
-    @staticmethod
-    def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
-        return pd.concat([per_frame, window], axis=1)
-
-    def train(self, data: dict, random_seed: int | None = None) -> None:
-        call = dict(data)
-        call["random_seed"] = random_seed
-        self.train_calls.append(call)
-
-    def get_class_names(self) -> list[str]:
-        return [MULTICLASS_NONE_BEHAVIOR, *self.behavior_names]
-
-    @staticmethod
-    def get_feature_importance(limit: int = 20) -> list[tuple[str, float]]:
-        return [("feat_a", 1.0)][:limit]
-
-
-class _FakeProject:
-    """Project test double providing only the APIs TrainingThread uses."""
-
-    def __init__(
-        self,
-        tmp_path,
-        mode: ClassifierMode,
-        binary_features: dict | None = None,
-        multiclass_features: dict | None = None,
-    ) -> None:
-        self.project_paths = SimpleNamespace(training_log_dir=tmp_path)
-        self.feature_manager = SimpleNamespace(distance_unit=ProjectDistanceUnit.PIXEL)
-        self.session_tracker = SimpleNamespace(classifier_trained=MagicMock())
-        self.settings_manager = SimpleNamespace(
-            classifier_mode=mode,
-            cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
-            get_behavior=lambda _behavior: {
-                "window_size": 5,
-                "balance_labels": False,
-                "symmetric_behavior": False,
-            },
-        )
-        self._binary_features = binary_features
-        self._multiclass_features = multiclass_features
-        self.binary_calls = 0
-        self.multiclass_calls = 0
-        self.save_classifier = MagicMock()
-
-    def get_project_defaults(self) -> dict:
-        return {
-            "window_size": 5,
-            "balance_labels": False,
-            "symmetric_behavior": False,
-        }
-
-    def get_labeled_features(
-        self,
-        behavior: str,
-        progress_callable=None,
-        should_terminate_callable=None,
-    ) -> tuple[dict, dict]:
-        self.binary_calls += 1
-        if should_terminate_callable is not None:
-            should_terminate_callable()
-        if progress_callable is not None:
-            progress_callable()
-        return self._binary_features, {0: {"video": "video.avi", "identity": 0}}
-
-    def get_multiclass_labeled_features(
-        self,
-        progress_callable=None,
-        should_terminate_callable=None,
-        behavior_settings=None,
-    ) -> tuple[dict, dict]:
-        self.multiclass_calls += 1
-        if should_terminate_callable is not None:
-            should_terminate_callable()
-        if progress_callable is not None:
-            progress_callable()
-        return self._multiclass_features, {}
-
-    @staticmethod
-    def counts(_behavior: str) -> dict:
-        return {
-            "video.avi": {
-                0: {
-                    "unfragmented_bout_counts": (1, 0),
-                }
-            }
-        }
-
-
 def test_training_thread_binary_path(monkeypatch, tmp_path) -> None:
     """Binary mode uses get_labeled_features + CV/report path and saves behavior-scoped classifier."""
     features = {
@@ -134,8 +31,8 @@ def test_training_thread_binary_path(monkeypatch, tmp_path) -> None:
         "labels": np.array([1, 0], dtype=np.int8),
         "groups": np.array([0, 1], dtype=np.int32),
     }
-    project = _FakeProject(tmp_path, ClassifierMode.BINARY, binary_features=features)
-    classifier = _FakeClassifier()
+    project = FakeTrainingProject(tmp_path, ClassifierMode.BINARY, binary_features=features)
+    classifier = FakeTrainingClassifier()
 
     cv_called = {"count": 0}
 
@@ -186,8 +83,10 @@ def test_training_thread_multiclass_path(monkeypatch, tmp_path) -> None:
         },
         "groups": np.array([0, 0, 1], dtype=np.int32),
     }
-    project = _FakeProject(tmp_path, ClassifierMode.MULTICLASS, multiclass_features=features)
-    classifier = _FakeClassifier(name="catboost", project_settings={"window_size": 7})
+    project = FakeTrainingProject(
+        tmp_path, ClassifierMode.MULTICLASS, multiclass_features=features
+    )
+    classifier = FakeTrainingClassifier(name="catboost", project_settings={"window_size": 7})
 
     cv_called = {"count": 0}
 

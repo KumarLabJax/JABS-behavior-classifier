@@ -18,7 +18,7 @@ import pandas as pd
 
 import jabs.feature_extraction as fe
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import CacheFormat, ClassifierMode
+from jabs.core.enums import CacheFormat
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader import VideoReader
 from jabs.video_reader.utilities import get_fps
@@ -32,12 +32,8 @@ if TYPE_CHECKING:
     from jabs.pose_estimation import PoseEstimation
 
 
-class FeatureLoadJobSpec(TypedDict):
-    """Specification of a single video feature extraction job.
-
-    This TypedDict encapsulates all necessary information for loading
-    a single video's features *for labeled frames* in a parallel worker.
-    """
+class _BaseFeatureLoadJobSpec(TypedDict):
+    """Shared fields for binary and multi-class feature-load jobs."""
 
     video: str
     video_path: Path
@@ -46,19 +42,36 @@ class FeatureLoadJobSpec(TypedDict):
     feature_dir: Path
     cache_dir: Path | None
     behavior_settings: dict[str, object]
-    behavior_name: str | None
-    behavior_names: list[str] | None
-    classifier_mode: ClassifierMode
     cache_format: str
 
 
-class CollectFeatureLoadResult(TypedDict):
-    """Result of collecting features from a single video."""
+class BinaryFeatureLoadJobSpec(_BaseFeatureLoadJobSpec):
+    """Single-video feature-load job for binary classification."""
+
+    behavior_name: str | None
+
+
+class MulticlassFeatureLoadJobSpec(_BaseFeatureLoadJobSpec):
+    """Single-video feature-load job for multi-class classification."""
+
+    behavior_names: list[str]
+
+
+class BinaryFeatureResult(TypedDict):
+    """Result of collecting binary-labeled features from a single video."""
 
     per_frame: list[pd.DataFrame]
     window: list[pd.DataFrame]
     labels: list[np.ndarray]
-    labels_by_behavior: list[dict[str, np.ndarray]] | None
+    group_keys: list[tuple[str, int]]
+
+
+class MulticlassFeatureResult(TypedDict):
+    """Result of collecting multi-class-labeled features from a single video."""
+
+    per_frame: list[pd.DataFrame]
+    window: list[pd.DataFrame]
+    labels_by_behavior: list[dict[str, np.ndarray]]
     group_keys: list[tuple[str, int]]
 
 
@@ -125,8 +138,8 @@ def scan_video_metadata(job: VideoScanJobSpec) -> VideoScanResult:
 
     Reads everything :class:`~jabs.project.video_manager.VideoManager` and
     :class:`~jabs.project.feature_manager.FeatureManager` need at project-load
-    time — frame counts, identity count, static objects, lixit keypoints, and
-    distance-unit attributes — in a single ``h5py.File`` open.
+    time - frame counts, identity count, static objects, lixit keypoints, and
+    distance-unit attributes - in a single ``h5py.File`` open.
 
     This function is stateless and picklable so it can be dispatched to
     :class:`~jabs.core.utils.process_pool_manager.ProcessPoolManager` workers.
@@ -186,145 +199,209 @@ def _load_video_labels(annotations_path: Path, pose_est: "PoseEstimation") -> Vi
     return VideoLabels.load(data, pose_est)
 
 
-def collect_labeled_features(job: FeatureLoadJobSpec) -> CollectFeatureLoadResult:
-    """Extracts features for labeled frames for a single video.
+def _apply_macos_fork_lapack_workaround() -> None:
+    """Avoid Accelerate LAPACK segfaults in forked children on macOS.
 
-    This function loads per-frame and window features for a given video. If features
-    are not pre-computed then this will result in features being computed directly
-    from pose. It is intended to be used in parallel in Project.get_labeled_features().
-    Returns features for labeled frame only, features for unlabeled frames are discarded.
-
-    Note: this function is a standalone function to facilitate pickling for parallel
-    processing via ProcessPoolExecutor. It should not rely on any instance-specific
-    state, and is passed all necessary data via the JobSpec argument. A Project instance
-    maintains a pool of workers that call this function in parallel from
-    Project.load_labeled_features() in order to speed up feature extraction across
-    multiple videos.
-
-    Args:
-        job (FeatureLoadJobSpec): Specification of the video and settings for feature extraction.
-
-    Returns:
-        CollectFeatureLoadResult: Collected per-frame and window features, labels, and
-            identity mapping for the video.
+    scipy.linalg.lstsq (called by signal.stft's "linear" detrend) uses Apple's
+    Accelerate LAPACK, which segfaults when invoked from a forked child
+    process. Switch to the pure-numpy detrend path only on macOS to avoid this.
+    The flag is process-local, so the main process and non-macOS workers are
+    unaffected.
     """
-    video: str = job["video"]
-    video_path = job["video_path"]
-    pose_path = job["pose_path"]
-    annotations_path = job["annotations_path"]
-    feature_dir = job["feature_dir"]
-    cache_dir = job["cache_dir"]
-    behavior_settings: dict = job["behavior_settings"]
-    behavior_name = job["behavior_name"]
-    behavior_names = job["behavior_names"]
-    classifier_mode = job["classifier_mode"]
-
-    # On macOS, scipy.linalg.lstsq (called by signal.stft's "linear" detrend)
-    # uses Apple's Accelerate LAPACK, which segfaults when invoked from a
-    # forked child process.  Switch to the pure-numpy detrend path only on
-    # macOS to avoid this.  This flag is process-local so the main process
-    # and non-macOS workers are unaffected.
     if sys.platform == "darwin" and multiprocessing.parent_process() is not None:
         fe.feature_base_class._use_numpy_detrend = True
 
-    pose_est = open_pose_file(pose_path, cache_dir)
-    fps = get_fps(str(video_path))
 
-    # Get labels for video (might be None)
-    # this loads all labels from the annotations file for any labeled behavior
-    labels_obj = _load_video_labels(annotations_path, pose_est)
+def _open_pose_and_labels(
+    job: _BaseFeatureLoadJobSpec,
+) -> "tuple[PoseEstimation, VideoLabels | None, float]":
+    """Set up the macOS workaround and open pose + label resources for a job."""
+    _apply_macos_fork_lapack_workaround()
+    pose_est = open_pose_file(job["pose_path"], job["cache_dir"])
+    fps = get_fps(str(job["video_path"]))
+    labels_obj = _load_video_labels(job["annotations_path"], pose_est)
+    return pose_est, labels_obj, fps
+
+
+def _extract_identity_features(
+    video: str,
+    identity: int,
+    pose_est: "PoseEstimation",
+    feature_dir: Path,
+    behavior_settings: dict,
+    cache_format: str,
+    fps: float,
+    labels: np.ndarray,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute per-frame and window features for one identity's labeled frames.
+
+    Args:
+        video: Video filename (used to locate cached features).
+        identity: Identity index within the video.
+        pose_est: Open pose estimation object.
+        feature_dir: Project feature directory.
+        behavior_settings: Behavior-scoped settings dict (must include ``window_size``).
+        cache_format: Cache format string from project settings.
+        fps: Video frames per second.
+        labels: Per-frame label vector for this identity; rows with
+            ``TrackLabels.Label.NONE`` are dropped from the output features.
+
+    Returns:
+        Tuple ``(per_frame_df, window_df)`` containing only the labeled rows.
+    """
+    cache_format_enum = CacheFormat(cache_format)
+    features = fe.IdentityFeatures(
+        video,
+        identity,
+        feature_dir,
+        pose_est,
+        fps=fps,
+        op_settings=behavior_settings,
+        cache_format=cache_format_enum,
+    )
+    per_frame = features.get_per_frame_flat(labels)
+    window_size: int = behavior_settings["window_size"]
+    window_features = features.get_window_features(window_size, labels)
+    window_features = fe.IdentityFeatures.merge_window_features(window_features)
+    return pd.DataFrame(per_frame), pd.DataFrame(window_features)
+
+
+def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeatureResult:
+    """Extract per-frame and window features for one video, binary mode.
+
+    For every identity in the video, label arrays are loaded from the requested
+    behavior track. Frames where the identity does not exist are forced to
+    ``TrackLabels.Label.NONE``, and only ``NONE`` frames are dropped before
+    feature extraction - both ``BEHAVIOR`` and ``NOT_BEHAVIOR`` frames for the
+    requested behavior are retained as training rows. Identities with no
+    labeled frames after that filter are skipped entirely.
+
+    This function is stateless and picklable so it can be dispatched to
+    process-pool workers from :class:`~jabs.project.Project`.
+
+    Args:
+        job: Video and feature-extraction settings.
+
+    Returns:
+        Collected per-frame/window features, label arrays, and per-identity
+        group keys for the video.
+    """
+    pose_est, labels_obj, fps = _open_pose_and_labels(job)
     if labels_obj is None:
-        return {
-            "per_frame": [],
-            "window": [],
-            "labels": [],
-            "labels_by_behavior": None,
-            "group_keys": [],
-        }
+        return {"per_frame": [], "window": [], "labels": [], "group_keys": []}
+
+    video = job["video"]
+    behavior_name = job["behavior_name"]
+    behavior_settings: dict = job["behavior_settings"]
+    feature_dir = job["feature_dir"]
+    cache_format = job["cache_format"]
 
     per_frame_list: list[pd.DataFrame] = []
     window_list: list[pd.DataFrame] = []
     labels_list: list[np.ndarray] = []
-    labels_by_behavior_list: list[dict[str, np.ndarray]] = []
     group_keys: list[tuple[str, int]] = []
 
     for identity in pose_est.identities:
         identity_mask = pose_est.identity_mask(identity).astype(bool)
-        labels = None
-        labels_by_behavior = None
+        labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
+        # Exclude frames where the identity does not exist.
+        # NOTE: in the future we might want to handle this differently, since we
+        # can still predict behavior even when the identity is not detected in
+        # a frame (e.g., occluded) thanks to window features.
+        labels[~identity_mask] = TrackLabels.Label.NONE
 
-        if classifier_mode == ClassifierMode.MULTICLASS:
-            if behavior_names is None:
-                raise ValueError("behavior_names is required for multiclass feature collection")
-
-            behavior_tracks = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
-            labels_by_behavior = {}
-            include_mask = np.zeros(identity_mask.shape, dtype=bool)
-
-            for behavior_key in behavior_tracks:
-                behavior_labels = (
-                    labels_obj.get_track_labels(str(identity), behavior_key).get_labels().copy()
-                )
-                behavior_labels[~identity_mask] = TrackLabels.Label.NONE
-                labels_by_behavior[behavior_key] = behavior_labels
-                include_mask |= behavior_labels == TrackLabels.Label.BEHAVIOR
-
-            # Include only frames with explicit BEHAVIOR labels in any class.
-            labels = np.full(identity_mask.shape, TrackLabels.Label.NONE, dtype=np.int8)
-            labels[include_mask] = TrackLabels.Label.BEHAVIOR
-        else:
-            # Extract labels for this (video, identity) pair for the specified behavior
-            labels = labels_obj.get_track_labels(str(identity), behavior_name).get_labels()
-
-            # Exclude frames where identity does not exist
-            # NOTE: in the future we might want to handle this differently, since we can still predict
-            # behavior even when the identity is not detected in a frame (e.g., occluded) due to
-            # temporal context from surrounding frames provided by window features
-            labels[~identity_mask] = TrackLabels.Label.NONE
-
-        # Skip identities without any included labels
         if (labels != TrackLabels.Label.NONE).sum() == 0:
             continue
 
-        # Feature extraction for this identity
-        cache_format = CacheFormat(job["cache_format"])
-        features = fe.IdentityFeatures(
-            video,
-            identity,
-            feature_dir,
-            pose_est,
-            fps=fps,
-            op_settings=behavior_settings,
-            cache_format=cache_format,
+        per_frame_df, window_df = _extract_identity_features(
+            video, identity, pose_est, feature_dir, behavior_settings, cache_format, fps, labels
         )
-
-        # Per-frame features
-        per_frame = features.get_per_frame_flat(labels)
-
-        # Window features
-        window_size: int = behavior_settings["window_size"]
-        window_features = features.get_window_features(window_size, labels)
-        window_features = fe.IdentityFeatures.merge_window_features(window_features)
-
-        # Keep only labeled frames
-        per_frame_list.append(pd.DataFrame(per_frame))
-        window_list.append(pd.DataFrame(window_features))
+        per_frame_list.append(per_frame_df)
+        window_list.append(window_df)
         labels_list.append(labels[labels != TrackLabels.Label.NONE])
-        if labels_by_behavior is not None:
-            labels_by_behavior_list.append(
-                {
-                    key: arr[labels != TrackLabels.Label.NONE]
-                    for key, arr in labels_by_behavior.items()
-                }
-            )
         group_keys.append((video, int(identity)))
 
     return {
         "per_frame": per_frame_list,
         "window": window_list,
         "labels": labels_list,
-        "labels_by_behavior": (
-            labels_by_behavior_list if classifier_mode == ClassifierMode.MULTICLASS else None
-        ),
+        "group_keys": group_keys,
+    }
+
+
+def collect_multiclass_labeled_features(
+    job: MulticlassFeatureLoadJobSpec,
+) -> MulticlassFeatureResult:
+    """Extract per-frame and window features for one video, multi-class mode.
+
+    Frames are included only when they have an explicit
+    ``TrackLabels.Label.BEHAVIOR`` label in at least one class track (including
+    the reserved ``MULTICLASS_NONE_BEHAVIOR`` background track). Identities
+    with no labeled frames are skipped entirely.
+
+    This function is stateless and picklable so it can be dispatched to
+    process-pool workers from :class:`~jabs.project.Project`.
+
+    Args:
+        job: Video and feature-extraction settings (must include
+            ``behavior_names``).
+
+    Returns:
+        Collected per-frame/window features, per-behavior label arrays, and
+        per-identity group keys for the video.
+    """
+    pose_est, labels_obj, fps = _open_pose_and_labels(job)
+    if labels_obj is None:
+        return {"per_frame": [], "window": [], "labels_by_behavior": [], "group_keys": []}
+
+    behavior_names = job["behavior_names"]
+    if not behavior_names:
+        raise ValueError("behavior_names is required for multiclass feature collection")
+
+    video = job["video"]
+    behavior_settings: dict = job["behavior_settings"]
+    feature_dir = job["feature_dir"]
+    cache_format = job["cache_format"]
+    behavior_tracks = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+
+    per_frame_list: list[pd.DataFrame] = []
+    window_list: list[pd.DataFrame] = []
+    labels_by_behavior_list: list[dict[str, np.ndarray]] = []
+    group_keys: list[tuple[str, int]] = []
+
+    for identity in pose_est.identities:
+        identity_mask = pose_est.identity_mask(identity).astype(bool)
+
+        labels_by_behavior: dict[str, np.ndarray] = {}
+        include_mask = np.zeros(identity_mask.shape, dtype=bool)
+        for behavior_key in behavior_tracks:
+            behavior_labels = (
+                labels_obj.get_track_labels(str(identity), behavior_key).get_labels().copy()
+            )
+            behavior_labels[~identity_mask] = TrackLabels.Label.NONE
+            labels_by_behavior[behavior_key] = behavior_labels
+            include_mask |= behavior_labels == TrackLabels.Label.BEHAVIOR
+
+        # Include only frames with explicit BEHAVIOR labels in any class.
+        labels = np.full(identity_mask.shape, TrackLabels.Label.NONE, dtype=np.int8)
+        labels[include_mask] = TrackLabels.Label.BEHAVIOR
+
+        if (labels != TrackLabels.Label.NONE).sum() == 0:
+            continue
+
+        per_frame_df, window_df = _extract_identity_features(
+            video, identity, pose_est, feature_dir, behavior_settings, cache_format, fps, labels
+        )
+        per_frame_list.append(per_frame_df)
+        window_list.append(window_df)
+        labels_by_behavior_list.append(
+            {key: arr[labels != TrackLabels.Label.NONE] for key, arr in labels_by_behavior.items()}
+        )
+        group_keys.append((video, int(identity)))
+
+    return {
+        "per_frame": per_frame_list,
+        "window": window_list,
+        "labels_by_behavior": labels_by_behavior_list,
         "group_keys": group_keys,
     }

@@ -3,44 +3,31 @@
 from __future__ import annotations
 
 import logging
-import typing
 import warnings
 from collections.abc import Generator
 from pathlib import Path
+from typing import ClassVar
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from sklearn.exceptions import InconsistentVersionWarning
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierType
+from jabs.core.enums import (
+    DEFAULT_CV_GROUPING_STRATEGY,
+    ClassifierType,
+    CrossValidationGroupingStrategy,
+)
 from jabs.core.utils import hash_file
-from jabs.project import TrackLabels, load_multiclass_training_data
+from jabs.project import load_multiclass_training_data
 
 from . import classifier_utils
-from .factories import (
-    XGBOOST_AVAILABLE,
-    make_catboost_multiclass,
-    make_random_forest,
-    make_xgboost,
-)
+from .base import BaseClassifier
 
 logger = logging.getLogger(__name__)
 
-_VERSION = 1
 
-_CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
-    ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost_multiclass,
-}
-
-if XGBOOST_AVAILABLE:
-    _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
-
-
-class MultiClassClassifier:
+class MultiClassClassifier(BaseClassifier):
     """Multi-class behavior classifier for simultaneous classification of N behaviors.
 
     Trains a single classifier over all annotated behaviors, outputting one of N
@@ -59,20 +46,31 @@ class MultiClassClassifier:
         - All other frames → excluded from training
 
     Cross-validation note:
-        Leave-one-group-out CV uses a relaxed split criterion compared to binary
-        mode. Because individual groups (videos or animals) are often labeled for
-        only a subset of behaviors, requiring all classes in every test split would
-        yield no valid splits. Instead, a test split is accepted when it contains at
-        least 2 classes above ``LABEL_THRESHOLD`` and the remaining training groups
-        collectively contain all classes above ``LABEL_THRESHOLD``. A follow-up
-        ticket should introduce a multi-video grouping strategy that aggregates
-        groups to improve class coverage in test splits.
+        Leave-one-group-out CV uses a relaxed split criterion compared to
+        binary mode. Because individual groups (videos or animals) are often
+        labeled for only a subset of behaviors, requiring all classes in every
+        test split would yield no valid splits. Instead, a test split is
+        accepted when it contains at least 2 classes above ``LABEL_THRESHOLD``
+        and the remaining training groups collectively contain all classes
+        above ``LABEL_THRESHOLD``. A follow-up ticket should introduce a
+        multi-video grouping strategy that aggregates groups to improve class
+        coverage in test splits.
 
     Attributes:
         LABEL_THRESHOLD: Minimum number of labeled frames required per class.
     """
 
-    LABEL_THRESHOLD: int = classifier_utils.LABEL_THRESHOLD
+    LABEL_THRESHOLD: ClassVar[int] = classifier_utils.LABEL_THRESHOLD
+
+    _VERSION: ClassVar[int] = 1
+    _MULTICLASS: ClassVar[bool] = True
+    _PERSISTED_REQUIRED: ClassVar[tuple[str, ...]] = (
+        "_classifier",
+        "_behavior_names",
+        "_classifier_type",
+        "_feature_names",
+    )
+    _PERSISTED_OPTIONAL: ClassVar[tuple[str, ...]] = ("_project_settings",)
 
     def __init__(
         self,
@@ -90,9 +88,10 @@ class MultiClassClassifier:
             n_jobs: Number of parallel jobs for training and inference.
 
         Raises:
-            ValueError: If ``behavior_names`` is empty, contains duplicates, or
-                includes the reserved name ``MULTICLASS_NONE_BEHAVIOR``.
-            ValueError: If ``classifier_type`` is not supported in the current environment.
+            ValueError: If ``behavior_names`` is empty, contains duplicates,
+                or includes the reserved name ``MULTICLASS_NONE_BEHAVIOR``.
+            ValueError: If ``classifier_type`` is not supported in the current
+                environment.
         """
         if not behavior_names:
             raise ValueError("behavior_names must not be empty")
@@ -102,72 +101,14 @@ class MultiClassClassifier:
             )
         if len(behavior_names) != len(set(behavior_names)):
             raise ValueError("behavior_names must not contain duplicate entries")
-        if classifier_type not in self._supported_classifier_choices():
-            raise ValueError("Invalid classifier type")
 
+        super().__init__(classifier_type=classifier_type, n_jobs=n_jobs)
         self._behavior_names: list[str] = list(behavior_names)
-        self._classifier_type = classifier_type
-        self._n_jobs = n_jobs
-        self._classifier = None
-        self._feature_names: list[str] | None = None
-        self._project_settings: dict | None = None
-        self._behavior: str | None = None
-        self._version = _VERSION
-        self._classifier_file: str | None = None
-        self._classifier_hash: str | None = None
-        self._classifier_source: str | None = None
-
-    @property
-    def classifier_name(self) -> str:
-        """Return the classifier algorithm name as a string."""
-        return self._classifier_type.value
 
     @property
     def behavior_names(self) -> list[str]:
         """Ordered list of behavior names (does not include ``MULTICLASS_NONE_BEHAVIOR``)."""
         return list(self._behavior_names)
-
-    @property
-    def feature_names(self) -> list[str] | None:
-        """Feature names used when training this classifier."""
-        return self._feature_names
-
-    @property
-    def classifier_type(self) -> ClassifierType:
-        """Underlying classifier algorithm."""
-        return self._classifier_type
-
-    @property
-    def classifier_file(self) -> str | None:
-        """Return the filename of the saved classifier."""
-        return self._classifier_file
-
-    @property
-    def classifier_hash(self) -> str | None:
-        """Return the content hash of the saved classifier."""
-        return self._classifier_hash
-
-    @property
-    def project_settings(self) -> dict:
-        """Return a copy of classifier settings used for training."""
-        if self._project_settings is not None:
-            return dict(self._project_settings)
-        return {}
-
-    @property
-    def behavior_name(self) -> str | None:
-        """Return the selected behavior name, if any."""
-        return self._behavior
-
-    @behavior_name.setter
-    def behavior_name(self, value: str | None) -> None:
-        """Set the selected behavior name."""
-        self._behavior = value
-
-    @property
-    def version(self) -> int:
-        """Return the serialized classifier format version."""
-        return self._version
 
     def get_class_names(self) -> list[str]:
         """Return the ordered list of class names for this classifier.
@@ -177,51 +118,9 @@ class MultiClassClassifier:
         """
         return [MULTICLASS_NONE_BEHAVIOR, *self._behavior_names]
 
-    @staticmethod
-    def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
-        """Combine per-frame and window feature matrices into one DataFrame."""
-        return classifier_utils.combine_data(per_frame, window)
-
-    @staticmethod
-    def derive_predictions(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Derive class predictions and confidence from class probabilities."""
-        predictions = np.argmax(probabilities, axis=1).astype(np.int8)
-        confidence = probabilities[np.arange(len(probabilities)), predictions]
-        predictions[confidence == 0] = -1
-        return predictions, confidence
-
-    def set_classifier(self, classifier: ClassifierType) -> None:
-        """Switch the underlying classifier algorithm."""
-        if classifier not in self._supported_classifier_choices():
-            raise ValueError("Invalid Classifier Type")
-        self._classifier_type = classifier
-
     def set_project_settings(self, project) -> None:
         """Copy project defaults as classifier settings."""
         self._project_settings = dict(project.get_project_defaults())
-
-    def set_dict_settings(self, settings: dict) -> None:
-        """Assign classifier settings from a dictionary."""
-        self._project_settings = dict(settings)
-
-    def classifier_choices(self) -> dict[ClassifierType, str]:
-        """Return the available classifier types."""
-        supported = self._supported_classifier_choices()
-        return {t: t.value for t in sorted(supported, key=lambda t: t.value)}
-
-    def get_feature_importance(self, limit: int = 20) -> list[tuple[str, float]]:
-        """Return ranked feature importances, highest first."""
-        if self._classifier is None or self._feature_names is None:
-            return []
-        if not hasattr(self._classifier, "feature_importances_"):
-            return []
-        importances = list(np.asarray(self._classifier.feature_importances_).reshape(-1))
-        feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(self._feature_names, importances, strict=True)
-        ]
-        feature_importance.sort(key=lambda x: x[1], reverse=True)
-        return feature_importance[:limit]
 
     def train(self, data: dict, random_seed: int | None = None) -> None:
         """Train the multi-class classifier.
@@ -250,10 +149,10 @@ class MultiClassClassifier:
 
         settings = data.get("settings", self._project_settings or {})
         # Persist the effective training settings so downstream classification
-        # can consistently reuse the same feature/postprocessing parameters.
+        # consistently reuses the same feature/postprocessing parameters.
         self._project_settings = dict(settings)
 
-        multiclass_labels, include_mask = self.merge_labels(
+        multiclass_labels, include_mask = classifier_utils.merge_labels(
             data["labels_by_behavior"], self._behavior_names
         )
 
@@ -285,7 +184,7 @@ class MultiClassClassifier:
             )
 
         clf = self._create_classifier(random_seed=random_seed)
-        cleaned = classifier_utils.clean_features(features, self._classifier_type)
+        cleaned = self._clean_features(features)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = clf.fit(cleaned, multiclass_labels)
@@ -304,16 +203,14 @@ class MultiClassClassifier:
 
         Args:
             features: DataFrame of feature data.
-            frame_indexes: Indexes of frames with valid pose data. Frames absent
-                from this array receive a prediction of -1 (no pose).
+            frame_indexes: Indexes of frames with valid pose data. Frames
+                absent from this array receive a prediction of -1 (no pose).
 
         Returns:
             Integer array of shape ``(n_frames,)`` with class indices 0..N,
             or -1 for frames with no pose data.
         """
-        cleaned = self._get_features_to_classify(
-            classifier_utils.clean_features(features, self._classifier_type)
-        )
+        cleaned = self._get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             # ravel() normalizes CatBoost MultiClass, which returns (n, 1).
@@ -335,16 +232,15 @@ class MultiClassClassifier:
 
         Args:
             features: DataFrame of feature data.
-            frame_indexes: Indexes of frames with valid pose data. Frames absent
-                from this array receive zero probability across all classes.
+            frame_indexes: Indexes of frames with valid pose data. Frames
+                absent from this array receive zero probability across all
+                classes.
 
         Returns:
             Float array of shape ``(n_frames, N+1)`` where N is the number of
             behaviors. Column 0 is the ``MULTICLASS_NONE_BEHAVIOR`` class.
         """
-        cleaned = self._get_features_to_classify(
-            classifier_utils.clean_features(features, self._classifier_type)
-        )
+        cleaned = self._get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             result = self._classifier.predict_proba(cleaned).astype(np.float32)
@@ -356,112 +252,26 @@ class MultiClassClassifier:
 
         return result
 
-    def save(self, path: Path) -> None:
-        """Serialize the classifier to disk using joblib.
-
-        Args:
-            path: Destination file path.
-        """
-        joblib.dump(self, path)
-        if self._classifier_file is None:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "serialized"
+    def save(self, path):
+        """Serialize the classifier to disk and log the destination."""
+        super().save(path)
         logger.info("MultiClassClassifier saved to %s", path)
 
-    def load(self, path: Path) -> None:
-        """Deserialize a classifier from disk, updating this instance in place.
-
-        Args:
-            path: Source file path.
-
-        Raises:
-            ValueError: If the file is not a ``MultiClassClassifier``, was saved
-                with a different version, or uses an unsupported classifier type.
-        """
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
-            for warning in caught_warnings:
-                if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
-                else:
-                    warnings.warn(warning.message, warning.category, stacklevel=2)
-
-        if not isinstance(c, MultiClassClassifier):
-            raise ValueError(f"{path} is not an instance of MultiClassClassifier")
-
-        if c._version != _VERSION:
-            raise ValueError(
-                f"Unable to deserialize pickled classifier. "
-                f"File version {c._version}, expected {_VERSION}."
-            )
-
-        if c._classifier_type not in self._supported_classifier_choices():
-            raise ValueError("Invalid classifier type")
-
-        self._classifier = c._classifier
-        self._behavior_names = c._behavior_names
-        self._classifier_type = c._classifier_type
-        self._feature_names = c._feature_names
-        self._project_settings = getattr(c, "_project_settings", None)
-        self._behavior = getattr(c, "_behavior", None)
-        if c._classifier_file is not None:
-            self._classifier_file = c._classifier_file
-            self._classifier_hash = c._classifier_hash
-            self._classifier_source = c._classifier_source
-        else:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "pickle"
-
+    def load(self, path):
+        """Deserialize a classifier from disk and log the source."""
+        super().load(path)
         logger.info("MultiClassClassifier loaded from %s", path)
 
     @classmethod
     def from_pickle(cls, path: Path) -> MultiClassClassifier:
-        """Load a MultiClassClassifier from a pickle file with full validation and metadata backfill.
+        """Load a MultiClassClassifier from a pickle file and log the source.
 
-        Applies the same version, classifier-type, and metadata checks as ``load()``,
-        but as a classmethod factory so no dummy instance is required.
-
-        Args:
-            path: Path to the saved classifier pickle file.
-
-        Returns:
-            Loaded and validated ``MultiClassClassifier`` instance.
-
-        Raises:
-            ValueError: If the file is not a ``MultiClassClassifier``, was saved
-                with a different version, or uses an unsupported classifier type.
+        Thin wrapper over :meth:`BaseClassifier.from_pickle` that adds an
+        informational log entry; all validation lives in the base class.
         """
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
-            for warning in caught_warnings:
-                if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
-                else:
-                    warnings.warn(warning.message, warning.category, stacklevel=2)
-
-        if not isinstance(c, cls):
-            raise ValueError(f"{path} is not an instance of MultiClassClassifier")
-
-        if c._version != _VERSION:
-            raise ValueError(
-                f"Unable to deserialize pickled classifier. "
-                f"File version {c._version}, expected {_VERSION}."
-            )
-
-        if c._classifier_type not in cls._supported_classifier_choices():
-            raise ValueError("Invalid classifier type")
-
-        if c._classifier_file is None:
-            c._classifier_file = Path(path).name
-            c._classifier_hash = hash_file(Path(path))
-            c._classifier_source = "pickle"
-
+        classifier = super().from_pickle(path)
         logger.info("MultiClassClassifier loaded from %s", path)
-        return c
+        return classifier
 
     @classmethod
     def from_training_file(
@@ -512,12 +322,12 @@ class MultiClassClassifier:
         labels: npt.NDArray,
         groups: npt.NDArray,
     ) -> Generator[dict, None, None]:
-        """Generate leave-one-group-out splits for multi-class cross-validation.
+        """Yield leave-one-group-out splits for multi-class cross-validation.
 
-        Uses a relaxed acceptance criterion: a split is valid when the test group
-        has at least 2 classes above ``LABEL_THRESHOLD`` and the training portion
-        has all classes above ``LABEL_THRESHOLD``. See the class docstring for
-        rationale.
+        Uses a relaxed acceptance criterion: a split is valid when the test
+        group has at least 2 classes above ``LABEL_THRESHOLD`` and the
+        training portion has all classes above ``LABEL_THRESHOLD``. See the
+        class docstring for rationale.
 
         Args:
             per_frame_features: Per-frame feature DataFrame for labeled data.
@@ -546,7 +356,7 @@ class MultiClassClassifier:
         labels: npt.NDArray,
         groups: npt.NDArray,
     ) -> int:
-        """Count the number of valid LOGO splits for multi-class cross-validation.
+        """Count the number of valid LOGO splits for multi-class CV.
 
         A group is counted as a valid test split when it contains at least 2
         distinct classes above ``LABEL_THRESHOLD`` and the remaining training
@@ -559,120 +369,115 @@ class MultiClassClassifier:
         Returns:
             Number of groups that can serve as a valid test split.
         """
-        all_classes = np.unique(labels)
-        unique_groups = np.unique(groups)
-        count = 0
-        for g in unique_groups:
-            test_mask = np.asarray(groups) == g
-            test_labels = np.asarray(labels)[test_mask]
-            train_labels = np.asarray(labels)[~test_mask]
-
-            n_test_classes = sum(
-                np.count_nonzero(test_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
-                for cls in all_classes
-            )
-            train_has_all = all(
-                np.count_nonzero(train_labels == cls) >= MultiClassClassifier.LABEL_THRESHOLD
-                for cls in all_classes
-            )
-            if n_test_classes >= 2 and train_has_all:
-                count += 1
-        return count
+        return classifier_utils.count_valid_logo_splits(
+            labels,
+            groups,
+            label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
+            min_test_classes=2,
+        )
 
     @staticmethod
-    def merge_labels(
-        labels_by_behavior: dict[str, npt.NDArray[np.int8]],
+    def count_label_threshold(
+        counts_by_behavior: dict[str, dict],
         behavior_names: list[str],
-    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.bool_]]:
-        """Merge per-behavior label arrays into a single multi-class label array.
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> int:
+        """Count multi-class LOGO groups that satisfy the relaxed acceptance rule.
 
-        Merging rules:
-            - ``TrackLabels.Label.BEHAVIOR`` in ``MULTICLASS_NONE_BEHAVIOR`` entry
-              → class 0
-            - ``TrackLabels.Label.BEHAVIOR`` in behavior X's entry
-              → class index (1-based, by position in ``behavior_names``)
-            - All other frames → excluded (not in the returned mask)
+        A group is counted as a valid test split when it contains at least 2
+        distinct classes above ``LABEL_THRESHOLD`` and the remaining training
+        groups collectively contain all classes above ``LABEL_THRESHOLD``.
 
         Args:
-            labels_by_behavior: dict mapping behavior name to a label array of
-                ``TrackLabels.Label`` integer values, one element per frame.
-            behavior_names: Ordered list of N behavior names (must not include
-                ``MULTICLASS_NONE_BEHAVIOR``).
+            counts_by_behavior: Maps each class name to its labeled-frame count
+                dict (the structure returned by ``Project.counts(name)``),
+                shaped as ``dict[video_name][identity]`` of fragmented and
+                unfragmented frame/bout count tuples.
+            behavior_names: Ordered class names whose counts appear in
+                ``counts_by_behavior``. Typically includes
+                ``MULTICLASS_NONE_BEHAVIOR``.
+            cv_grouping_strategy: Cross-validation grouping strategy.
 
         Returns:
-            Tuple of ``(multiclass_labels, include_mask)`` where:
+            Number of groups that can serve as a valid multi-class LOGO test split.
 
-            - ``multiclass_labels``: integer array of class indices (0..N) for
-              the included frames only, length M ≤ n_frames.
-            - ``include_mask``: boolean array of length n_frames; True where the
-              frame is included in training.
+        Note:
+            Uses "fragmented" label counts since these reflect labels usable
+            for training.
         """
-        if not labels_by_behavior:
-            raise ValueError("labels_by_behavior must not be empty")
+        if not behavior_names:
+            return 0
 
-        n_frames = next(iter(labels_by_behavior.values())).shape[0]
+        threshold = MultiClassClassifier.LABEL_THRESHOLD
+        group_class_counts: dict[tuple[str, int] | str, dict[str, int]] = {}
+        for behavior_name in behavior_names:
+            behavior_counts = counts_by_behavior.get(behavior_name, {})
+            for video_name, video_counts in behavior_counts.items():
+                if cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+                    key: tuple[str, int] | str = video_name
+                    group_entry = group_class_counts.setdefault(key, {})
+                    group_entry[behavior_name] = group_entry.get(behavior_name, 0) + sum(
+                        identity_counts["fragmented_frame_counts"][0]
+                        for identity_counts in video_counts.values()
+                    )
+                else:
+                    for identity, identity_counts in video_counts.items():
+                        key = (video_name, int(identity))
+                        group_entry = group_class_counts.setdefault(key, {})
+                        group_entry[behavior_name] = identity_counts["fragmented_frame_counts"][0]
 
-        for name, arr in labels_by_behavior.items():
-            if arr.ndim != 1:
-                raise ValueError(f"Label array for '{name}' must be 1-D, got shape {arr.shape}")
-            if arr.shape[0] != n_frames:
-                raise ValueError(
-                    f"Label array for '{name}' has length {arr.shape[0]}, expected {n_frames}"
-                )
+        if not group_class_counts:
+            return 0
 
-        # Check for frames labeled BEHAVIOR in more than one behavior.
-        all_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
-        behavior_mask = np.zeros(n_frames, dtype=np.intp)
-        for name in all_names:
-            if name in labels_by_behavior:
-                behavior_mask += (labels_by_behavior[name] == TrackLabels.Label.BEHAVIOR).astype(
-                    np.intp
-                )
-        conflict_frames = np.where(behavior_mask > 1)[0]
-        if len(conflict_frames) > 0:
-            raise ValueError(
-                f"Conflicting BEHAVIOR labels found on {len(conflict_frames)} frame(s): "
-                f"{conflict_frames.tolist()}. Each frame may be labeled for at "
-                f"most one behavior."
+        total_by_class = {
+            class_name: sum(
+                group_counts.get(class_name, 0) for group_counts in group_class_counts.values()
             )
+            for class_name in behavior_names
+        }
 
-        class_indices = np.full(n_frames, -1, dtype=np.intp)
+        valid_groups = 0
+        for group_counts in group_class_counts.values():
+            n_test_classes = sum(
+                group_counts.get(class_name, 0) >= threshold for class_name in behavior_names
+            )
+            train_has_all_classes = all(
+                (total_by_class[class_name] - group_counts.get(class_name, 0)) >= threshold
+                for class_name in behavior_names
+            )
+            if n_test_classes >= 2 and train_has_all_classes:
+                valid_groups += 1
 
-        # MULTICLASS_NONE_BEHAVIOR BEHAVIOR frames → class 0
-        if MULTICLASS_NONE_BEHAVIOR in labels_by_behavior:
-            none_arr = labels_by_behavior[MULTICLASS_NONE_BEHAVIOR]
-            class_indices[none_arr == TrackLabels.Label.BEHAVIOR] = 0
-
-        # Named behavior BEHAVIOR frames → class 1..N
-        for i, behavior in enumerate(behavior_names, start=1):
-            if behavior in labels_by_behavior:
-                beh_arr = labels_by_behavior[behavior]
-                class_indices[beh_arr == TrackLabels.Label.BEHAVIOR] = i
-
-        include_mask = class_indices >= 0
-        return class_indices[include_mask], include_mask
-
-    def _create_classifier(self, random_seed: int | None = None) -> typing.Any:
-        """Instantiate the underlying sklearn/xgboost/catboost classifier."""
-        try:
-            factory = _CLASSIFIER_FACTORIES[self._classifier_type]
-        except KeyError:
-            raise ValueError(f"Unsupported classifier type: {self._classifier_type!r}") from None
-        return factory(self._n_jobs, random_seed)
-
-    def _get_features_to_classify(self, features: pd.DataFrame) -> pd.DataFrame:
-        """Reorder/select feature columns to match the trained model's expectations."""
-        if self._classifier_type == ClassifierType.XGBOOST:
-            classifier_columns = self._classifier.get_booster().feature_names
-        elif hasattr(self._classifier, "feature_names_in_"):
-            classifier_columns = list(self._classifier.feature_names_in_)
-        elif hasattr(self._classifier, "feature_names_"):
-            classifier_columns = list(self._classifier.feature_names_)
-        else:
-            raise RuntimeError("Error obtaining feature names from classifier.")
-        return features[classifier_columns]
+        return valid_groups
 
     @staticmethod
-    def _supported_classifier_choices() -> set[ClassifierType]:
-        """Determine supported classifier types in the current environment."""
-        return set(_CLASSIFIER_FACTORIES.keys())
+    def label_threshold_met(
+        counts_by_behavior: dict[str, dict],
+        behavior_names: list[str],
+        min_groups: int,
+        cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+    ) -> bool:
+        """Determine whether multi-class labels support ``min_groups`` LOGO splits.
+
+        Args:
+            counts_by_behavior: Maps each class name to its labeled-frame count
+                dict (see :meth:`count_label_threshold`).
+            behavior_names: Ordered class names whose counts appear in
+                ``counts_by_behavior``. Returns ``False`` when fewer than two
+                class names are supplied.
+            min_groups: Minimum number of valid LOGO splits required. Floored
+                at 1, since multi-class training requires at least one valid
+                split.
+            cv_grouping_strategy: Cross-validation grouping strategy.
+
+        Returns:
+            True if the count of valid splits meets ``max(1, min_groups)``.
+        """
+        if len(behavior_names) < 2:
+            return False
+        valid_splits = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=behavior_names,
+            cv_grouping_strategy=cv_grouping_strategy,
+        )
+        return valid_splits >= max(1, min_groups)
