@@ -6,7 +6,7 @@ Thank you for your interest in contributing to JABS (JAX Animal Behavior System)
 
 **Important:** By contributing source code to JABS, you agree that your contributions will have their copyright assigned to The Jackson Laboratory.
 
-All code contributions become part of the JABS project and are subject to the project's license terms (see the LICENSE file in the repository root). JABS is licensed under a non-commercial use license. Contact jabs@jax.org for information about commercial licensing.
+All code contributions become part of the JABS project and are subject to the project's license terms (see the LICENSE file in the repository root). JABS is released under the MIT License.
 
 ## Quick Start for Contributors
 

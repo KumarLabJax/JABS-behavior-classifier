@@ -26,7 +26,7 @@ class AboutDialog(QDialog):
         layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addWidget(
-            QLabel("Copyright 2025 The Jackson Laboratory. All Rights Reserved"),
+            QLabel("Copyright (c) 2023-2026 The Jackson Laboratory"),
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
 

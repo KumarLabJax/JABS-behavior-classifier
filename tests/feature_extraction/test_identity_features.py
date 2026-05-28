@@ -11,6 +11,7 @@ import pytest
 
 import jabs.pose_estimation as pose_est_module
 from jabs.core.enums import CacheFormat
+from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.io.feature_cache import detect_cache_format
 from jabs.project.track_labels import TrackLabels
@@ -201,7 +202,7 @@ def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) 
     """
     # Write an initial Parquet cache.
     _make_identity_features(pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.PARQUET)
-    identity_dir = tmp_path / Path(_SOURCE_FILE).stem / str(_IDENTITY)
+    identity_dir = tmp_path / pose_file_stem(_SOURCE_FILE) / str(_IDENTITY)
     assert (identity_dir / "metadata.json").exists()
 
     # Force-recompute into HDF5 format.
@@ -216,3 +217,109 @@ def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) 
     from jabs.io.feature_cache import detect_cache_format
 
     assert detect_cache_format(identity_dir) == CacheFormat.HDF5
+
+
+def test_feature_dir_matches_for_pose_and_video_source(tmp_path, pose_est_v5) -> None:
+    """Identity feature directory is the same for pose and video source filenames.
+
+    The cache path must not depend on whether the caller passes the pose filename
+    (jabs-classify / jabs-cli compute-features) or the video filename (jabs-init /
+    GUI). Both must resolve to the same directory.
+    """
+    pose_source = IdentityFeatures(
+        source_file="sample_pose_est_v5.h5",
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5,
+        op_settings={},
+    )
+    video_source = IdentityFeatures(
+        source_file="sample.mp4",
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5,
+        op_settings={},
+    )
+
+    assert pose_source._identity_feature_dir == video_source._identity_feature_dir
+    assert pose_source._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
+
+
+def test_legacy_cache_dir_is_renamed(tmp_path, pose_est_v5, caplog) -> None:
+    """A legacy ``<name>_pose_est_vN`` cache dir is renamed to ``<name>`` on construction.
+
+    Cached features computed by the previous CLI layout must remain discoverable
+    after the normalization fix.
+    """
+    legacy = tmp_path / "sample_pose_est_v5"
+    legacy_identity = legacy / str(_IDENTITY)
+    legacy_identity.mkdir(parents=True)
+    sentinel = legacy_identity / "features.h5"
+    sentinel.touch()
+
+    with caplog.at_level("INFO", logger="jabs.feature_extraction.features"):
+        instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
+
+    normalized = tmp_path / "sample"
+    assert not legacy.exists(), "legacy dir should be renamed away"
+    assert (normalized / str(_IDENTITY) / "features.h5").exists()
+    assert instance._identity_feature_dir == normalized / str(_IDENTITY)
+    assert any("renaming legacy feature cache" in r.message for r in caplog.records)
+
+
+def test_legacy_cache_dir_left_alone_on_collision(tmp_path, pose_est_v5) -> None:
+    """If the normalized destination already exists, the legacy dir is not renamed.
+
+    This protects against collisions when multiple pose files in the same directory
+    would normalize to the same stem (e.g. ``sample_pose_est_v5.h5`` and
+    ``sample_pose_est_v6.h5`` both normalize to ``sample``).
+    """
+    legacy = tmp_path / "sample_pose_est_v5"
+    legacy.mkdir()
+    (legacy / "marker").touch()
+
+    normalized = tmp_path / "sample"
+    normalized.mkdir()
+    (normalized / "other_marker").touch()
+
+    _make_identity_features(pose_est_v5, tmp_path, force=False)
+
+    assert legacy.exists(), "legacy dir must be preserved on collision"
+    assert (legacy / "marker").exists()
+    assert (normalized / "other_marker").exists()
+
+
+def test_legacy_rename_failure_is_non_fatal(tmp_path, pose_est_v5, caplog, monkeypatch) -> None:
+    """A rename failure logs a warning and lets construction proceed.
+
+    Best-effort migration: an OS-level rename error must not abort feature
+    extraction. The worst case is a recomputed cache.
+    """
+    legacy = tmp_path / "sample_pose_est_v5"
+    legacy.mkdir()
+    (legacy / "marker").touch()
+
+    def _raise(self, *args, **kwargs):
+        raise PermissionError("simulated rename failure")
+
+    monkeypatch.setattr(Path, "rename", _raise)
+
+    with caplog.at_level("WARNING", logger="jabs.feature_extraction.features"):
+        instance = _make_identity_features(pose_est_v5, tmp_path, force=False)
+
+    assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)
+    assert legacy.exists(), "legacy dir untouched after failed rename"
+    assert any("failed to rename" in r.message for r in caplog.records)
+
+
+def test_no_rename_when_video_stem_used(tmp_path, pose_est_v5) -> None:
+    """If the source filename has no ``_pose_est_vN`` suffix, no rename is attempted."""
+    instance = IdentityFeatures(
+        source_file="sample.mp4",
+        identity=_IDENTITY,
+        directory=tmp_path,
+        pose_est=pose_est_v5,
+        op_settings={},
+    )
+
+    assert instance._identity_feature_dir == tmp_path / "sample" / str(_IDENTITY)

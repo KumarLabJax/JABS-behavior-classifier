@@ -1,10 +1,10 @@
 [project]
 name = "jabs-behavior"
-version = "0.44.1"
+version = "0.44.2"
 description = "JABS behavior event processing and postprocessing filters"
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
-license = { text = "Proprietary" }
+license = "MIT"
 
 authors = [
   { name = "Glen Beane" },

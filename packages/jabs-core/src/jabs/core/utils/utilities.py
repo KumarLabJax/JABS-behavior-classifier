@@ -65,6 +65,27 @@ def get_bool_env_var(var_name, default_value=False) -> bool:
     return value.lower() in ("true", "1", "yes", "on", "y", "t")
 
 
+_POSE_SUFFIX_RE = re.compile(r"_pose_est_v\d+$")
+
+
+def pose_file_stem(path: str | Path) -> str:
+    """Return the base name of a pose file with the ``_pose_est_vN`` suffix removed.
+
+    For example, ``"video_pose_est_v6.h5"`` becomes ``"video"``. If the input does
+    not include the ``_pose_est_vN`` suffix, the stem is returned unchanged
+    (this allows callers to pass either a pose file path or a video file path
+    and get a consistent identifier).
+
+    Args:
+        path: A pose file path (or any path-like value) whose stem may include
+            the ``_pose_est_vN`` suffix.
+
+    Returns:
+        The stem with any trailing ``_pose_est_vN`` suffix stripped.
+    """
+    return _POSE_SUFFIX_RE.sub("", Path(path).stem)
+
+
 def to_safe_name(behavior: str) -> str:
     """Create a version of the given behavior name that is safe to use in filenames.
 

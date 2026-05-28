@@ -22,35 +22,27 @@ from sklearn.exceptions import InconsistentVersionWarning
 from jabs.classifier import Classifier, MultiClassClassifier
 from jabs.core.constants import APP_NAME, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat, ClassifierType
+from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction import IdentityFeatures
 from jabs.pose_estimation import open_pose_file
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
 DEFAULT_FPS = 30
 
+_POSE_FILE_NAME_RE = re.compile(r"^.+_pose_est_v[0-9]+\.h5$")
+
 # find out which classifiers are supported in this environment
 __CLASSIFIER_CHOICES = Classifier().classifier_choices()
 
 
-def get_pose_stem(pose_path: Path) -> str:
-    """Get the stem name of a pose file.
-
-    Takes a pose path as input and returns the name component with the
-    '_pose_est_v#.h5' suffix removed.
-
-    Args:
-        pose_path: Path to the pose estimation file.
-
-    Returns:
-        Stem portion of the filename without the pose suffix.
+def _require_pose_file_name(pose_path: Path) -> None:
+    """Validate that the filename matches the canonical ``*_pose_est_vN.h5`` pattern.
 
     Raises:
-        ValueError: If the path does not match the expected pose file naming convention.
+        ValueError: If the filename does not match the canonical pose-file
+            pattern.
     """
-    m = re.match(r"^(.+)(_pose_est_v[0-9]+\.h5)$", pose_path.name)
-    if m:
-        return m.group(1)
-    else:
+    if not _POSE_FILE_NAME_RE.match(pose_path.name):
         raise ValueError(f"{pose_path} is not a valid pose file path")
 
 
@@ -217,6 +209,8 @@ def classify_pose(
     Raises:
         ValueError: If a binary classifier is given but ``behavior`` is None.
     """
+    _require_pose_file_name(input_pose_file)
+
     multiclass = isinstance(classifier, MultiClassClassifier)
 
     if multiclass:
@@ -229,7 +223,7 @@ def classify_pose(
         behavior_key = behavior
 
     pose_est = open_pose_file(input_pose_file)
-    pose_stem = get_pose_stem(input_pose_file)
+    pose_stem = pose_file_stem(input_pose_file)
 
     n_identities = pose_est.num_identities
     n_frames = pose_est.num_frames
