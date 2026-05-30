@@ -41,7 +41,7 @@ from .parallel_workers import (
     collect_multiclass_labeled_features,
     scan_video_metadata,
 )
-from .prediction_manager import PredictionManager
+from .prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
@@ -1303,6 +1303,36 @@ class Project:
         if new_name in self._settings_manager.behavior_names:
             raise ValueError(f"Behavior {new_name} already exists in project")
 
+        # Classifier and prediction storage differs between modes, so update the
+        # mode-specific artifacts separately.
+        if self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            self._rename_behavior_multiclass_artifacts(old_name, new_name)
+        else:
+            self._rename_behavior_binary_artifacts(old_name, new_name)
+
+        # rename labels inside every video's annotation file (mode-independent:
+        # labels are always keyed by behavior name on disk)
+        for video in self._video_manager.videos:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            labels.rename_behavior(old_name, new_name)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            self.save_annotations(labels, pose)
+
+        # update project settings
+        self._settings_manager.rename_behavior(old_name, new_name)
+
+    def _rename_behavior_binary_artifacts(self, old_name: str, new_name: str) -> None:
+        """Rename binary-mode classifier and prediction artifacts for a behavior.
+
+        Binary mode stores one classifier pickle per behavior (keyed by safe
+        name) and one prediction group per behavior inside each video's HDF5
+        file. Both are renamed to track the behavior's new name.
+
+        Args:
+            old_name: current behavior name
+            new_name: new behavior name
+        """
         safe_old_name = to_safe_name(old_name)
         safe_new_name = to_safe_name(new_name)
 
@@ -1315,21 +1345,61 @@ class Project:
         for video in self._video_manager.videos:
             # Rename predictions dataset inside the per-video HDF5 file.
             pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
-            if pred_file.exists():
-                with h5py.File(pred_file, "r+") as hf:
-                    if "predictions" in hf and safe_old_name in hf["predictions"]:
-                        grp = hf["predictions"]
-                        # If dataset already exists at the destination, remove it first
-                        if safe_new_name in grp:
-                            del grp[safe_new_name]
-                        grp.move(safe_old_name, safe_new_name)
-
-            # rename labels inside annotation file
-            if (labels := self._video_manager.load_video_labels(video)) is None:
+            if not pred_file.exists():
                 continue
-            labels.rename_behavior(old_name, new_name)
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            self.save_annotations(labels, pose)
+            with h5py.File(pred_file, "r+") as hf:
+                if "predictions" in hf and safe_old_name in hf["predictions"]:
+                    grp = hf["predictions"]
+                    # If dataset already exists at the destination, remove it first
+                    if safe_new_name in grp:
+                        del grp[safe_new_name]
+                    grp.move(safe_old_name, safe_new_name)
 
-        # update project settings
-        self._settings_manager.rename_behavior(old_name, new_name)
+    def _rename_behavior_multiclass_artifacts(self, old_name: str, new_name: str) -> None:
+        """Rename multi-class classifier and prediction artifacts for a behavior.
+
+        Multi-class mode stores a single classifier pickle and a single
+        prediction group shared across all behaviors; the behavior name is
+        recorded inside each (``MultiClassClassifier._behavior_names`` and the
+        per-video ``class_names`` dataset). These are updated in place so they
+        do not desync from the project settings after a rename.
+
+        Args:
+            old_name: current behavior name
+            new_name: new behavior name
+        """
+        # Imported here rather than at module scope because jabs.classifier
+        # imports jabs.project, so a top-level import would be circular.
+        from jabs.classifier import MultiClassClassifier
+
+        # update behavior name inside the saved multi-class classifier
+        classifier_path = self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
+        if classifier_path.exists():
+            classifier = MultiClassClassifier.from_pickle(classifier_path)
+            if old_name in classifier.behavior_names:
+                classifier.rename_behavior(old_name, new_name)
+                classifier.save(classifier_path)
+
+        # update the class_names dataset inside each video's prediction group
+        safe_multiclass_name = to_safe_name(MULTICLASS_PREDICTION_KEY)
+        for video in self._video_manager.videos:
+            pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
+            if not pred_file.exists():
+                continue
+            with h5py.File(pred_file, "r+") as hf:
+                group = hf.get(f"predictions/{safe_multiclass_name}")
+                if group is None or "class_names" not in group:
+                    continue
+                names = [
+                    v.decode("utf-8") if isinstance(v, bytes) else str(v)
+                    for v in group["class_names"][()]
+                ]
+                if old_name not in names:
+                    continue
+                names[names.index(old_name)] = new_name
+                del group["class_names"]
+                group.create_dataset(
+                    "class_names",
+                    data=np.array(names, dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
+                )

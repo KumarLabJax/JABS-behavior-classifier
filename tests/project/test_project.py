@@ -4,16 +4,19 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import h5py
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import pytest
 
+from jabs.classifier import MultiClassClassifier
 from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
 from jabs.core.utils import hide_stderr
 from jabs.project import Project, VideoLabels
+from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 from jabs.project.project_utils import to_safe_name
 from jabs.project.track_labels import TrackLabels
 
@@ -525,6 +528,50 @@ def test_overlapping_labels_multiple_videos_sorted(tmp_path: Path) -> None:
         },
     )
     assert project.get_overlapping_behavior_label_videos() == ["mmm.avi", "zzz.avi"]
+
+
+def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path: Path) -> None:
+    """In multi-class mode, rename updates the shared classifier and prediction class_names.
+
+    The single ``_multiclass.pickle`` and the per-video ``class_names`` dataset
+    are not behavior-keyed, so they must be updated in place rather than moved.
+    """
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    project.settings_manager.save_behavior("Walk", {})
+    project.settings_manager.save_behavior("Run", {})
+
+    # save a real multi-class classifier under the reserved filename
+    classifier_path = project.classifier_dir / "_multiclass.pickle"
+    MultiClassClassifier(["Walk", "Run"]).save(classifier_path)
+
+    # write a prediction file holding the shared multi-class class_names dataset
+    safe_multiclass = to_safe_name(MULTICLASS_PREDICTION_KEY)
+    pred_file = project.project_paths.prediction_dir / "video1.h5"
+    with h5py.File(pred_file, "w") as hf:
+        group = hf.create_group(f"predictions/{safe_multiclass}")
+        group.create_dataset(
+            "class_names",
+            data=np.array([MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"], dtype=object),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+
+    project.rename_behavior("Walk", "Standing")
+
+    # classifier behavior names updated in place (class index order preserved)
+    reloaded = MultiClassClassifier.from_pickle(classifier_path)
+    assert reloaded.behavior_names == ["Standing", "Run"]
+
+    # prediction class_names dataset updated, None class untouched
+    with h5py.File(pred_file, "r") as hf:
+        names = [v.decode("utf-8") for v in hf[f"predictions/{safe_multiclass}/class_names"][()]]
+    assert names == [MULTICLASS_NONE_BEHAVIOR, "Standing", "Run"]
+
+    # project settings reflect the rename
+    assert "Standing" in project.settings_manager.behavior_names
+    assert "Walk" not in project.settings_manager.behavior_names
 
 
 def test_get_multiclass_labeled_features_aligns_labels_and_features(
