@@ -1303,6 +1303,18 @@ class Project:
         if new_name in self._settings_manager.behavior_names:
             raise ValueError(f"Behavior {new_name} already exists in project")
 
+        # In multi-class mode "None" is a reserved background class that must not
+        # appear in the project's behavior list. Reject the rename here so it is
+        # caught even when no multi-class classifier has been trained/saved yet.
+        if (
+            self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+            and new_name == MULTICLASS_NONE_BEHAVIOR
+        ):
+            raise ValueError(
+                f"Cannot rename a behavior to the reserved multi-class name "
+                f"{MULTICLASS_NONE_BEHAVIOR!r}"
+            )
+
         # Classifier and prediction storage differs between modes, so update the
         # mode-specific artifacts separately.
         if self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
@@ -1378,6 +1390,9 @@ class Project:
             classifier = MultiClassClassifier.from_pickle(classifier_path)
             if old_name in classifier.behavior_names:
                 classifier.rename_behavior(old_name, new_name)
+                # The pickle's contents changed, so drop the stale file identity
+                # and let save() record a hash matching the rewritten file.
+                classifier.reset_persistence_identity()
                 classifier.save(classifier_path)
 
         # update the class_names dataset inside each video's prediction group

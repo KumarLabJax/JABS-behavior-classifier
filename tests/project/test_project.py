@@ -14,7 +14,7 @@ from jabs.classifier import MultiClassClassifier
 from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
-from jabs.core.utils import hide_stderr
+from jabs.core.utils import hash_file, hide_stderr
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 from jabs.project.project_utils import to_safe_name
@@ -564,6 +564,9 @@ def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path:
     reloaded = MultiClassClassifier.from_pickle(classifier_path)
     assert reloaded.behavior_names == ["Standing", "Run"]
 
+    # the rewritten pickle's recorded hash matches its new contents (not stale)
+    assert reloaded.classifier_hash == hash_file(classifier_path)
+
     # prediction class_names dataset updated, None class untouched
     with h5py.File(pred_file, "r") as hf:
         names = [v.decode("utf-8") for v in hf[f"predictions/{safe_multiclass}/class_names"][()]]
@@ -572,6 +575,28 @@ def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path:
     # project settings reflect the rename
     assert "Standing" in project.settings_manager.behavior_names
     assert "Walk" not in project.settings_manager.behavior_names
+
+
+def test_rename_behavior_multiclass_rejects_reserved_none_name(tmp_path: Path) -> None:
+    """In multi-class mode, renaming a behavior to the reserved "None" name is rejected.
+
+    The guard lives at the project level so it fires even when no multi-class
+    classifier has been trained/saved yet (the in-classifier validation would
+    otherwise be skipped).
+    """
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    project.settings_manager.save_behavior("Walk", {})
+
+    # No _multiclass.pickle exists, so the only protection is the project guard.
+    with pytest.raises(ValueError, match="reserved"):
+        project.rename_behavior("Walk", MULTICLASS_NONE_BEHAVIOR)
+
+    # behavior list is unchanged and never gained the reserved name
+    assert "Walk" in project.settings_manager.behavior_names
+    assert MULTICLASS_NONE_BEHAVIOR not in project.settings_manager.behavior_names
 
 
 def test_get_multiclass_labeled_features_aligns_labels_and_features(

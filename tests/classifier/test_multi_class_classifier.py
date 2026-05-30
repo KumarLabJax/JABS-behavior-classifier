@@ -549,6 +549,22 @@ class TestSaveLoad:
         with pytest.raises(ValueError, match="not an instance of MultiClassClassifier"):
             clf.load(path)
 
+    def test_reset_persistence_identity_refreshes_hash_on_resave(self, trained_clf, tmp_path):
+        """After mutating contents, reset + save records a hash matching the new file."""
+        from jabs.core.utils import hash_file
+
+        path = tmp_path / "multi.pkl"
+        trained_clf.save(path)
+        original_hash = trained_clf.classifier_hash
+
+        # mutate persisted content, then reset identity before re-saving
+        trained_clf.rename_behavior(BEHAVIOR_NAMES[0], "renamed")
+        trained_clf.reset_persistence_identity()
+        trained_clf.save(path)
+
+        assert trained_clf.classifier_hash != original_hash
+        assert trained_clf.classifier_hash == hash_file(path)
+
 
 # ---------------------------------------------------------------------------
 # leave_one_group_out / get_leave_one_group_out_max
