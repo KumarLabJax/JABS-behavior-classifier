@@ -621,18 +621,17 @@ class Project:
         prediction_labels = np.full(
             (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
         )
+        # Probability shape is determined by mode, not by sniffing a sample
+        # array: multi-class predictions (class_names provided) store one column
+        # per class, binary predictions store a scalar per frame. Deciding from
+        # class_names keeps the shape correct even when `probabilities` is empty
+        # (e.g. a video with no identities to classify).
         prediction_prob: np.ndarray
-        if probabilities:
-            sample_prob = next(iter(probabilities.values()))
-            if sample_prob.ndim == 1:
-                prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
-            elif sample_prob.ndim == 2:
-                prediction_prob = np.zeros(
-                    (pose_est.num_identities, pose_est.num_frames, sample_prob.shape[1]),
-                    dtype=np.float32,
-                )
-            else:
-                raise ValueError(f"Unsupported probability shape: {sample_prob.shape}")
+        if class_names is not None:
+            prediction_prob = np.zeros(
+                (pose_est.num_identities, pose_est.num_frames, len(class_names)),
+                dtype=np.float32,
+            )
         else:
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
