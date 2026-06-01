@@ -635,6 +635,12 @@ class Project:
         else:
             prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
 
+        # Expected per-identity probability shape; checked explicitly before
+        # assignment because allocating from class_names (rather than from the
+        # array itself) means a mis-shaped input could otherwise broadcast
+        # silently (e.g. (n_frames, 1) duplicated across classes).
+        expected_prob_shape = prediction_prob.shape[1:]
+
         if postprocessed_predictions:
             postprocessed_labels = np.full(
                 (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
@@ -644,8 +650,14 @@ class Project:
 
         # stack the numpy arrays
         for identity in predictions:
+            identity_prob = probabilities[identity]
+            if identity_prob.shape != expected_prob_shape:
+                raise ValueError(
+                    f"probability array for identity {identity} has shape "
+                    f"{identity_prob.shape}, expected {expected_prob_shape}"
+                )
             prediction_labels[identity] = predictions[identity]
-            prediction_prob[identity] = probabilities[identity]
+            prediction_prob[identity] = identity_prob
             if postprocessed_predictions:
                 postprocessed_labels[identity] = postprocessed_predictions[identity]
 

@@ -619,6 +619,30 @@ def test_save_predictions_multiclass_writes_per_class_probabilities(tmp_path: Pa
     np.testing.assert_allclose(probs[0], probabilities[0])
 
 
+def test_save_predictions_multiclass_rejects_misshaped_probabilities(tmp_path: Path) -> None:
+    """A per-identity probability array that doesn't match (n_frames, n_classes) raises.
+
+    Guards against a mis-shaped array (e.g. 1D or (n_frames, 1)) broadcasting
+    silently into the class-sized allocation instead of failing.
+    """
+    project = _bare_project(tmp_path)
+    class_names = [MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"]
+    predictions = {0: np.array([1, 0, 2], dtype=np.int8)}
+    # 1D probabilities would broadcast across the 3 class columns without a check
+    probabilities = {0: np.array([0.9, 0.4, 0.8], dtype=np.float32)}
+
+    with pytest.raises(ValueError, match="probability array for identity 0"):
+        project.save_predictions(
+            _prediction_test_pose(1, 3),
+            "video1.avi",
+            predictions,
+            probabilities,
+            MULTICLASS_PREDICTION_KEY,
+            _prediction_test_classifier(),
+            class_names=class_names,
+        )
+
+
 def test_save_predictions_binary_allocates_scalar_shape(tmp_path: Path) -> None:
     """Binary predictions (no class_names) allocate a 2D (n_id, n_frames) prob array."""
     project = _bare_project(tmp_path)
