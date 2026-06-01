@@ -1386,6 +1386,8 @@ class Project:
 
         # update behavior name inside the saved multi-class classifier
         classifier_path = self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
+        new_classifier_file: str | None = None
+        new_classifier_hash: str | None = None
         if classifier_path.exists():
             classifier = MultiClassClassifier.from_pickle(classifier_path)
             if old_name in classifier.behavior_names:
@@ -1394,6 +1396,10 @@ class Project:
                 # and let save() record a hash matching the rewritten file.
                 classifier.reset_persistence_identity()
                 classifier.save(classifier_path)
+                # Capture the rewritten pickle's identity so per-video prediction
+                # metadata can be repointed at the renamed classifier file.
+                new_classifier_file = classifier.classifier_file
+                new_classifier_hash = classifier.classifier_hash
 
         # update the class_names dataset inside each video's prediction group
         safe_multiclass_name = to_safe_name(MULTICLASS_PREDICTION_KEY)
@@ -1418,3 +1424,11 @@ class Project:
                     data=np.array(names, dtype=object),
                     dtype=h5py.string_dtype(encoding="utf-8"),
                 )
+                # The rename re-saved the classifier with a new content hash, so
+                # repoint this group's classifier metadata at the rewritten file;
+                # the predictions themselves remain valid (only a class name
+                # changed). Skipped when no classifier pickle was re-saved.
+                if new_classifier_file is not None:
+                    group.attrs["classifier_file"] = new_classifier_file
+                if new_classifier_hash is not None:
+                    group.attrs["classifier_hash"] = new_classifier_hash

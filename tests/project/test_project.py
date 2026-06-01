@@ -548,10 +548,13 @@ def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path:
     MultiClassClassifier(["Walk", "Run"]).save(classifier_path)
 
     # write a prediction file holding the shared multi-class class_names dataset
+    # plus stale classifier metadata referencing the pre-rename pickle
     safe_multiclass = to_safe_name(MULTICLASS_PREDICTION_KEY)
     pred_file = project.project_paths.prediction_dir / "video1.h5"
     with h5py.File(pred_file, "w") as hf:
         group = hf.create_group(f"predictions/{safe_multiclass}")
+        group.attrs["classifier_file"] = "_multiclass.pickle"
+        group.attrs["classifier_hash"] = "stale-pre-rename-hash"
         group.create_dataset(
             "class_names",
             data=np.array([MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"], dtype=object),
@@ -567,9 +570,13 @@ def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path:
     # the rewritten pickle's recorded hash matches its new contents (not stale)
     assert reloaded.classifier_hash == hash_file(classifier_path)
 
-    # prediction class_names dataset updated, None class untouched
+    # prediction class_names dataset updated, None class untouched, and the
+    # group's classifier metadata repointed at the rewritten pickle
     with h5py.File(pred_file, "r") as hf:
-        names = [v.decode("utf-8") for v in hf[f"predictions/{safe_multiclass}/class_names"][()]]
+        group = hf[f"predictions/{safe_multiclass}"]
+        names = [v.decode("utf-8") for v in group["class_names"][()]]
+        assert group.attrs["classifier_hash"] == reloaded.classifier_hash
+        assert group.attrs["classifier_file"] == reloaded.classifier_file
     assert names == [MULTICLASS_NONE_BEHAVIOR, "Standing", "Run"]
 
     # project settings reflect the rename
