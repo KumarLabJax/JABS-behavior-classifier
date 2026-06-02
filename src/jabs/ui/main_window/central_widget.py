@@ -358,6 +358,11 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
+        # The reserved "None"-track counts are behavior-independent, so they are
+        # cached across behavior changes and only invalidated when the project
+        # changes (they belong to the previous project here).
+        self._none_counts = None
+
         self._controls.update_project_settings(project.settings)
         self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
         self._search_bar_widget.update_project(project)
@@ -608,9 +613,6 @@ class CentralWidget(QtWidgets.QWidget):
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
-        # invalidate cached "None"-track counts; reloaded lazily by
-        # _update_label_counts when in multi-class mode
-        self._none_counts = None
         self._update_label_counts()
 
         # load saved predictions
