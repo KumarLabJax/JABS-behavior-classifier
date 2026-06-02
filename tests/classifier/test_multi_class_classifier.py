@@ -245,6 +245,45 @@ def test_get_class_names():
 
 
 # ---------------------------------------------------------------------------
+# rename_behavior
+# ---------------------------------------------------------------------------
+
+
+class TestRenameBehavior:
+    """Renaming a behavior preserves class-index order and validates inputs."""
+
+    def test_rename_preserves_class_index(self):
+        """Renaming keeps the behavior's position (and therefore class index)."""
+        clf = MultiClassClassifier(["walking", "rearing", "grooming"])
+        clf.rename_behavior("rearing", "standing")
+        assert clf.behavior_names == ["walking", "standing", "grooming"]
+        assert clf.get_class_names() == [
+            MULTICLASS_NONE_BEHAVIOR,
+            "walking",
+            "standing",
+            "grooming",
+        ]
+
+    def test_rename_unknown_behavior_raises(self):
+        """Renaming a behavior not in the classifier raises ValueError."""
+        clf = MultiClassClassifier(["walking", "rearing"])
+        with pytest.raises(ValueError, match="not known"):
+            clf.rename_behavior("missing", "standing")
+
+    def test_rename_to_existing_behavior_raises(self):
+        """Renaming to a name already present raises ValueError."""
+        clf = MultiClassClassifier(["walking", "rearing"])
+        with pytest.raises(ValueError, match="already exists"):
+            clf.rename_behavior("walking", "rearing")
+
+    def test_rename_to_reserved_name_raises(self):
+        """Renaming to the reserved None name raises ValueError."""
+        clf = MultiClassClassifier(["walking", "rearing"])
+        with pytest.raises(ValueError, match="reserved"):
+            clf.rename_behavior("walking", MULTICLASS_NONE_BEHAVIOR)
+
+
+# ---------------------------------------------------------------------------
 # Classifier compatibility surface
 # ---------------------------------------------------------------------------
 
@@ -509,6 +548,22 @@ class TestSaveLoad:
         clf = MultiClassClassifier(BEHAVIOR_NAMES)
         with pytest.raises(ValueError, match="not an instance of MultiClassClassifier"):
             clf.load(path)
+
+    def test_reset_persistence_identity_refreshes_hash_on_resave(self, trained_clf, tmp_path):
+        """After mutating contents, reset + save records a hash matching the new file."""
+        from jabs.core.utils import hash_file
+
+        path = tmp_path / "multi.pkl"
+        trained_clf.save(path)
+        original_hash = trained_clf.classifier_hash
+
+        # mutate persisted content, then reset identity before re-saving
+        trained_clf.rename_behavior(BEHAVIOR_NAMES[0], "renamed")
+        trained_clf.reset_persistence_identity()
+        trained_clf.save(path)
+
+        assert trained_clf.classifier_hash != original_hash
+        assert trained_clf.classifier_hash == hash_file(path)
 
 
 # ---------------------------------------------------------------------------
