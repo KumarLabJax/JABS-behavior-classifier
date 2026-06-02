@@ -144,8 +144,16 @@ class MultiClassClassifier(BaseClassifier):
 
         self._behavior_names[self._behavior_names.index(old_name)] = new_name
 
-    def set_project_settings(self, project) -> None:
-        """Copy project defaults as classifier settings."""
+    def set_project_settings(self, project, behavior: str | None = None) -> None:
+        """Copy project defaults as classifier settings.
+
+        Args:
+            project: Project to copy default settings from.
+            behavior: Unused; accepted only for signature parity with
+                ``Classifier.set_project_settings``. Multi-class mode trains a
+                single shared classifier with no behavior to scope to, so
+                project-level defaults are always used.
+        """
         self._project_settings = dict(project.get_project_defaults())
 
     def train(self, data: dict, random_seed: int | None = None) -> None:

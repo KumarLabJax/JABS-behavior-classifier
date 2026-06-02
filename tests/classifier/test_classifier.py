@@ -559,6 +559,24 @@ class TestClassifierSettings:
         assert clf.project_settings is not None
         mock_project.get_project_defaults.assert_called_once()
 
+    def test_set_project_settings_explicit_behavior_overrides_attribute(self, mock_project):
+        """An explicit behavior argument scopes settings without relying on behavior_name."""
+        clf = Classifier()
+        # behavior_name intentionally left unset to prove the argument is used
+        clf.set_project_settings(mock_project, "Rearing")
+
+        mock_project.settings_manager.get_behavior.assert_called_with("Rearing")
+        mock_project.get_project_defaults.assert_not_called()
+
+    def test_set_project_settings_explicit_behavior_preferred_over_attribute(self, mock_project):
+        """The explicit behavior argument takes precedence over behavior_name."""
+        clf = Classifier()
+        clf.behavior_name = "Grooming"
+
+        clf.set_project_settings(mock_project, "Walking")
+
+        mock_project.settings_manager.get_behavior.assert_called_with("Walking")
+
     def test_set_dict_settings(self):
         """Test setting project settings via dictionary."""
         clf = Classifier()

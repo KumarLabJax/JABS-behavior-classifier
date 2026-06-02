@@ -50,7 +50,7 @@ class _MultiClassCVClassifier:
             "feature_names": ["f"],
         }
 
-    def set_project_settings(self, _project) -> None:
+    def set_project_settings(self, _project, _behavior=None) -> None:
         self.set_project_settings_calls += 1
 
     def train(self, data: dict) -> None:

@@ -171,19 +171,23 @@ class Classifier(BaseClassifier):
         """Augment features with left/right reflected duplicates."""
         return classifier_utils.augment_symmetric(features, labels, random_str)
 
-    def set_project_settings(self, project: Project) -> None:
+    def set_project_settings(self, project: Project, behavior: str | None = None) -> None:
         """Assign project settings to the classifier.
-
-        If no behavior is currently set, uses project defaults; otherwise looks
-        up the behavior-scoped settings from the project's settings manager.
 
         Args:
             project: Project to copy classifier-relevant settings from.
+            behavior: Behavior to scope settings to. Defaults to this
+                classifier's current ``behavior_name`` when not given. When no
+                behavior can be resolved, project-level defaults are used
+                instead of behavior-scoped settings. Passing ``behavior``
+                explicitly avoids the historical requirement to set
+                ``behavior_name`` before calling this method.
         """
-        if self._behavior is None:
+        effective_behavior = behavior if behavior is not None else self._behavior
+        if effective_behavior is None:
             self._project_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.settings_manager.get_behavior(self._behavior)
+            self._project_settings = project.settings_manager.get_behavior(effective_behavior)
 
     def train(self, data: dict, random_seed: int | None = None) -> None:
         """Train the classifier.
