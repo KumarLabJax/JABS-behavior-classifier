@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 _CLASSIFIER_MODE_LABELS: dict[ClassifierMode, str] = {
     ClassifierMode.BINARY: "Binary",
-    ClassifierMode.MULTICLASS: "Multi-class",
+    ClassifierMode.MULTICLASS: "Multi-class (Preview)",
 }
 
 
@@ -50,16 +50,21 @@ class ClassifierModeSettingsGroup(SettingsGroup):
             or a single multi-class classifier across all behaviors simultaneously.</p>
 
             <ul>
-              <li><b>Binary (default):</b> Trains one independent binary classifier for 
+              <li><b>Binary (default):</b> Trains one independent binary classifier for
               the currently active behavior. Each classifier predicts whether a given
               frame contains that behavior or not. This is the standard JABS mode and
               works well for non-exclusive behaviors.</li>
 
-              <li><b>Multi-class:</b> Trains a single classifier across all annotated
-              behaviors at once. The classifier assigns each frame to exactly one behavior
-              class (or background). Multi-class mode is appropriate when behaviors are
-              mutually exclusive.</li>
+              <li><b>Multi-class (Preview):</b> Trains a single classifier across all
+              annotated behaviors at once. The classifier assigns each frame to exactly
+              one behavior class (or background). Multi-class mode is appropriate when
+              behaviors are mutually exclusive.</li>
             </ul>
+
+            <p><b>Preview feature:</b> Multi-class mode is under active development and is
+            provided as a preview. Some capabilities are not yet available (for example,
+            prediction post-processing is not applied to multi-class predictions), and its
+            behavior, stored data, and settings may change in upcoming JABS releases.</p>
 
             <p><b>Note:</b> In multi-class mode, behaviors must be mutually exclusive.
             Frames labeled with more than one behavior simultaneously will cause a conflict and must be resolved before training.</p>

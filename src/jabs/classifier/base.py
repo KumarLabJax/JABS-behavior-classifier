@@ -223,6 +223,20 @@ class BaseClassifier:
         feature_importance.sort(key=lambda x: x[1], reverse=True)
         return feature_importance[:limit]
 
+    def reset_persistence_identity(self) -> None:
+        """Clear the recorded file identity (path, hash, source).
+
+        ``save()`` only (re)computes ``_classifier_hash`` when
+        ``_classifier_file`` is ``None``, so an already-persisted classifier
+        keeps its previous hash even if its contents change. Call this after
+        mutating persisted state (e.g. renaming a class) so the next ``save()``
+        records a hash matching the rewritten file. ``train()`` performs the
+        same null-out after refitting.
+        """
+        self._classifier_file = None
+        self._classifier_hash = None
+        self._classifier_source = None
+
     def save(self, path: Path) -> None:
         """Serialize the classifier to disk using joblib.
 

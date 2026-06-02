@@ -3,9 +3,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from jabs.core.constants import CLASSIFIER_MODE_KEY
+from jabs.core.enums import ClassifierMode
+
 try:
     from PySide6.QtWidgets import QApplication
 
+    from jabs.ui.settings_dialog.classifier_mode_settings_group import (
+        ClassifierModeSettingsGroup,
+    )
     from jabs.ui.settings_dialog.settings_dialog import _OverlapCheckThread
 
     SKIP_UI_TESTS = False
@@ -64,3 +70,14 @@ def test_overlap_check_thread_emits_error_on_exception() -> None:
 
     assert emitted_results == []
     assert emitted_errors == [expected_error]
+
+
+def test_classifier_mode_group_roundtrips_enum_not_label() -> None:
+    """Set/get bind to the ClassifierMode value, independent of the display label."""
+    group = ClassifierModeSettingsGroup()
+
+    group.set_values({CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value})
+    assert group.get_values() == {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS}
+
+    group.set_values({CLASSIFIER_MODE_KEY: ClassifierMode.BINARY.value})
+    assert group.get_values() == {CLASSIFIER_MODE_KEY: ClassifierMode.BINARY}
