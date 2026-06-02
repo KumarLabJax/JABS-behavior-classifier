@@ -118,8 +118,42 @@ class MultiClassClassifier(BaseClassifier):
         """
         return [MULTICLASS_NONE_BEHAVIOR, *self._behavior_names]
 
-    def set_project_settings(self, project) -> None:
-        """Copy project defaults as classifier settings."""
+    def rename_behavior(self, old_name: str, new_name: str) -> None:
+        """Rename a behavior class in place, preserving class-index order.
+
+        The behavior keeps its existing class index, so a previously trained
+        model and any saved predictions referencing that index remain valid.
+
+        Args:
+            old_name: Current behavior name. Must be one of ``behavior_names``.
+            new_name: Replacement name. Must not already be present and must not
+                collide with the reserved ``MULTICLASS_NONE_BEHAVIOR`` name.
+
+        Raises:
+            ValueError: If ``old_name`` is not a known behavior, if ``new_name``
+                is already present, or if ``new_name`` is the reserved name.
+        """
+        if old_name not in self._behavior_names:
+            raise ValueError(f"behavior {old_name!r} is not known to this classifier")
+        if new_name == MULTICLASS_NONE_BEHAVIOR:
+            raise ValueError(
+                f"new behavior name must not be the reserved name {MULTICLASS_NONE_BEHAVIOR!r}"
+            )
+        if new_name in self._behavior_names:
+            raise ValueError(f"behavior {new_name!r} already exists")
+
+        self._behavior_names[self._behavior_names.index(old_name)] = new_name
+
+    def set_project_settings(self, project, behavior: str | None = None) -> None:
+        """Copy project defaults as classifier settings.
+
+        Args:
+            project: Project to copy default settings from.
+            behavior: Unused; accepted only for signature parity with
+                ``Classifier.set_project_settings``. Multi-class mode trains a
+                single shared classifier with no behavior to scope to, so
+                project-level defaults are always used.
+        """
         self._project_settings = dict(project.get_project_defaults())
 
     def train(self, data: dict, random_seed: int | None = None) -> None:

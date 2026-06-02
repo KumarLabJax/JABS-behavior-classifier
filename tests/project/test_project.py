@@ -10,10 +10,11 @@ import numpy.typing as npt
 import pandas as pd
 import pytest
 
+from jabs.classifier import MultiClassClassifier
 from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierMode
-from jabs.core.utils import hide_stderr
+from jabs.core.utils import hash_file, hide_stderr
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
 from jabs.project.project_utils import to_safe_name
@@ -660,6 +661,82 @@ def test_save_predictions_binary_allocates_scalar_shape(tmp_path: Path) -> None:
 
     with h5py.File(project.project_paths.prediction_dir / "video1.h5", "r") as hf:
         assert hf["predictions/Walk/probabilities"].shape == (1, 3)
+
+
+def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path: Path) -> None:
+    """In multi-class mode, rename updates the shared classifier and prediction class_names.
+
+    The single ``_multiclass.pickle`` and the per-video ``class_names`` dataset
+    are not behavior-keyed, so they must be updated in place rather than moved.
+    """
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    project.settings_manager.save_behavior("Walk", {})
+    project.settings_manager.save_behavior("Run", {})
+
+    # save a real multi-class classifier under the reserved filename
+    classifier_path = project.classifier_dir / "_multiclass.pickle"
+    MultiClassClassifier(["Walk", "Run"]).save(classifier_path)
+
+    # write a prediction file holding the shared multi-class class_names dataset
+    # plus stale classifier metadata referencing the pre-rename pickle
+    safe_multiclass = to_safe_name(MULTICLASS_PREDICTION_KEY)
+    pred_file = project.project_paths.prediction_dir / "video1.h5"
+    with h5py.File(pred_file, "w") as hf:
+        group = hf.create_group(f"predictions/{safe_multiclass}")
+        group.attrs["classifier_file"] = "_multiclass.pickle"
+        group.attrs["classifier_hash"] = "stale-pre-rename-hash"
+        group.create_dataset(
+            "class_names",
+            data=np.array([MULTICLASS_NONE_BEHAVIOR, "Walk", "Run"], dtype=object),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+
+    project.rename_behavior("Walk", "Standing")
+
+    # classifier behavior names updated in place (class index order preserved)
+    reloaded = MultiClassClassifier.from_pickle(classifier_path)
+    assert reloaded.behavior_names == ["Standing", "Run"]
+
+    # the rewritten pickle's recorded hash matches its new contents (not stale)
+    assert reloaded.classifier_hash == hash_file(classifier_path)
+
+    # prediction class_names dataset updated, None class untouched, and the
+    # group's classifier metadata repointed at the rewritten pickle
+    with h5py.File(pred_file, "r") as hf:
+        group = hf[f"predictions/{safe_multiclass}"]
+        names = [v.decode("utf-8") for v in group["class_names"][()]]
+        assert group.attrs["classifier_hash"] == reloaded.classifier_hash
+        assert group.attrs["classifier_file"] == reloaded.classifier_file
+    assert names == [MULTICLASS_NONE_BEHAVIOR, "Standing", "Run"]
+
+    # project settings reflect the rename
+    assert "Standing" in project.settings_manager.behavior_names
+    assert "Walk" not in project.settings_manager.behavior_names
+
+
+def test_rename_behavior_multiclass_rejects_reserved_none_name(tmp_path: Path) -> None:
+    """In multi-class mode, renaming a behavior to the reserved "None" name is rejected.
+
+    The guard lives at the project level so it fires even when no multi-class
+    classifier has been trained/saved yet (the in-classifier validation would
+    otherwise be skipped).
+    """
+    project = _make_project_with_mock_vm(tmp_path, {"video1.avi": None})
+    project.settings_manager.save_project_file(
+        {"settings": {CLASSIFIER_MODE_KEY: ClassifierMode.MULTICLASS.value}}
+    )
+    project.settings_manager.save_behavior("Walk", {})
+
+    # No _multiclass.pickle exists, so the only protection is the project guard.
+    with pytest.raises(ValueError, match="reserved"):
+        project.rename_behavior("Walk", MULTICLASS_NONE_BEHAVIOR)
+
+    # behavior list is unchanged and never gained the reserved name
+    assert "Walk" in project.settings_manager.behavior_names
+    assert MULTICLASS_NONE_BEHAVIOR not in project.settings_manager.behavior_names
 
 
 def test_get_multiclass_labeled_features_aligns_labels_and_features(

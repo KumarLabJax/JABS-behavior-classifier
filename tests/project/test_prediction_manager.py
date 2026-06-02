@@ -228,6 +228,60 @@ def test_load_multiclass_predictions_invalid_shape_returns_empty(
     assert class_names is None
 
 
+def test_load_predictions_rejects_multiclass_record(
+    prediction_manager,
+    mock_project,
+    mock_pose,
+    mock_classifier,
+) -> None:
+    """A binary load of a record carrying class_names raises instead of returning bad shapes."""
+    prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
+    behavior = "Walking"
+    predictions = np.array([[1, 0, -1], [2, 1, -1]], dtype=np.int8)
+    probabilities = np.zeros((2, 3, 3), dtype=np.float32)
+
+    # Write a multi-class-shaped record (class_names + 3-D probabilities) under
+    # a plain behavior key to simulate a cross-mode read.
+    PredictionManager.write_predictions(
+        behavior,
+        prediction_file,
+        predictions,
+        probabilities,
+        mock_pose,
+        mock_classifier,
+        class_names=["None", "Walking", "Rearing"],
+    )
+
+    with pytest.raises(ValueError, match="binary"):
+        prediction_manager.load_predictions("test_video.avi", behavior)
+
+
+def test_load_multiclass_predictions_rejects_binary_record(
+    prediction_manager,
+    mock_project,
+    mock_pose,
+    mock_classifier,
+) -> None:
+    """A multi-class load of a binary record (no class_names) raises instead of mis-shaping."""
+    prediction_file = mock_project.project_paths.prediction_dir / "test_video.h5"
+    predictions = np.array([[1, 0, -1], [0, 1, -1]], dtype=np.int8)
+    probabilities = np.array([[0.9, 0.8, -1], [0.7, 0.6, -1]], dtype=np.float32)
+
+    # Write a binary-shaped record (no class_names, 2-D probabilities) under the
+    # reserved multi-class key.
+    PredictionManager.write_predictions(
+        MULTICLASS_PREDICTION_KEY,
+        prediction_file,
+        predictions,
+        probabilities,
+        mock_pose,
+        mock_classifier,
+    )
+
+    with pytest.raises(ValueError, match="multi-class"):
+        prediction_manager.load_multiclass_predictions("test_video.avi")
+
+
 def test_load_predictions_missing_behavior(prediction_manager, mock_project):
     """Test loading predictions when behavior is missing."""
     video = "test_video.avi"

@@ -107,6 +107,7 @@ class PredictionManager:
         predictions, probabilities, postprocessed_predictions, _ = self._load_prediction_record(
             video,
             behavior,
+            expect_multiclass=False,
         )
 
         return predictions, probabilities, postprocessed_predictions
@@ -128,14 +129,36 @@ class PredictionManager:
             names. Missing predictions return empty dicts and ``None`` for
             class names.
         """
-        return self._load_prediction_record(video, MULTICLASS_PREDICTION_KEY)
+        return self._load_prediction_record(
+            video, MULTICLASS_PREDICTION_KEY, expect_multiclass=True
+        )
 
     def _load_prediction_record(
-        self, video: str, behavior: str
+        self, video: str, behavior: str, *, expect_multiclass: bool
     ) -> tuple[
         dict[int, np.ndarray], dict[int, np.ndarray], dict[int, np.ndarray], list[str] | None
     ]:
-        """Load one prediction record from a video's prediction file."""
+        """Load one prediction record from a video's prediction file.
+
+        Args:
+            video: name of the video to load predictions for.
+            behavior: behavior key (or ``MULTICLASS_PREDICTION_KEY``) to load.
+            expect_multiclass: whether the caller expects a multi-class record.
+                Multi-class records carry a ``class_names`` list and 3D
+                probabilities; binary records do not. A mismatch (e.g. a binary
+                caller reading a multi-class file) yields probabilities with the
+                wrong dimensionality, so it is rejected here rather than returned
+                silently.
+
+        Returns:
+            Tuple of (predictions, probabilities, postprocessed_predictions,
+            class_names) keyed by identity. Missing predictions return empty
+            dicts and ``None`` for class names.
+
+        Raises:
+            ValueError: If the stored record's mode does not match
+                ``expect_multiclass``.
+        """
         predictions = {}
         probabilities = {}
         postprocessed_predictions = {}
@@ -159,6 +182,19 @@ class PredictionManager:
             if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
                 print(f"unable to open saved inferences for {video}", file=sys.stderr)
                 return {}, {}, {}, None
+
+            # Guard against reading a record in the wrong mode: multi-class
+            # records carry class_names (and 3D probabilities), binary records
+            # do not. Reading across modes would silently return mis-shaped data.
+            record_is_multiclass = pred.class_names is not None
+            if record_is_multiclass != expect_multiclass:
+                expected = "multi-class" if expect_multiclass else "binary"
+                found = "multi-class" if record_is_multiclass else "binary"
+                raise ValueError(
+                    f"Expected {expected} predictions for {behavior!r} in {video!r}, "
+                    f"but the stored record is {found}."
+                )
+
             class_names = pred.class_names
 
             for i in range(nident):

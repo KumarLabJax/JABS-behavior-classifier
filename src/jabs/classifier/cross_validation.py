@@ -87,8 +87,8 @@ def _train_binary_fold(
     data: dict,
 ) -> None:
     """Train a binary classifier on the training portion of one CV fold."""
-    classifier.set_project_settings(project)
     classifier.behavior_name = behavior
+    classifier.set_project_settings(project, behavior)
     classifier.train(data)
 
 
