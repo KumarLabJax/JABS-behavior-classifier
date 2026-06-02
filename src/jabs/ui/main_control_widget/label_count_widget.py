@@ -47,6 +47,16 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         frame_header = QtWidgets.QLabel("Frames")
         bout_header = QtWidgets.QLabel("Bouts")
 
+        # Row-header labels for the positive ("Behavior") and negative
+        # ("Not Behavior") classes. Kept as instance attributes so the text can
+        # be retitled per classifier mode (e.g. the selected behavior name and
+        # "None" in multi-class mode); see set_class_labels().
+        self._positive_row_labels = [QtWidgets.QLabel("Behavior"), QtWidgets.QLabel("Behavior")]
+        self._negative_row_labels = [
+            QtWidgets.QLabel("Not Behavior"),
+            QtWidgets.QLabel("Not Behavior"),
+        ]
+
         layout = QtWidgets.QGridLayout()
         layout.setSpacing(2)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -55,13 +65,13 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         layout.addWidget(frame_header, 0, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(QtWidgets.QLabel("Subject"), 1, 1, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addWidget(QtWidgets.QLabel("Total"), 1, 2, alignment=Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(QtWidgets.QLabel("Behavior"), 2, 0)
-        layout.addWidget(QtWidgets.QLabel("Not Behavior"), 3, 0)
+        layout.addWidget(self._positive_row_labels[0], 2, 0)
+        layout.addWidget(self._negative_row_labels[0], 3, 0)
         layout.addWidget(bout_header, 4, 0, 1, 3, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(QtWidgets.QLabel("Subject"), 5, 1, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addWidget(QtWidgets.QLabel("Total"), 5, 2, alignment=Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(QtWidgets.QLabel("Behavior"), 6, 0)
-        layout.addWidget(QtWidgets.QLabel("Not Behavior"), 7, 0)
+        layout.addWidget(self._positive_row_labels[1], 6, 0)
+        layout.addWidget(self._negative_row_labels[1], 7, 0)
 
         # add labels containing counts to grid
         layout.addWidget(
@@ -114,6 +124,21 @@ class FrameLabelCountWidget(QtWidgets.QWidget):
         )
 
         self.setLayout(layout)
+
+    def set_class_labels(self, positive_label: str, negative_label: str) -> None:
+        """Retitle the positive/negative row headers.
+
+        Binary mode uses "Behavior"/"Not Behavior"; multi-class mode uses the
+        selected behavior name and the reserved background class name ("None").
+
+        Args:
+            positive_label: text for the behavior (positive) rows.
+            negative_label: text for the not-behavior (negative) rows.
+        """
+        for label in self._positive_row_labels:
+            label.setText(positive_label)
+        for label in self._negative_row_labels:
+            label.setText(negative_label)
 
     def set_counts(
         self,

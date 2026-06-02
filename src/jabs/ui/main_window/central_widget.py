@@ -155,6 +155,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = None
 
         self._counts = None
+        # project-wide counts for the reserved "None" background track, used to
+        # source the negative-class row of the label summary in multi-class mode
+        self._none_counts = None
         self._bouts_behavior = 0
         self._bouts_not_behavior = 0
 
@@ -605,6 +608,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         # get label/bout counts for the current project
         self._counts = self._project.counts(self.behavior)
+        # invalidate cached "None"-track counts; reloaded lazily by
+        # _update_label_counts when in multi-class mode
+        self._none_counts = None
         self._update_label_counts()
 
         # load saved predictions
@@ -1394,10 +1400,23 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
+        multiclass = self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+
         # update counts for the current video
         self._counts[self._loaded_video.name] = self._project.load_counts(
             self._loaded_video.name, self.behavior
         )
+
+        # In multi-class mode the negative class shown in the label summary is
+        # the reserved "None" background track (explicit negatives are stored
+        # there), not the selected behavior's NOT_BEHAVIOR labels. Load and
+        # refresh those counts in parallel with the behavior counts.
+        if multiclass:
+            if self._none_counts is None:
+                self._none_counts = self._project.counts(MULTICLASS_NONE_BEHAVIOR)
+            self._none_counts[self._loaded_video.name] = self._project.load_counts(
+                self._loaded_video.name, MULTICLASS_NONE_BEHAVIOR
+            )
 
         current_identity = self._controls.current_identity_index
 
@@ -1411,17 +1430,42 @@ class CentralWidget(QtWidgets.QWidget):
         bout_not_behavior_project = 0
 
         for video, video_counts in self._counts.items():
+            none_video_counts = self._none_counts.get(video, {}) if multiclass else {}
             for identity, counts in video_counts.items():
-                label_behavior_project += counts["unfragmented_frame_counts"][0]
-                label_not_behavior_project += counts["unfragmented_frame_counts"][1]
-                bout_behavior_project += counts["unfragmented_bout_counts"][0]
-                bout_not_behavior_project += counts["unfragmented_bout_counts"][1]
+                behavior_frames = counts["unfragmented_frame_counts"][0]
+                behavior_bouts = counts["unfragmented_bout_counts"][0]
+
+                if multiclass:
+                    # negative class = BEHAVIOR labels on the "None" track
+                    none_counts = none_video_counts.get(identity)
+                    negative_frames = (
+                        none_counts["unfragmented_frame_counts"][0] if none_counts else 0
+                    )
+                    negative_bouts = (
+                        none_counts["unfragmented_bout_counts"][0] if none_counts else 0
+                    )
+                else:
+                    # negative class = NOT_BEHAVIOR labels on the selected behavior
+                    negative_frames = counts["unfragmented_frame_counts"][1]
+                    negative_bouts = counts["unfragmented_bout_counts"][1]
+
+                label_behavior_project += behavior_frames
+                label_not_behavior_project += negative_frames
+                bout_behavior_project += behavior_bouts
+                bout_not_behavior_project += negative_bouts
 
                 if video == self._loaded_video.name and identity == current_identity:
-                    label_behavior_current = counts["unfragmented_frame_counts"][0]
-                    label_not_behavior_current = counts["unfragmented_frame_counts"][1]
-                    bout_behavior_current = counts["unfragmented_bout_counts"][0]
-                    bout_not_behavior_current = counts["unfragmented_bout_counts"][1]
+                    label_behavior_current = behavior_frames
+                    label_not_behavior_current = negative_frames
+                    bout_behavior_current = behavior_bouts
+                    bout_not_behavior_current = negative_bouts
+
+        # retitle the summary rows: behavior name / "None" in multi-class mode,
+        # the standard "Behavior" / "Not Behavior" otherwise
+        if multiclass:
+            self._controls.set_label_summary_class_labels(self.behavior, MULTICLASS_NONE_BEHAVIOR)
+        else:
+            self._controls.set_label_summary_class_labels("Behavior", "Not Behavior")
 
         self._controls.set_frame_counts(
             label_behavior_current,

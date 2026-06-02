@@ -408,6 +408,10 @@ class MainControlWidget(QtWidgets.QWidget):
             # unable to use the classifier
             pass
 
+    def set_label_summary_class_labels(self, positive_label: str, negative_label: str) -> None:
+        """retitle the label summary's positive/negative row headers"""
+        self._frame_counts.set_class_labels(positive_label, negative_label)
+
     def set_frame_counts(
         self,
         label_behavior_current,
