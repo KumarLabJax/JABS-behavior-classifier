@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import pytest
 
+from jabs.core.utils import to_safe_name
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 
 
@@ -206,7 +207,9 @@ def test_load_multiclass_predictions_invalid_shape_returns_empty(
         h5.attrs["pose_file"] = "test_pose.h5"
         h5.attrs["pose_hash"] = "testhash"
         prediction_group = h5.create_group("predictions")
-        behavior_group = prediction_group.create_group(MULTICLASS_PREDICTION_KEY)
+        # write under the on-disk safe name so the loader actually finds the
+        # group and exercises the invalid-schema (ValueError) fallback path
+        behavior_group = prediction_group.create_group(to_safe_name(MULTICLASS_PREDICTION_KEY))
         behavior_group.attrs["app_version"] = "1.0.0"
         behavior_group.attrs["prediction_date"] = "2025-01-01"
         behavior_group.create_dataset("predicted_class", data=[[1, 0, -1], [0, 1, -1]])

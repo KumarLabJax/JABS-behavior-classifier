@@ -45,9 +45,17 @@ def _prepare_cv_labels(
         return features["labels"], None, None
 
     behavior_names = list(getattr(classifier, "behavior_names", []))
-    labels, _ = classifier_utils.merge_labels(features["labels_by_behavior"], behavior_names)
     class_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
     multiclass_settings = classifier.project_settings or project.get_project_defaults()
+
+    labels_by_behavior = features["labels_by_behavior"]
+    if not labels_by_behavior:
+        # No labeled frames yet: return an empty label array so the caller finds
+        # no valid CV splits and skips cross-validation, mirroring the binary
+        # path, rather than letting merge_labels() raise on empty input.
+        return np.empty(0, dtype=np.intp), class_names, multiclass_settings
+
+    labels, _ = classifier_utils.merge_labels(labels_by_behavior, behavior_names)
     return labels, class_names, multiclass_settings
 
 

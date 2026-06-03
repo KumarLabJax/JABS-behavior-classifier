@@ -65,6 +65,52 @@ class _MultiClassCVClassifier:
         return []
 
 
+class _EmptyMultiClassClassifier:
+    """Multiclass test double reporting no valid splits (no labeled frames)."""
+
+    def __init__(self):
+        self.behavior_names = ["Walk"]
+
+    @property
+    def project_settings(self) -> dict:
+        return {"window_size": 5}
+
+    @staticmethod
+    def get_leave_one_group_out_max(_labels, _groups) -> int:
+        return 0
+
+    @staticmethod
+    def leave_one_group_out(*_args, **_kwargs):
+        raise AssertionError("leave_one_group_out should not be called when max splits is zero")
+
+
+def test_multiclass_cv_skips_when_no_labels() -> None:
+    """Empty labels_by_behavior should skip CV gracefully rather than raise.
+
+    merge_labels() raises on an empty dict; _prepare_cv_labels must short-circuit
+    so the multiclass path mirrors the binary "no valid splits" behavior.
+    """
+    features = {
+        "per_frame": pd.DataFrame({"a": []}),
+        "window": pd.DataFrame({"b": []}),
+        "groups": np.array([], dtype=np.int32),
+        "labels_by_behavior": {},
+    }
+    status_messages: list[str] = []
+    results = run_leave_one_group_out_cv(
+        classifier=_EmptyMultiClassClassifier(),
+        project=type("P", (), {"get_project_defaults": lambda self: {"window_size": 5}})(),
+        features=features,
+        group_mapping={},
+        behavior="Walk",
+        k=1,
+        status_callback=status_messages.append,
+    )
+
+    assert results == []
+    assert any("skipping CV" in msg for msg in status_messages)
+
+
 def test_run_leave_one_group_out_cv_returns_empty_when_no_valid_splits() -> None:
     """No valid CV splits should not raise; CV is skipped with empty results."""
     features = {
