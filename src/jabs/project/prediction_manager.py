@@ -177,34 +177,41 @@ class PredictionManager:
 
         try:
             pred = io.load(path, BehaviorPrediction, behavior=behavior)
-            if nident is None or nident <= 0:
-                nident = pred.predicted_class.shape[0]
-            if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
-                print(f"unable to open saved inferences for {video}", file=sys.stderr)
-                return {}, {}, {}, None
-
-            # Guard against reading a record in the wrong mode: multi-class
-            # records carry class_names (and 3D probabilities), binary records
-            # do not. Reading across modes would silently return mis-shaped data.
-            record_is_multiclass = pred.class_names is not None
-            if record_is_multiclass != expect_multiclass:
-                expected = "multi-class" if expect_multiclass else "binary"
-                found = "multi-class" if record_is_multiclass else "binary"
-                raise ValueError(
-                    f"Expected {expected} predictions for {behavior!r} in {video!r}, "
-                    f"but the stored record is {found}."
-                )
-
-            class_names = pred.class_names
-
-            for i in range(nident):
-                predictions[i] = pred.predicted_class[i]
-                probabilities[i] = pred.probabilities[i]
-                if pred.predicted_class_postprocessed is not None:
-                    postprocessed_predictions[i] = pred.predicted_class_postprocessed[i]
-
         except (KeyError, FileNotFoundError):
             # no saved predictions for this behavior for this video
-            pass
+            return predictions, probabilities, postprocessed_predictions, class_names
+        except ValueError as e:
+            # invalid/corrupted prediction record (e.g. a schema mismatch such as
+            # class_names present with 2-D probabilities); treat as no usable
+            # predictions rather than propagating the load error
+            print(f"unable to open saved inferences for {video}: {e}", file=sys.stderr)
+            return {}, {}, {}, None
+
+        if nident is None or nident <= 0:
+            nident = pred.predicted_class.shape[0]
+        if pred.predicted_class.shape[0] != nident or pred.probabilities.shape[0] != nident:
+            print(f"unable to open saved inferences for {video}", file=sys.stderr)
+            return {}, {}, {}, None
+
+        # Guard against reading a record in the wrong mode: multi-class records
+        # carry class_names (and 3D probabilities), binary records do not.
+        # Reading across modes would silently return mis-shaped data, so this is
+        # a logic error rather than a corrupt file and is surfaced by raising.
+        record_is_multiclass = pred.class_names is not None
+        if record_is_multiclass != expect_multiclass:
+            expected = "multi-class" if expect_multiclass else "binary"
+            found = "multi-class" if record_is_multiclass else "binary"
+            raise ValueError(
+                f"Expected {expected} predictions for {behavior!r} in {video!r}, "
+                f"but the stored record is {found}."
+            )
+
+        class_names = pred.class_names
+
+        for i in range(nident):
+            predictions[i] = pred.predicted_class[i]
+            probabilities[i] = pred.probabilities[i]
+            if pred.predicted_class_postprocessed is not None:
+                postprocessed_predictions[i] = pred.predicted_class_postprocessed[i]
 
         return predictions, probabilities, postprocessed_predictions, class_names
