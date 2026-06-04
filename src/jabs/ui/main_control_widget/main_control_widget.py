@@ -395,7 +395,11 @@ class MainControlWidget(QtWidgets.QWidget):
 
     @staticmethod
     def _behavior_button_stylesheet(
-        base: QColor, bright: QColor, disabled: QColor, text_color: str
+        base: QColor,
+        bright: QColor,
+        disabled: QColor,
+        text_color: str,
+        disabled_text_color: str,
     ) -> str:
         """Build the Label Behavior button stylesheet for the given colors."""
         return f"""
@@ -412,7 +416,7 @@ class MainControlWidget(QtWidgets.QWidget):
                 }}
                 QPushButton:disabled {{
                     background-color: rgba{disabled.getRgb()};
-                    color: grey;
+                    color: {disabled_text_color};
                 }}
             """
 
@@ -430,16 +434,21 @@ class MainControlWidget(QtWidgets.QWidget):
                     BEHAVIOR_BUTTON_COLOR_BRIGHT,
                     BEHAVIOR_BUTTON_DISABLED_COLOR,
                     "white",
+                    "grey",
                 )
             )
             return
 
-        # Derive gradient/disabled variants from the behavior color, and pick a
-        # readable text color based on the base color's perceived luminance.
+        # Derive gradient/disabled variants from the behavior color, and pick
+        # readable text colors for both the enabled and disabled backgrounds
+        # based on their perceived luminance (a fixed grey can be unreadable on
+        # a dark derived disabled color).
+        disabled = color.darker(120)
         text_color = "black" if is_color_light(color) else "white"
+        disabled_text_color = "#555555" if is_color_light(disabled) else "#cccccc"
         self._label_behavior_button.setStyleSheet(
             self._behavior_button_stylesheet(
-                color, color.lighter(125), color.darker(120), text_color
+                color, color.lighter(125), disabled, text_color, disabled_text_color
             )
         )
 
