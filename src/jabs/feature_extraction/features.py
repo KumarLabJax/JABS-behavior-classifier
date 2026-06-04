@@ -737,8 +737,15 @@ class IdentityFeatures:
             ...
         }
         """
-        if self._per_frame is None:
+        # When per-frame features are loaded from cache, they may only exist in
+        # flattened form (_per_frame_flat) until explicitly requested. Window
+        # feature modules expect the nested _per_frame mapping.
+        if self._per_frame is None and self._per_frame_flat is not None:
             self._per_frame = self._unflatten_per_frame(self._per_frame_flat)
+        if self._per_frame is None:
+            raise RuntimeError(
+                "Per-frame features are unavailable for window feature computation."
+            )
 
         window_features = {}
 

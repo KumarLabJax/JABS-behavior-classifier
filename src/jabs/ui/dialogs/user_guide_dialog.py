@@ -209,6 +209,7 @@ class UserGuideDialog(QDialog):
                 "Feature File": "file-formats.md#feature-file",
             },
             "Choosing a Classifier": "classifier-types.md",
+            "Multi-Class Classification (Preview)": "multi-class.md",
             "Post-Processing": "postprocessing.md",
             "Features Reference": "features.md",
             "Keyboard Shortcuts Reference": "keyboard-shortcuts.md",

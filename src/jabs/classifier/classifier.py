@@ -1,12 +1,12 @@
+"""Binary behavior classifier (behavior vs. not-behavior)."""
+
 import logging
-import typing
 import warnings
 from pathlib import Path
+from typing import ClassVar
 
-import joblib
 import numpy as np
 import pandas as pd
-from sklearn.exceptions import InconsistentVersionWarning
 
 from jabs.core.enums import (
     DEFAULT_CV_GROUPING_STRATEGY,
@@ -14,80 +14,61 @@ from jabs.core.enums import (
     CrossValidationGroupingStrategy,
 )
 from jabs.core.utils import hash_file
-from jabs.project import Project, TrackLabels, load_training_data
+from jabs.project import Project, load_training_data
 
 from . import classifier_utils
-from .factories import make_catboost, make_random_forest, make_xgboost
+from .base import BaseClassifier
 
-_VERSION = 11
-
-# _CLASSIFIER_FACTORIES serves as both the single source of truth for classifiers
-# supported by the current JABS environment, in addition to the mapping of ClassifierTypes
-# to factory functions that produce instantiated classifiers for that type
-_CLASSIFIER_FACTORIES: dict[ClassifierType, typing.Callable[[int, int | None], typing.Any]] = {
-    ClassifierType.RANDOM_FOREST: make_random_forest,
-    ClassifierType.CATBOOST: make_catboost,
-}
-
-# Attempt to register XGBoost if available. While it will be installed, because it is a
-# package dependency, it might not be usable on macOS due to missing libomp. In this case
-# xgboost will raise an ImportError, so we try importing and catch ImportError to see if it
-# is usable in the current environment.
-# Users will be warned if XGBoost support is unavailable. This can be resolved by installing
-# libomp using homebrew.
-try:
-    import xgboost  # noqa F401
-except ImportError:
-    logging.warning(
-        "Unable to import xgboost. XGBoost support will be unavailable. "
-        "You may need to install xgboost and/or libomp."
-    )
-else:
-    _CLASSIFIER_FACTORIES[ClassifierType.XGBOOST] = make_xgboost
+logger = logging.getLogger(__name__)
 
 
-class Classifier:
-    """A machine learning classifier for behavior classification tasks.
+class Classifier(BaseClassifier):
+    """A binary behavior classifier (behavior vs. not-behavior).
 
-    This class supports training, evaluating, saving, and loading classifiers
-    for behavioral data using Random Forest or XGBoost algorithms.
-    It provides utilities for data splitting, balancing, augmentation, and feature management.
+    Supports training, evaluating, saving, and loading classifiers for
+    behavioral data using Random Forest, CatBoost, or XGBoost algorithms.
+    Persistence and identity machinery are inherited from
+    :class:`BaseClassifier`.
 
     Attributes:
-        LABEL_THRESHOLD (int): Minimum number of labels required per group.
+        LABEL_THRESHOLD: Minimum number of labels required per group.
     """
 
-    LABEL_THRESHOLD = 20
+    LABEL_THRESHOLD: ClassVar[int] = classifier_utils.LABEL_THRESHOLD
 
-    def __init__(self, classifier: ClassifierType = ClassifierType.RANDOM_FOREST, n_jobs: int = 1):
-        self._classifier_type = classifier
-        self._classifier = None
-        self._project_settings = None
-        self._behavior = None
-        self._feature_names = None
-        self._n_jobs = n_jobs
-        self._version = _VERSION
+    _VERSION: ClassVar[int] = 11
+    _MULTICLASS: ClassVar[bool] = False
+    _PERSISTED_REQUIRED: ClassVar[tuple[str, ...]] = (
+        "_classifier",
+        "_behavior",
+        "_project_settings",
+        "_classifier_type",
+        "_feature_names",
+    )
 
-        self._classifier_file = None
-        self._classifier_hash = None
-        self._classifier_source = None
-        self._supported_classifiers = self._supported_classifier_choices()
-
-        # make sure the value passed for the classifier parameter is valid
-        if classifier not in self._supported_classifiers:
-            raise ValueError("Invalid classifier type")
+    def __init__(
+        self,
+        classifier: ClassifierType = ClassifierType.RANDOM_FOREST,
+        n_jobs: int = 1,
+    ) -> None:
+        super().__init__(classifier_type=classifier, n_jobs=n_jobs)
+        self._behavior: str | None = None
 
     @classmethod
-    def from_training_file(cls, path: Path):
+    def from_training_file(
+        cls, path: Path, classifier_type: ClassifierType | None = None
+    ) -> "Classifier":
         """Initialize a classifier from an exported training data file.
 
-        This method will load the training data and train a classifier.
+        This method loads the training data and trains a classifier.
 
         Args:
             path: exported training data file
+            classifier_type: Override the classifier algorithm stored in the training
+                file. If ``None``, the type recorded in the file is used.
 
         Returns:
-            trained classifier object
+            trained Classifier object
         """
         loaded_training_data, _ = load_training_data(path)
         behavior = loaded_training_data["behavior"]
@@ -95,12 +76,15 @@ class Classifier:
         classifier = cls()
         classifier.behavior_name = behavior
         classifier.set_dict_settings(loaded_training_data["settings"])
-        classifier_type = ClassifierType(loaded_training_data["classifier_type"])
-        if classifier_type in classifier._supported_classifiers:
-            classifier.set_classifier(classifier_type)
+        file_classifier_type = ClassifierType(loaded_training_data["classifier_type"])
+        effective_type = classifier_type if classifier_type is not None else file_classifier_type
+        if effective_type in classifier._supported_classifiers:
+            classifier.set_classifier(effective_type)
         else:
-            logging.warning(
-                f"Specified classifier type {classifier_type.name} is unavailable, using default: {classifier.classifier_type.name}"
+            logger.warning(
+                "Specified classifier type %s is unavailable, using default: %s",
+                effective_type.name,
+                classifier.classifier_type.name,
             )
         training_features = classifier.combine_data(
             loaded_training_data["per_frame"], loaded_training_data["window"]
@@ -120,87 +104,40 @@ class Classifier:
         return classifier
 
     @property
-    def classifier_name(self) -> str:
-        """return the name of the classifier used as a string"""
-        return self._classifier_type.value
-
-    @property
-    def classifier_type(self) -> ClassifierType:
-        """return classifier type"""
-        return self._classifier_type
-
-    @property
-    def classifier_file(self) -> str:
-        """return the filename of the saved classifier"""
-        if self._classifier_file is not None:
-            return self._classifier_file
-        return "NO SAVED CLASSIFIER"
-
-    @property
-    def classifier_hash(self) -> str:
-        """return the hash of the classifier file"""
-        if self._classifier_hash is not None:
-            return self._classifier_hash
-        return "NO HASH"
-
-    @property
-    def project_settings(self) -> dict:
-        """return a copy of dictionary of project settings for this classifier"""
-        if self._project_settings is not None:
-            return dict(self._project_settings)
-        return {}
-
-    @property
     def behavior_name(self) -> str | None:
-        """return the behavior name property"""
+        """Return the behavior name property."""
         return self._behavior
 
     @behavior_name.setter
-    def behavior_name(self, value) -> None:
-        """set the behavior name property"""
+    def behavior_name(self, value: str | None) -> None:
+        """Set the behavior name property."""
         self._behavior = value
 
-    @property
-    def version(self) -> int:
-        """return the classifier format version"""
-        return self._version
-
-    @property
-    def feature_names(self) -> list[str] | None:
-        """returns the list of feature names used when training this classifier"""
-        return self._feature_names
-
     @staticmethod
-    def get_leave_one_group_out_max(labels, groups):
-        """counts the number of possible leave one out groups for k-fold cross validation
+    def get_leave_one_group_out_max(labels: np.ndarray, groups: np.ndarray) -> int:
+        """Count the number of possible leave-one-group-out splits.
 
         Args:
-            labels: labels to check if they were above the threshold
-            groups: group id corresponding to the labels
+            labels: Labels to check against the per-class threshold.
+            groups: Group id corresponding to each label.
 
         Returns:
-            int of the maximum number of cross validation to use
+            Number of groups that can serve as a valid test split.
 
         Note: labels excludes label for frames with no identity.
         """
-        unique_groups = np.unique(groups)
-        count_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.BEHAVIOR)
-            for x in unique_groups
-        ]
-        count_not_behavior = [
-            np.sum(np.asarray(labels)[np.asarray(groups) == x] == TrackLabels.Label.NOT_BEHAVIOR)
-            for x in unique_groups
-        ]
-        can_kfold = np.logical_and(
-            np.asarray(count_behavior) > Classifier.LABEL_THRESHOLD,
-            np.asarray(count_not_behavior) > Classifier.LABEL_THRESHOLD,
+        return classifier_utils.count_valid_logo_splits(
+            labels, groups, label_threshold=Classifier.LABEL_THRESHOLD
         )
-        return np.sum(can_kfold)
 
     @staticmethod
-    def leave_one_group_out(per_frame_features, window_features, labels, groups):
-        """implements "leave one group out" data splitting strategy
+    def leave_one_group_out(
+        per_frame_features: pd.DataFrame,
+        window_features: pd.DataFrame,
+        labels: np.ndarray,
+        groups: np.ndarray,
+    ):
+        """Yield "leave one group out" train/test splits.
 
         Args:
             per_frame_features: per frame features for all labeled data
@@ -208,15 +145,9 @@ class Classifier:
             labels: labels corresponding to each feature row
             groups: group id corresponding to each feature row
 
-        Returns:
-            dictionary of training and test data and labels:
-        {
-            'training_data': list of numpy arrays,
-            'test_data': list of numpy arrays,
-            'training_labels': numpy array,
-            'test_labels': numpy_array,
-            'feature_names': list of feature names
-        }
+        Yields:
+            Dict with training_data, test_data, training_labels, test_labels,
+            and feature_names.
         """
         yield from classifier_utils.leave_one_group_out(
             per_frame_features,
@@ -227,109 +158,59 @@ class Classifier:
         )
 
     @staticmethod
-    def downsample_balance(features, labels, random_seed=None):
-        """downsamples features and labels such that labels are equally distributed
-
-        Args:
-            features: features to downsample
-            labels: labels to downsample
-            random_seed: optional random seed
-
-        Returns:
-            tuple of downsampled features, labels
-        """
+    def downsample_balance(
+        features: pd.DataFrame, labels: np.ndarray, random_seed: int | None = None
+    ):
+        """Downsample features and labels to an equal class distribution."""
         return classifier_utils.downsample_balance(features, labels, random_seed)
 
     @staticmethod
-    def augment_symmetric(features, labels, random_str="ASygRQDZJD"):
-        """augments the features to include L-R and R-L duplicates
-
-        This requires 'left' or 'right' to be in the feature name to be swapped
-        Features that don't include these terms will not be swapped
-
-        Args:
-            features: features to augment
-            labels: labels to augment
-            random_str: a random string to use as a temporary
-                replacement when swapping left/right
-
-        Returns:
-            tuple of augmented features, labels
-        """
+    def augment_symmetric(
+        features: pd.DataFrame, labels: np.ndarray, random_str: str = "ASygRQDZJD"
+    ):
+        """Augment features with left/right reflected duplicates."""
         return classifier_utils.augment_symmetric(features, labels, random_str)
 
-    def set_classifier(self, classifier: ClassifierType):
-        """change the type of the classifier being used"""
-        if classifier not in self._supported_classifiers:
-            raise ValueError("Invalid Classifier Type")
-        self._classifier_type = classifier
-
-    def set_project_settings(self, project: Project):
-        """assign project settings to the classifier
+    def set_project_settings(self, project: Project, behavior: str | None = None) -> None:
+        """Assign project settings to the classifier.
 
         Args:
-            project: project to copy classifier-relevant settings from for the current behavior
-
-        if no behavior is currently set will use project defaults
+            project: Project to copy classifier-relevant settings from.
+            behavior: Behavior to scope settings to. Defaults to this
+                classifier's current ``behavior_name`` when not given. When no
+                behavior can be resolved, project-level defaults are used
+                instead of behavior-scoped settings. Passing ``behavior``
+                explicitly avoids the historical requirement to set
+                ``behavior_name`` before calling this method.
         """
-        if self._behavior is None:
+        effective_behavior = behavior if behavior is not None else self._behavior
+        if effective_behavior is None:
             self._project_settings = project.get_project_defaults()
         else:
-            self._project_settings = project.settings_manager.get_behavior(self._behavior)
+            self._project_settings = project.settings_manager.get_behavior(effective_behavior)
 
-    def set_dict_settings(self, settings: dict):
-        """assign project settings via a dict to the classifier
-
-        Args:
-            settings: dict of project settings. Must be same structure as project.settings_manager.get_behavior
-
-        TODO: Add checks to enforce conformity to project settings
-        """
-        self._project_settings = dict(settings)
-
-    def classifier_choices(self):
-        """get the available classifier types
-
-        Returns:
-            dict where keys are ClassifierType enum values, and the
-              values are string names for the classifiers.
-        """
-        return {t: t.value for t in sorted(self._supported_classifiers, key=lambda t: t.value)}
-
-    def _create_classifier(self, random_seed: int | None = None):
-        """Instantiate the underlying classifier for the current classifier type."""
-        try:
-            factory = _CLASSIFIER_FACTORIES[self._classifier_type]
-        except KeyError:
-            raise ValueError(f"Unsupported classifier type: {self._classifier_type!r}") from None
-        return factory(self._n_jobs, random_seed)
-
-    def train(self, data, random_seed: int | None = None):
-        """train the classifier
+    def train(self, data: dict, random_seed: int | None = None) -> None:
+        """Train the classifier.
 
         Args:
-            data: dict returned from train_test_split()
-            random_seed: optional random seed (used when we want
-                reproducible results between trainings)
+            data: dict returned from train_test_split().
+            random_seed: optional random seed for reproducibility.
 
-        Returns:
-            None
-
-        raises ValueError for having either unset project settings or an unset classifier
+        Raises:
+            ValueError: If project settings are unset.
         """
         if self._project_settings is None:
             raise ValueError("Project settings for classifier unset, cannot train classifier.")
 
-        # Assume that feature names is provided, otherwise extract it from the dataframe
         if "feature_names" in data:
             self._feature_names = data["feature_names"]
         else:
             self._feature_names = data["training_data"].columns.to_list()
 
-        # Obtain the feature and label matrices
         features = data["training_data"]
         labels = data["training_labels"]
-        # Symmetric augmentation should occur before balancing so that the class with more labels can sample from the whole set
+        # Symmetric augmentation should occur before balancing so that the
+        # class with more labels can sample from the whole set.
         if self._project_settings.get("symmetric_behavior", False):
             features, labels = self.augment_symmetric(features, labels)
         if self._project_settings.get("balance_labels", False):
@@ -341,45 +222,28 @@ class Classifier:
             warnings.simplefilter("ignore", category=FutureWarning)
             self._classifier = classifier.fit(cleaned_features, labels)
 
-        # Classifier may have been re-used from a prior training, blank the logging attributes
         self._classifier_file = None
         self._classifier_hash = None
         self._classifier_source = None
 
-    def get_features_to_classify(self, features: pd.DataFrame) -> pd.DataFrame:
-        """gets features for classification, handling classifier-specific quirks."""
-        if self.classifier_type == ClassifierType.XGBOOST:
-            # XGBoost feature names are obtained from the booster
-            classifier_columns = self._classifier.get_booster().feature_names
-        else:
-            # For other classifiers, use the feature names from the underlying model
-            if hasattr(self._classifier, "feature_names_in_"):
-                classifier_columns = list(self._classifier.feature_names_in_)
-            elif hasattr(self._classifier, "feature_names_"):
-                classifier_columns = list(self._classifier.feature_names_)
-            else:
-                raise RuntimeError("Error obtaining feature names from classifier.")
-
-        return features[classifier_columns]
-
     def predict(
         self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
     ) -> np.ndarray:
-        """predict classes for a given set of features
+        """Predict classes for a given set of features.
 
         Args:
-            features: DataFrame of feature data to classify
-            frame_indexes: frame indexes to classify (default all)
+            features: DataFrame of feature data to classify.
+            frame_indexes: Frame indexes to classify (default all).
 
         Returns:
-            predicted class vector
+            Predicted class vector. Frames absent from ``frame_indexes`` are
+            assigned -1.
         """
-        cleaned_features = self.get_features_to_classify(self._clean_features(features))
+        cleaned_features = self._get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             result = self._classifier.predict(cleaned_features)
 
-        # Insert -1s into class prediction when no prediction is made
         if frame_indexes is not None:
             result_adjusted = np.full(result.shape, -1, dtype=np.int8)
             result_adjusted[frame_indexes] = result[frame_indexes]
@@ -390,21 +254,21 @@ class Classifier:
     def predict_proba(
         self, features: pd.DataFrame, frame_indexes: np.ndarray | None = None
     ) -> np.ndarray:
-        """predict probabilities for a given set of features.
+        """Predict probabilities for a given set of features.
 
         Args:
-            features: DataFrame of feature data to classify
-            frame_indexes: frame indexes to classify (default all)
+            features: DataFrame of feature data to classify.
+            frame_indexes: Frame indexes to classify (default all).
 
         Returns:
-            prediction probability matrix
+            Prediction probability matrix. Frames absent from ``frame_indexes``
+            are assigned zero probabilities.
         """
-        cleaned_features = self.get_features_to_classify(self._clean_features(features))
+        cleaned_features = self._get_features_to_classify(self._clean_features(features))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             result = self._classifier.predict_proba(cleaned_features)
 
-        # Insert 0 probabilities when no prediction is made
         if frame_indexes is not None:
             result_adjusted = np.full(result.shape, 0, dtype=np.float32)
             result_adjusted[frame_indexes] = result[frame_indexes]
@@ -412,164 +276,52 @@ class Classifier:
 
         return result
 
-    def save(self, path: Path):
-        """save the classifier to a file
-
-        Uses joblib to serialize the classifier object to a file.
-        """
-        joblib.dump(self, path)
-
-        # If the classifier was not generated from exported training data
-        # we can hash the serialized classifier.
-        # Note that this hash changes every time the "train" button is
-        # pressed, regardless of whether the training data changes.
-        if self._classifier_file is None:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "serialized"
-
-    def load(self, path: Path):
-        """load a classifier from a file
-
-        Uses joblib to deserialize the classifier object that was previously saved
-        using the joblib.dump() method.
-        """
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", InconsistentVersionWarning)
-            c = joblib.load(path)
-            for warning in caught_warnings:
-                if issubclass(warning.category, InconsistentVersionWarning):
-                    raise ValueError("Classifier trained with different version of sklearn.")
-                else:
-                    warnings.warn(warning.message, warning.category, stacklevel=2)
-
-        if not isinstance(c, Classifier):
-            raise ValueError(f"{path} is not instance of Classifier")
-
-        if c.version != _VERSION:
-            raise ValueError(
-                f"Unable to deserialize pickled classifier. File version {c.version}, expected {_VERSION}."
-            )
-
-            # make sure the value passed for the classifier parameter is valid
-        if c._classifier_type not in self._supported_classifiers:
-            raise ValueError("Invalid classifier type")
-
-        self._classifier = c._classifier
-        self._behavior = c._behavior
-        self._project_settings = c._project_settings
-        self._classifier_type = c._classifier_type
-        if c._classifier_file is not None:
-            self._classifier_file = c._classifier_file
-            self._classifier_hash = c._classifier_hash
-            self._classifier_source = c._classifier_source
-        else:
-            self._classifier_file = Path(path).name
-            self._classifier_hash = hash_file(Path(path))
-            self._classifier_source = "pickle"
-
-    @staticmethod
-    def accuracy_score(truth, predictions):
-        """return accuracy score"""
-        return classifier_utils.accuracy_score(truth, predictions)
-
-    @staticmethod
-    def precision_recall_score(truth, predictions):
-        """return precision recall score"""
-        return classifier_utils.precision_recall_score(truth, predictions)
-
-    @staticmethod
-    def confusion_matrix(truth, predictions):
-        """return the confusion matrix using sklearn's confusion_matrix function"""
-        return classifier_utils.confusion_matrix(truth, predictions)
-
-    @staticmethod
-    def combine_data(per_frame, window):
-        """combine feature sets together
+    def print_feature_importance(self, limit: int = 20) -> None:
+        """Print the most important features and their importance.
 
         Args:
-            per_frame: per frame features dataframe
-            window: window feature dataframe
-
-        Returns:
-            merged dataframe
-        """
-        return classifier_utils.combine_data(per_frame, window)
-
-    def get_feature_importance(self, limit=20) -> list[tuple[str, float]]:
-        """get the most important features and their importance
-
-        Args:
-            limit: maximum number of features to return, defaults to 20
-
-        Returns:
-            list of tuples of feature name and importance
-        """
-        # Get numerical feature importance
-        importances = list(self._classifier.feature_importances_)
-        # List of tuples with variable and importance
-        feature_importance = [
-            (feature, round(importance, 2))
-            for feature, importance in zip(self._feature_names, importances, strict=True)
-        ]
-        # Sort the feature importance by most important first
-        feature_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
-        return feature_importance[:limit]
-
-    def print_feature_importance(self, limit=20):
-        """print the most important features and their importance
-
-        Args:
-            limit: maximum number of features to print, defaults to 20
+            limit: Maximum number of features to print.
         """
         feature_importance = self.get_feature_importance(limit=limit)
-        # Print out the feature and importance
         print(f"{'Feature Name':100} Importance")
         print("-" * 120)
         for feature, importance in feature_importance[:limit]:
             print(f"{feature:100} {importance:0.2f}")
 
     @staticmethod
+    def accuracy_score(truth: np.ndarray, predictions: np.ndarray) -> float:
+        """Return accuracy score."""
+        return classifier_utils.accuracy_score(truth, predictions)
+
+    @staticmethod
+    def precision_recall_score(truth: np.ndarray, predictions: np.ndarray):
+        """Return precision/recall/f-score/support."""
+        return classifier_utils.precision_recall_score(truth, predictions)
+
+    @staticmethod
+    def confusion_matrix(truth: np.ndarray, predictions: np.ndarray) -> np.ndarray:
+        """Return the confusion matrix."""
+        return classifier_utils.confusion_matrix(truth, predictions)
+
+    @staticmethod
     def count_label_threshold(
         all_counts: dict,
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
     ) -> int:
-        """counts the number of groups that meet label threshold criteria
+        """Count groups that meet the label-threshold criteria.
 
         Args:
-            all_counts: labeled frame and bout counts for the entire
-                project
-
-
-            all_counts is a dict with the following form
-            {
-                '<video name>': {
-                    <identity>: {
-                        "fragmented_frame_counts": (
-                            behavior frame count: fragmented,
-                            not behavior frame count: fragmented),
-                        "fragmented_bout_counts": (
-                            behavior bout count: fragmented,
-                            not behavior bout count: fragmented
-                        ),
-                        "unfragmented_frame_counts": (
-                            behavior frame count: unfragmented,
-                            not behavior frame count: unfragmented
-                        ),
-                        "unfragmented_bout_counts": (
-                            behavior bout count: unfragmented,
-                            not behavior bout count: unfragmented
-                        ),
-                    },
-                }
-            }
-
-            cv_grouping_strategy: cross-validation grouping strategy
+            all_counts: Labeled frame and bout counts for the entire project.
+                Structure is a dict[video_name][identity] of fragmented and
+                unfragmented frame/bout count tuples.
+            cv_grouping_strategy: Cross-validation grouping strategy.
 
         Returns:
-            number of groups that meet label criteria
+            Number of groups that meet the labeling threshold criteria.
 
-        Note: uses "fragmented" label counts, since these reflect the counts of labels that are usable for training
+        Note:
+            Uses "fragmented" label counts since these reflect labels usable
+            for training.
         """
         group_count = 0
         if cv_grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
@@ -603,64 +355,17 @@ class Classifier:
         min_groups: int,
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
     ) -> bool:
-        """determine if the labeling threshold is met
+        """Determine whether the labeling threshold is met.
 
         Args:
-            all_counts: labeled frame and bout counts for the entire
-                project
-            min_groups: minimum number of groups required (more than one
-                group is always required for the "leave one group out" train/test split,
-                but may be more than 2 for k-fold cross validation if k > 2)
-            cv_grouping_strategy: cross-validation grouping strategy
+            all_counts: Labeled frame and bout counts for the entire project.
+            min_groups: Minimum number of groups required.
+            cv_grouping_strategy: Cross-validation grouping strategy.
 
         Returns:
-            bool if requested valid groups is > valid group
+            True if there are enough groups meeting the threshold.
         """
         group_count = Classifier.count_label_threshold(
             all_counts, cv_grouping_strategy=cv_grouping_strategy
         )
         return 1 < group_count >= min_groups
-
-    @staticmethod
-    def _supported_classifier_choices() -> set[ClassifierType]:
-        """Determine the list of supported classifier types in the current JABS environment."""
-        return set(_CLASSIFIER_FACTORIES.keys())
-
-    def _clean_features(self, features: pd.DataFrame) -> pd.DataFrame:
-        """Clean features for prediction, handling missing and infinite values.
-
-        Args:
-            features: DataFrame of feature data to clean.
-
-        Returns:
-            Cleaned DataFrame with missing and infinite values handled.
-        """
-        return classifier_utils.clean_features(features, self._classifier_type)
-
-    @staticmethod
-    def derive_predictions(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Derive predicted classes from predicted probabilities.
-
-        Args:
-            probabilities: Array of predicted probabilities for each class.
-
-        Returns:
-            Array of predicted classes. Frames where no pose is detected are assigned -1.
-
-        TODO: Consider returning predictions where there is no pose instead of removing.
-          If the gap in pose is small, accurate predictions might be possible due to window features.
-          Maybe allow a maximum gap size parameter?
-        """
-        # Derive predictions by taking argmax (class with highest probability)
-        # This is equivalent to predict() but avoids duplicate computation
-        predictions = np.argmax(probabilities, axis=1).astype(np.int8)
-
-        # Use predictions as column indexes for each row of prob
-        probabilities = probabilities[np.arange(len(probabilities)), predictions]
-
-        # currently, predict_proba sets probabilities to 0 for frames with no pose
-        # we're going to set the predictions for those frames to -1 (no prediction)
-        no_pose_frames = np.where(probabilities == 0)[0]
-        predictions[no_pose_frames] = -1
-
-        return predictions, probabilities

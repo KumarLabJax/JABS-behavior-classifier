@@ -2,6 +2,8 @@
 
 JABS supports three machine learning classifier types: **Random Forest**, **CatBoost**, and **XGBoost**. Each has different characteristics that may make it more suitable for your specific use case.
 
+> **Classifier type vs. classifier mode:** This page covers the machine learning *algorithm*. Separately, JABS can train one binary classifier per behavior (the default) or a single classifier across all behaviors at once. See [Multi-Class Classification (Preview)](multi-class.md) for the experimental multi-class mode.
+
 ## Random Forest (Default)
 
 Random Forest is the default classifier and a good starting point for most users.

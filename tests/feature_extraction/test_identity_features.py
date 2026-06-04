@@ -14,6 +14,7 @@ from jabs.core.enums import CacheFormat
 from jabs.core.utils import pose_file_stem
 from jabs.feature_extraction.features import IdentityFeatures
 from jabs.io.feature_cache import detect_cache_format
+from jabs.project.track_labels import TrackLabels
 
 _SAMPLE_POSE_V5 = Path(__file__).parent.parent / "data" / "sample_pose_est_v5.h5"
 
@@ -166,6 +167,29 @@ def test_window_cache_readable_after_first_compute(tmp_path, pose_est_v5) -> Non
     assert set(first_flat) == set(second_flat)
     for key in first_flat:
         np.testing.assert_array_equal(second_flat[key], first_flat[key], err_msg=key)
+
+
+def test_window_compute_after_flat_per_frame_cache_hit(tmp_path, pose_est_v5) -> None:
+    """Window recompute works after per-frame flat cache access.
+
+    Regression test: when per-frame data came from the flattened cache path,
+    _per_frame could remain None. If a window-size cache miss then forced
+    recomputation, window feature modules received None and crashed.
+    """
+    # Seed a cache so the next instance loads _per_frame_flat from disk.
+    _make_identity_features(pose_est_v5, tmp_path, force=True, cache_format=CacheFormat.PARQUET)
+    cached = _make_identity_features(
+        pose_est_v5, tmp_path, force=False, cache_format=CacheFormat.PARQUET
+    )
+
+    labels = np.full(cached._num_frames, TrackLabels.Label.BEHAVIOR, dtype=np.int8)
+    per_frame_flat = cached.get_per_frame_flat(labels)
+    assert per_frame_flat
+
+    # Use a distinct window size to force a window-cache miss/recompute path.
+    window_features = cached.get_window_features(_WINDOW_SIZE + 2, labels)
+    window_flat = IdentityFeatures.merge_window_features(window_features)
+    assert window_flat
 
 
 def test_force_with_format_change_removes_stale_sentinel(tmp_path, pose_est_v5) -> None:

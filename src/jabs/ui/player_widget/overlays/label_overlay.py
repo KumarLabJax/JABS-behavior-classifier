@@ -80,13 +80,20 @@ class LabelOverlay(Overlay):
 
             behavior_y = widget_y - self._BEHAVIOR_LABEL_SIZE
 
-            match self.parent.labels[identity][self.parent.current_frame]:
-                case TrackLabels.Label.BEHAVIOR:
-                    prediction_color = BEHAVIOR_COLOR
-                case TrackLabels.Label.NOT_BEHAVIOR:
-                    prediction_color = NOT_BEHAVIOR_COLOR
-                case _:
-                    prediction_color = BACKGROUND_COLOR
+            label_val = int(self.parent.labels[identity][self.parent.current_frame])
+            lut = self.parent.label_color_lut
+            if lut is not None:
+                idx = max(0, min(label_val, len(lut) - 1))
+                r, g, b, a = lut[idx]
+                prediction_color = QtGui.QColor(int(r), int(g), int(b), int(a))
+            else:
+                match label_val:
+                    case TrackLabels.Label.BEHAVIOR:
+                        prediction_color = BEHAVIOR_COLOR
+                    case TrackLabels.Label.NOT_BEHAVIOR:
+                        prediction_color = NOT_BEHAVIOR_COLOR
+                    case _:
+                        prediction_color = BACKGROUND_COLOR
 
             painter.setBrush(prediction_color)
             painter.setPen(self._BEHAVIOR_LABEL_OUTLINE_COLOR)

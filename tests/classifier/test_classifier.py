@@ -139,12 +139,12 @@ class TestClassifierProperties:
     def test_classifier_file_property_unset(self):
         """Test classifier_file property when not set."""
         clf = Classifier()
-        assert clf.classifier_file == "NO SAVED CLASSIFIER"
+        assert clf.classifier_file is None
 
     def test_classifier_hash_property_unset(self):
         """Test classifier_hash property when not set."""
         clf = Classifier()
-        assert clf.classifier_hash == "NO HASH"
+        assert clf.classifier_hash is None
 
     def test_project_settings_property(self):
         """Test project_settings property returns copy."""
@@ -486,11 +486,7 @@ class TestClassifierSaveLoad:
     """Test classifier save and load functionality."""
 
     def test_save_and_load(self, sample_features, sample_labels, mock_project, tmp_path):
-        """Test saving and loading a trained classifier.
-
-        Note: Currently, feature_names is not preserved during save/load.
-        If this is changed, we should check that after loading, feature_names match.
-        """
+        """Test saving and loading a trained classifier."""
         # Train a classifier
         clf = Classifier()
         clf.behavior_name = "Grooming"
@@ -517,6 +513,11 @@ class TestClassifierSaveLoad:
 
         assert clf2.behavior_name == "Grooming"
         assert clf2.classifier_type == clf.classifier_type
+        assert clf2.feature_names == clf.feature_names
+        # feature_names round-tripping is what makes get_feature_importance work
+        # after a load - guard against the regression by checking the report is
+        # non-empty on the loaded instance.
+        assert clf2.get_feature_importance(limit=5)
 
         # Predictions should still work and match
         pred1 = clf.predict(sample_features)
@@ -532,7 +533,7 @@ class TestClassifierSaveLoad:
         joblib.dump({"not": "a classifier"}, invalid_file)
 
         clf = Classifier()
-        with pytest.raises(ValueError, match="not instance of Classifier"):
+        with pytest.raises(ValueError, match="not an instance of Classifier"):
             clf.load(invalid_file)
 
 
@@ -557,6 +558,24 @@ class TestClassifierSettings:
 
         assert clf.project_settings is not None
         mock_project.get_project_defaults.assert_called_once()
+
+    def test_set_project_settings_explicit_behavior_overrides_attribute(self, mock_project):
+        """An explicit behavior argument scopes settings without relying on behavior_name."""
+        clf = Classifier()
+        # behavior_name intentionally left unset to prove the argument is used
+        clf.set_project_settings(mock_project, "Rearing")
+
+        mock_project.settings_manager.get_behavior.assert_called_with("Rearing")
+        mock_project.get_project_defaults.assert_not_called()
+
+    def test_set_project_settings_explicit_behavior_preferred_over_attribute(self, mock_project):
+        """The explicit behavior argument takes precedence over behavior_name."""
+        clf = Classifier()
+        clf.behavior_name = "Grooming"
+
+        clf.set_project_settings(mock_project, "Walking")
+
+        mock_project.settings_manager.get_behavior.assert_called_with("Walking")
 
     def test_set_dict_settings(self):
         """Test setting project settings via dictionary."""

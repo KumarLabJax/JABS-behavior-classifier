@@ -1,8 +1,10 @@
 import json
+import logging
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.constants import CV_GROUPING_KEY
+from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY
+from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from jabs.core.enums.cv_grouping import (
     DEFAULT_CV_GROUPING_STRATEGY,
     CrossValidationGroupingStrategy,
@@ -11,6 +13,8 @@ from jabs.version import version_str
 
 if typing.TYPE_CHECKING:
     from .project_paths import ProjectPaths
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsManager:
@@ -89,6 +93,22 @@ class SettingsManager:
         return self._project_info.get("metadata", {})
 
     @property
+    def classifier_mode(self) -> ClassifierMode:
+        """Get the classifier mode for the project.
+
+        Returns:
+            ClassifierMode: The configured classifier mode, defaulting to BINARY.
+        """
+        mode_str = self._project_info.get("settings", {}).get(
+            CLASSIFIER_MODE_KEY, DEFAULT_CLASSIFIER_MODE.value
+        )
+        try:
+            return ClassifierMode(mode_str)
+        except ValueError:
+            logger.warning("Invalid classifier mode %r in project file, using default", mode_str)
+            return DEFAULT_CLASSIFIER_MODE
+
+    @property
     def cv_grouping_strategy(self) -> CrossValidationGroupingStrategy:
         """Get the cross-validation grouping strategy for the project.
 
@@ -101,6 +121,9 @@ class SettingsManager:
         try:
             return CrossValidationGroupingStrategy(grouping_str)
         except ValueError:
+            logger.warning(
+                "Invalid CV grouping strategy %r in project file, using default", grouping_str
+            )
             return DEFAULT_CV_GROUPING_STRATEGY
 
     def video_metadata(self, video: str) -> dict:

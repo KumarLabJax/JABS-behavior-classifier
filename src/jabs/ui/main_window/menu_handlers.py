@@ -12,11 +12,13 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QProgressDialog
 
 from jabs.core.constants import FINAL_TRAIN_SEED
-from jabs.core.enums import PredictionType
+from jabs.core.enums import ClassifierMode, PredictionType
 from jabs.utils import check_for_update
 
+from ..behavior_timeline import BehaviorTimelineWidget
 from ..dialogs import (
     AboutDialog,
     ArchiveBehaviorDialog,
@@ -35,7 +37,6 @@ from ..settings_dialog import (
     PostprocessingSettingsDialog,
     ProjectSettingsDialog,
 )
-from ..stacked_timeline_widget import StackedTimelineWidget
 from ..util import send_file_to_recycle_bin
 from .constants import USE_NATIVE_FILE_DIALOG
 
@@ -79,7 +80,7 @@ class MenuHandlers:
         """
         self.window = main_window
         self._export_thread: ExportTrainingDataThread | None = None
-        self._export_progress_dialog = None
+        self._export_progress_dialog: QProgressDialog | None = None
 
     # ========== File Menu Handlers ==========
 
@@ -165,11 +166,17 @@ class MenuHandlers:
             )
             return
 
+        classifier_mode = self.window._project.settings_manager.classifier_mode
         self._export_thread = ExportTrainingDataThread(
             project=self.window._project,
-            behavior=self.window._central_widget.behavior,
             pose_version=self.window._project.feature_manager.min_pose_version,
             classifier_type=self.window._central_widget.classifier_type,
+            classifier_mode=classifier_mode,
+            behavior=(
+                self.window._central_widget.behavior
+                if classifier_mode == ClassifierMode.BINARY
+                else None
+            ),
             training_seed=FINAL_TRAIN_SEED,
             parent=self.window,
         )
@@ -313,7 +320,9 @@ class MenuHandlers:
 
     def open_project_settings_dialog(self) -> None:
         """Open the project settings dialog."""
-        settings_dialog = ProjectSettingsDialog(self.window._project.settings_manager, self.window)
+        settings_dialog = ProjectSettingsDialog(
+            self.window._project.settings_manager, self.window._project, self.window
+        )
         settings_dialog.settings_changed.connect(self.window.on_project_settings_changed)
         settings_dialog.exec()
 
@@ -446,22 +455,23 @@ class MenuHandlers:
     def on_timeline_view_mode_changed(self) -> None:
         """Handle timeline view mode change (Labels, Predictions, or Both)."""
         if self.window._menu_refs.timeline_labels_preds.isChecked():
-            mode = StackedTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
+            mode = BehaviorTimelineWidget.ViewMode.LABELS_AND_PREDICTIONS
         elif self.window._menu_refs.timeline_labels.isChecked():
-            mode = StackedTimelineWidget.ViewMode.LABELS
+            mode = BehaviorTimelineWidget.ViewMode.LABELS
         else:
-            mode = StackedTimelineWidget.ViewMode.PREDICTIONS
+            mode = BehaviorTimelineWidget.ViewMode.PREDICTIONS
 
         self.window._central_widget.timeline_view_mode = mode
 
     def on_timeline_identity_mode_changed(self) -> None:
         """Handle timeline identity mode change (All Animals or Selected Animal)."""
         if self.window._menu_refs.timeline_all_animals.isChecked():
-            mode = StackedTimelineWidget.IdentityMode.ALL
+            mode = BehaviorTimelineWidget.IdentityMode.ALL
         else:
-            mode = StackedTimelineWidget.IdentityMode.ACTIVE
+            mode = BehaviorTimelineWidget.IdentityMode.ACTIVE
 
         self.window._central_widget.timeline_identity_mode = mode
+        self.update_mc_layout_actions_enabled_state()
 
     def on_timeline_prediction_type_changed(self) -> None:
         """Handle change to the prediction type shown in the timeline (raw vs. postprocessed)."""
@@ -470,6 +480,49 @@ class MenuHandlers:
         else:
             mode = PredictionType.POSTPROCESSED
         self.window._central_widget.prediction_type = mode
+
+    def on_mc_collapse_label_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Label Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_label_bar = (
+            self.window._menu_refs.mc_collapse_label_bar.isChecked()
+        )
+
+    def on_mc_collapse_combined_bar_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Combined Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_combined_bar = (
+            self.window._menu_refs.mc_collapse_combined_bar.isChecked()
+        )
+
+    def on_mc_collapse_per_class_bars_changed(self) -> None:
+        """Handle toggling the 'Collapse Inactive Per-class Bars' multiclass layout option."""
+        self.window._central_widget.mc_collapse_per_class_bars = (
+            self.window._menu_refs.mc_collapse_per_class_bars.isChecked()
+        )
+
+    def on_mc_hide_per_class_rows_changed(self) -> None:
+        """Handle toggling the 'Hide Inactive Per-class Rows' multiclass layout option."""
+        self.window._central_widget.mc_hide_per_class_rows = (
+            self.window._menu_refs.mc_hide_per_class_rows.isChecked()
+        )
+
+    def update_mc_layout_actions_enabled_state(self) -> None:
+        """Enable or disable the multi-class layout menu actions based on the current mode.
+
+        The four actions are only meaningful when both multiclass classifier mode and
+        all-animals identity mode are active simultaneously.
+        """
+        refs = self.window._menu_refs
+        project = self.window._central_widget._project
+        is_multiclass = (
+            project is not None
+            and project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        )
+        is_all_animals = refs.timeline_all_animals.isChecked()
+        enabled = is_multiclass and is_all_animals
+        refs.mc_collapse_label_bar.setEnabled(enabled)
+        refs.mc_collapse_combined_bar.setEnabled(enabled)
+        refs.mc_collapse_per_class_bars.setEnabled(enabled)
+        refs.mc_hide_per_class_rows.setEnabled(enabled)
 
     def on_label_overlay_mode_changed(self) -> None:
         """Handle label overlay mode change (None, Labels, or Predictions)."""

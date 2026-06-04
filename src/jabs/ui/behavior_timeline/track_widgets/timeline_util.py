@@ -1,12 +1,50 @@
+import math
 from random import Random
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QBrush, QPen, QPolygon
+import numpy as np
+import numpy.typing as npt
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QBrush, QPen, QPolygonF
+
+from jabs.project import TrackLabels
 
 from ...colors import SEARCH_HIT_COLOR
 
 
-def diamond_at(x: float, y: float, w: float, h: float) -> QPolygon:
+def track_labels_to_lut_indices(labels: TrackLabels) -> npt.NDArray[np.int16]:
+    """Convert a binary ``TrackLabels`` to a direct color-LUT index array.
+
+    Shifts raw label values by +1 so they map to the standard binary
+    ``COLOR_LUT`` layout used by the timeline widgets: NONE(-1)→0,
+    NOT_BEHAVIOR(0)→1, BEHAVIOR(1)→2.
+
+    Args:
+        labels: Binary label track to convert.
+
+    Returns:
+        Array of shape ``(n_frames,)`` with dtype ``int16``.
+    """
+    return (labels.get_labels() + 1).astype(np.int16)
+
+
+def binary_predictions_to_lut_indices(
+    predictions: npt.NDArray[np.int8],
+) -> npt.NDArray[np.int16]:
+    """Convert a binary prediction array to a direct color-LUT index array.
+
+    Shifts raw prediction values by +1 so they map to the standard binary
+    ``COLOR_LUT`` layout: no-prediction(-1)→0, not-behavior(0)→1, behavior(1)→2.
+
+    Args:
+        predictions: Raw binary prediction array with values in ``{-1, 0, 1}``.
+
+    Returns:
+        Array of shape ``(n_frames,)`` with dtype ``int16``.
+    """
+    return (predictions + 1).astype(np.int16)
+
+
+def diamond_at(x: float, y: float, w: float, h: float) -> QPolygonF:
     """Create a diamond shape polygon centered at (x, y) with width w and height h.
 
     Args:
@@ -16,29 +54,35 @@ def diamond_at(x: float, y: float, w: float, h: float) -> QPolygon:
         h (float): The height of the diamond.
 
     Returns:
-        QPolygon: A polygon representing the diamond shape.
+        QPolygonF: A polygon representing the diamond shape.
     """
-    return QPolygon(
+    return QPolygonF(
         [
-            QPoint(x, y - h),  # top
-            QPoint(x + w, y),  # right
-            QPoint(x, y + h),  # bottom
-            QPoint(x - w, y),  # left
+            QPointF(x, y - h),  # top
+            QPointF(x + w, y),  # right
+            QPointF(x, y + h),  # bottom
+            QPointF(x - w, y),  # left
         ]
     )
 
 
 def render_search_hits(
-    qp, search_results, offset, start, frame_width, bar_height, window_frames_total
-):
+    qp,
+    search_results: list,
+    offset: float,
+    start: int,
+    frame_width: float,
+    bar_height: int,
+    window_frames_total: int,
+) -> None:
     """Render search hits on the given QPainter.
 
     Args:
         qp (QPainter): The QPainter to draw on.
         search_results (list): List of search hit results.
-        offset (int): The offset for drawing.
+        offset (float): The x offset for drawing (0 when content fills the full widget).
         start (int): The starting frame index for the current view.
-        frame_width (int): The width of each frame.
+        frame_width (float): Pixels per frame (may be fractional).
         bar_height (int): The height of the bar.
         window_frames_total (int): Total number of frames in the window.
     """
@@ -78,8 +122,11 @@ def render_search_hits(
             # skip search hits that are completely out of bounds
             continue
 
-        start_pos = offset + (bounded_rel_start * frame_width)
-        end_pos = offset + (bounded_rel_end * frame_width)
+        start_pos = math.floor(offset + bounded_rel_start * frame_width)
+        end_pos = math.floor(offset + bounded_rel_end * frame_width)
+        # ensure at least 1px span so single-frame hits remain visible
+        if end_pos <= start_pos:
+            end_pos = start_pos + 1
         qp.drawLine(start_pos, y_pos, end_pos, y_pos)
 
         if bounded_rel_start == rel_start_frame:

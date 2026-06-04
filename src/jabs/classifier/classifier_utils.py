@@ -21,7 +21,9 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import LeaveOneGroupOut
 
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import ClassifierType
+from jabs.project import TrackLabels
 
 LABEL_THRESHOLD: int = 20
 
@@ -121,27 +123,71 @@ def downsample_balance(
     return features, labels
 
 
+def logo_split_is_valid(
+    test_labels: npt.NDArray,
+    train_labels: npt.NDArray,
+    all_classes: npt.NDArray,
+    label_threshold: int,
+    min_test_classes: int | None,
+) -> bool:
+    """Return True if a leave-one-group-out split satisfies threshold criteria.
+
+    The training portion must always contain every class above
+    ``label_threshold`` so the model can learn each class regardless of the
+    held-out group.
+
+    The test portion criterion depends on ``min_test_classes``:
+
+    - ``None`` (binary default): every class must be above ``label_threshold``.
+    - integer (multi-class): at least ``min_test_classes`` distinct classes
+      must be above ``label_threshold``.
+
+    Args:
+        test_labels: Label array for the test split.
+        train_labels: Label array for the training split.
+        all_classes: All class values to consider (typically ``np.unique`` of
+            the full label array).
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split, or ``None`` to require every class.
+
+    Returns:
+        True if the split is acceptable for cross-validation.
+    """
+    train_has_all = all(
+        np.count_nonzero(train_labels == cls) >= label_threshold for cls in all_classes
+    )
+    if not train_has_all:
+        return False
+    if min_test_classes is None:
+        return all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes)
+    n_test_classes = sum(
+        np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes
+    )
+    return n_test_classes >= min_test_classes
+
+
 def leave_one_group_out(
     per_frame_features: pd.DataFrame,
     window_features: pd.DataFrame,
     labels: npt.NDArray,
     groups: npt.NDArray,
     label_threshold: int = LABEL_THRESHOLD,
+    min_test_classes: int | None = None,
 ) -> Generator[dict, None, None]:
     """Implement the leave-one-group-out data splitting strategy.
 
-    Splits are filtered so that the test set has at least `label_threshold`
-    samples for every class present in the full ``labels`` array. This ensures
-    all classes are represented in the test set, matching the original binary
-    behavior (both BEHAVIOR and NOT_BEHAVIOR must be above threshold) and
-    extending naturally to multi-class mode.
+    A split is accepted only when both the test and training portions satisfy
+    :func:`logo_split_is_valid`.
 
     Args:
         per_frame_features: Per-frame feature DataFrame for labeled data.
         window_features: Window feature DataFrame for labeled data.
         labels: Label array corresponding to each feature row.
         groups: Group ID array corresponding to each feature row.
-        label_threshold: Minimum number of samples per class in the test split.
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split. ``None`` requires all classes (binary default).
 
     Yields:
         Dictionary with keys: training_data, training_labels, test_data,
@@ -149,7 +195,11 @@ def leave_one_group_out(
 
     Raises:
         ValueError: If no valid split satisfying the threshold can be found.
+        ValueError: If ``min_test_classes`` is not ``None`` and is less than 1.
     """
+    if min_test_classes is not None and min_test_classes < 1:
+        raise ValueError(f"min_test_classes must be None or >= 1, got {min_test_classes}")
+
     logo = LeaveOneGroupOut()
     x = combine_data(per_frame_features, window_features)
     splits = list(logo.split(x, labels, groups))
@@ -157,19 +207,63 @@ def leave_one_group_out(
     random.shuffle(splits)
     count = 0
     for split in splits:
-        test_labels = labels[split[1]]
-        if all(np.count_nonzero(test_labels == cls) >= label_threshold for cls in all_classes):
-            count += 1
-            yield {
-                "training_data": x.iloc[split[0]],
-                "training_labels": labels[split[0]],
-                "test_data": x.iloc[split[1]],
-                "test_labels": labels[split[1]],
-                "test_group": groups[split[1]][0],
-                "feature_names": x.columns.to_list(),
-            }
+        if not logo_split_is_valid(
+            labels[split[1]], labels[split[0]], all_classes, label_threshold, min_test_classes
+        ):
+            continue
+        count += 1
+        yield {
+            "training_data": x.iloc[split[0]],
+            "training_labels": labels[split[0]],
+            "training_idx": split[0],
+            "test_data": x.iloc[split[1]],
+            "test_labels": labels[split[1]],
+            "test_idx": split[1],
+            "test_group": groups[split[1]][0],
+            "feature_names": x.columns.to_list(),
+        }
     if count == 0:
         raise ValueError("unable to split data")
+
+
+def count_valid_logo_splits(
+    labels: npt.NDArray,
+    groups: npt.NDArray,
+    label_threshold: int = LABEL_THRESHOLD,
+    min_test_classes: int | None = None,
+) -> int:
+    """Count groups that would yield a valid LOGO split.
+
+    Mirrors the per-split acceptance rule used by :func:`leave_one_group_out`
+    without constructing feature matrices, so callers can pre-flight how many
+    iterations a CV run will produce.
+
+    Args:
+        labels: Label array corresponding to each frame.
+        groups: Group ID array corresponding to each label.
+        label_threshold: Minimum number of samples per class required.
+        min_test_classes: Minimum number of distinct classes required in the
+            test split, or ``None`` to require every class.
+
+    Returns:
+        Number of groups that can serve as a valid LOGO test split.
+    """
+    labels = np.asarray(labels)
+    groups = np.asarray(groups)
+    all_classes = np.unique(labels)
+    unique_groups = np.unique(groups)
+    count = 0
+    for g in unique_groups:
+        test_mask = groups == g
+        if logo_split_is_valid(
+            labels[test_mask],
+            labels[~test_mask],
+            all_classes,
+            label_threshold,
+            min_test_classes,
+        ):
+            count += 1
+    return count
 
 
 def accuracy_score(truth: npt.NDArray, predictions: npt.NDArray) -> float:
@@ -213,3 +307,78 @@ def confusion_matrix(truth: npt.NDArray, predictions: npt.NDArray) -> npt.NDArra
         Confusion matrix as a 2D integer array.
     """
     return _confusion_matrix(truth, predictions)
+
+
+def merge_labels(
+    labels_by_behavior: dict[str, npt.NDArray[np.int8]],
+    behavior_names: list[str],
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.bool_]]:
+    """Merge per-behavior label arrays into a single multi-class label array.
+
+    Merging rules:
+        - ``TrackLabels.Label.BEHAVIOR`` in the ``MULTICLASS_NONE_BEHAVIOR``
+          entry → class 0 (background).
+        - ``TrackLabels.Label.BEHAVIOR`` in behavior X's entry → class index
+          (1-based, by position in ``behavior_names``).
+        - All other frames → excluded (not in the returned mask).
+
+    Args:
+        labels_by_behavior: dict mapping behavior name to a label array of
+            ``TrackLabels.Label`` integer values, one element per frame.
+        behavior_names: Ordered list of N behavior names (must not include
+            ``MULTICLASS_NONE_BEHAVIOR``).
+
+    Returns:
+        Tuple of ``(multiclass_labels, include_mask)`` where:
+
+        - ``multiclass_labels``: integer array of class indices (0..N) for
+          the included frames only, length M <= n_frames.
+        - ``include_mask``: boolean array of length n_frames; True where the
+          frame is included in training.
+
+    Raises:
+        ValueError: If ``labels_by_behavior`` is empty, an entry has an
+            invalid shape, or any frame is labeled ``BEHAVIOR`` for more than
+            one behavior.
+    """
+    if not labels_by_behavior:
+        raise ValueError("labels_by_behavior must not be empty")
+
+    n_frames = next(iter(labels_by_behavior.values())).shape[0]
+
+    for name, arr in labels_by_behavior.items():
+        if arr.ndim != 1:
+            raise ValueError(f"Label array for '{name}' must be 1-D, got shape {arr.shape}")
+        if arr.shape[0] != n_frames:
+            raise ValueError(
+                f"Label array for '{name}' has length {arr.shape[0]}, expected {n_frames}"
+            )
+
+    all_names = [MULTICLASS_NONE_BEHAVIOR, *behavior_names]
+    behavior_mask = np.zeros(n_frames, dtype=np.intp)
+    for name in all_names:
+        if name in labels_by_behavior:
+            behavior_mask += (labels_by_behavior[name] == TrackLabels.Label.BEHAVIOR).astype(
+                np.intp
+            )
+    conflict_frames = np.where(behavior_mask > 1)[0]
+    if len(conflict_frames) > 0:
+        raise ValueError(
+            f"Conflicting BEHAVIOR labels found on {len(conflict_frames)} frame(s): "
+            f"{conflict_frames.tolist()}. Each frame may be labeled for at "
+            f"most one behavior."
+        )
+
+    class_indices = np.full(n_frames, -1, dtype=np.intp)
+
+    if MULTICLASS_NONE_BEHAVIOR in labels_by_behavior:
+        none_arr = labels_by_behavior[MULTICLASS_NONE_BEHAVIOR]
+        class_indices[none_arr == TrackLabels.Label.BEHAVIOR] = 0
+
+    for i, behavior in enumerate(behavior_names, start=1):
+        if behavior in labels_by_behavior:
+            beh_arr = labels_by_behavior[behavior]
+            class_indices[beh_arr == TrackLabels.Label.BEHAVIOR] = i
+
+    include_mask = class_indices >= 0
+    return class_indices[include_mask], include_mask

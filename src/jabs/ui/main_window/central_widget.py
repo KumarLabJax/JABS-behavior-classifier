@@ -11,11 +11,20 @@ from shapely.geometry import Point
 
 import jabs.feature_extraction
 from jabs.behavior_search import SearchHit
-from jabs.classifier import Classifier
-from jabs.core.enums import ClassifierType, PredictionType
+from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import (
+    ClassifierMode,
+    ClassifierType,
+    PredictionType,
+)
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
 
+from ..behavior_timeline import (
+    BehaviorTimelineWidget,
+    binary_predictions_to_lut_indices,
+)
 from ..classification_thread import ClassifyThread
 from ..dialogs import AnnotationEditDialog, TrainingReportDialog
 from ..dialogs.message_dialog import MessageDialog
@@ -24,8 +33,8 @@ from ..exceptions import ThreadTerminatedError
 from ..main_control_widget import MainControlWidget
 from ..player_widget import PlayerWidget
 from ..search_bar_widget import SearchBarWidget
-from ..stacked_timeline_widget import StackedTimelineWidget
 from ..training_thread import TrainingThread
+from . import central_widget_mode
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
@@ -59,12 +68,12 @@ class CentralWidget(QtWidgets.QWidget):
         self._debounce_search_hit_timer.timeout.connect(self._on_search_hit_changed)
 
         # timeline widgets
-        self._stacked_timeline = StackedTimelineWidget(self)
+        self._jabs_timeline = BehaviorTimelineWidget(self)
 
         # video player
         self._player_widget = PlayerWidget(self)
         self._player_widget.update_frame_number.connect(self._on_frame_changed)
-        self._player_widget.update_frame_number.connect(self._stacked_timeline.set_current_frame)
+        self._player_widget.update_frame_number.connect(self._jabs_timeline.set_current_frame)
         self._player_widget.pixmap_clicked.connect(self._on_pixmap_clicked)
         self._player_widget.id_label_clicked.connect(self._on_id_label_clicked)
         self._curr_frame_index = 0
@@ -90,6 +99,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = {}
         self._probabilities = {}
         self._predictions_postprocessed = {}
+        self._multiclass_class_names: list[str] | None = None
 
         self._selection_start = None
         self._selection_end = None
@@ -122,7 +132,7 @@ class CentralWidget(QtWidgets.QWidget):
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self._player_widget, 0, 0)
         layout.addWidget(self._controls, 0, 1, 2, 1)
-        layout.addWidget(self._stacked_timeline, 1, 0)
+        layout.addWidget(self._jabs_timeline, 1, 0)
 
         # set row stretch to allow player to expand vertically but not other rows
         layout.setRowStretch(0, 1)  # Player row expands
@@ -145,6 +155,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog = None
 
         self._counts = None
+        # project-wide counts for the reserved "None" background track, used to
+        # source the negative-class row of the label summary in multi-class mode
+        self._none_counts = None
         self._bouts_behavior = 0
         self._bouts_not_behavior = 0
 
@@ -240,11 +253,11 @@ class CentralWidget(QtWidgets.QWidget):
         behavior_search_query = self._search_bar_widget.behavior_search_query
         video_name = self._loaded_video.name if self._loaded_video else None
         if not self._loaded_video or not video_name:
-            self._stacked_timeline.set_search_results(None, [])
+            self._jabs_timeline.set_search_results(None, [])
         else:
             # Filter search results for the currently loaded video
             filtered_results = [hit for hit in search_results if hit.file == video_name]
-            self._stacked_timeline.set_search_results(behavior_search_query, filtered_results)
+            self._jabs_timeline.set_search_results(behavior_search_query, filtered_results)
 
     @property
     def label_overlay_mode(self) -> PlayerWidget.LabelOverlayMode:
@@ -263,16 +276,47 @@ class CentralWidget(QtWidgets.QWidget):
         """
         if mode != self._label_overlay_mode:
             self._label_overlay_mode = mode
-            # also update self._player_widget labels
             if mode == PlayerWidget.LabelOverlayMode.LABEL:
-                self._player_widget.set_labels(
-                    [labels.get_labels() for labels in self._get_label_list()]
-                )
+                if (
+                    self._project is not None
+                    and self._labels is not None
+                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+                ):
+                    behavior_names = self._controls.behaviors
+                    multiclass_arrays = [
+                        self._labels.build_multiclass_label_array(str(i), behavior_names)
+                        for i in range(self._pose_est.num_identities)
+                    ]
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(multiclass_arrays)
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(
+                        [labels.get_labels() for labels in self._get_label_list()]
+                    )
             elif mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-                # prediction_list, _ = self._get_prediction_list()
-                self._player_widget.set_labels(self._prediction_list)
+                if (
+                    self._project is not None
+                    and self._loaded_video is not None
+                    and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+                ):
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(self._build_multiclass_overlay_labels())
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(self._prediction_list)
             else:
-                # if the player is set to show nothing, clear the labels
+                self._player_widget.set_label_color_lut(None)
                 self._player_widget.set_labels(None)
 
     @property
@@ -314,7 +358,13 @@ class CentralWidget(QtWidgets.QWidget):
         self._labels = None
         self._loaded_video = None
 
+        # The reserved "None"-track counts are behavior-independent, so they are
+        # cached across behavior changes and only invalidated when the project
+        # changes (they belong to the previous project here).
+        self._none_counts = None
+
         self._controls.update_project_settings(project.settings)
+        self._controls.set_classifier_mode(project.settings_manager.classifier_mode)
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()
 
@@ -349,8 +399,16 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.load_video(path, self._pose_est, self._labels)
 
             # load saved predictions for this video
-            self._predictions, self._probabilities, self._predictions_postprocessed = (
-                self._project.prediction_manager.load_predictions(path.name, self.behavior)
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                path.name,
+                self.behavior,
             )
 
             # update ui components with properties of new video
@@ -360,8 +418,12 @@ class CentralWidget(QtWidgets.QWidget):
             self._set_identities(display_identities)
             self._player_widget.set_active_identity(self._controls.current_identity_index)
 
-            self._stacked_timeline.pose = self._pose_est
-            self._stacked_timeline.framerate = self._player_widget.stream_fps
+            self._jabs_timeline.pose = self._pose_est
+            self._jabs_timeline.framerate = self._player_widget.stream_fps
+            self._jabs_timeline.set_classifier_mode(
+                self._project.settings_manager.classifier_mode,
+                self._controls.behaviors,
+            )
             self._suppress_label_track_update = False
             self._set_label_track()
             self._update_select_button_state()
@@ -482,25 +544,61 @@ class CentralWidget(QtWidgets.QWidget):
         return self._controls
 
     @property
-    def timeline_view_mode(self) -> StackedTimelineWidget.ViewMode:
+    def timeline_view_mode(self) -> BehaviorTimelineWidget.ViewMode:
         """return the timeline view mode"""
-        return self._stacked_timeline.view_mode
+        return self._jabs_timeline.view_mode
 
     @timeline_view_mode.setter
-    def timeline_view_mode(self, view_mode: StackedTimelineWidget.ViewMode) -> None:
+    def timeline_view_mode(self, view_mode: BehaviorTimelineWidget.ViewMode) -> None:
         """set the timeline view mode"""
-        self._stacked_timeline.view_mode = view_mode
+        self._jabs_timeline.view_mode = view_mode
         self._update_select_button_state()
 
     @property
-    def timeline_identity_mode(self) -> StackedTimelineWidget.IdentityMode:
+    def timeline_identity_mode(self) -> BehaviorTimelineWidget.IdentityMode:
         """return the timeline identity mode"""
-        return self._stacked_timeline.identity_mode
+        return self._jabs_timeline.identity_mode
 
     @timeline_identity_mode.setter
-    def timeline_identity_mode(self, identity_mode: StackedTimelineWidget.IdentityMode) -> None:
+    def timeline_identity_mode(self, identity_mode: BehaviorTimelineWidget.IdentityMode) -> None:
         """set the timeline view mode"""
-        self._stacked_timeline.identity_mode = identity_mode
+        self._jabs_timeline.identity_mode = identity_mode
+
+    @property
+    def mc_collapse_label_bar(self) -> bool:
+        """Whether inactive identity label bars are collapsed in multiclass all-animals mode."""
+        return self._jabs_timeline.collapse_inactive_label_bar
+
+    @mc_collapse_label_bar.setter
+    def mc_collapse_label_bar(self, value: bool) -> None:
+        self._jabs_timeline.collapse_inactive_label_bar = value
+
+    @property
+    def mc_collapse_combined_bar(self) -> bool:
+        """Whether inactive combined prediction bars are collapsed in multiclass all-animals mode."""
+        return self._jabs_timeline.collapse_inactive_combined_bar
+
+    @mc_collapse_combined_bar.setter
+    def mc_collapse_combined_bar(self, value: bool) -> None:
+        self._jabs_timeline.collapse_inactive_combined_bar = value
+
+    @property
+    def mc_collapse_per_class_bars(self) -> bool:
+        """Whether inactive per-class prediction bars are collapsed in multiclass all-animals mode."""
+        return self._jabs_timeline.collapse_inactive_per_class_bars
+
+    @mc_collapse_per_class_bars.setter
+    def mc_collapse_per_class_bars(self, value: bool) -> None:
+        self._jabs_timeline.collapse_inactive_per_class_bars = value
+
+    @property
+    def mc_hide_per_class_rows(self) -> bool:
+        """Whether per-class prediction rows are hidden for inactive identities."""
+        return self._jabs_timeline.hide_inactive_per_class_widgets
+
+    @mc_hide_per_class_rows.setter
+    def mc_hide_per_class_rows(self, value: bool) -> None:
+        self._jabs_timeline.hide_inactive_per_class_widgets = value
 
     def _on_behavior_changed(self) -> None:
         """make UI changes to reflect the currently selected behavior"""
@@ -518,7 +616,10 @@ class CentralWidget(QtWidgets.QWidget):
         self._update_label_counts()
 
         # load saved predictions
-        if self._loaded_video:
+        if (
+            self._loaded_video
+            and self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS
+        ):
             self._predictions, self._probabilities, self._predictions_postprocessed = (
                 self._project.prediction_manager.load_predictions(
                     self._loaded_video.name, self.behavior
@@ -541,10 +642,10 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.enable_label_buttons()
             self._selection_start = self._player_widget.current_frame
             self._selection_end = None
-            self._stacked_timeline.start_selection(self._selection_start)
+            self._jabs_timeline.start_selection(self._selection_start)
         else:
             self._controls.disable_label_buttons()
-            self._stacked_timeline.clear_selection()
+            self._jabs_timeline.clear_selection()
 
     def select_all(self) -> None:
         """Select all frames in the current video for the current identity and behavior."""
@@ -557,7 +658,7 @@ class CentralWidget(QtWidgets.QWidget):
                 self._controls.enable_label_buttons()
                 self._selection_start = 0
                 self._selection_end = num_frames - 1
-                self._stacked_timeline.start_selection(self._selection_start, self._selection_end)
+                self._jabs_timeline.start_selection(self._selection_start, self._selection_end)
 
     def select_current_bout(self) -> None:
         """Select all frames in the current bout (contiguous labeled run at the current frame).
@@ -594,7 +695,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.enable_label_buttons()
         self._selection_start = start
         self._selection_end = end
-        self._stacked_timeline.start_selection(start, end)
+        self._jabs_timeline.start_selection(start, end)
 
     @staticmethod
     def _get_bout_range(labels: np.ndarray, current_frame: int) -> tuple[int, int] | None:
@@ -639,31 +740,48 @@ class CentralWidget(QtWidgets.QWidget):
         )
 
     def _label_behavior(self) -> None:
-        """Apply behavior label to currently selected range of frames"""
+        """Apply behavior label to currently selected range of frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
+        identity_index = self._controls.current_identity_index
+        current_behavior = self._controls.current_behavior
+        central_widget_mode.apply_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
+            current_behavior,
+            start,
+            end,
+        )
         self._project.session_tracker.label_created(
             self._loaded_video,
-            self._controls.current_identity_index,
-            self._controls.current_behavior,
+            identity_index,
+            current_behavior,
             True,
             start,
             end,
         )
-        self._get_label_track().label_behavior(start, end)
         self._label_button_common()
 
     def _label_not_behavior(self) -> None:
-        """apply _not_ behavior label to currently selected range of frames"""
+        """Apply not-behavior label (binary) or None label (multi-class) to selected frames."""
         start, end = sorted([self._selection_start, self._curr_selection_end])
-        self._project.session_tracker.label_created(
-            self._loaded_video,
-            self._controls.current_identity_index,
+        identity_index = self._controls.current_identity_index
+        behavior_key, is_positive_label = central_widget_mode.apply_not_behavior_label(
+            self._labels,
+            self._project.settings_manager.classifier_mode,
+            str(identity_index),
             self._controls.current_behavior,
-            False,
             start,
             end,
         )
-        self._get_label_track().label_not_behavior(start, end)
+        self._project.session_tracker.label_created(
+            self._loaded_video,
+            identity_index,
+            behavior_key,
+            is_positive_label,
+            start,
+            end,
+        )
         self._label_button_common()
 
     def _clear_behavior_label(self) -> None:
@@ -688,10 +806,11 @@ class CentralWidget(QtWidgets.QWidget):
         """
         self._project.save_annotations(self._labels, self._pose_est)
         self._controls.disable_label_buttons()
-        self._stacked_timeline.clear_selection()
+        self._jabs_timeline.clear_selection()
         self._update_label_counts()
         self.set_train_button_enabled_state()
         self._player_widget.reload_frame()
+        self._set_label_track()
 
     def _set_identities(self, identities: list[str]) -> None:
         """populate the identity_selection combobox"""
@@ -701,7 +820,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle changing value of identity_selection"""
         self._player_widget.set_active_identity(self._controls.current_identity_index)
         self._update_label_counts()
-        self._stacked_timeline.active_identity_index = self._controls.current_identity_index
+        self._jabs_timeline.active_identity_index = self._controls.current_identity_index
 
     def _on_frame_changed(self, new_frame: int) -> None:
         """called when the video player widget emits its updateFrameNumber signal"""
@@ -724,15 +843,31 @@ class CentralWidget(QtWidgets.QWidget):
         identity = self._controls.current_identity_index
 
         if identity != -1 and behavior != "" and self._labels is not None:
-            label_list = self._get_label_list()
             mask_list = [
                 self._pose_est.identity_mask(i) for i in range(self._pose_est.num_identities)
             ]
-            self._stacked_timeline.set_labels(label_list, mask_list)
-
+            mode = self._project.settings_manager.classifier_mode
+            timeline_labels = central_widget_mode.build_timeline_label_arrays(
+                self._labels,
+                mode,
+                self._pose_est.num_identities,
+                current_behavior=behavior,
+                behaviors=self._controls.behaviors,
+            )
+            self._jabs_timeline.set_labels(timeline_labels, mask_list)
             if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.LABEL:
-                # if configured to show labels, update the player widget with the new labels
-                self._player_widget.set_labels([labels.get_labels() for labels in label_list])
+                if mode == ClassifierMode.MULTICLASS:
+                    lut = self._jabs_timeline.multiclass_color_lut
+                    if lut is not None:
+                        self._player_widget.set_label_color_lut(lut)
+                        self._player_widget.set_labels(timeline_labels)
+                    else:
+                        self._player_widget.set_label_color_lut(None)
+                        self._player_widget.set_labels(None)
+                else:
+                    label_list = self._get_label_list()
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels([labels.get_labels() for labels in label_list])
 
         self._set_prediction_vis()
 
@@ -778,6 +913,8 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
 
+        self._ensure_classifier_for_mode()
+
         # reset training report
         self._training_report_markdown = None
 
@@ -800,11 +937,20 @@ class CentralWidget(QtWidgets.QWidget):
         # use one task for reading features from each video, plus one for training, plus one each for cross validation iterations.
         total_steps = self._project.video_manager.num_videos + 1
         if self._controls.all_kfold:
-            project_counts = self._project.counts(self._controls.current_behavior)
-            total_steps += self._classifier.count_label_threshold(
-                project_counts,
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-            )
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+                counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+                total_steps += MultiClassClassifier.count_label_threshold(
+                    counts_by_behavior=counts_by_behavior,
+                    behavior_names=behavior_names,
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                )
+            else:
+                project_counts = self._project.counts(self._controls.current_behavior)
+                total_steps += self._classifier.count_label_threshold(
+                    project_counts,
+                    cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                )
         else:
             total_steps += self._controls.kfold_value
 
@@ -814,6 +960,33 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
+
+    def _ensure_classifier_for_mode(self) -> None:
+        """Ensure the active classifier instance matches the current classifier mode."""
+        mode = self._project.settings_manager.classifier_mode
+        selected_type = self._controls.classifier_type
+
+        if mode == ClassifierMode.MULTICLASS:
+            behavior_names = self._controls.behaviors
+            if not behavior_names:
+                return
+            if (
+                not isinstance(self._classifier, MultiClassClassifier)
+                or self._classifier.behavior_names != behavior_names
+            ):
+                self._classifier = MultiClassClassifier(
+                    behavior_names,
+                    classifier_type=selected_type,
+                    n_jobs=-1,
+                )
+            elif self._classifier.classifier_type != selected_type:
+                self._classifier.set_classifier(selected_type)
+            return
+
+        if isinstance(self._classifier, MultiClassClassifier):
+            self._classifier = Classifier(selected_type, n_jobs=-1)
+        elif self._classifier.classifier_type != selected_type:
+            self._classifier.set_classifier(selected_type)
 
     def _on_training_report(self, markdown_content: str) -> None:
         """Save the training report markdown for display after training completes.
@@ -957,12 +1130,17 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
+        if self._progress_dialog is None:
+            return
+        if step > self._progress_dialog.maximum():
+            self._progress_dialog.setMaximum(step)
         self._progress_dialog.setValue(step)
 
     def _classify_button_clicked(self) -> None:
         """handle user click on "Classify" button"""
         # make sure video playback is stopped
         self._player_widget.stop()
+        self._ensure_classifier_for_mode()
 
         # setup classification thread
         self._classify_thread = ClassifyThread(
@@ -991,6 +1169,8 @@ class CentralWidget(QtWidgets.QWidget):
         self._predictions = output["predictions"]
         self._probabilities = output["probabilities"]
         self._predictions_postprocessed = output["predictions_postprocessed"]
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            self._multiclass_class_names = output.get("class_names")
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
         self.status_message.emit(
@@ -1000,17 +1180,53 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _update_classify_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
+        if self._progress_dialog is None:
+            return
         self._progress_dialog.setValue(step)
+
+    def _build_multiclass_overlay_labels(self) -> list[np.ndarray]:
+        """Build per-identity LUT-index arrays for the multiclass prediction overlay.
+
+        Maps prediction class indices from ``self._predictions`` to LUT indices:
+        -1 (no pose) -> 0, 0..N-1 -> 1..N.
+
+        Returns:
+            List of arrays, one per identity, with LUT indices for each frame.
+        """
+        n_frames = self._player_widget.num_frames
+        overlay_labels = []
+        for i in range(self._pose_est.num_identities):
+            arr = self._predictions.get(i)
+            if arr is None:
+                arr = np.full(n_frames, -1, dtype=np.int16)
+            overlay_labels.append(np.where(arr == -1, 0, np.asarray(arr, dtype=np.int16) + 1))
+        return overlay_labels
 
     def _set_prediction_vis(self) -> None:
         """update data being displayed by the prediction visualization widget"""
-        if self._loaded_video is None:
+        if self._project is None or self._loaded_video is None:
+            return
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            predictions_rows, probabilities_rows = self._get_multiclass_prediction_rows()
+            self._jabs_timeline.set_predictions(predictions_rows, probabilities_rows)
+            if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
+                lut = self._jabs_timeline.multiclass_color_lut
+                if lut is not None:
+                    self._player_widget.set_label_color_lut(lut)
+                    self._player_widget.set_labels(self._build_multiclass_overlay_labels())
+                else:
+                    self._player_widget.set_label_color_lut(None)
+                    self._player_widget.set_labels(None)
             return
 
         self._prediction_list, self._probability_list = self._get_prediction_list()
-        self._stacked_timeline.set_predictions(self._prediction_list, self._probability_list)
+        self._jabs_timeline.set_predictions(
+            [[binary_predictions_to_lut_indices(p)] for p in self._prediction_list],
+            [[prob] for prob in self._probability_list],
+        )
         if self._label_overlay_mode == PlayerWidget.LabelOverlayMode.PREDICTION:
-            # if the player is set to show predictions, update the player widget
+            self._player_widget.set_label_color_lut(None)
             self._player_widget.set_labels(self._prediction_list)
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
@@ -1047,6 +1263,95 @@ class CentralWidget(QtWidgets.QWidget):
             probability_list.append(self._probabilities[i])
         return prediction_list, probability_list
 
+    @staticmethod
+    def _decompose_multiclass_prediction_rows(
+        predicted_class: np.ndarray,
+        probabilities: np.ndarray,
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Convert multiclass predictions into per-class binary-style row arrays."""
+        if predicted_class.ndim != 1:
+            raise ValueError("predicted_class must be 1-D")
+        if probabilities.ndim != 2:
+            raise ValueError("probabilities must be 2-D")
+        if predicted_class.shape[0] != probabilities.shape[0]:
+            raise ValueError("predicted_class/probabilities frame length mismatch")
+
+        n_frames, n_classes = probabilities.shape
+        per_class_predictions: list[np.ndarray] = []
+        per_class_probabilities: list[np.ndarray] = []
+
+        for class_idx in range(n_classes):
+            row = np.ones(n_frames, dtype=np.int16)  # not this class
+            row[predicted_class == -1] = 0  # no pose / no prediction
+            row[predicted_class == class_idx] = 2  # this class predicted
+            per_class_predictions.append(row)
+            per_class_probabilities.append(probabilities[:, class_idx].astype(np.float32))
+
+        return per_class_predictions, per_class_probabilities
+
+    def _get_multiclass_prediction_rows(
+        self,
+    ) -> tuple[list[list[np.ndarray]], list[list[np.ndarray]]]:
+        """Build per-identity per-class prediction/probability rows for timeline rendering."""
+        prediction_rows: list[list[np.ndarray]] = []
+        probability_rows: list[list[np.ndarray]] = []
+        expected_classes = 1 + len(self._controls.behaviors)
+        expected_frames = self._player_widget.num_frames
+
+        def append_empty_rows() -> None:
+            empty_pred = np.zeros(expected_frames, dtype=np.int16)
+            empty_prob = np.zeros(expected_frames, dtype=np.float32)
+            prediction_rows.append([empty_pred.copy() for _ in range(expected_classes)])
+            probability_rows.append([empty_prob.copy() for _ in range(expected_classes)])
+
+        for i in range(self._pose_est.num_identities):
+            identity_predictions = self._predictions.get(i)
+            identity_probabilities = self._probabilities.get(i)
+
+            if identity_predictions is None or identity_probabilities is None:
+                append_empty_rows()
+                continue
+
+            predicted_arr = np.asarray(identity_predictions)
+            probabilities_arr = np.asarray(identity_probabilities)
+            if (
+                predicted_arr.shape[0] != expected_frames
+                or probabilities_arr.shape[0] != expected_frames
+            ):
+                append_empty_rows()
+                continue
+
+            try:
+                per_class_preds, per_class_probs = self._decompose_multiclass_prediction_rows(
+                    predicted_arr,
+                    probabilities_arr,
+                )
+            except ValueError:
+                append_empty_rows()
+                continue
+
+            if len(per_class_preds) != expected_classes:
+                append_empty_rows()
+                continue
+            prediction_rows.append(per_class_preds)
+            probability_rows.append(per_class_probs)
+
+        return prediction_rows, probability_rows
+
+    def update_classifier_mode_display(self) -> None:
+        """Rebuild the timeline layout and refresh labels to reflect the current classifier mode.
+
+        Rebuilds the stacked timeline's per-identity widget structure and re-renders
+        all label bars.  Has no effect if no video is currently loaded.
+        """
+        if self._project is None or self._loaded_video is None:
+            return
+        self._jabs_timeline.set_classifier_mode(
+            self._project.settings_manager.classifier_mode,
+            self._controls.behaviors,
+        )
+        self._set_label_track()
+
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
 
@@ -1064,11 +1369,24 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
-        if Classifier.label_threshold_met(
-            self._counts,
-            self._controls.kfold_value,
-            self._project.settings_manager.cv_grouping_strategy,
-        ):
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+            counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+            min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
+            threshold_met = MultiClassClassifier.label_threshold_met(
+                counts_by_behavior=counts_by_behavior,
+                behavior_names=behavior_names,
+                min_groups=min_groups,
+                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+            )
+        else:
+            threshold_met = Classifier.label_threshold_met(
+                self._counts,
+                self._controls.kfold_value,
+                self._project.settings_manager.cv_grouping_strategy,
+            )
+
+        if threshold_met:
             self._controls.train_button_enabled = True
             self.export_training_status_change.emit(True)
         else:
@@ -1084,10 +1402,23 @@ class CentralWidget(QtWidgets.QWidget):
         if self._loaded_video is None:
             return
 
+        multiclass = self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+
         # update counts for the current video
         self._counts[self._loaded_video.name] = self._project.load_counts(
             self._loaded_video.name, self.behavior
         )
+
+        # In multi-class mode the negative class shown in the label summary is
+        # the reserved "None" background track (explicit negatives are stored
+        # there), not the selected behavior's NOT_BEHAVIOR labels. Load and
+        # refresh those counts in parallel with the behavior counts.
+        if multiclass:
+            if self._none_counts is None:
+                self._none_counts = self._project.counts(MULTICLASS_NONE_BEHAVIOR)
+            self._none_counts[self._loaded_video.name] = self._project.load_counts(
+                self._loaded_video.name, MULTICLASS_NONE_BEHAVIOR
+            )
 
         current_identity = self._controls.current_identity_index
 
@@ -1101,17 +1432,42 @@ class CentralWidget(QtWidgets.QWidget):
         bout_not_behavior_project = 0
 
         for video, video_counts in self._counts.items():
+            none_video_counts = self._none_counts.get(video, {}) if multiclass else {}
             for identity, counts in video_counts.items():
-                label_behavior_project += counts["unfragmented_frame_counts"][0]
-                label_not_behavior_project += counts["unfragmented_frame_counts"][1]
-                bout_behavior_project += counts["unfragmented_bout_counts"][0]
-                bout_not_behavior_project += counts["unfragmented_bout_counts"][1]
+                behavior_frames = counts["unfragmented_frame_counts"][0]
+                behavior_bouts = counts["unfragmented_bout_counts"][0]
+
+                if multiclass:
+                    # negative class = BEHAVIOR labels on the "None" track
+                    none_counts = none_video_counts.get(identity)
+                    negative_frames = (
+                        none_counts["unfragmented_frame_counts"][0] if none_counts else 0
+                    )
+                    negative_bouts = (
+                        none_counts["unfragmented_bout_counts"][0] if none_counts else 0
+                    )
+                else:
+                    # negative class = NOT_BEHAVIOR labels on the selected behavior
+                    negative_frames = counts["unfragmented_frame_counts"][1]
+                    negative_bouts = counts["unfragmented_bout_counts"][1]
+
+                label_behavior_project += behavior_frames
+                label_not_behavior_project += negative_frames
+                bout_behavior_project += behavior_bouts
+                bout_not_behavior_project += negative_bouts
 
                 if video == self._loaded_video.name and identity == current_identity:
-                    label_behavior_current = counts["unfragmented_frame_counts"][0]
-                    label_not_behavior_current = counts["unfragmented_frame_counts"][1]
-                    bout_behavior_current = counts["unfragmented_bout_counts"][0]
-                    bout_not_behavior_current = counts["unfragmented_bout_counts"][1]
+                    label_behavior_current = behavior_frames
+                    label_not_behavior_current = negative_frames
+                    bout_behavior_current = behavior_bouts
+                    bout_not_behavior_current = negative_bouts
+
+        # retitle the summary rows: behavior name / "None" in multi-class mode,
+        # the standard "Behavior" / "Not Behavior" otherwise
+        if multiclass:
+            self._controls.set_label_summary_class_labels(self.behavior, MULTICLASS_NONE_BEHAVIOR)
+        else:
+            self._controls.set_label_summary_class_labels("Behavior", "Not Behavior")
 
         self._controls.set_frame_counts(
             label_behavior_current,
@@ -1223,6 +1579,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._controls.use_symmetric = behavior_metadata["symmetric_behavior"]
 
     def _load_cached_classifier(self) -> None:
+        self._ensure_classifier_for_mode()
         classifier_loaded = False
         try:
             classifier_loaded = self._project.load_classifier(self._classifier, self.behavior)
@@ -1307,7 +1664,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._start_selection(False)
             self._controls.select_button_enabled = False
             self._controls.select_button_set_checked(False)
-            self._stacked_timeline.clear_selection()
+            self._jabs_timeline.clear_selection()
 
         # disable select frames button if no video is loaded, there are
         # no identities to label, or the current view mode is predictions
@@ -1315,7 +1672,7 @@ class CentralWidget(QtWidgets.QWidget):
         if (
             self._loaded_video is None
             or (self._pose_est is not None and self._pose_est.num_identities == 0)
-            or self._stacked_timeline.view_mode == self._stacked_timeline.view_mode.PREDICTIONS
+            or self._jabs_timeline.view_mode == self._jabs_timeline.view_mode.PREDICTIONS
         ):
             disable_select_button()
         else:

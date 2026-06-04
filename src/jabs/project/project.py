@@ -13,11 +13,17 @@ from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 import jabs.feature_extraction as fe
-from jabs.core.constants import CACHE_FORMAT_KEY
-from jabs.core.enums import CacheFormat, CrossValidationGroupingStrategy, ProjectDistanceUnit
+from jabs.core.constants import CACHE_FORMAT_KEY, MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import (
+    CacheFormat,
+    ClassifierMode,
+    CrossValidationGroupingStrategy,
+    ProjectDistanceUnit,
+)
 from jabs.pose_estimation import (
     PoseEstimation,
     get_pose_file_major_version,
@@ -27,24 +33,29 @@ from jabs.pose_estimation import (
 
 from .feature_manager import FeatureManager
 from .parallel_workers import (
-    FeatureLoadJobSpec,
+    BinaryFeatureLoadJobSpec,
+    MulticlassFeatureLoadJobSpec,
     VideoScanJobSpec,
     VideoScanResult,
-    collect_labeled_features,
+    collect_binary_labeled_features,
+    collect_multiclass_labeled_features,
     scan_video_metadata,
 )
-from .prediction_manager import PredictionManager
+from .prediction_manager import MULTICLASS_PREDICTION_KEY, PredictionManager
 from .project_paths import ProjectPaths
 from .project_utils import to_safe_name
 from .session_tracker import SessionTracker
 from .settings_manager import SettingsManager
+from .track_labels import TrackLabels
 from .video_labels import VideoLabels
 from .video_manager import VideoManager
 
 logger = logging.getLogger(__name__)
 
+MULTICLASS_CLASSIFIER_FILENAME = "_multiclass.pickle"
+
 if TYPE_CHECKING:
-    from jabs.classifier import Classifier
+    from jabs.classifier import ClassifierProtocol
     from jabs.core.utils.process_pool_manager import ProcessPoolManager
 
 
@@ -514,30 +525,63 @@ class Project:
             "symmetric_behavior": False,
         }
 
-    def save_classifier(self, classifier, behavior: str):
-        """Save the classifier for the given behavior
+    def _classifier_path(self, behavior: str | None = None) -> Path:
+        """Return the classifier path for the current classifier mode.
 
         Args:
-            classifier: the classifier to save
-            behavior: string behavior name. This affects the path we save to
+            behavior: Behavior name for binary classifiers. Ignored in multi-class mode.
+
+        Returns:
+            Path to the classifier file.
+
+        Raises:
+            ValueError: If binary mode is active and no behavior name is provided.
         """
-        classifier.save(self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle"))
+        if self.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
+
+        if behavior is None:
+            raise ValueError("behavior is required when saving or loading binary classifiers")
+
+        return self._paths.classifier_dir / f"{to_safe_name(behavior)}.pickle"
+
+    def save_classifier(
+        self,
+        classifier: "ClassifierProtocol",
+        behavior: str | None = None,
+    ) -> None:
+        """Save the classifier for the current classifier mode.
+
+        Args:
+            classifier: Classifier to save.
+            behavior: Behavior name for binary classifiers. Ignored in multi-class mode.
+
+        Raises:
+            ValueError: If binary mode is active and no behavior name is provided.
+        """
+        classifier.save(self._classifier_path(behavior))
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
 
-    def load_classifier(self, classifier, behavior: str):
-        """Load cached classifier for the given behavior
+    def load_classifier(
+        self,
+        classifier: "ClassifierProtocol",
+        behavior: str | None = None,
+    ) -> bool:
+        """Load cached classifier for the current classifier mode.
 
         Args:
-            classifier: the classifier to load
-            behavior: string behavior name.
+            classifier: Classifier to load into.
+            behavior: Behavior name for binary classifiers. Ignored in multi-class mode.
 
         Returns:
-            True if load is successful and False if the file doesn't
-            exist
+            True if load is successful and False if the file does not exist.
+
+        Raises:
+            ValueError: If binary mode is active and no behavior name is provided.
         """
-        classifier_path = self._paths.classifier_dir / (to_safe_name(behavior) + ".pickle")
+        classifier_path = self._classifier_path(behavior)
         try:
             classifier.load(classifier_path)
             return True
@@ -551,8 +595,9 @@ class Project:
         predictions: dict[int, np.ndarray],
         probabilities: dict[int, np.ndarray],
         behavior: str,
-        classifier: "Classifier",
+        classifier: "ClassifierProtocol",
         postprocessed_predictions: dict[int, np.ndarray] | None = None,
+        class_names: list[str] | None = None,
     ) -> None:
         """Save predictions for a video in the project folder.
 
@@ -566,6 +611,7 @@ class Project:
             postprocessed_predictions: dict mapping identity to a 1D numpy array of predicted labels after
                 post-processing has been applied. If provided, these will be saved alongside the
                 raw predictions.
+            class_names: Optional ordered class names for multiclass predictions.
         """
         # set up an output filename based on the video names
         file_base = Path(video_name).with_suffix("").name + ".h5"
@@ -575,7 +621,25 @@ class Project:
         prediction_labels = np.full(
             (pose_est.num_identities, pose_est.num_frames), -1, dtype=np.int8
         )
-        prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
+        # Probability shape is determined by mode, not by sniffing a sample
+        # array: multi-class predictions (class_names provided) store one column
+        # per class, binary predictions store a scalar per frame. Deciding from
+        # class_names keeps the shape correct even when `probabilities` is empty
+        # (e.g. a video with no identities to classify).
+        prediction_prob: np.ndarray
+        if class_names is not None:
+            prediction_prob = np.zeros(
+                (pose_est.num_identities, pose_est.num_frames, len(class_names)),
+                dtype=np.float32,
+            )
+        else:
+            prediction_prob = np.zeros_like(prediction_labels, dtype=np.float32)
+
+        # Expected per-identity probability shape; checked explicitly before
+        # assignment because allocating from class_names (rather than from the
+        # array itself) means a mis-shaped input could otherwise broadcast
+        # silently (e.g. (n_frames, 1) duplicated across classes).
+        expected_prob_shape = prediction_prob.shape[1:]
 
         if postprocessed_predictions:
             postprocessed_labels = np.full(
@@ -586,8 +650,14 @@ class Project:
 
         # stack the numpy arrays
         for identity in predictions:
+            identity_prob = probabilities[identity]
+            if identity_prob.shape != expected_prob_shape:
+                raise ValueError(
+                    f"probability array for identity {identity} has shape "
+                    f"{identity_prob.shape}, expected {expected_prob_shape}"
+                )
             prediction_labels[identity] = predictions[identity]
-            prediction_prob[identity] = probabilities[identity]
+            prediction_prob[identity] = identity_prob
             if postprocessed_predictions:
                 postprocessed_labels[identity] = postprocessed_predictions[identity]
 
@@ -600,10 +670,47 @@ class Project:
             pose_est,
             classifier,
             postprocessed_predictions=postprocessed_labels,
+            class_names=class_names,
         )
 
         # update app version saved in project metadata if necessary
         self._settings_manager.update_version()
+
+    def get_overlapping_behavior_label_videos(self) -> list[str]:
+        """Return filenames of videos containing frames labeled with multiple behaviors.
+
+        Scans every video in the project for annotation conflicts where a single
+        identity has the same frame labeled BEHAVIOR for two or more behaviors
+        simultaneously. Includes the reserved "None" behavior track, consistent
+        with how classifier_utils.merge_labels() detects conflicts at training time.
+
+        Returns:
+            Sorted list of video filenames containing at least one overlap.
+            An empty list means no conflicts exist.
+        """
+        conflicting: list[str] = []
+        for video in self._video_manager.videos:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            identities = {identity for identity, _, _ in labels.iter_identity_behavior_labels()}
+            video_has_conflict = False
+            for identity in identities:
+                behavior_counts: npt.NDArray[np.intp] | None = None
+                for _, track in labels.iter_behavior_labels(identity):
+                    behavior_mask = (track.get_labels() == TrackLabels.Label.BEHAVIOR).astype(
+                        np.intp
+                    )
+                    if behavior_counts is None:
+                        behavior_counts = behavior_mask
+                    else:
+                        behavior_counts = behavior_counts + behavior_mask
+                        if np.any(behavior_counts > 1):
+                            video_has_conflict = True
+                            break
+                if video_has_conflict:
+                    conflicting.append(video)
+                    break
+        return sorted(conflicting)
 
     def archive_behavior(self, behavior: str):
         """Archive a behavior.
@@ -630,13 +737,10 @@ class Project:
         # archive labels and unfragmented_labels
         archived_labels = {}
         for video in self._video_manager.videos:
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            labels = self._video_manager.load_video_labels(video, pose)
-
-            # if no labels for video skip it
-            if labels is None:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
                 continue
 
+            pose = self.load_pose_est(self._video_manager.video_path(video))
             annotations = labels.as_dict(pose)
 
             # ensure archive structure exists for this video:
@@ -705,6 +809,132 @@ class Project:
             counts[video] = self.load_counts(video, behavior)
         return counts
 
+    def _build_feature_load_job_base(self, video: str, behavior_settings: dict) -> dict:
+        """Construct the per-video fields shared by every feature-load job spec."""
+        return {
+            "video": video,
+            "video_path": self._video_manager.video_path(video),
+            "pose_path": self._video_manager.get_cached_pose_path(video),
+            "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
+            "feature_dir": self.feature_dir,
+            "cache_dir": self._paths.cache_dir,
+            "behavior_settings": behavior_settings,
+            "cache_format": self.cache_format.value,
+        }
+
+    def _collect_features_parallel(
+        self,
+        jobs: list[dict],
+        worker_fn: Callable[[dict], dict],
+        progress_callable: Callable[[], None] | None,
+        should_terminate_callable: Callable[[], None] | None,
+    ) -> dict[str, dict]:
+        """Run feature-collection jobs in parallel (or single-threaded fallback).
+
+        Args:
+            jobs: One job spec per video.
+            worker_fn: Worker function to apply to each job spec.
+            progress_callable: Called once per completed video, if provided.
+            should_terminate_callable: Called between submissions and completions,
+                if provided; should raise on user-requested cancellation.
+
+        Returns:
+            Dict keyed by video name. Callers reorder by their canonical
+            ``videos`` list for deterministic concatenation.
+        """
+        executor = self._process_pool
+        results_by_video: dict[str, dict] = {}
+
+        if executor is not None:
+            future_to_video = {executor.submit(worker_fn, job): job["video"] for job in jobs}
+            for future in as_completed(future_to_video):
+                if should_terminate_callable:
+                    should_terminate_callable()
+                video_name = future_to_video[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
+                results_by_video[video_name] = res
+                if progress_callable:
+                    progress_callable()
+        else:
+            for job in jobs:
+                if should_terminate_callable:
+                    should_terminate_callable()
+                try:
+                    res = worker_fn(job)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Feature collection failed for video: {job['video']}"
+                    ) from e
+                results_by_video[job["video"]] = res
+                if progress_callable:
+                    progress_callable()
+
+        return results_by_video
+
+    @staticmethod
+    def _assign_cv_group_ids(
+        all_group_keys: list[tuple[str, int]],
+        videos: list[str],
+        grouping_strategy: CrossValidationGroupingStrategy,
+    ) -> tuple[dict[tuple[str, int], int], dict[int, dict]]:
+        """Assign deterministic cross-validation group ids.
+
+        Args:
+            all_group_keys: ``(video, identity)`` tuples in row order.
+            videos: Canonical list of project videos; ids are assigned in this order.
+            grouping_strategy: ``INDIVIDUAL`` groups one (video, identity) pair per
+                gid; ``VIDEO`` groups all identities of a video together.
+
+        Returns:
+            Tuple of ``(key_to_gid, group_mapping)`` where ``key_to_gid`` maps each
+            ``(video, identity)`` pair to its group id and ``group_mapping`` maps
+            each group id back to ``{"video": ..., "identity": ...}``.
+        """
+        key_to_gid: dict[tuple[str, int], int] = {}
+        group_mapping: dict[int, dict] = {}
+        gid = 0
+        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
+            for v in videos:
+                seen: list[int] = []
+                for video_name, ident in all_group_keys:
+                    if video_name == v and ident not in seen:
+                        seen.append(ident)
+                for ident in seen:
+                    key = (v, ident)
+                    if key not in key_to_gid:
+                        key_to_gid[key] = gid
+                        group_mapping[gid] = {"video": v, "identity": ident}
+                        gid += 1
+        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
+            video_to_gid: dict[str, int] = {}
+            for v in videos:
+                if v not in video_to_gid:
+                    video_to_gid[v] = gid
+                    group_mapping[gid] = {"video": v, "identity": None}
+                    gid += 1
+                for video_name, ident in all_group_keys:
+                    if video_name == v:
+                        key_to_gid[(v, ident)] = video_to_gid[v]
+        else:
+            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
+        return key_to_gid, group_mapping
+
+    @staticmethod
+    def _build_groups_array(
+        all_group_keys: list[tuple[str, int]],
+        all_per_frame: list[pd.DataFrame],
+        key_to_gid: dict[tuple[str, int], int],
+    ) -> np.ndarray:
+        """Build the per-row group id array aligned to concatenated feature matrices."""
+        groups_list: list[np.ndarray] = [
+            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
+            for key, df in zip(all_group_keys, all_per_frame, strict=True)
+        ]
+        return np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
+
     def get_labeled_features(
         self,
         behavior: str | None = None,
@@ -745,22 +975,11 @@ class Project:
                 The second dict maps group ids to their source:
                     { <group id>: {'video': <video filename>, 'identity': <identity>}, ... }
         """
-        # Parallel per-video feature collection using process workers.
-        # Progress increments once per video.
-        all_per_frame: list[pd.DataFrame] = []
-        all_window: list[pd.DataFrame] = []
-        all_labels: list[np.ndarray] = []
-        all_group_keys: list[tuple[str, int]] = []
-
-        # Snapshot behavior settings once
         behavior_settings = self._settings_manager.get_behavior(behavior)
         videos = list(self._video_manager.videos)
-
-        # get the cross validation grouping strategy from project settings
         if grouping_strategy is None:
             grouping_strategy = self.settings_manager.cv_grouping_strategy
 
-        # Early exit if no videos
         if not videos:
             return {
                 "window": pd.DataFrame(),
@@ -769,81 +988,36 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        # Prepare per-video jobs with Path types (workers open resources)
-        jobs: list[FeatureLoadJobSpec] = []
+        jobs: list[BinaryFeatureLoadJobSpec] = []
         for video in videos:
             if should_terminate_callable:
                 should_terminate_callable()
-
-            job: FeatureLoadJobSpec = {
-                "video": video,
-                "video_path": self._video_manager.video_path(video),
-                "pose_path": self._video_manager.get_cached_pose_path(video),
-                "annotations_path": self._paths.annotations_dir / Path(video).with_suffix(".json"),
-                "feature_dir": self.feature_dir,
-                "cache_dir": self._paths.cache_dir,
-                "behavior_settings": behavior_settings,
+            job: BinaryFeatureLoadJobSpec = {
+                **self._build_feature_load_job_base(video, behavior_settings),
                 "behavior_name": behavior,
-                "cache_format": self.cache_format.value,
             }
             jobs.append(job)
 
-        executor = self._process_pool
-        results_by_video: dict[str, dict] = {}
+        results_by_video = self._collect_features_parallel(
+            jobs,
+            collect_binary_labeled_features,
+            progress_callable,
+            should_terminate_callable,
+        )
 
-        if executor is not None:
-            # Parallel execution using the process pool
-            future_to_video = {
-                executor.submit(collect_labeled_features, job): job["video"] for job in jobs
-            }
-
-            for future in as_completed(future_to_video):
-                # check for early exit
-                if should_terminate_callable:
-                    should_terminate_callable()
-
-                video_name = future_to_video[future]
-                try:
-                    res = future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Feature collection failed for video: {video_name}") from e
-
-                # Stage results by video for deterministic finalization
-                results_by_video[video_name] = res
-
-                if progress_callable:
-                    progress_callable()  # once per video
-        else:
-            # Single-threaded execution
-            for job in jobs:
-                # check for early exit
-                if should_terminate_callable:
-                    should_terminate_callable()
-
-                try:
-                    res = collect_labeled_features(job)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Feature collection failed for video: {job['video']}"
-                    ) from e
-
-                # Stage results by video for deterministic finalization
-                results_by_video[job["video"]] = res
-
-                if progress_callable:
-                    progress_callable()  # once per video
-
-        # Deterministic finalize: append results in original 'videos' order
+        all_per_frame: list[pd.DataFrame] = []
+        all_window: list[pd.DataFrame] = []
+        all_labels: list[np.ndarray] = []
+        all_group_keys: list[tuple[str, int]] = []
         for video in videos:
             if video not in results_by_video:
                 continue
             res = results_by_video[video]
-            all_per_frame.extend(res.get("per_frame", []))
-            all_window.extend(res.get("window", []))
-            all_labels.extend(res.get("labels", []))
-            all_group_keys.extend(res.get("group_keys", []))
+            all_per_frame.extend(res["per_frame"])
+            all_window.extend(res["window"])
+            all_labels.extend(res["labels"])
+            all_group_keys.extend(res["group_keys"])
 
-        # If nothing was produced anywhere, return empty structures
         if not (all_per_frame and all_window and all_labels):
             return {
                 "window": pd.DataFrame(),
@@ -852,55 +1026,14 @@ class Project:
                 "groups": np.array([], dtype=np.int32),
             }, {}
 
-        # Build stable group ids based on grouping strategy
-        key_to_gid: dict[tuple[str, int], int] = {}
-        video_to_gid: dict[str, int] = {}
-        gid = 0
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            for v in videos:
-                seen: list[int] = []
-                for video_name, ident in all_group_keys:
-                    if video_name == v and ident not in seen:
-                        seen.append(ident)
-                for ident in seen:
-                    key = (v, ident)
-                    if key not in key_to_gid:
-                        key_to_gid[key] = gid
-                        gid += 1
-        elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
-            for v in videos:
-                if v not in video_to_gid:
-                    video_to_gid[v] = gid
-                    gid += 1
-                for video_name, ident in all_group_keys:
-                    if video_name == v:
-                        key = (v, ident)
-                        key_to_gid[key] = video_to_gid[v]
-        else:
-            raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
-
-        # groups vector aligned with all_per_frame entries
-        groups_list: list[np.ndarray] = [
-            np.full(df.shape[0], key_to_gid[key], dtype=np.int32)
-            for key, df in zip(all_group_keys, all_per_frame, strict=True)
-        ]
-        groups = np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
-
-        # group_mapping: for INDIVIDUAL, maps gid to (video, identity); for VIDEO, maps gid to video only
-        if grouping_strategy == CrossValidationGroupingStrategy.INDIVIDUAL:
-            group_mapping: dict[int, dict[str, int | str]] = {
-                gid: {"video": v, "identity": ident} for (v, ident), gid in key_to_gid.items()
-            }
-        else:
-            group_mapping: dict[int, dict[str, str | None]] = {
-                gid: {"video": v, "identity": None} for v, gid in video_to_gid.items()
-            }
-
+        key_to_gid, group_mapping = self._assign_cv_group_ids(
+            all_group_keys, videos, grouping_strategy
+        )
+        groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
         labels_arr = np.concatenate(all_labels)
 
-        # Sanity check: ensure all outputs are aligned
         if not (len(labels_arr) == per_frame_df.shape[0] == window_df.shape[0] == groups.shape[0]):
             raise RuntimeError(
                 "Mismatch among labels/per_frame/window/groups lengths: "
@@ -912,6 +1045,151 @@ class Project:
             "window": window_df,
             "per_frame": per_frame_df,
             "labels": labels_arr,
+            "groups": groups,
+        }, group_mapping
+
+    def get_multiclass_labeled_features(
+        self,
+        progress_callable: Callable[[], None] | None = None,
+        should_terminate_callable: Callable[[], None] | None = None,
+        grouping_strategy: CrossValidationGroupingStrategy | None = None,
+        behavior_settings: dict[str, object] | None = None,
+    ) -> tuple[dict, dict]:
+        """Get multiclass-labeled features for training (parallel per-video).
+
+        In multiclass mode, frames are included only when they have an explicit
+        ``TrackLabels.Label.BEHAVIOR`` label in at least one class track (including
+        ``MULTICLASS_NONE_BEHAVIOR``).
+
+        Args:
+            progress_callable: Called once per completed video; used to drive progress bars.
+            should_terminate_callable: If provided, called between jobs; should raise
+                ``ThreadTerminatedError`` on user cancellation.
+            grouping_strategy: Optional override for cross-validation grouping strategy.
+                If None, uses project settings.
+            behavior_settings: Feature-extraction settings (must include ``window_size``).
+                If None, falls back to ``get_project_defaults()``.
+
+        Returns:
+            tuple[dict, dict]: A tuple of ``(features, group_mapping)``.
+                ``features`` has keys:
+                - ``window``: pd.DataFrame of window-based features
+                - ``per_frame``: pd.DataFrame of per-frame features
+                - ``labels_by_behavior``: dict[str, np.ndarray] of aligned labels
+                - ``groups``: np.ndarray of group ids
+        """
+        behavior_names = list(self.settings_manager.behavior_names)
+        if behavior_settings is None:
+            behavior_settings = self.get_project_defaults()
+        videos = list(self._video_manager.videos)
+        if grouping_strategy is None:
+            grouping_strategy = self.settings_manager.cv_grouping_strategy
+
+        if not videos:
+            return {
+                "window": pd.DataFrame(),
+                "per_frame": pd.DataFrame(),
+                "labels_by_behavior": {},
+                "groups": np.array([], dtype=np.int32),
+            }, {}
+
+        jobs: list[MulticlassFeatureLoadJobSpec] = []
+        for video in videos:
+            if should_terminate_callable:
+                should_terminate_callable()
+            job: MulticlassFeatureLoadJobSpec = {
+                **self._build_feature_load_job_base(video, behavior_settings),
+                "behavior_names": behavior_names,
+            }
+            jobs.append(job)
+
+        results_by_video = self._collect_features_parallel(
+            jobs,
+            collect_multiclass_labeled_features,
+            progress_callable,
+            should_terminate_callable,
+        )
+
+        all_per_frame: list[pd.DataFrame] = []
+        all_window: list[pd.DataFrame] = []
+        all_labels_by_behavior: dict[str, list[np.ndarray]] = {}
+        all_group_keys: list[tuple[str, int]] = []
+        for video in videos:
+            if video not in results_by_video:
+                continue
+            res = results_by_video[video]
+            per_frame_items = res["per_frame"]
+            window_items = res["window"]
+            labels_by_behavior_items = res["labels_by_behavior"]
+            group_keys_items = res["group_keys"]
+
+            if not (
+                len(per_frame_items)
+                == len(window_items)
+                == len(labels_by_behavior_items)
+                == len(group_keys_items)
+            ):
+                raise RuntimeError(
+                    "Mismatch in multiclass worker result lengths: "
+                    f"per_frame={len(per_frame_items)}, "
+                    f"window={len(window_items)}, "
+                    f"labels_by_behavior={len(labels_by_behavior_items)}, "
+                    f"group_keys={len(group_keys_items)}"
+                )
+
+            all_per_frame.extend(per_frame_items)
+            all_window.extend(window_items)
+            all_group_keys.extend(group_keys_items)
+            # Append per-identity label slices in the same order as per_frame/window
+            # entries so they stay row-aligned after concatenation.
+            for labels_by_behavior in labels_by_behavior_items:
+                for name, arr in labels_by_behavior.items():
+                    all_labels_by_behavior.setdefault(name, []).append(arr)
+
+        if not (all_per_frame and all_window and all_group_keys):
+            return {
+                "window": pd.DataFrame(),
+                "per_frame": pd.DataFrame(),
+                "labels_by_behavior": {},
+                "groups": np.array([], dtype=np.int32),
+            }, {}
+
+        key_to_gid, group_mapping = self._assign_cv_group_ids(
+            all_group_keys, videos, grouping_strategy
+        )
+        groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
+        window_df = pd.concat(all_window, join="inner")
+        per_frame_df = pd.concat(all_per_frame, join="inner")
+        n_rows = per_frame_df.shape[0]
+        labels_by_behavior_arr = {
+            name: np.concatenate(arrays) if arrays else np.array([], dtype=np.int8)
+            for name, arrays in all_labels_by_behavior.items()
+        }
+
+        # Ensure every expected behavior key is present so downstream consumers
+        # can rely on a stable key set even if a behavior had no labels anywhere.
+        expected_labels = {MULTICLASS_NONE_BEHAVIOR, *behavior_names}
+        for missing in expected_labels.difference(labels_by_behavior_arr.keys()):
+            labels_by_behavior_arr[missing] = np.full(
+                n_rows, TrackLabels.Label.NONE, dtype=np.int8
+            )
+
+        if not (n_rows == window_df.shape[0] == groups.shape[0]):
+            raise RuntimeError(
+                "Mismatch among per_frame/window/groups lengths in multiclass features: "
+                f"per_frame={n_rows}, window={window_df.shape[0]}, groups={groups.shape[0]}"
+            )
+        for name, arr in labels_by_behavior_arr.items():
+            if arr.shape[0] != n_rows:
+                raise RuntimeError(
+                    "Mismatch between multiclass label rows and features: "
+                    f"{name} has {arr.shape[0]} rows, features have {n_rows}"
+                )
+
+        return {
+            "window": window_df,
+            "per_frame": per_frame_df,
+            "labels_by_behavior": labels_by_behavior_arr,
             "groups": groups,
         }, group_mapping
 
@@ -1036,6 +1314,48 @@ class Project:
         if new_name in self._settings_manager.behavior_names:
             raise ValueError(f"Behavior {new_name} already exists in project")
 
+        # In multi-class mode "None" is a reserved background class that must not
+        # appear in the project's behavior list. Reject the rename here so it is
+        # caught even when no multi-class classifier has been trained/saved yet.
+        if (
+            self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+            and new_name == MULTICLASS_NONE_BEHAVIOR
+        ):
+            raise ValueError(
+                f"Cannot rename a behavior to the reserved multi-class name "
+                f"{MULTICLASS_NONE_BEHAVIOR!r}"
+            )
+
+        # Classifier and prediction storage differs between modes, so update the
+        # mode-specific artifacts separately.
+        if self._settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            self._rename_behavior_multiclass_artifacts(old_name, new_name)
+        else:
+            self._rename_behavior_binary_artifacts(old_name, new_name)
+
+        # rename labels inside every video's annotation file (mode-independent:
+        # labels are always keyed by behavior name on disk)
+        for video in self._video_manager.videos:
+            if (labels := self._video_manager.load_video_labels(video)) is None:
+                continue
+            labels.rename_behavior(old_name, new_name)
+            pose = self.load_pose_est(self._video_manager.video_path(video))
+            self.save_annotations(labels, pose)
+
+        # update project settings
+        self._settings_manager.rename_behavior(old_name, new_name)
+
+    def _rename_behavior_binary_artifacts(self, old_name: str, new_name: str) -> None:
+        """Rename binary-mode classifier and prediction artifacts for a behavior.
+
+        Binary mode stores one classifier pickle per behavior (keyed by safe
+        name) and one prediction group per behavior inside each video's HDF5
+        file. Both are renamed to track the behavior's new name.
+
+        Args:
+            old_name: current behavior name
+            new_name: new behavior name
+        """
         safe_old_name = to_safe_name(old_name)
         safe_new_name = to_safe_name(new_name)
 
@@ -1048,21 +1368,78 @@ class Project:
         for video in self._video_manager.videos:
             # Rename predictions dataset inside the per-video HDF5 file.
             pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
-            if pred_file.exists():
-                with h5py.File(pred_file, "r+") as hf:
-                    if "predictions" in hf and safe_old_name in hf["predictions"]:
-                        grp = hf["predictions"]
-                        # If dataset already exists at the destination, remove it first
-                        if safe_new_name in grp:
-                            del grp[safe_new_name]
-                        grp.move(safe_old_name, safe_new_name)
-
-            # rename labels inside annotation file
-            if (labels := self._video_manager.load_video_labels(video)) is None:
+            if not pred_file.exists():
                 continue
-            labels.rename_behavior(old_name, new_name)
-            pose = self.load_pose_est(self._video_manager.video_path(video))
-            self.save_annotations(labels, pose)
+            with h5py.File(pred_file, "r+") as hf:
+                if "predictions" in hf and safe_old_name in hf["predictions"]:
+                    grp = hf["predictions"]
+                    # If dataset already exists at the destination, remove it first
+                    if safe_new_name in grp:
+                        del grp[safe_new_name]
+                    grp.move(safe_old_name, safe_new_name)
 
-        # update project settings
-        self._settings_manager.rename_behavior(old_name, new_name)
+    def _rename_behavior_multiclass_artifacts(self, old_name: str, new_name: str) -> None:
+        """Rename multi-class classifier and prediction artifacts for a behavior.
+
+        Multi-class mode stores a single classifier pickle and a single
+        prediction group shared across all behaviors; the behavior name is
+        recorded inside each (``MultiClassClassifier._behavior_names`` and the
+        per-video ``class_names`` dataset). These are updated in place so they
+        do not desync from the project settings after a rename.
+
+        Args:
+            old_name: current behavior name
+            new_name: new behavior name
+        """
+        # Imported here rather than at module scope because jabs.classifier
+        # imports jabs.project, so a top-level import would be circular.
+        from jabs.classifier import MultiClassClassifier
+
+        # update behavior name inside the saved multi-class classifier
+        classifier_path = self._paths.classifier_dir / MULTICLASS_CLASSIFIER_FILENAME
+        new_classifier_file: str | None = None
+        new_classifier_hash: str | None = None
+        if classifier_path.exists():
+            classifier = MultiClassClassifier.from_pickle(classifier_path)
+            if old_name in classifier.behavior_names:
+                classifier.rename_behavior(old_name, new_name)
+                # The pickle's contents changed, so drop the stale file identity
+                # and let save() record a hash matching the rewritten file.
+                classifier.reset_persistence_identity()
+                classifier.save(classifier_path)
+                # Capture the rewritten pickle's identity so per-video prediction
+                # metadata can be repointed at the renamed classifier file.
+                new_classifier_file = classifier.classifier_file
+                new_classifier_hash = classifier.classifier_hash
+
+        # update the class_names dataset inside each video's prediction group
+        safe_multiclass_name = to_safe_name(MULTICLASS_PREDICTION_KEY)
+        for video in self._video_manager.videos:
+            pred_file = self._paths.prediction_dir / Path(video).with_suffix(".h5").name
+            if not pred_file.exists():
+                continue
+            with h5py.File(pred_file, "r+") as hf:
+                group = hf.get(f"predictions/{safe_multiclass_name}")
+                if group is None or "class_names" not in group:
+                    continue
+                names = [
+                    v.decode("utf-8") if isinstance(v, bytes) else str(v)
+                    for v in group["class_names"][()]
+                ]
+                if old_name not in names:
+                    continue
+                names[names.index(old_name)] = new_name
+                del group["class_names"]
+                group.create_dataset(
+                    "class_names",
+                    data=np.array(names, dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
+                )
+                # The rename re-saved the classifier with a new content hash, so
+                # repoint this group's classifier metadata at the rewritten file;
+                # the predictions themselves remain valid (only a class name
+                # changed). Skipped when no classifier pickle was re-saved.
+                if new_classifier_file is not None:
+                    group.attrs["classifier_file"] = new_classifier_file
+                if new_classifier_hash is not None:
+                    group.attrs["classifier_hash"] = new_classifier_hash

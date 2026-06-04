@@ -3,8 +3,8 @@ from PySide6.QtGui import QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 
-class FrameLabelsWidget(QWidget):
-    """Widget for drawing frame ticks and labels below a LabelOverviewWidget.
+class FrameRulerWidget(QWidget):
+    """Widget for drawing frame ticks and labels below the identity track rows.
 
     Displays tick marks and frame numbers for a sliding window of frames centered around the current frame.
     Intended to visually indicate frame positions and intervals in a video labeling interface.
@@ -22,7 +22,7 @@ class FrameLabelsWidget(QWidget):
 
         # number of frames on each side of current frame to include in
         # sliding window
-        # this needs to match what is set in ManualLabelsWidget, so once
+        # this needs to match what is set in LabelDetailBar, so once
         # we make this configurable, it needs to get set in both locations
         self._window_size = 100
 

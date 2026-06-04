@@ -64,6 +64,12 @@ class MenuReferences:
     timeline_raw_predictions: QtGui.QAction
     timeline_postprocessed_predictions: QtGui.QAction
 
+    # Multi-class layout actions (enabled only in multiclass + all-animals mode)
+    mc_collapse_label_bar: QtGui.QAction
+    mc_collapse_combined_bar: QtGui.QAction
+    mc_collapse_per_class_bars: QtGui.QAction
+    mc_hide_per_class_rows: QtGui.QAction
+
     # Label overlay actions
     label_overlay_none: QtGui.QAction
     label_overlay_labels: QtGui.QAction
@@ -447,10 +453,47 @@ class MenuBuilder:
             self.handlers.on_timeline_prediction_type_changed
         )
 
+        timeline_menu.addSeparator()
+
+        # Fourth group: multi-class layout options (only active in multiclass + all-animals mode)
+        mc_collapse_label_bar = QtGui.QAction(
+            "Collapse Inactive Label Bars", self.main_window, checkable=True
+        )
+        mc_collapse_combined_bar = QtGui.QAction(
+            "Collapse Inactive Combined Prediction Bars", self.main_window, checkable=True
+        )
+        mc_collapse_per_class_bars = QtGui.QAction(
+            "Collapse Inactive Per-class Predictions", self.main_window, checkable=True
+        )
+        mc_hide_per_class_rows = QtGui.QAction(
+            "Hide Inactive Per-class Rows", self.main_window, checkable=True
+        )
+
+        timeline_menu.addAction(mc_collapse_label_bar)
+        timeline_menu.addAction(mc_collapse_combined_bar)
+        timeline_menu.addAction(mc_collapse_per_class_bars)
+        timeline_menu.addAction(mc_hide_per_class_rows)
+
+        mc_collapse_label_bar.triggered.connect(self.handlers.on_mc_collapse_label_bar_changed)
+        mc_collapse_combined_bar.triggered.connect(
+            self.handlers.on_mc_collapse_combined_bar_changed
+        )
+        mc_collapse_per_class_bars.triggered.connect(
+            self.handlers.on_mc_collapse_per_class_bars_changed
+        )
+        mc_hide_per_class_rows.triggered.connect(self.handlers.on_mc_hide_per_class_rows_changed)
+
         # Set defaults
         timeline_labels_preds.setChecked(True)
         timeline_selected_animal.setChecked(True)
         timeline_raw_predictions.setChecked(True)
+        mc_collapse_per_class_bars.setChecked(True)
+
+        # Disabled until multiclass + all-animals mode is active
+        mc_collapse_label_bar.setEnabled(False)
+        mc_collapse_combined_bar.setEnabled(False)
+        mc_collapse_per_class_bars.setEnabled(False)
+        mc_hide_per_class_rows.setEnabled(False)
 
         return {
             "timeline_labels_preds": timeline_labels_preds,
@@ -460,6 +503,10 @@ class MenuBuilder:
             "timeline_selected_animal": timeline_selected_animal,
             "timeline_raw_predictions": timeline_raw_predictions,
             "timeline_postprocessed_predictions": timeline_postprocessed_predictions,
+            "mc_collapse_label_bar": mc_collapse_label_bar,
+            "mc_collapse_combined_bar": mc_collapse_combined_bar,
+            "mc_collapse_per_class_bars": mc_collapse_per_class_bars,
+            "mc_hide_per_class_rows": mc_hide_per_class_rows,
         }
 
     def _build_label_overlay_submenu(self, parent_menu: QtWidgets.QMenu) -> dict:

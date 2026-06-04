@@ -166,7 +166,16 @@ def test_file_roundtrip_behavior_prediction(tmp_path, adapter):
     pred = BehaviorPrediction(
         behavior="grooming",
         predicted_class=np.array([[0, 1, 0, 1]], dtype=np.int64),
-        probabilities=np.array([[0.1, 0.9, 0.2, 0.8]]),
+        probabilities=np.array(
+            [
+                [
+                    [0.8, 0.2],
+                    [0.1, 0.9],
+                    [0.7, 0.3],
+                    [0.2, 0.8],
+                ]
+            ]
+        ),
         classifier=ClassifierMetadata(
             classifier_file="model.ckpt",
             classifier_hash="abc123",
@@ -178,6 +187,7 @@ def test_file_roundtrip_behavior_prediction(tmp_path, adapter):
         predicted_class_postprocessed=np.array([[0, 1, 1, 1]], dtype=np.int64),
         identity_to_track=np.array([[0, 0, 0, 0]], dtype=np.int64),
         external_identity_mapping=["mouse_0"],
+        class_names=["None", "grooming"],
         extra={"threshold": 0.5},
     )
     adapter.write(pred, path)
@@ -194,6 +204,7 @@ def test_file_roundtrip_behavior_prediction(tmp_path, adapter):
     )
     np.testing.assert_array_equal(loaded.identity_to_track, pred.identity_to_track)
     assert loaded.external_identity_mapping == pred.external_identity_mapping
+    assert loaded.class_names == pred.class_names
     assert loaded.extra == pred.extra
 
 
