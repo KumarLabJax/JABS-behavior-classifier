@@ -23,6 +23,27 @@ ACTIVE_ID_COLOR = QColor(255, 0, 0, 255)
 
 SEARCH_HIT_COLOR = QColor(0, 255, 0, 255)
 
+# Luminance threshold (0-255) above which a fill color is treated as "light",
+# meaning dark text reads better on it than light text.
+LIGHT_COLOR_LUMINANCE_THRESHOLD = 160
+
+
+def is_color_light(color: QColor) -> bool:
+    """Return True if a color is perceptually light.
+
+    Light fills read better with dark (black) text; dark fills with light
+    (white) text. Uses the ITU-R BT.709 luminance formula.
+
+    Args:
+        color: The color to evaluate.
+
+    Returns:
+        True if the color's luminance exceeds
+        ``LIGHT_COLOR_LUMINANCE_THRESHOLD``.
+    """
+    luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
+    return luminance > LIGHT_COLOR_LUMINANCE_THRESHOLD
+
 
 # Generate distinct colors for keypoints
 # Use a fixed seed for reproducible colors

@@ -4,12 +4,15 @@ import numpy as np
 import pytest
 
 try:
+    from PySide6.QtGui import QColor
+
     from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
     from jabs.ui.colors import (
         BACKGROUND_COLOR,
         BEHAVIOR_COLOR,
         NOT_BEHAVIOR_COLOR,
         build_multiclass_color_lut,
+        is_color_light,
         make_behavior_color_map,
     )
 
@@ -137,3 +140,19 @@ def test_build_multiclass_color_lut_missing_key_raises():
     """Name in behavior_names absent from color_map raises ValueError."""
     with pytest.raises(ValueError, match="missing from color_map"):
         build_multiclass_color_lut(["walk"], {})
+
+
+def test_is_color_light_dark_color():
+    """A dark color is not considered light."""
+    assert is_color_light(QColor(20, 20, 20)) is False
+
+
+def test_is_color_light_light_color():
+    """A near-white color is considered light."""
+    assert is_color_light(QColor(240, 240, 240)) is True
+
+
+def test_is_color_light_uses_green_weighting():
+    """Saturated green reads as light while saturated blue does not (BT.709)."""
+    assert is_color_light(QColor(0, 255, 0)) is True
+    assert is_color_light(QColor(0, 0, 255)) is False

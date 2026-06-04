@@ -13,7 +13,7 @@ Todo:
 import sys
 
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from jabs.classifier import Classifier
 from jabs.core.enums import ClassifierMode, ClassifierType
@@ -25,6 +25,7 @@ from ..colors import (
     NOT_BEHAVIOR_BUTTON_DISABLED_COLOR,
     NOT_BEHAVIOR_COLOR,
     NOT_BEHAVIOR_COLOR_BRIGHT,
+    is_color_light,
 )
 from ..dialogs.message_dialog import MessageDialog
 from ..ear_tag_icons import EarTagIconManager
@@ -193,25 +194,9 @@ class MainControlWidget(QtWidgets.QWidget):
         self._label_behavior_button = QtWidgets.QPushButton()
         self._label_behavior_button.setToolTip("[z]")
         self._label_behavior_button.clicked.connect(self.label_behavior_clicked)
-        self._label_behavior_button.setStyleSheet(
-            f"""
-                QPushButton {{
-                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                       stop: 0 rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()},
-                                       stop: 1.0 rgba{BEHAVIOR_COLOR.getRgb()});
-                    border-radius: 4px;
-                    padding: 2px;
-                    color: white;
-                }}
-                QPushButton:pressed {{
-                    background-color: rgba{BEHAVIOR_BUTTON_COLOR_BRIGHT.getRgb()};
-                }}
-                QPushButton:disabled {{
-                    background-color: rgba{BEHAVIOR_BUTTON_DISABLED_COLOR.getRgb()};
-                    color: grey;
-                }}
-            """
-        )
+        # default (binary-mode) orange tint; multi-class mode overrides this with
+        # the selected behavior's color via set_behavior_button_color()
+        self.set_behavior_button_color(None)
 
         self._label_not_behavior_button = QtWidgets.QPushButton()
         self._label_not_behavior_button.setToolTip("[c]")
@@ -407,6 +392,56 @@ class MainControlWidget(QtWidgets.QWidget):
         except KeyError:
             # unable to use the classifier
             pass
+
+    @staticmethod
+    def _behavior_button_stylesheet(
+        base: QColor, bright: QColor, disabled: QColor, text_color: str
+    ) -> str:
+        """Build the Label Behavior button stylesheet for the given colors."""
+        return f"""
+                QPushButton {{
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                       stop: 0 rgba{bright.getRgb()},
+                                       stop: 1.0 rgba{base.getRgb()});
+                    border-radius: 4px;
+                    padding: 2px;
+                    color: {text_color};
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba{bright.getRgb()};
+                }}
+                QPushButton:disabled {{
+                    background-color: rgba{disabled.getRgb()};
+                    color: grey;
+                }}
+            """
+
+    def set_behavior_button_color(self, color: QColor | None) -> None:
+        """Tint the "Label {behavior}" button.
+
+        Args:
+            color: Behavior color to tint the button with (multi-class mode).
+                Pass ``None`` to restore the default binary-mode orange.
+        """
+        if color is None:
+            self._label_behavior_button.setStyleSheet(
+                self._behavior_button_stylesheet(
+                    BEHAVIOR_COLOR,
+                    BEHAVIOR_BUTTON_COLOR_BRIGHT,
+                    BEHAVIOR_BUTTON_DISABLED_COLOR,
+                    "white",
+                )
+            )
+            return
+
+        # Derive gradient/disabled variants from the behavior color, and pick a
+        # readable text color based on the base color's perceived luminance.
+        text_color = "black" if is_color_light(color) else "white"
+        self._label_behavior_button.setStyleSheet(
+            self._behavior_button_stylesheet(
+                color, color.lighter(125), color.darker(120), text_color
+            )
+        )
 
     def set_label_summary_class_labels(self, positive_label: str, negative_label: str) -> None:
         """retitle the label summary's positive/negative row headers"""

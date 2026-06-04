@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
+from jabs.ui.colors import is_color_light
+
 from ...dialogs import AnnotationInfoDialog
 from .overlay import Overlay
 
@@ -159,7 +161,7 @@ class AnnotationOverlay(Overlay):
                         fill_color = QtGui.QColor(220, 220, 220)
                     text_color = (
                         QtGui.QColor(0, 0, 0)
-                        if self._is_color_light(fill_color)
+                        if is_color_light(fill_color)
                         else QtGui.QColor(255, 255, 255)
                     )
                     painter.setBrush(fill_color)
@@ -200,7 +202,7 @@ class AnnotationOverlay(Overlay):
             fill_color.setAlpha(220)
             text_color = (
                 QtGui.QColor(0, 0, 0)
-                if self._is_color_light(fill_color)
+                if is_color_light(fill_color)
                 else QtGui.QColor(255, 255, 255)
             )
             painter.setBrush(fill_color)

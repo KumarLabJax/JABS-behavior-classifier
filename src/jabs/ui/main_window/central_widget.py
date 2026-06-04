@@ -426,6 +426,7 @@ class CentralWidget(QtWidgets.QWidget):
             )
             self._suppress_label_track_update = False
             self._set_label_track()
+            self._update_label_button_color()
             self._update_select_button_state()
             self._update_timeline_search_results()
             self._update_label_counts()
@@ -628,9 +629,26 @@ class CentralWidget(QtWidgets.QWidget):
 
         # display labels and predictions for new behavior
         self._set_label_track()
+        self._update_label_button_color()
         self.set_train_button_enabled_state()
 
         self._project.settings_manager.save_project_file({"selected_behavior": self.behavior})
+
+    def _update_label_button_color(self) -> None:
+        """Tint the Label Behavior button to match the selected behavior.
+
+        In multi-class mode the button is tinted with the selected behavior's
+        color from the timeline color map; in binary mode it keeps the default
+        orange.
+        """
+        if (
+            self._project is not None
+            and self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS
+        ):
+            color = self._jabs_timeline.behavior_color_map.get(self.behavior)
+            self._controls.set_behavior_button_color(color)
+        else:
+            self._controls.set_behavior_button_color(None)
 
     def _start_selection(self, pressed: bool) -> None:
         """Handle a click on "select" button.
@@ -1351,6 +1369,7 @@ class CentralWidget(QtWidgets.QWidget):
             self._controls.behaviors,
         )
         self._set_label_track()
+        self._update_label_button_color()
 
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button

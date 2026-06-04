@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 class Overlay(QObject):
     """Base class for interactive overlays in the frame widget."""
 
-    _LIGHT_COLOR_THRESHOLD = 160  # Luminance threshold to determine if a color is "light"
     _MAX_PRIORITY = 1000  # Maximum priority for painting order
 
     def __init__(self, parent: "FrameWithOverlaysWidget"):
@@ -82,9 +81,3 @@ class Overlay(QObject):
             return None
 
         return convex_hull.centroid
-
-    def _is_color_light(self, color: QtGui.QColor) -> bool:
-        """Determines if a color is considered light based on its luminance."""
-        # Calculate luminance using the ITU-R BT.709 formula
-        luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
-        return luminance > self._LIGHT_COLOR_THRESHOLD
