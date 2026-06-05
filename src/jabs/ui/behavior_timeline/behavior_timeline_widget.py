@@ -277,6 +277,11 @@ class BehaviorTimelineWidget(QWidget):
         """Return the multiclass color LUT, or None when in binary mode."""
         return self._multiclass_color_lut
 
+    @property
+    def behavior_color_map(self) -> dict[str, QColor]:
+        """Return a copy of the behavior→color map (empty in binary mode)."""
+        return dict(self._behavior_color_map)
+
     def set_classifier_mode(self, mode: ClassifierMode, behavior_names: list[str]) -> None:
         """Set the classifier mode and rebuild the layout for multi-class or binary display.
 

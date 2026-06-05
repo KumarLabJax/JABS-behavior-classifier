@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR
+from jabs.ui.colors import ACTIVE_ID_COLOR, INACTIVE_ID_COLOR, is_color_light
 from jabs.ui.ear_tag_icons import EarTagIconManager
 
 from .overlay import Overlay
@@ -243,7 +243,7 @@ class FloatingIdOverlay(Overlay):
             self._rects_with_data.append((q_rect, identity_rect))
             text_color = (
                 QtGui.QColor(0, 0, 0)
-                if self._is_color_light(identity_rect.color)
+                if is_color_light(identity_rect.color)
                 else QtGui.QColor(255, 255, 255)
             )
             painter.setBrush(identity_rect.color)
