@@ -4,6 +4,11 @@ from jabs.behavior_search import SearchHit
 from jabs.ui.dialogs.message_dialog import MessageDialog
 from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
 
+# Item data role storing whether a video is excluded from training (bool).
+# Kept separate from the displayed text so it survives text changes (e.g. search
+# hit-count annotations) and drives the row's dimmed/italic styling.
+_EXCLUDED_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
+
 
 class _VideoListWidget(QtWidgets.QListWidget):
     """QListView that has been modified to not allow deselecting current selection without selecting a new row"""
@@ -21,38 +26,48 @@ class _VideoListWidget(QtWidgets.QListWidget):
             option: QtWidgets.QStyleOptionViewItem,
             index: QtCore.QModelIndex,
         ):
-            """Paints the text.
+            """Paints the row text with selection highlighting and exclusion styling.
 
-            Paints text, highlighting the background and text color
-            for selected items to ensure visibility. For selected rows, fills the
-            background with the highlight color and draws the text using the
-            highlighted text color. For unselected rows, uses the default rendering.
+            Selected rows fill the background with the highlight color and draw the
+            text in the highlighted text color. Videos excluded from training are
+            drawn dimmed (disabled text color) and italic, both when selected and
+            unselected, so the state is always visible.
 
             Args:
                 painter: The QPainter object used for drawing.
                 option: The style options for the item.
                 index: The model index of the item being painted.
             """
-            if option.state & QtWidgets.QStyle.StateFlag.State_Selected:  # type: ignore[attr-defined]
-                painter.save()
+            excluded = bool(index.data(_EXCLUDED_ROLE))
+            selected = bool(option.state & QtWidgets.QStyle.StateFlag.State_Selected)  # type: ignore[attr-defined]
 
-                # Use highlight color from the palette
-                highlight_color = option.palette.color(QtGui.QPalette.ColorRole.Highlight)  # type: ignore[attr-defined]
-                text_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)  # type: ignore[attr-defined]
-
-                # Fill background with current accent color
-                painter.fillRect(option.rect, highlight_color)  # type: ignore[attr-defined]
-
-                # Set pen to highlighted text color
-                painter.setPen(text_color)
-
-                # Draw the text manually
-                text = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
-                rect = option.rect.adjusted(4, 0, -4, 0)  # type: ignore[attr-defined]
-                painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignVCenter, text)
-                painter.restore()
-            else:
+            # default rendering handles the common (unselected, included) case
+            if not selected and not excluded:
                 super().paint(painter, option, index)
+                return
+
+            painter.save()
+            if selected:
+                painter.fillRect(  # type: ignore[attr-defined]
+                    option.rect, option.palette.color(QtGui.QPalette.ColorRole.Highlight)
+                )
+                pen_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
+            else:
+                # excluded + unselected: dim with the palette's disabled text color
+                pen_color = option.palette.color(
+                    QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text
+                )
+
+            font = QtGui.QFont(option.font)  # type: ignore[attr-defined]
+            if excluded:
+                font.setItalic(True)
+            painter.setFont(font)
+            painter.setPen(pen_color)
+
+            text = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
+            rect = option.rect.adjusted(4, 0, -4, 0)  # type: ignore[attr-defined]
+            painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignVCenter, text)
+            painter.restore()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -177,16 +192,39 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         if item is None:
             return
 
+        video_name = item.data(QtCore.Qt.ItemDataRole.UserRole)
+
         # create and show the context menu at the mouse position
         menu = QtWidgets.QMenu(self)
         get_info_action = menu.addAction("Get Info")
         copy_video_name_action = menu.addAction("Copy Video Name")
+        exclude_action = menu.addAction("Exclude from Training")
+        exclude_action.setCheckable(True)
+        exclude_action.setChecked(bool(item.data(_EXCLUDED_ROLE)))
+        exclude_action.setEnabled(self._project is not None)
         action = menu.exec(self._file_list.mapToGlobal(pos))
 
         if action == get_info_action:
-            self._show_video_info(item.data(QtCore.Qt.ItemDataRole.UserRole))
+            self._show_video_info(video_name)
         elif action == copy_video_name_action:
-            QtWidgets.QApplication.clipboard().setText(item.data(QtCore.Qt.ItemDataRole.UserRole))
+            QtWidgets.QApplication.clipboard().setText(video_name)
+        elif action == exclude_action:
+            self._set_video_excluded(item, video_name, exclude_action.isChecked())
+
+    def _set_video_excluded(self, item, video_name: str, excluded: bool) -> None:
+        """Persist a video's training-exclusion state and refresh its row styling.
+
+        Args:
+            item: The list item for the video.
+            video_name: The video filename key used in the project.
+            excluded: True to exclude the video from training, False to include it.
+        """
+        if self._project is None:
+            return
+        self._project.settings_manager.set_video_excluded(video_name, excluded)
+        item.setData(_EXCLUDED_ROLE, excluded)
+        # repaint the row to reflect the new dimmed/italic styling
+        self._file_list.viewport().update()
 
     def _show_video_info(self, video_name: str) -> None:
         """Open the VideoInfoDialog for the given video.
@@ -217,6 +255,7 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         for video in self._project.video_manager.videos:
             item = QtWidgets.QListWidgetItem(video)
             item.setData(QtCore.Qt.ItemDataRole.UserRole, video)
+            item.setData(_EXCLUDED_ROLE, self._project.settings_manager.is_video_excluded(video))
             self._file_list.addItem(item)
 
         if self._project.video_manager.videos:

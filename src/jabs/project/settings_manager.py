@@ -16,6 +16,9 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Per-video metadata key marking a video as held out of classifier training.
+EXCLUDE_FROM_TRAINING_KEY = "exclude_from_training"
+
 
 class SettingsManager:
     """Class to manage project properties/settings."""
@@ -136,6 +139,34 @@ class SettingsManager:
             Dictionary of metadata for the specified video, or empty dict if none exists.
         """
         return self._project_info.get("video_files", {}).get(video, {}).get("metadata", {})
+
+    def is_video_excluded(self, video: str) -> bool:
+        """Return whether a video is excluded from classifier training.
+
+        Args:
+            video: Name of the video file.
+
+        Returns:
+            True if the video has been marked to be held out of training.
+        """
+        return bool(self.video_metadata(video).get(EXCLUDE_FROM_TRAINING_KEY, False))
+
+    def set_video_excluded(self, video: str, excluded: bool) -> None:
+        """Mark a video as excluded from (or included in) classifier training.
+
+        The flag is stored in the video's per-video metadata and persisted to the
+        project file. The video's ``video_files`` entry is created if it does not
+        already exist.
+
+        Args:
+            video: Name of the video file.
+            excluded: True to exclude the video from training, False to include it.
+        """
+        video_files = self._project_info.setdefault("video_files", {})
+        video_entry = video_files.setdefault(video, {})
+        metadata = video_entry.setdefault("metadata", {})
+        metadata[EXCLUDE_FROM_TRAINING_KEY] = excluded
+        self.save_project_file()
 
     def remove_video_from_project_file(self, video_name: str, sync=True) -> None:
         """Remove a video entry from the project if it exists.

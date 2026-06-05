@@ -197,3 +197,39 @@ def test_rename_behavior_updates_selected(mock_project):
     assert "Walking" not in updated_settings["behavior"]
     assert "Walk" in updated_settings["behavior"]
     assert updated_settings["behavior"]["Walk"] == initial_settings["behavior"]["Walking"]
+
+
+def test_is_video_excluded_default_false(mock_project):
+    """A video with no metadata is not excluded by default."""
+    settings_manager = SettingsManager(mock_project.project_paths)
+    assert settings_manager.is_video_excluded("video1.avi") is False
+
+
+def test_set_video_excluded_roundtrip_and_persists(mock_project):
+    """Excluding a video persists to the project file and reloads."""
+    settings_manager = SettingsManager(mock_project.project_paths)
+    settings_manager.set_video_excluded("video1.avi", True)
+
+    assert settings_manager.is_video_excluded("video1.avi") is True
+
+    # a fresh manager reading the saved file sees the same state
+    reloaded = SettingsManager(mock_project.project_paths)
+    assert reloaded.is_video_excluded("video1.avi") is True
+
+
+def test_set_video_excluded_creates_missing_entry(mock_project):
+    """Excluding a video with no prior video_files entry creates one."""
+    settings_manager = SettingsManager(mock_project.project_paths)
+    settings_manager.set_video_excluded("new_video.avi", True)
+
+    video_files = settings_manager.project_settings.get("video_files", {})
+    assert video_files["new_video.avi"]["metadata"]["exclude_from_training"] is True
+
+
+def test_set_video_excluded_toggle_back_to_included(mock_project):
+    """Toggling exclusion off returns the video to included."""
+    settings_manager = SettingsManager(mock_project.project_paths)
+    settings_manager.set_video_excluded("video1.avi", True)
+    settings_manager.set_video_excluded("video1.avi", False)
+
+    assert settings_manager.is_video_excluded("video1.avi") is False
