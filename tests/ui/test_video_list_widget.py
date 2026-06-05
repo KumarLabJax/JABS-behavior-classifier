@@ -4,9 +4,14 @@ import pytest
 
 try:
     from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPalette
     from PySide6.QtWidgets import QApplication
 
-    from jabs.ui.main_window.video_list_widget import _EXCLUDED_ROLE, VideoListDockWidget
+    from jabs.ui.main_window.video_list_widget import (
+        _EXCLUDED_ROLE,
+        VideoListDockWidget,
+        _VideoListWidget,
+    )
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -67,3 +72,23 @@ def test_set_video_excluded_persists_and_updates_row():
 
     project.settings_manager.set_video_excluded.assert_called_once_with("a.avi", True)
     assert item.data(_EXCLUDED_ROLE) is True
+
+
+def test_text_pen_color_dims_excluded_rows_in_all_states():
+    """Excluded rows use the disabled palette color whether selected or not."""
+    palette = QPalette()
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("red"))
+    palette.setColor(
+        QPalette.ColorGroup.Disabled, QPalette.ColorRole.HighlightedText, QColor("green")
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Active, QPalette.ColorRole.HighlightedText, QColor("blue")
+    )
+    pen = _VideoListWidget.HighlightTextDelegate._text_pen_color
+
+    # unselected excluded -> dimmed normal text
+    assert pen(palette, selected=False, excluded=True).name() == QColor("red").name()
+    # selected excluded -> dimmed highlighted text (still readable on highlight bg)
+    assert pen(palette, selected=True, excluded=True).name() == QColor("green").name()
+    # selected included -> normal highlighted text
+    assert pen(palette, selected=True, excluded=False).name() == QColor("blue").name()

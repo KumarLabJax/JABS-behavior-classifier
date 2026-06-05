@@ -51,23 +51,47 @@ class _VideoListWidget(QtWidgets.QListWidget):
                 painter.fillRect(  # type: ignore[attr-defined]
                     option.rect, option.palette.color(QtGui.QPalette.ColorRole.Highlight)
                 )
-                pen_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
-            else:
-                # excluded + unselected: dim with the palette's disabled text color
-                pen_color = option.palette.color(
-                    QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text
-                )
 
             font = QtGui.QFont(option.font)  # type: ignore[attr-defined]
             if excluded:
                 font.setItalic(True)
             painter.setFont(font)
-            painter.setPen(pen_color)
+            painter.setPen(self._text_pen_color(option.palette, selected, excluded))
 
             text = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
             rect = option.rect.adjusted(4, 0, -4, 0)  # type: ignore[attr-defined]
             painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignVCenter, text)
             painter.restore()
+
+        @staticmethod
+        def _text_pen_color(
+            palette: QtGui.QPalette, selected: bool, excluded: bool
+        ) -> QtGui.QColor:
+            """Choose the text color for a row given its selected/excluded state.
+
+            Excluded rows use the palette's *disabled* color so they read as dimmed
+            on both the normal and highlight backgrounds (preserving the visual cue
+            even when the row is selected).
+
+            Args:
+                palette: The widget palette to source colors from.
+                selected: Whether the row is selected (highlight background).
+                excluded: Whether the video is excluded from training.
+
+            Returns:
+                The pen color to draw the row text with.
+            """
+            if selected:
+                # dim the highlighted text for excluded rows; otherwise the
+                # standard highlighted text color
+                group = (
+                    QtGui.QPalette.ColorGroup.Disabled
+                    if excluded
+                    else QtGui.QPalette.ColorGroup.Active
+                )
+                return palette.color(group, QtGui.QPalette.ColorRole.HighlightedText)
+            # only excluded rows reach here while unselected; dim with disabled text
+            return palette.color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
