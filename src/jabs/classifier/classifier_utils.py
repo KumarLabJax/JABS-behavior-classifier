@@ -174,6 +174,7 @@ def leave_one_group_out(
     groups: npt.NDArray,
     label_threshold: int = LABEL_THRESHOLD,
     min_test_classes: int | None = None,
+    excluded_groups: set[int] | None = None,
 ) -> Generator[dict, None, None]:
     """Implement the leave-one-group-out data splitting strategy.
 
@@ -188,6 +189,9 @@ def leave_one_group_out(
         label_threshold: Minimum number of samples per class required.
         min_test_classes: Minimum number of distinct classes required in the
             test split. ``None`` requires all classes (binary default).
+        excluded_groups: Group ids whose rows are held out of training. These
+            groups may still serve as the test (held-out) group, but their rows
+            are never included in any training fold.
 
     Yields:
         Dictionary with keys: training_data, training_labels, test_data,
@@ -200,26 +204,31 @@ def leave_one_group_out(
     if min_test_classes is not None and min_test_classes < 1:
         raise ValueError(f"min_test_classes must be None or >= 1, got {min_test_classes}")
 
+    excluded = list(excluded_groups) if excluded_groups else []
     logo = LeaveOneGroupOut()
     x = combine_data(per_frame_features, window_features)
     splits = list(logo.split(x, labels, groups))
     all_classes = np.unique(labels)
     random.shuffle(splits)
     count = 0
-    for split in splits:
+    for train_idx, test_idx in splits:
+        # excluded groups never contribute to a training fold (but the held-out
+        # group itself may be an excluded group)
+        if excluded:
+            train_idx = train_idx[~np.isin(groups[train_idx], excluded)]
         if not logo_split_is_valid(
-            labels[split[1]], labels[split[0]], all_classes, label_threshold, min_test_classes
+            labels[test_idx], labels[train_idx], all_classes, label_threshold, min_test_classes
         ):
             continue
         count += 1
         yield {
-            "training_data": x.iloc[split[0]],
-            "training_labels": labels[split[0]],
-            "training_idx": split[0],
-            "test_data": x.iloc[split[1]],
-            "test_labels": labels[split[1]],
-            "test_idx": split[1],
-            "test_group": groups[split[1]][0],
+            "training_data": x.iloc[train_idx],
+            "training_labels": labels[train_idx],
+            "training_idx": train_idx,
+            "test_data": x.iloc[test_idx],
+            "test_labels": labels[test_idx],
+            "test_idx": test_idx,
+            "test_group": groups[test_idx][0],
             "feature_names": x.columns.to_list(),
         }
     if count == 0:
@@ -231,6 +240,7 @@ def count_valid_logo_splits(
     groups: npt.NDArray,
     label_threshold: int = LABEL_THRESHOLD,
     min_test_classes: int | None = None,
+    excluded_groups: set[int] | None = None,
 ) -> int:
     """Count groups that would yield a valid LOGO split.
 
@@ -244,6 +254,9 @@ def count_valid_logo_splits(
         label_threshold: Minimum number of samples per class required.
         min_test_classes: Minimum number of distinct classes required in the
             test split, or ``None`` to require every class.
+        excluded_groups: Group ids whose rows are held out of training. These
+            groups may still serve as the test group, but their rows never count
+            toward a training fold.
 
     Returns:
         Number of groups that can serve as a valid LOGO test split.
@@ -252,12 +265,20 @@ def count_valid_logo_splits(
     groups = np.asarray(groups)
     all_classes = np.unique(labels)
     unique_groups = np.unique(groups)
+    excluded_mask = (
+        np.isin(groups, list(excluded_groups))
+        if excluded_groups
+        else np.zeros(len(groups), dtype=bool)
+    )
     count = 0
     for g in unique_groups:
         test_mask = groups == g
+        # the training portion excludes both the held-out group and any
+        # excluded-video rows
+        train_mask = ~test_mask & ~excluded_mask
         if logo_split_is_valid(
             labels[test_mask],
-            labels[~test_mask],
+            labels[train_mask],
             all_classes,
             label_threshold,
             min_test_classes,

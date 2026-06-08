@@ -10,7 +10,7 @@ class _NoSplitClassifier:
     """Classifier test double reporting no valid LOGO splits."""
 
     @staticmethod
-    def get_leave_one_group_out_max(_labels, _groups) -> int:
+    def get_leave_one_group_out_max(_labels, _groups, _excluded_groups=None) -> int:
         return 0
 
     @staticmethod
@@ -36,7 +36,7 @@ class _MultiClassCVClassifier:
         return np.array([0, 1, 0, 1], dtype=np.int8), np.array([True, True, True, True])
 
     @staticmethod
-    def get_leave_one_group_out_max(_labels, _groups) -> int:
+    def get_leave_one_group_out_max(_labels, _groups, _excluded_groups=None) -> int:
         return 1
 
     @staticmethod
@@ -76,7 +76,7 @@ class _EmptyMultiClassClassifier:
         return {"window_size": 5}
 
     @staticmethod
-    def get_leave_one_group_out_max(_labels, _groups) -> int:
+    def get_leave_one_group_out_max(_labels, _groups, _excluded_groups=None) -> int:
         return 0
 
     @staticmethod

@@ -935,6 +935,23 @@ class Project:
         ]
         return np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
 
+    def _excluded_group_ids(self, group_mapping: dict[int, dict]) -> set[int]:
+        """Return CV group ids whose source video is excluded from training.
+
+        Args:
+            group_mapping: Mapping of group id to ``{"video": ..., "identity": ...}``.
+
+        Returns:
+            Set of group ids belonging to videos marked excluded from training.
+            These groups are still eligible as the held-out test group in
+            leave-one-group-out cross-validation but are never used for training.
+        """
+        return {
+            gid
+            for gid, info in group_mapping.items()
+            if self._settings_manager.is_video_excluded(info["video"])
+        }
+
     def get_labeled_features(
         self,
         behavior: str | None = None,
@@ -986,6 +1003,7 @@ class Project:
                 "per_frame": pd.DataFrame(),
                 "labels": np.array([], dtype=np.int8),
                 "groups": np.array([], dtype=np.int32),
+                "excluded_groups": set(),
             }, {}
 
         jobs: list[BinaryFeatureLoadJobSpec] = []
@@ -1024,12 +1042,14 @@ class Project:
                 "per_frame": pd.DataFrame(),
                 "labels": np.array([], dtype=np.int8),
                 "groups": np.array([], dtype=np.int32),
+                "excluded_groups": set(),
             }, {}
 
         key_to_gid, group_mapping = self._assign_cv_group_ids(
             all_group_keys, videos, grouping_strategy
         )
         groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
+        excluded_groups = self._excluded_group_ids(group_mapping)
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
         labels_arr = np.concatenate(all_labels)
@@ -1046,6 +1066,7 @@ class Project:
             "per_frame": per_frame_df,
             "labels": labels_arr,
             "groups": groups,
+            "excluded_groups": excluded_groups,
         }, group_mapping
 
     def get_multiclass_labeled_features(
@@ -1152,12 +1173,14 @@ class Project:
                 "per_frame": pd.DataFrame(),
                 "labels_by_behavior": {},
                 "groups": np.array([], dtype=np.int32),
+                "excluded_groups": set(),
             }, {}
 
         key_to_gid, group_mapping = self._assign_cv_group_ids(
             all_group_keys, videos, grouping_strategy
         )
         groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
+        excluded_groups = self._excluded_group_ids(group_mapping)
         window_df = pd.concat(all_window, join="inner")
         per_frame_df = pd.concat(all_per_frame, join="inner")
         n_rows = per_frame_df.shape[0]
@@ -1191,6 +1214,7 @@ class Project:
             "per_frame": per_frame_df,
             "labels_by_behavior": labels_by_behavior_arr,
             "groups": groups,
+            "excluded_groups": excluded_groups,
         }, group_mapping
 
     def clear_cache(self):

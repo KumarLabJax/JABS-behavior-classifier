@@ -30,6 +30,26 @@ if TYPE_CHECKING:
     from jabs.project import Project
 
 
+def _included_row_mask(features: dict) -> np.ndarray | None:
+    """Boolean mask selecting rows whose group is not excluded from training.
+
+    The final classifier is trained only on included videos. Excluded videos
+    still appear in ``features`` (so they can serve as cross-validation holdout
+    groups) and must be filtered out before the final fit.
+
+    Args:
+        features: Feature payload from ``Project.get_*labeled_features``.
+
+    Returns:
+        A boolean mask aligned to the feature rows, or ``None`` when no groups
+        are excluded (so callers can skip filtering entirely).
+    """
+    excluded = features.get("excluded_groups")
+    if not excluded:
+        return None
+    return ~np.isin(features["groups"], list(excluded))
+
+
 class TrainingStrategy:
     """Per-mode hooks for the classifier training pipeline."""
 
@@ -122,10 +142,21 @@ class BinaryTrainingStrategy(TrainingStrategy):
         full_dataset: pd.DataFrame,
         feature_names: list[str],
     ) -> dict:
-        """Build the binary ``classifier.train`` payload from the combined dataset."""
+        """Build the binary ``classifier.train`` payload from the combined dataset.
+
+        Rows belonging to videos excluded from training are dropped here so the
+        final classifier trains only on included data.
+        """
+        mask = _included_row_mask(features)
+        if mask is None:
+            training_data = full_dataset
+            training_labels = features["labels"]
+        else:
+            training_data = full_dataset[mask].reset_index(drop=True)
+            training_labels = features["labels"][mask]
         return {
-            "training_data": full_dataset,
-            "training_labels": features["labels"],
+            "training_data": training_data,
+            "training_labels": training_labels,
             "feature_names": feature_names,
         }
 
@@ -210,11 +241,26 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         full_dataset: pd.DataFrame,
         feature_names: list[str],
     ) -> dict:
-        """Build the multi-class ``classifier.train`` payload (per-behavior labels)."""
+        """Build the multi-class ``classifier.train`` payload (per-behavior labels).
+
+        Rows belonging to videos excluded from training are dropped here so the
+        final classifier trains only on included data.
+        """
+        mask = _included_row_mask(features)
+        if mask is None:
+            per_frame = features["per_frame"]
+            window = features["window"]
+            labels_by_behavior = features["labels_by_behavior"]
+        else:
+            per_frame = features["per_frame"][mask].reset_index(drop=True)
+            window = features["window"][mask].reset_index(drop=True)
+            labels_by_behavior = {
+                name: arr[mask] for name, arr in features["labels_by_behavior"].items()
+            }
         return {
-            "per_frame": features["per_frame"],
-            "window": features["window"],
-            "labels_by_behavior": features["labels_by_behavior"],
+            "per_frame": per_frame,
+            "window": window,
+            "labels_by_behavior": labels_by_behavior,
             "settings": self._settings,
             "feature_names": feature_names,
         }

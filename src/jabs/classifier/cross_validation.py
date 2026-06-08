@@ -26,6 +26,7 @@ class CVFeatures(TypedDict):
     groups: np.ndarray
     labels: NotRequired[np.ndarray]
     labels_by_behavior: NotRequired[dict[str, np.ndarray]]
+    excluded_groups: NotRequired[set[int]]
 
 
 def _prepare_cv_labels(
@@ -65,6 +66,7 @@ def _resolve_k(
     groups: npt.NDArray,
     k: int | float,
     emit_status: Callable[[str], None],
+    excluded_groups: set[int] | None = None,
 ) -> int:
     """Resolve the requested CV iteration count against available valid splits.
 
@@ -73,7 +75,7 @@ def _resolve_k(
     """
     if k <= 0:
         return 0
-    max_splits = classifier.get_leave_one_group_out_max(labels, groups)
+    max_splits = classifier.get_leave_one_group_out_max(labels, groups, excluded_groups)
     if max_splits == 0:
         emit_status("No valid cross-validation splits found; skipping CV")
         return 0
@@ -249,14 +251,20 @@ def run_leave_one_group_out_cv(
         classifier, features, project, is_multiclass
     )
 
+    excluded_groups = features.get("excluded_groups") or set()
+
     cv_results: list[CrossValidationResult] = []
-    k = _resolve_k(classifier, labels, features["groups"], k, emit_status)
+    k = _resolve_k(classifier, labels, features["groups"], k, emit_status, excluded_groups)
     if k == 0:
         return cv_results
 
     emit_status("Generating train/test splits")
     data_generator = classifier.leave_one_group_out(
-        features["per_frame"], features["window"], labels, features["groups"]
+        features["per_frame"],
+        features["window"],
+        labels,
+        features["groups"],
+        excluded_groups=excluded_groups,
     )
 
     for i, data in enumerate(data_generator):
