@@ -1371,6 +1371,25 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._update_label_button_color()
 
+    def _included_counts(self, counts: dict) -> dict:
+        """Return a counts dict restricted to videos not excluded from training.
+
+        Excluded videos are held out of the training set, so their labels must
+        not count toward the train-button enablement thresholds.
+
+        Args:
+            counts: Per-video label/bout counts keyed by video filename.
+
+        Returns:
+            A new dict containing only the entries for non-excluded videos.
+        """
+        settings_manager = self._project.settings_manager
+        return {
+            video: identities
+            for video, identities in counts.items()
+            if not settings_manager.is_video_excluded(video)
+        }
+
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
 
@@ -1388,9 +1407,13 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        # Videos excluded from training are not part of the training set, so they
+        # must not count toward the label thresholds that enable the train button.
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-            counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+            counts_by_behavior = {
+                name: self._included_counts(self._project.counts(name)) for name in behavior_names
+            }
             min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
             threshold_met = MultiClassClassifier.label_threshold_met(
                 counts_by_behavior=counts_by_behavior,
@@ -1400,7 +1423,7 @@ class CentralWidget(QtWidgets.QWidget):
             )
         else:
             threshold_met = Classifier.label_threshold_met(
-                self._counts,
+                self._included_counts(self._counts),
                 self._controls.kfold_value,
                 self._project.settings_manager.cv_grouping_strategy,
             )
