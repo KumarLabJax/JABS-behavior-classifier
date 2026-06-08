@@ -1098,6 +1098,7 @@ class Project:
                 - ``per_frame``: pd.DataFrame of per-frame features
                 - ``labels_by_behavior``: dict[str, np.ndarray] of aligned labels
                 - ``groups``: np.ndarray of group ids
+                - ``excluded_groups``: set[int] of CV group ids to hold out of training
         """
         behavior_names = list(self.settings_manager.behavior_names)
         if behavior_settings is None:
