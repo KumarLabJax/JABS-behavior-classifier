@@ -1,8 +1,21 @@
 """Tests for training-strategy helpers (no Qt required)."""
 
 import numpy as np
+import pytest
 
-from jabs.ui.training_strategy import _included_row_mask
+try:
+    from jabs.ui.training_strategy import _included_row_mask
+
+    SKIP_UI_TESTS = False
+    SKIP_REASON = None
+except ImportError as e:
+    SKIP_UI_TESTS = True
+    SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+
+pytestmark = pytest.mark.skipif(
+    SKIP_UI_TESTS,
+    reason=SKIP_REASON if SKIP_UI_TESTS else "",
+)
 
 
 def test_included_row_mask_none_without_exclusions():
