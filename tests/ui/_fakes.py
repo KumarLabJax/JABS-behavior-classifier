@@ -157,6 +157,7 @@ class FakeTrainingProject:
             classifier_mode=mode,
             cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
             get_behavior=lambda _behavior: dict(self._DEFAULT_BEHAVIOR_SETTINGS),
+            is_video_excluded=lambda _video: False,
         )
         self._binary_features = binary_features
         self._multiclass_features = multiclass_features

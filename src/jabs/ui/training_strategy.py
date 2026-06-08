@@ -175,9 +175,16 @@ class BinaryTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
     ) -> TrainingReportData:
-        """Build the binary-mode training report with frame and bout counts."""
-        behavior_count = int(np.sum(features["labels"] == 1))
-        not_behavior_count = int(np.sum(features["labels"] == 0))
+        """Build the binary-mode training report with frame and bout counts.
+
+        Frame counts reflect only the videos trained on; rows from excluded
+        videos are filtered out. (Bout counts arrive pre-filtered via
+        ``self._bout_counts``.)
+        """
+        mask = _included_row_mask(features)
+        labels = features["labels"] if mask is None else features["labels"][mask]
+        behavior_count = int(np.sum(labels == 1))
+        not_behavior_count = int(np.sum(labels == 0))
         behavior_bouts, not_behavior_bouts = self._bout_counts
         return TrainingReportData(
             behavior_name=self._behavior,
@@ -280,21 +287,33 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
     ) -> TrainingReportData:
-        """Build the multi-class training report with per-class frame and bout counts."""
+        """Build the multi-class training report with per-class frame and bout counts.
+
+        Frame and bout counts reflect only the videos trained on; rows and videos
+        excluded from training are filtered out.
+        """
         class_names = self._classifier.get_class_names()
         behavior_names = self._classifier.behavior_names
 
-        merged_labels, _ = classifier_utils.merge_labels(
-            features["labels_by_behavior"], behavior_names
-        )
+        mask = _included_row_mask(features)
+        if mask is None:
+            labels_by_behavior = features["labels_by_behavior"]
+        else:
+            labels_by_behavior = {
+                name: arr[mask] for name, arr in features["labels_by_behavior"].items()
+            }
+        merged_labels, _ = classifier_utils.merge_labels(labels_by_behavior, behavior_names)
         class_frame_counts = {
             name: int(np.sum(merged_labels == class_idx))
             for class_idx, name in enumerate(class_names)
         }
+        settings_manager = self._project.settings_manager
         class_bout_counts: dict[str, int] = {}
         for class_name in class_names:
             bouts = 0
-            for video_counts in self._project.counts(class_name).values():
+            for video, video_counts in self._project.counts(class_name).items():
+                if settings_manager.is_video_excluded(video):
+                    continue
                 for identity_counts in video_counts.values():
                     bouts += identity_counts["unfragmented_bout_counts"][0]
             class_bout_counts[class_name] = bouts

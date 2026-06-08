@@ -941,7 +941,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier,
             self._project,
             self._controls.current_behavior,
-            (self._bouts_behavior, self._bouts_not_behavior),
+            # report bout counts reflect only the videos trained on
+            self._included_project_bout_totals(),
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
         )
@@ -1389,6 +1390,27 @@ class CentralWidget(QtWidgets.QWidget):
             for video, identities in counts.items()
             if not settings_manager.is_video_excluded(video)
         }
+
+    def _included_project_bout_totals(self) -> tuple[int, int]:
+        """Project bout totals (behavior, not-behavior) over non-excluded videos.
+
+        Used for the training report so its bout counts reflect only the data the
+        classifier was trained on. The Label Summary still shows all videos.
+
+        Returns:
+            Tuple of (behavior bouts, not-behavior bouts) summed over the current
+            behavior's counts for videos not excluded from training.
+        """
+        behavior_bouts = 0
+        not_behavior_bouts = 0
+        settings_manager = self._project.settings_manager
+        for video, video_counts in (self._counts or {}).items():
+            if settings_manager.is_video_excluded(video):
+                continue
+            for identity_counts in video_counts.values():
+                behavior_bouts += identity_counts["unfragmented_bout_counts"][0]
+                not_behavior_bouts += identity_counts["unfragmented_bout_counts"][1]
+        return behavior_bouts, not_behavior_bouts
 
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button

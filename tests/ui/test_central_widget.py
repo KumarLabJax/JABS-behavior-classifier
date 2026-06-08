@@ -47,3 +47,26 @@ def test_included_counts_no_exclusions_returns_all():
     counts = {"a.avi": {0: {}}, "b.avi": {0: {}}}
     result = CentralWidget._included_counts(_stub_widget(set()), counts)
     assert set(result.keys()) == {"a.avi", "b.avi"}
+
+
+def _bout_stub_widget(counts: dict, excluded: set[str]) -> SimpleNamespace:
+    """Stand-in exposing what _included_project_bout_totals reads from self."""
+    stub = _stub_widget(excluded)
+    stub._counts = counts
+    return stub
+
+
+def test_included_project_bout_totals_excludes_excluded_videos():
+    """Bout totals for the report sum only non-excluded videos."""
+    counts = {
+        "a.avi": {0: {"unfragmented_bout_counts": (3, 2)}},
+        "b.avi": {0: {"unfragmented_bout_counts": (10, 10)}},  # excluded
+    }
+    stub = _bout_stub_widget(counts, {"b.avi"})
+    assert CentralWidget._included_project_bout_totals(stub) == (3, 2)
+
+
+def test_included_project_bout_totals_handles_none_counts():
+    """No counts yet -> zero totals (no crash)."""
+    stub = _bout_stub_widget(None, set())
+    assert CentralWidget._included_project_bout_totals(stub) == (0, 0)
