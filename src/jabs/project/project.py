@@ -1112,6 +1112,7 @@ class Project:
                 "per_frame": pd.DataFrame(),
                 "labels_by_behavior": {},
                 "groups": np.array([], dtype=np.int32),
+                "excluded_groups": set(),
             }, {}
 
         jobs: list[MulticlassFeatureLoadJobSpec] = []
