@@ -1379,11 +1379,16 @@ class CentralWidget(QtWidgets.QWidget):
         not count toward the train-button enablement thresholds.
 
         Args:
-            counts: Per-video label/bout counts keyed by video filename.
+            counts: Per-video label/bout counts keyed by video filename, or
+                ``None`` if counts have not been computed yet.
 
         Returns:
-            A new dict containing only the entries for non-excluded videos.
+            A new dict containing only the entries for non-excluded videos. An
+            empty dict is returned when ``counts`` is ``None`` or empty (which
+            naturally fails the train-button threshold).
         """
+        if not counts:
+            return {}
         settings_manager = self._project.settings_manager
         return {
             video: identities

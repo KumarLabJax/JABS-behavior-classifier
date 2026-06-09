@@ -49,6 +49,11 @@ def test_included_counts_no_exclusions_returns_all():
     assert set(result.keys()) == {"a.avi", "b.avi"}
 
 
+def test_included_counts_none_returns_empty():
+    """None counts (not yet computed) return an empty dict instead of raising."""
+    assert CentralWidget._included_counts(_stub_widget(set()), None) == {}
+
+
 def _bout_stub_widget(counts: dict, excluded: set[str]) -> SimpleNamespace:
     """Stand-in exposing what _included_project_bout_totals reads from self."""
     stub = _stub_widget(excluded)
