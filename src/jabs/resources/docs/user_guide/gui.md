@@ -18,6 +18,22 @@
 - **Manual Label and Predicted Label Visualizations:** see "Label Visualizations" for more information.
 - **Status Bar:** Displays periodic status messages.
 
+## Project Videos
+
+The **Project Videos** list shows every video in the current project. Click a video name to make it the active video, or use the filter box above the list to find a video by name.
+
+Right-click a video name to open a context menu:
+
+<img src="imgs/video-context-menu.png" alt="Video list context menu" width=300 />
+
+- **Get Info:** Open a dialog showing details about the video and its associated pose file.
+- **Copy Video Name:** Copy the video's filename to the clipboard.
+- **Exclude from Training:** Toggle whether the video is held out of classifier training (unchecked by default). When a video is excluded:
+    - its labels are **not** used to train the classifier, and
+    - it does **not** count toward the labeling thresholds that enable the **Train** button, so excluding too many videos can disable training.
+
+    Excluded videos may still be selected as the held-out group during leave-one-group-out cross validation, so they continue to contribute to performance evaluation. Excluded videos appear dimmed and in italics in the video list.
+
 ## Classifier Controls
 
 <img src="imgs/classifier_controls.png" alt="JABS Classifier Controls" width=900 />
