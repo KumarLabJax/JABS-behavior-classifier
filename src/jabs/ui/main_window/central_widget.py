@@ -1372,7 +1372,7 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._update_label_button_color()
 
-    def _included_counts(self, counts: dict) -> dict:
+    def _included_counts(self, counts: dict | None) -> dict:
         """Return a counts dict restricted to videos not excluded from training.
 
         Excluded videos are held out of the training set, so their labels must
