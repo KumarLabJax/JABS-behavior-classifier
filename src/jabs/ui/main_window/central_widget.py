@@ -941,7 +941,8 @@ class CentralWidget(QtWidgets.QWidget):
             self._classifier,
             self._project,
             self._controls.current_behavior,
-            (self._bouts_behavior, self._bouts_not_behavior),
+            # report bout counts reflect only the videos trained on
+            self._included_project_bout_totals(),
             np.inf if self._controls.all_kfold else self._controls.kfold_value,
             parent=self,
         )
@@ -1371,6 +1372,51 @@ class CentralWidget(QtWidgets.QWidget):
         self._set_label_track()
         self._update_label_button_color()
 
+    def _included_counts(self, counts: dict | None) -> dict:
+        """Return a counts dict restricted to videos not excluded from training.
+
+        Excluded videos are held out of the training set, so their labels must
+        not count toward the train-button enablement thresholds.
+
+        Args:
+            counts: Per-video label/bout counts keyed by video filename, or
+                ``None`` if counts have not been computed yet.
+
+        Returns:
+            A new dict containing only the entries for non-excluded videos. An
+            empty dict is returned when ``counts`` is ``None`` or empty (which
+            naturally fails the train-button threshold).
+        """
+        if not counts:
+            return {}
+        settings_manager = self._project.settings_manager
+        return {
+            video: identities
+            for video, identities in counts.items()
+            if not settings_manager.is_video_excluded(video)
+        }
+
+    def _included_project_bout_totals(self) -> tuple[int, int]:
+        """Project bout totals (behavior, not-behavior) over non-excluded videos.
+
+        Used for the training report so its bout counts reflect only the data the
+        classifier was trained on. The Label Summary still shows all videos.
+
+        Returns:
+            Tuple of (behavior bouts, not-behavior bouts) summed over the current
+            behavior's counts for videos not excluded from training.
+        """
+        behavior_bouts = 0
+        not_behavior_bouts = 0
+        settings_manager = self._project.settings_manager
+        for video, video_counts in (self._counts or {}).items():
+            if settings_manager.is_video_excluded(video):
+                continue
+            for identity_counts in video_counts.values():
+                behavior_bouts += identity_counts["unfragmented_bout_counts"][0]
+                not_behavior_bouts += identity_counts["unfragmented_bout_counts"][1]
+        return behavior_bouts, not_behavior_bouts
+
     def set_train_button_enabled_state(self) -> None:
         """set the enabled property of the train button
 
@@ -1388,9 +1434,13 @@ class CentralWidget(QtWidgets.QWidget):
         if self._project is None:
             return
 
+        # Videos excluded from training are not part of the training set, so they
+        # must not count toward the label thresholds that enable the train button.
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             behavior_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-            counts_by_behavior = {name: self._project.counts(name) for name in behavior_names}
+            counts_by_behavior = {
+                name: self._included_counts(self._project.counts(name)) for name in behavior_names
+            }
             min_groups = 1 if self._controls.all_kfold else self._controls.kfold_value
             threshold_met = MultiClassClassifier.label_threshold_met(
                 counts_by_behavior=counts_by_behavior,
@@ -1400,7 +1450,7 @@ class CentralWidget(QtWidgets.QWidget):
             )
         else:
             threshold_met = Classifier.label_threshold_met(
-                self._counts,
+                self._included_counts(self._counts),
                 self._controls.kfold_value,
                 self._project.settings_manager.cv_grouping_strategy,
             )

@@ -663,6 +663,31 @@ def test_save_predictions_binary_allocates_scalar_shape(tmp_path: Path) -> None:
         assert hf["predictions/Walk/probabilities"].shape == (1, 3)
 
 
+# ---------------------------------------------------------------------------
+# excluded-from-training group ids
+# ---------------------------------------------------------------------------
+
+
+def test_excluded_group_ids_maps_excluded_videos(tmp_path: Path) -> None:
+    """_excluded_group_ids returns the group ids whose source video is excluded."""
+    project = _bare_project(tmp_path)
+    project.settings_manager.set_video_excluded("v2.avi", True)
+
+    group_mapping = {
+        0: {"video": "v1.avi", "identity": None},
+        1: {"video": "v2.avi", "identity": None},
+        2: {"video": "v3.avi", "identity": None},
+    }
+    assert project._excluded_group_ids(group_mapping) == {1}
+
+
+def test_excluded_group_ids_empty_when_none_excluded(tmp_path: Path) -> None:
+    """No excluded videos -> empty set."""
+    project = _bare_project(tmp_path)
+    group_mapping = {0: {"video": "v1.avi", "identity": None}}
+    assert project._excluded_group_ids(group_mapping) == set()
+
+
 def test_rename_behavior_multiclass_updates_classifier_and_predictions(tmp_path: Path) -> None:
     """In multi-class mode, rename updates the shared classifier and prediction class_names.
 

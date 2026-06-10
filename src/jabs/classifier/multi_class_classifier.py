@@ -355,6 +355,7 @@ class MultiClassClassifier(BaseClassifier):
         window_features: pd.DataFrame,
         labels: npt.NDArray,
         groups: npt.NDArray,
+        excluded_groups: set[int] | None = None,
     ) -> Generator[dict, None, None]:
         """Yield leave-one-group-out splits for multi-class cross-validation.
 
@@ -368,6 +369,8 @@ class MultiClassClassifier(BaseClassifier):
             window_features: Window feature DataFrame for labeled data.
             labels: Multi-class label array (class indices).
             groups: Group ID array corresponding to each feature row.
+            excluded_groups: Group ids held out of training (eligible as the test
+                group, but never part of a training fold).
 
         Yields:
             Split dictionaries with keys: training_data, training_labels,
@@ -383,12 +386,14 @@ class MultiClassClassifier(BaseClassifier):
             groups,
             label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
             min_test_classes=2,
+            excluded_groups=excluded_groups,
         )
 
     @staticmethod
     def get_leave_one_group_out_max(
         labels: npt.NDArray,
         groups: npt.NDArray,
+        excluded_groups: set[int] | None = None,
     ) -> int:
         """Count the number of valid LOGO splits for multi-class CV.
 
@@ -399,6 +404,8 @@ class MultiClassClassifier(BaseClassifier):
         Args:
             labels: Multi-class label array (class indices).
             groups: Group ID array corresponding to each label.
+            excluded_groups: Group ids held out of training (eligible as the test
+                group, but never part of a training fold).
 
         Returns:
             Number of groups that can serve as a valid test split.
@@ -408,6 +415,7 @@ class MultiClassClassifier(BaseClassifier):
             groups,
             label_threshold=MultiClassClassifier.LABEL_THRESHOLD,
             min_test_classes=2,
+            excluded_groups=excluded_groups,
         )
 
     @staticmethod

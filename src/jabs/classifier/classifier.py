@@ -114,12 +114,16 @@ class Classifier(BaseClassifier):
         self._behavior = value
 
     @staticmethod
-    def get_leave_one_group_out_max(labels: np.ndarray, groups: np.ndarray) -> int:
+    def get_leave_one_group_out_max(
+        labels: np.ndarray, groups: np.ndarray, excluded_groups: set[int] | None = None
+    ) -> int:
         """Count the number of possible leave-one-group-out splits.
 
         Args:
             labels: Labels to check against the per-class threshold.
             groups: Group id corresponding to each label.
+            excluded_groups: Group ids held out of training (eligible as the test
+                group, but never part of a training fold).
 
         Returns:
             Number of groups that can serve as a valid test split.
@@ -127,7 +131,10 @@ class Classifier(BaseClassifier):
         Note: labels excludes label for frames with no identity.
         """
         return classifier_utils.count_valid_logo_splits(
-            labels, groups, label_threshold=Classifier.LABEL_THRESHOLD
+            labels,
+            groups,
+            label_threshold=Classifier.LABEL_THRESHOLD,
+            excluded_groups=excluded_groups,
         )
 
     @staticmethod
@@ -136,6 +143,7 @@ class Classifier(BaseClassifier):
         window_features: pd.DataFrame,
         labels: np.ndarray,
         groups: np.ndarray,
+        excluded_groups: set[int] | None = None,
     ):
         """Yield "leave one group out" train/test splits.
 
@@ -144,6 +152,8 @@ class Classifier(BaseClassifier):
             window_features: window features for all labeled data
             labels: labels corresponding to each feature row
             groups: group id corresponding to each feature row
+            excluded_groups: group ids held out of training (eligible as the test
+                group, but never part of a training fold)
 
         Yields:
             Dict with training_data, test_data, training_labels, test_labels,
@@ -155,6 +165,7 @@ class Classifier(BaseClassifier):
             labels,
             groups,
             label_threshold=Classifier.LABEL_THRESHOLD,
+            excluded_groups=excluded_groups,
         )
 
     @staticmethod
