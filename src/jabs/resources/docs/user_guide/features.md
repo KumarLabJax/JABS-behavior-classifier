@@ -62,6 +62,10 @@
 * bearing to lixit sine
 * bearing to lixit cosine
 
+When more than one lixit is present, the nearest lixit is selected per frame using the distance
+from the mouse centroid to each lixit tip. Using the centroid rather than a single keypoint (such
+as the nose) keeps this selection stable when individual keypoints are missing from the pose.
+
 ### Water Spout (Lixit) extended (experimental)
 
 Optionally supports extended set of lixit features if the lixit is labeled with three keypoints (tip, left side, right side).

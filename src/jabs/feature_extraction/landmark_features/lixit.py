@@ -12,11 +12,14 @@ class LixitDistanceInfo:
     because we have two feature groups that both need to know which lixit is the closest, we compute that
     information once in this helper class and then pass it to both of the features. The features cannot be merged into
     a single feature because one requires a different set of window feature methods.
+
+    The closest lixit is determined using the mouse centroid (convex hull center) rather than a single
+    keypoint. The centroid is robust to dropout of any individual keypoint (e.g. the nose), which keeps the
+    closest-lixit choice stable in multi-lixit arenas. The per-frame centroid is also cached here and shared
+    with the MouseLixitAngle feature to avoid recomputing it.
     """
 
     def __init__(self, poses: PoseEstimation, pixel_scale: float):
-        # Identify closest lixit
-        self._closest_key = PoseEstimation.KeypointIndex.NOSE
         # Distances include all keypoints
         self._keypoint_indices = list(PoseEstimation.KeypointIndex)
 
@@ -25,6 +28,7 @@ class LixitDistanceInfo:
         self._closest_lixit_idx = {}
         self._cached_distances = {}
         self._cached_bearings = {}
+        self._cached_centroids = {}
 
     def cache_features(self, identity: int):
         """Computes and caches distances and bearings to the closest lixit for a given identity.
@@ -69,17 +73,20 @@ class LixitDistanceInfo:
 
             points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
-            # if there are multiple lixit, we compute the distance from nose to
-            # each one, resulting in a numpy array of shape #frames, #lixit
-            pts = points[:, self._closest_key, :]
+            # Determine the closest lixit using the mouse centroid rather than a single
+            # keypoint. The centroid is robust to dropout of any individual keypoint, which
+            # keeps the choice stable in multi-lixit arenas. Scale it to match the lixit units.
+            centroids = self.get_centroids(identity)
+            if self._pixel_scale is not None:
+                centroids = centroids * self._pixel_scale
+
+            # distance from the centroid to each lixit tip, shape (#frames, #lixit)
             for i in range(num_lixit):
                 # use the tip of the lixit to determine closest
                 ref = lixit[i, 0] if points_per_lixit == 3 else lixit[i]
-                alignment_distances[:, i] = np.sqrt(np.sum((pts - ref) ** 2, axis=1))
+                alignment_distances[:, i] = np.sqrt(np.sum((centroids - ref) ** 2, axis=1))
 
-            self._closest_lixit_idx[identity] = np.argmin(alignment_distances, axis=1).astype(
-                np.uint8
-            )
+            self._closest_lixit_idx[identity] = self._closest_lixit_per_frame(alignment_distances)
 
             if points_per_lixit == 3:
                 # grab just the tip keypoint for determining pairwise distances from pose keypoints to lixit tip
@@ -139,6 +146,83 @@ class LixitDistanceInfo:
         if identity not in self._closest_lixit_idx:
             self.cache_features(identity)
         return self._closest_lixit_idx[identity]
+
+    def get_centroids(self, identity: int) -> np.ndarray:
+        """get per-frame mouse centroids (convex hull centers) for an identity
+
+        The centroid is robust to dropout of any single keypoint and is shared with the
+        MouseLixitAngle feature to avoid recomputing it.
+
+        Args:
+            identity: integer identity to get centroids for
+
+        Returns:
+            np.ndarray of shape (#frames, 2) of centroid coordinates in pixel units; rows
+            are NaN for frames where no centroid is available
+        """
+        if identity not in self._cached_centroids:
+            self._cached_centroids[identity] = self._compute_centroids(identity)
+        return self._cached_centroids[identity]
+
+    def _compute_centroids(self, identity: int) -> np.ndarray:
+        """compute the per-frame mouse centroid (convex hull center) in pixel units
+
+        Args:
+            identity: integer identity to compute centroids for
+
+        Returns:
+            np.ndarray of shape (#frames, 2) of centroid coordinates in pixel units; rows
+            are NaN for frames where the identity is absent or has too few valid keypoints
+            to form a convex hull
+        """
+        centroids = np.full((self._poses.num_frames, 2), np.nan, dtype=np.float32)
+        frame_valid = self._poses.identity_mask(identity)
+        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
+        convex_hulls = self._poses.get_identity_convex_hulls(identity)
+        for i in indexes:
+            hull = convex_hulls[i]
+            if hull is not None:
+                centroids[i, :] = np.asarray(hull.centroid.xy).squeeze()
+        return centroids
+
+    @staticmethod
+    def _closest_lixit_per_frame(alignment_distances: np.ndarray) -> np.ndarray:
+        """select the closest lixit per frame, filling gaps from the nearest valid frame
+
+        A frame's distances are all NaN only when the mouse centroid is unavailable for
+        that frame (e.g. too few valid keypoints to form a convex hull). Each such frame is
+        filled with the choice from the temporally nearest valid frame, looking both
+        backward and forward (ties prefer the earlier frame). If no frame has a valid
+        centroid, every frame defaults to lixit 0.
+
+        Args:
+            alignment_distances: array of shape (#frames, #lixit) giving the distance from
+                the mouse centroid to each lixit tip (NaN where the centroid is missing)
+
+        Returns:
+            np.ndarray of shape (#frames,) of closest lixit indices as uint8
+        """
+        num_frames = alignment_distances.shape[0]
+        closest = np.zeros(num_frames, dtype=np.uint8)
+
+        valid = ~np.isnan(alignment_distances).all(axis=1)
+        if not valid.any():
+            return closest
+
+        closest[valid] = np.nanargmin(alignment_distances[valid], axis=1).astype(np.uint8)
+
+        # For each frame, find the nearest valid frame on each side, then fill from
+        # whichever side is closer (ties prefer the earlier/previous frame). A missing
+        # side gets a sentinel distance so the other (real) side always wins.
+        frame_indices = np.arange(num_frames)
+        prev_idx = np.maximum.accumulate(np.where(valid, frame_indices, -1))
+        next_idx = np.minimum.accumulate(np.where(valid, frame_indices, num_frames)[::-1])[::-1]
+
+        prev_dist = np.where(prev_idx >= 0, frame_indices - prev_idx, num_frames + 1)
+        next_dist = np.where(next_idx < num_frames, next_idx - frame_indices, num_frames + 1)
+
+        source = np.where(prev_dist <= next_dist, prev_idx, next_idx)
+        return closest[source]
 
     @staticmethod
     def compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
@@ -277,16 +361,11 @@ class MouseLixitAngle(Feature):
         # Get the poses (keypoint coordinates) for the given identity, scaled by pixel_scale
         points, _ = self._poses.get_identity_poses(identity, self._pixel_scale)
 
-        # get centroids
-        # first, get an array of the indexes of valid frames only
-        frame_valid = self._poses.identity_mask(identity)
-        indexes = np.arange(self._poses.num_frames)[frame_valid == 1]
-
-        # then get centroids for all frames where this identity is present
-        convex_hulls = self._poses.get_identity_convex_hulls(identity)
-        centroids = np.full([self._poses.num_frames, 2], np.nan, dtype=np.float32)
-        for i in indexes:
-            centroids[i, :] = np.asarray(convex_hulls[i].centroid.xy).squeeze()
+        # Reuse the shared mouse centroid (convex hull center) computed by LixitDistanceInfo.
+        # It is returned in pixel units, so scale it to cm to match `points`.
+        centroids = self._cached_distances.get_centroids(identity)
+        if self._pixel_scale is not None:
+            centroids = centroids * self._pixel_scale
 
         # Compute the vector from the nose to the center of the spine for the mouse
         mouse_vectors = points[:, PoseEstimation.KeypointIndex.NOSE, :] - centroids
