@@ -194,6 +194,7 @@ def run_cross_validation(
         timestamp=report_timestamp,
         window_size=behavior_settings["window_size"],
         cv_grouping_strategy=project.settings_manager.cv_grouping_strategy,
+        cv_grouping_regex=project.settings_manager.cv_grouping_regex,
     )
 
     # Save markdown report

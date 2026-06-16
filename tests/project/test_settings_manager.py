@@ -233,3 +233,22 @@ def test_set_video_excluded_toggle_back_to_included(mock_project):
     settings_manager.set_video_excluded("video1.avi", False)
 
     assert settings_manager.is_video_excluded("video1.avi") is False
+
+
+def test_cv_grouping_regex_defaults_to_empty(mock_project):
+    """cv_grouping_regex returns an empty string when not configured."""
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump({}, f)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+    assert settings_manager.cv_grouping_regex == ""
+
+
+def test_cv_grouping_regex_reads_configured_value(mock_project):
+    """cv_grouping_regex returns the value stored under project settings."""
+    settings = {"settings": {"cv_grouping_regex": r"cage_(\d+)"}}
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump(settings, f)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+    assert settings_manager.cv_grouping_regex == r"cage_(\d+)"

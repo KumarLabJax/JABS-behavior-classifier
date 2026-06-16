@@ -686,6 +686,37 @@ class TestStaticMethods:
         # Only first identity meets threshold (>= 20)
         assert count == 1
 
+    def test_count_label_threshold_filename_pattern(self):
+        """Filename-pattern grouping aggregates videos that share a regex key."""
+        all_counts = {
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (10, 10)}},
+            "cage_1_day2.avi": {0: {"fragmented_frame_counts": (15, 15)}},
+            "cage_2_day1.avi": {0: {"fragmented_frame_counts": (25, 25)}},
+            "cage_3_day1.avi": {0: {"fragmented_frame_counts": (5, 5)}},
+        }
+        # cage 1: 25/25 summed across two videos -> meets threshold
+        # cage 2: 25/25 -> meets threshold
+        # cage 3: 5/5 -> below threshold
+        count = Classifier.count_label_threshold(
+            all_counts,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            cv_grouping_regex=r"cage_(\d+)",
+        )
+        assert count == 2
+
+    def test_count_label_threshold_filename_pattern_invalid_regex_returns_zero(self):
+        """An empty or invalid filename-pattern regex yields no trainable groups."""
+        all_counts = {"cage_1.avi": {0: {"fragmented_frame_counts": (25, 25)}}}
+        for bad_regex in ("", "cage_("):
+            assert (
+                Classifier.count_label_threshold(
+                    all_counts,
+                    cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                    cv_grouping_regex=bad_regex,
+                )
+                == 0
+            )
+
     def test_label_threshold_met(self):
         """Test checking if label threshold is met."""
         all_counts = {
@@ -753,6 +784,26 @@ class TestStaticMethods:
             multi_video_counts,
             min_groups=3,
             cv_grouping_strategy=CrossValidationGroupingStrategy.VIDEO,
+        )
+
+    def test_label_threshold_met_filename_pattern(self):
+        """Filename-pattern grouping enables training when enough cages qualify."""
+        counts = {
+            "cage_1_day1.avi": {0: {"fragmented_frame_counts": (25, 25)}},
+            "cage_2_day1.avi": {0: {"fragmented_frame_counts": (25, 25)}},
+        }
+        # Two cages meet the threshold -> two CV groups available.
+        assert Classifier.label_threshold_met(
+            counts,
+            min_groups=2,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            cv_grouping_regex=r"cage_(\d+)",
+        )
+        assert not Classifier.label_threshold_met(
+            counts,
+            min_groups=3,
+            cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            cv_grouping_regex=r"cage_(\d+)",
         )
         # VIDEO: One video below threshold, one above
         multi_video_counts_below = {

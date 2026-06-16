@@ -3,7 +3,12 @@
 from .cache_format import CacheFormat
 from .classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from .classifier_types import ClassifierType
-from .cv_grouping import DEFAULT_CV_GROUPING_STRATEGY, CrossValidationGroupingStrategy
+from .cv_grouping import (
+    DEFAULT_CV_GROUPING_STRATEGY,
+    CrossValidationGroupingStrategy,
+    compile_grouping_regex,
+    filename_group_key,
+)
 from .inference import ConfidenceMetric, Method, SamplingStrategy
 from .prediction_type import PredictionType
 from .storage_format import StorageFormat
@@ -22,4 +27,6 @@ __all__ = [
     "ProjectDistanceUnit",
     "SamplingStrategy",
     "StorageFormat",
+    "compile_grouping_regex",
+    "filename_group_key",
 ]

@@ -125,7 +125,15 @@ def _train_multiclass_fold(
 
 
 def _test_label_from_group(test_info: dict) -> str:
-    """Render a CV test-group label for the report (video name + optional identity)."""
+    """Render a CV test-group label for the report.
+
+    Filename-pattern groups carry a ``label`` (the regex-extracted key, e.g.
+    ``"cage_1234"``); otherwise the label is the video name plus an optional
+    identity.
+    """
+    label = test_info.get("label")
+    if label is not None:
+        return label
     if test_info["identity"] is not None:
         return f"{test_info['video']} [{test_info['identity']}]"
     return test_info["video"]

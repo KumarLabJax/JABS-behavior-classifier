@@ -156,6 +156,7 @@ class FakeTrainingProject:
         self.settings_manager = SimpleNamespace(
             classifier_mode=mode,
             cv_grouping_strategy=CrossValidationGroupingStrategy.INDIVIDUAL,
+            cv_grouping_regex="",
             get_behavior=lambda _behavior: dict(self._DEFAULT_BEHAVIOR_SETTINGS),
             is_video_excluded=lambda _video: False,
         )
