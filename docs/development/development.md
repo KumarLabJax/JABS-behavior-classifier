@@ -2,7 +2,7 @@
 
 Welcome to the JABS (JAX Animal Behavior System) development guide. This document provides detailed technical information about the software architecture, development setup, code organization, and implementation details.
 
-**📝 Looking to contribute?** See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines, copyright information, and how to submit pull requests.
+**📝 Looking to contribute?** See the [Contributing Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/contributing/) for contribution guidelines, copyright information, and how to submit pull requests.
 
 **👤 End user?** See the [User Guide](user-guide.md) for instructions on using JABS.
 
@@ -57,7 +57,7 @@ pytest
 11. [Tips for Developers](#tips-for-developers)
 12. [Getting Help](#getting-help)
 
-**Note:** For contribution guidelines, copyright information, and how to submit pull requests, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+**Note:** For contribution guidelines, copyright information, and how to submit pull requests, see the [Contributing Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/contributing/).
 
 ---
 

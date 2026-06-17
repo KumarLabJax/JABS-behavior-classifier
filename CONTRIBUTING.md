@@ -92,8 +92,8 @@ We welcome various types of contributions:
 
 For detailed information about JABS architecture, development setup, and implementation guides, see:
 
-- **[Development Guide](docs/DEVELOPMENT.md)** - Comprehensive guide to JABS architecture, feature extraction system, building, and deployment
-- **[User Guide](docs/user-guide.md)** - End-user documentation
+- **[Development Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/development/)** - Comprehensive guide to JABS architecture, feature extraction system, building, and deployment
+- **[User Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/user-guide/overview/)** - End-user documentation
 
 ## Pull Request Process
 
@@ -109,7 +109,7 @@ For detailed information about JABS architecture, development setup, and impleme
 
 - **General questions**: Open an issue on GitHub
 - **Security issues**: Email jabs@jax.org (do not open public issues)
-- **Development questions**: See [DEVELOPMENT.md](docs/development/DEVELOPMENT.md) or contact jabs@jax.org
+- **Development questions**: See the [Development Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/development/) or contact jabs@jax.org
 
 ## Code of Conduct
 

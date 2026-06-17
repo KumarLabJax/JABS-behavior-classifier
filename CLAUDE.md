@@ -13,7 +13,7 @@ CatBoost), and generates predictions. Supports Python 3.10-3.14.
 
 For comprehensive developer documentation, see `docs/development/development.md`
 (architecture deep-dives, detailed feature extraction guide, GUI architecture, release
-process) and `docs/development/contributing.md` (contribution guidelines, copyright
+process) and `CONTRIBUTING.md` (contribution guidelines, copyright
 assignment, PR process).
 
 ## File Protection Rules
