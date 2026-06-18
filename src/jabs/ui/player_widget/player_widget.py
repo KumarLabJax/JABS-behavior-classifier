@@ -451,14 +451,14 @@ class PlayerWidget(QtWidgets.QWidget):
         # Bake segmentation contours into the BGR frame (a no-op when the pose file has
         # no segmentation data for this identity/frame).
         if isinstance(self._pose_est, PoseEstimationV6):
-            for ident in range(self._pose_est.num_identities):
+            for identity in self._pose_est.identities:
                 # active=True for every identity: the export has no active identity, so
                 # all contours are drawn in the same (active) color rather than singling
                 # one out.
                 overlay_segmentation(
                     img,
                     self._pose_est,
-                    identity=ident,
+                    identity=identity,
                     frame_index=target_frame,
                     active=True,
                 )
