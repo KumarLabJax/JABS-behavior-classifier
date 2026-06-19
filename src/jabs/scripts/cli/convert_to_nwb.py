@@ -4,6 +4,7 @@ import datetime
 import logging
 from pathlib import Path
 
+import h5py
 import numpy as np
 
 from jabs.core.abstract.pose_est import PoseEstimation
@@ -32,6 +33,66 @@ def _segments_to_edges(segments) -> list[tuple[int, int]]:
     return edges
 
 
+def _h5_attr_to_jsonable(value: object) -> object:
+    """Convert an HDF5 attribute value to a JSON-serializable Python object.
+
+    ``h5py`` returns attribute values as numpy scalars or arrays, ``bytes``
+    (for fixed-length string attributes), or native Python objects.  This
+    normalizes them to plain JSON-friendly types (``str``, ``int``, ``float``,
+    ``bool``, ``list``, ``None``) so they can be embedded losslessly in the NWB
+    metadata JSON.  A value of an unrecognized type is preserved as its string
+    representation rather than dropped.
+
+    Args:
+        value: A raw attribute value as returned by ``h5py``.
+
+    Returns:
+        A JSON-serializable representation of ``value``.
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, np.ndarray):
+        return [_h5_attr_to_jsonable(item) for item in value.tolist()]
+    if isinstance(value, np.generic):
+        return _h5_attr_to_jsonable(value.item())
+    if isinstance(value, list | tuple):
+        return [_h5_attr_to_jsonable(item) for item in value]
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    logger.warning(
+        "Preserving HDF5 attribute of unsupported type %s as a string", type(value).__name__
+    )
+    return str(value)
+
+
+def _collect_hdf5_attributes(path: Path) -> dict[str, dict[str, object]]:
+    """Collect every attribute from every object in an HDF5 file.
+
+    Walks the whole file - the root group, all sub-groups, and all datasets -
+    recording each object's attributes keyed by its HDF5 path (``"/"`` for the
+    root).  Objects that carry no attributes are omitted.  Attribute values are
+    normalized to JSON-serializable types via :func:`_h5_attr_to_jsonable` so
+    they survive the NWB metadata round-trip.
+
+    Args:
+        path: Path to the HDF5 file to read.
+
+    Returns:
+        Mapping of HDF5 object path to a dict of that object's attributes.
+    """
+    collected: dict[str, dict[str, object]] = {}
+
+    def _record(name: str, obj: h5py.Group | h5py.Dataset) -> None:
+        if len(obj.attrs) == 0:
+            return
+        collected[name] = {key: _h5_attr_to_jsonable(val) for key, val in obj.attrs.items()}
+
+    with h5py.File(path, "r") as h5:
+        _record("/", h5)  # visititems does not visit the root group itself
+        h5.visititems(_record)
+    return collected
+
+
 def pose_to_pose_data(
     pose: PoseEstimation,
     subjects: dict[str, dict] | None = None,
@@ -39,6 +100,10 @@ def pose_to_pose_data(
     """Convert any PoseEstimation object to a PoseData dataclass.
 
     Handles all supported JABS pose versions (v2-v8).
+
+    Every attribute stored anywhere in the source pose HDF5 file is captured
+    into ``PoseData.metadata["hdf5_attributes"]`` (keyed by HDF5 object path)
+    so arbitrary provenance attributes are not lost in the NWB conversion.
 
     Args:
         pose: A loaded PoseEstimation object (any version).
@@ -83,6 +148,10 @@ def pose_to_pose_data(
     }
     if file_hash is not None:
         metadata["source_file_hash"] = file_hash
+
+    hdf5_attributes = _collect_hdf5_attributes(Path(pose.pose_file))
+    if hdf5_attributes:
+        metadata["hdf5_attributes"] = hdf5_attributes
 
     return PoseData(
         points=points_array,
