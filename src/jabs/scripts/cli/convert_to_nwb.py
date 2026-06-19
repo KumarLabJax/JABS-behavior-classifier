@@ -52,6 +52,10 @@ def _h5_attr_to_jsonable(value: object) -> object:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     if isinstance(value, np.ndarray):
+        # h5py returns scalar attributes as 0-d arrays; .tolist() yields a bare
+        # scalar (not a list), so unwrap to the scalar before recursing.
+        if value.shape == ():
+            return _h5_attr_to_jsonable(value.item())
         return [_h5_attr_to_jsonable(item) for item in value.tolist()]
     if isinstance(value, np.generic):
         return _h5_attr_to_jsonable(value.item())
