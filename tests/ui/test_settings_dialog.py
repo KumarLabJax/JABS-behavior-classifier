@@ -7,7 +7,7 @@ from jabs.core.constants import CLASSIFIER_MODE_KEY
 from jabs.core.enums import ClassifierMode
 
 try:
-    from PySide6.QtGui import Qt
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication, QLabel
 
     from jabs.ui.settings_dialog.classifier_mode_settings_group import (

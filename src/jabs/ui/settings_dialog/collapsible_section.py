@@ -1,5 +1,4 @@
-from PySide6.QtCore import QSize, Signal
-from PySide6.QtGui import Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 from qt_material_icons import MaterialIcon
 
@@ -30,6 +29,8 @@ class CollapsibleSection(QWidget):
         self._toggle_btn = QToolButton(self)
         self._toggle_btn.setStyleSheet("QToolButton { border: none; }")
         self._toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        # Only the Material disclosure icon is shown; never the style's native arrow.
+        self._toggle_btn.setArrowType(Qt.ArrowType.NoArrow)
         self._toggle_btn.setIconSize(QSize(_INDICATOR_SIZE, _INDICATOR_SIZE))
         self._toggle_btn.setIcon(self._collapsed_icon)
         self._toggle_btn.setText(title)
