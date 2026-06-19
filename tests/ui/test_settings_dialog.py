@@ -7,11 +7,13 @@ from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY, CV_GROUPIN
 from jabs.core.enums import ClassifierMode, CrossValidationGroupingStrategy
 
 try:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QLabel
 
     from jabs.ui.settings_dialog.classifier_mode_settings_group import (
         ClassifierModeSettingsGroup,
     )
+    from jabs.ui.settings_dialog.collapsible_section import CollapsibleSection
     from jabs.ui.settings_dialog.cross_validation_settings_group import (
         CrossValidationSettingsGroup,
     )
@@ -227,3 +229,19 @@ def test_cv_grouping_preview_handles_no_videos() -> None:
     assert "No videos" in group._preview_summary_label.text()
     assert not group._preview_summary_label.isHidden()
     assert group._preview_section.isHidden()
+
+
+def test_collapsible_section_toggles_disclosure_icon() -> None:
+    """The disclosure indicator swaps between the collapsed and expanded icons."""
+    section = CollapsibleSection("More info", QLabel("content"))
+
+    # No native arrow is drawn; only the Material disclosure icon is shown.
+    assert section._toggle_btn.arrowType() == Qt.ArrowType.NoArrow
+    collapsed_key = section._toggle_btn.icon().cacheKey()
+
+    section.set_expanded(True)
+    expanded_key = section._toggle_btn.icon().cacheKey()
+    assert expanded_key != collapsed_key
+
+    section.set_expanded(False)
+    assert section._toggle_btn.icon().cacheKey() == collapsed_key

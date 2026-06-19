@@ -1,20 +1,12 @@
 from typing import TYPE_CHECKING
 
-import numpy as np
 from PySide6 import QtCore, QtGui
 
-from jabs.core.utils.pose_util import gen_line_fragments
-from jabs.pose_estimation import PoseEstimation
-from jabs.ui.colors import KEYPOINT_COLOR_MAP
-
+from ..pose_drawing import KEYPOINT_SIZE, draw_identity_pose
 from .overlay import Overlay
 
 if TYPE_CHECKING:
     from jabs.ui.player_widget.frame_with_overlays import FrameWithOverlaysWidget
-
-
-_LINE_SEGMENT_COLOR = QtGui.QColor(255, 255, 255, 128)  # color for the pose line segments
-_KEYPOINT_SIZE = 3  # size of the keypoint circles
 
 
 class PoseOverlay(Overlay):
@@ -58,71 +50,21 @@ class PoseOverlay(Overlay):
         if self.parent.pose is None:
             return
 
+        # Keypoint size scales with the on-screen zoom so markers stay a sensible size.
         zoom = self.parent.scaled_pix_width / max(crop_rect.width(), 1)
-        keypoint_size = max(1, round(_KEYPOINT_SIZE * zoom**0.8))
+        keypoint_size = max(1, round(KEYPOINT_SIZE * zoom**0.8))
 
-        # draw the pose estimation skeletons
         for identity in self.parent.pose.identities:
             if not all_identities and identity != self.parent.active_identity:
                 continue
 
-            points, mask = self.parent.pose.get_points(self.parent.current_frame, identity)
-
-            if points is None or mask is None:
-                continue
-
-            # Adjust alpha for non-active identities
-            if identity != self.parent.active_identity:
-                line_color = QtGui.QColor(_LINE_SEGMENT_COLOR)
-                line_color.setAlpha(line_color.alpha() // 3)  # More translucent
-            else:
-                line_color = _LINE_SEGMENT_COLOR
-
-            pen = QtGui.QPen(line_color)
-            pen.setWidth(3)
-            painter.setPen(pen)
-
-            for seg in gen_line_fragments(
-                self.parent.pose.get_connected_segments(), np.flatnonzero(mask == 0)
-            ):
-                segment_points = [
-                    self.parent.image_to_widget_coords_cropped(p[0], p[1], crop_rect)
-                    for p in points[seg]
-                ]
-                # Filter out points outside the crop
-                segment_points = [pt for pt in segment_points if pt is not None]
-
-                # draw lines
-                if len(segment_points) >= 2:
-                    for i in range(len(segment_points) - 1):
-                        painter.drawLine(
-                            segment_points[i][0],
-                            segment_points[i][1],
-                            segment_points[i + 1][0],
-                            segment_points[i + 1][1],
-                        )
-
-            # draw points at each keypoint of the pose (if it exists at this frame)
-            painter.setPen(QtCore.Qt.PenStyle.NoPen)
-            for keypoint in PoseEstimation.KeypointIndex:
-                point_index = keypoint.value
-                if mask[point_index]:
-                    widget_coords = self.parent.image_to_widget_coords_cropped(
-                        points[point_index][0], points[point_index][1], crop_rect
-                    )
-                    if widget_coords is None:
-                        continue
-
-                    widget_x, widget_y = widget_coords
-                    color = KEYPOINT_COLOR_MAP[keypoint]
-                    if identity != self.parent.active_identity:
-                        # Make keypoints translucent for non-active identities
-                        translucent_color = QtGui.QColor(color)
-                        translucent_color.setAlpha(96)
-                        painter.setBrush(translucent_color)
-                    else:
-                        painter.setBrush(color)
-
-                    painter.drawEllipse(
-                        QtCore.QPoint(widget_x, widget_y), keypoint_size, keypoint_size
-                    )
+            draw_identity_pose(
+                painter,
+                self.parent.pose,
+                self.parent.current_frame,
+                identity,
+                to_output=lambda x, y: self.parent.image_to_widget_coords_cropped(x, y, crop_rect),
+                keypoint_size=keypoint_size,
+                line_width=3,
+                active=(identity == self.parent.active_identity),
+            )

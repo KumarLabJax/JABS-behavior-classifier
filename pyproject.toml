@@ -92,3 +92,11 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 namespace = true
 module-name = "jabs"
+
+[tool.pytest.ini_options]
+# Default to the application test suite under tests/. The reusable library packages
+# under packages/* have their own test suites and are run separately (e.g.
+# `pytest packages/jabs-core/tests`); collecting them together from the repo root
+# fails on cross-package test-module name collisions, which is why CI runs each
+# suite separately. Explicit path arguments override this default.
+testpaths = ["tests"]
