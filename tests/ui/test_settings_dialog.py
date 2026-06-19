@@ -7,11 +7,13 @@ from jabs.core.constants import CLASSIFIER_MODE_KEY
 from jabs.core.enums import ClassifierMode
 
 try:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import Qt
+    from PySide6.QtWidgets import QApplication, QLabel
 
     from jabs.ui.settings_dialog.classifier_mode_settings_group import (
         ClassifierModeSettingsGroup,
     )
+    from jabs.ui.settings_dialog.collapsible_section import CollapsibleSection
     from jabs.ui.settings_dialog.settings_dialog import _OverlapCheckThread
 
     SKIP_UI_TESTS = False
@@ -81,3 +83,19 @@ def test_classifier_mode_group_roundtrips_enum_not_label() -> None:
 
     group.set_values({CLASSIFIER_MODE_KEY: ClassifierMode.BINARY.value})
     assert group.get_values() == {CLASSIFIER_MODE_KEY: ClassifierMode.BINARY}
+
+
+def test_collapsible_section_toggles_disclosure_icon() -> None:
+    """The disclosure indicator swaps between the collapsed and expanded icons."""
+    section = CollapsibleSection("More info", QLabel("content"))
+
+    # No native arrow is drawn; only the Material disclosure icon is shown.
+    assert section._toggle_btn.arrowType() == Qt.ArrowType.NoArrow
+    collapsed_key = section._toggle_btn.icon().cacheKey()
+
+    section.set_expanded(True)
+    expanded_key = section._toggle_btn.icon().cacheKey()
+    assert expanded_key != collapsed_key
+
+    section.set_expanded(False)
+    assert section._toggle_btn.icon().cacheKey() == collapsed_key

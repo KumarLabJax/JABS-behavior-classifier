@@ -1,6 +1,10 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSize, Signal
 from PySide6.QtGui import Qt
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from qt_material_icons import MaterialIcon
+
+# Pixel size of the disclosure triangle.
+_INDICATOR_SIZE = 16
 
 
 class CollapsibleSection(QWidget):
@@ -16,10 +20,18 @@ class CollapsibleSection(QWidget):
     def __init__(self, title: str, content: QWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._content = content
+
+        # Disclosure indicator: a small Material triangle that points to the side when
+        # collapsed and down when expanded. qt_material_icons renders in the palette
+        # text color, so it follows the application theme.
+        self._collapsed_icon = MaterialIcon("arrow_right")
+        self._expanded_icon = MaterialIcon("arrow_drop_down")
+
         self._toggle_btn = QToolButton(self)
         self._toggle_btn.setStyleSheet("QToolButton { border: none; }")
         self._toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self._toggle_btn.setIconSize(QSize(_INDICATOR_SIZE, _INDICATOR_SIZE))
+        self._toggle_btn.setIcon(self._collapsed_icon)
         self._toggle_btn.setText(title)
         self._toggle_btn.setCheckable(True)
         self._toggle_btn.setChecked(False)
@@ -43,9 +55,7 @@ class CollapsibleSection(QWidget):
 
     def _on_toggled(self, checked: bool) -> None:
         """Handle toggling the collapsible section."""
-        self._toggle_btn.setArrowType(
-            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-        )
+        self._toggle_btn.setIcon(self._expanded_icon if checked else self._collapsed_icon)
         self._content.setVisible(checked)
         self._content.updateGeometry()
 
