@@ -214,6 +214,20 @@ class BaseSettingsDialog(QDialog):
         for group in self._settings_groups:
             group.set_values(current_settings)
 
+    def _validate_all_groups(self) -> bool:
+        """Validate every settings group, warning on the first invalid one.
+
+        Returns:
+            True if all groups validated successfully; False if a group reported an
+            error (a warning dialog has been shown and saving should abort).
+        """
+        for group in self._settings_groups:
+            error = group.validate()
+            if error:
+                MessageDialog.warning(self, message=error)
+                return False
+        return True
+
     def _on_save(self) -> None:
         """Save settings from all groups to project and close dialog.
 
@@ -223,6 +237,8 @@ class BaseSettingsDialog(QDialog):
         """
         if self._settings_manager is None:
             raise RuntimeError("Settings manager is not set for this dialog.")
+        if not self._validate_all_groups():
+            return
         # Collect settings from all groups
         all_settings = {}
         for group in self._settings_groups:
@@ -269,7 +285,11 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         """
         mode_group = ClassifierModeSettingsGroup(parent)
         self._settings_groups.append(mode_group)
-        cv_group = CrossValidationSettingsGroup(parent)
+        cv_videos = [
+            (video, self._settings_manager.is_video_excluded(video))
+            for video in self._project.video_manager.videos
+        ]
+        cv_group = CrossValidationSettingsGroup(videos=cv_videos, parent=parent)
         self._settings_groups.append(cv_group)
         cache_format_group = CacheFormatSettingsGroup(parent)
         self._settings_groups.append(cache_format_group)
@@ -282,6 +302,9 @@ class ProjectSettingsDialog(BaseSettingsDialog):
         - Multi-class -> Binary: warns that None labels will be inactive but preserved.
         - No mode change: saves immediately.
         """
+        if not self._validate_all_groups():
+            return
+
         all_new_settings: dict = {}
         for group in self._settings_groups:
             all_new_settings.update(group.get_values())

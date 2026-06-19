@@ -105,6 +105,8 @@ class TrainingReportData:
         training_time_ms: Total training time in milliseconds.
         timestamp: Datetime when training was completed.
         cv_grouping_strategy: Strategy used for cross-validation grouping.
+        cv_grouping_regex: Filename-pattern regex used for grouping. Only set when
+            the grouping strategy is "Filename Pattern".
     """
 
     behavior_name: str
@@ -124,6 +126,7 @@ class TrainingReportData:
     bouts_not_behavior: int = 0
     class_frame_counts: dict[str, int] | None = None
     class_bout_counts: dict[str, int] | None = None
+    cv_grouping_regex: str | None = None
 
 
 def _escape_markdown(text: str) -> str:
@@ -287,6 +290,8 @@ def generate_markdown_report(data: TrainingReportData) -> str:
 
         lines.append("### Iteration Details")
         lines.append(f"CV Grouping Strategy: {data.cv_grouping_strategy.value}")
+        if data.cv_grouping_regex:
+            lines.append(f"CV Grouping Pattern: `{data.cv_grouping_regex}`")
         lines.append("")
         lines.append(_format_iteration_table(data.cv_results))
         lines.append("")
@@ -410,6 +415,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "training_time_ms": int(data.training_time_ms),
         "timestamp": timestamp_str,
         "cv_grouping_strategy": data.cv_grouping_strategy.value,
+        "cv_grouping_regex": data.cv_grouping_regex,
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),
         "bouts_behavior": int(data.bouts_behavior),

@@ -17,6 +17,8 @@ from jabs.core.enums import (
     DEFAULT_CV_GROUPING_STRATEGY,
     ClassifierType,
     CrossValidationGroupingStrategy,
+    compile_grouping_regex,
+    filename_group_key,
 )
 from jabs.core.utils import hash_file
 from jabs.project import load_multiclass_training_data
@@ -423,6 +425,7 @@ class MultiClassClassifier(BaseClassifier):
         counts_by_behavior: dict[str, dict],
         behavior_names: list[str],
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+        cv_grouping_regex: str | None = None,
     ) -> int:
         """Count multi-class LOGO groups that satisfy the relaxed acceptance rule.
 
@@ -439,6 +442,9 @@ class MultiClassClassifier(BaseClassifier):
                 ``counts_by_behavior``. Typically includes
                 ``MULTICLASS_NONE_BEHAVIOR``.
             cv_grouping_strategy: Cross-validation grouping strategy.
+            cv_grouping_regex: Regex used to extract a grouping key from each video
+                filename when ``cv_grouping_strategy`` is ``FILENAME_PATTERN``. An
+                empty or invalid regex yields a count of 0 (no trainable groups).
 
         Returns:
             Number of groups that can serve as a valid multi-class LOGO test split.
@@ -450,13 +456,30 @@ class MultiClassClassifier(BaseClassifier):
         if not behavior_names:
             return 0
 
+        # FILENAME_PATTERN aggregates like VIDEO grouping, but keys each group by
+        # the regex-extracted filename key instead of the video name (so several
+        # videos can share one group). An empty/invalid regex means no groups.
+        pattern = None
+        if cv_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
+            try:
+                pattern = compile_grouping_regex(cv_grouping_regex or "")
+            except ValueError:
+                return 0
+
         threshold = MultiClassClassifier.LABEL_THRESHOLD
         group_class_counts: dict[tuple[str, int] | str, dict[str, int]] = {}
         for behavior_name in behavior_names:
             behavior_counts = counts_by_behavior.get(behavior_name, {})
             for video_name, video_counts in behavior_counts.items():
-                if cv_grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
-                    key: tuple[str, int] | str = video_name
+                if cv_grouping_strategy in (
+                    CrossValidationGroupingStrategy.VIDEO,
+                    CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                ):
+                    key: tuple[str, int] | str = (
+                        filename_group_key(video_name, pattern)
+                        if pattern is not None
+                        else video_name
+                    )
                     group_entry = group_class_counts.setdefault(key, {})
                     group_entry[behavior_name] = group_entry.get(behavior_name, 0) + sum(
                         identity_counts["fragmented_frame_counts"][0]
@@ -498,6 +521,7 @@ class MultiClassClassifier(BaseClassifier):
         behavior_names: list[str],
         min_groups: int,
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+        cv_grouping_regex: str | None = None,
     ) -> bool:
         """Determine whether multi-class labels support ``min_groups`` LOGO splits.
 
@@ -511,6 +535,8 @@ class MultiClassClassifier(BaseClassifier):
                 at 1, since multi-class training requires at least one valid
                 split.
             cv_grouping_strategy: Cross-validation grouping strategy.
+            cv_grouping_regex: Regex used for ``FILENAME_PATTERN`` grouping (see
+                :meth:`count_label_threshold`).
 
         Returns:
             True if the count of valid splits meets ``max(1, min_groups)``.
@@ -521,5 +547,6 @@ class MultiClassClassifier(BaseClassifier):
             counts_by_behavior=counts_by_behavior,
             behavior_names=behavior_names,
             cv_grouping_strategy=cv_grouping_strategy,
+            cv_grouping_regex=cv_grouping_regex,
         )
         return valid_splits >= max(1, min_groups)

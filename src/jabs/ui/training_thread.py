@@ -166,6 +166,7 @@ class TrainingThread(QThread):
                 elapsed_ms=elapsed_ms,
                 timestamp=datetime.now(),
                 cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
                 distance_unit=unit,
                 settings=settings,
             )

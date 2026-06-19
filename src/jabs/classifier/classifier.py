@@ -12,6 +12,8 @@ from jabs.core.enums import (
     DEFAULT_CV_GROUPING_STRATEGY,
     ClassifierType,
     CrossValidationGroupingStrategy,
+    compile_grouping_regex,
+    filename_group_key,
 )
 from jabs.core.utils import hash_file
 from jabs.project import Project, load_training_data
@@ -318,6 +320,7 @@ class Classifier(BaseClassifier):
     def count_label_threshold(
         all_counts: dict,
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+        cv_grouping_regex: str | None = None,
     ) -> int:
         """Count groups that meet the label-threshold criteria.
 
@@ -326,6 +329,9 @@ class Classifier(BaseClassifier):
                 Structure is a dict[video_name][identity] of fragmented and
                 unfragmented frame/bout count tuples.
             cv_grouping_strategy: Cross-validation grouping strategy.
+            cv_grouping_regex: Regex used to extract a grouping key from each video
+                filename when ``cv_grouping_strategy`` is ``FILENAME_PATTERN``. An
+                empty or invalid regex yields a count of 0 (no trainable groups).
 
         Returns:
             Number of groups that meet the labeling threshold criteria.
@@ -356,6 +362,24 @@ class Classifier(BaseClassifier):
                     and not_behavior_sum >= Classifier.LABEL_THRESHOLD
                 ):
                     group_count += 1
+        elif cv_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
+            try:
+                pattern = compile_grouping_regex(cv_grouping_regex or "")
+            except ValueError:
+                return 0
+            group_sums: dict[str, list[int]] = {}
+            for video in all_counts:
+                label = filename_group_key(video, pattern)
+                sums = group_sums.setdefault(label, [0, 0])
+                for identity_count in all_counts[video].values():
+                    sums[0] += identity_count["fragmented_frame_counts"][0]
+                    sums[1] += identity_count["fragmented_frame_counts"][1]
+            for behavior_sum, not_behavior_sum in group_sums.values():
+                if (
+                    behavior_sum >= Classifier.LABEL_THRESHOLD
+                    and not_behavior_sum >= Classifier.LABEL_THRESHOLD
+                ):
+                    group_count += 1
         else:
             raise ValueError(f"Unknown cv_grouping_strategy: {cv_grouping_strategy}")
         return group_count
@@ -365,6 +389,7 @@ class Classifier(BaseClassifier):
         all_counts: dict,
         min_groups: int,
         cv_grouping_strategy: CrossValidationGroupingStrategy = DEFAULT_CV_GROUPING_STRATEGY,
+        cv_grouping_regex: str | None = None,
     ) -> bool:
         """Determine whether the labeling threshold is met.
 
@@ -372,11 +397,15 @@ class Classifier(BaseClassifier):
             all_counts: Labeled frame and bout counts for the entire project.
             min_groups: Minimum number of groups required.
             cv_grouping_strategy: Cross-validation grouping strategy.
+            cv_grouping_regex: Regex used for ``FILENAME_PATTERN`` grouping (see
+                :meth:`count_label_threshold`).
 
         Returns:
             True if there are enough groups meeting the threshold.
         """
         group_count = Classifier.count_label_threshold(
-            all_counts, cv_grouping_strategy=cv_grouping_strategy
+            all_counts,
+            cv_grouping_strategy=cv_grouping_strategy,
+            cv_grouping_regex=cv_grouping_regex,
         )
         return 1 < group_count >= min_groups

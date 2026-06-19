@@ -3,7 +3,7 @@ import logging
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY
+from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY, CV_GROUPING_REGEX_KEY
 from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from jabs.core.enums.cv_grouping import (
     DEFAULT_CV_GROUPING_STRATEGY,
@@ -128,6 +128,18 @@ class SettingsManager:
                 "Invalid CV grouping strategy %r in project file, using default", grouping_str
             )
             return DEFAULT_CV_GROUPING_STRATEGY
+
+    @property
+    def cv_grouping_regex(self) -> str:
+        """Get the filename-pattern regex used for cross-validation grouping.
+
+        Only meaningful when :attr:`cv_grouping_strategy` is
+        ``CrossValidationGroupingStrategy.FILENAME_PATTERN``.
+
+        Returns:
+            The configured regular expression, or an empty string if none is set.
+        """
+        return self._project_info.get("settings", {}).get(CV_GROUPING_REGEX_KEY, "")
 
     def video_metadata(self, video: str) -> dict:
         """Get metadata for a specific video.

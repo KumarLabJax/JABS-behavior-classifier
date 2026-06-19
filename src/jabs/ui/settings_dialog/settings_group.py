@@ -274,3 +274,15 @@ class SettingsGroup(QGroupBox):
             values: Dictionary mapping setting names to values.
         """
         pass
+
+    def validate(self) -> str | None:
+        """Validate the current control values before they are saved.
+
+        Subclasses can override this to block saving when input is invalid (for
+        example, a malformed regular expression).
+
+        Returns:
+            A human-readable error message describing the problem, or ``None`` when
+            the current values are valid.
+        """
+        return None

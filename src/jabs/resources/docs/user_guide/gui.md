@@ -161,9 +161,19 @@ Project settings are saved within the project directory and apply only to the cu
 
 | Setting                        | Description                                                      |
 |-------------------------------|------------------------------------------------------------------|
-| Cross Validation Grouping      | Determines how cross-validation groups are defined. Options are "Individual Animal" (default) or "Video". |
+| Cross Validation Grouping      | Determines how cross-validation groups are defined. Options are "Individual Animal" (default), "Video", or "Filename Pattern". See [Cross-Validation Grouping](#cross-validation-grouping) below. |
 
 As new settings are added, they will appear in this dialog with inline documentation.
+
+### Cross-Validation Grouping
+
+The **Cross Validation Grouping** setting controls how labeled data is partitioned into groups for leave-one-group-out cross-validation:
+
+- **Individual Animal** (default): each group is a single animal identity within a single video.
+- **Video**: each group is a single video; all identities within a video are held out together.
+- **Filename Pattern**: groups are defined by a regular expression applied to each video's filename. All videos whose filenames produce the same key are placed in the same group, which is useful for grouping videos by an identifier embedded in their names (for example, a cage ID). If the pattern contains a capture group, the captured text is used as the key; otherwise the entire match is used. Videos that do not match the pattern are each placed in their own group.
+
+When you select **Filename Pattern**, a text field appears for the regular expression. For example, if your videos are named like `cage_0042_2026-06-16.mp4`, the pattern `cage_(\d+)` extracts the cage number (`0042`) so that every video recorded from the same cage forms a single cross-validation group. A live preview below the field shows how your project's videos partition into groups under the current pattern (videos excluded from training are marked), so you can confirm the pattern before saving.
 
 
 ## Overlays
