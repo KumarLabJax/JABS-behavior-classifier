@@ -381,13 +381,13 @@ def cross_validation(
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
 )
 @click.option(
-    "--per-identity",
+    "--multisubject",
     is_flag=True,
     default=False,
     help=(
-        "Write one NWB file per identity instead of a single combined file. "
-        "OUTPUT is used as a naming template; files are written as "
-        "{output_stem}_{identity_name}.nwb alongside it."
+        "Write a single multi-subject NWB file (using the ndx-multisubjects "
+        "extension) instead of the default one file per identity. The combined "
+        "file is written directly to OUTPUT."
     ),
 )
 @click.option(
@@ -428,7 +428,7 @@ def convert_to_nwb(
     ctx: click.Context,
     input_path: Path,
     output: Path,
-    per_identity: bool,
+    multisubject: bool,
     session_description: str | None,
     subjects_path: Path | None,
     session_metadata_path: Path | None,
@@ -438,19 +438,21 @@ def convert_to_nwb(
     INPUT_PATH is a JABS pose HDF5 file (any version, v2-v8). The format
     version is inferred automatically from the filename (e.g. _pose_est_v6.h5).
 
-    OUTPUT is the destination NWB file. In --per-identity mode, OUTPUT is a
-    naming template and is not created directly; instead one file per identity
-    is written as {output_stem}_{identity_name}.nwb in the same directory.
+    OUTPUT is the destination NWB file. By default one file per identity is
+    written: OUTPUT is a naming template and is not created directly; instead
+    one file per identity is written as {output_stem}_{identity_name}.nwb in the
+    same directory. With --multisubject, a single combined file is written
+    directly to OUTPUT.
 
     Examples:
 
     \b
-        # Single file, all identities
+        # One NWB file per identity (default)
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
 
     \b
-        # One NWB file per identity
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --per-identity
+        # A single multi-subject file (ndx-multisubjects)
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
 
     \b
         # Include per-animal metadata
@@ -463,7 +465,7 @@ def convert_to_nwb(
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
-        click.echo(f"Per-identity: {per_identity}")
+        click.echo(f"Multisubject: {multisubject}")
         if subjects_path:
             click.echo(f"Subjects: {subjects_path}")
         if session_metadata_path:
@@ -498,7 +500,7 @@ def convert_to_nwb(
             run_conversion(
                 input_path=input_path,
                 output_path=output,
-                per_identity=per_identity,
+                multisubject=multisubject,
                 session_description=session_description,
                 subjects=subjects,
                 session_metadata=session_metadata,
@@ -506,10 +508,10 @@ def convert_to_nwb(
         except Exception as e:
             raise click.ClickException(str(e)) from e
 
-    if per_identity:
-        click.echo(f"Wrote per-identity NWB files to {output.parent}")
-    else:
+    if multisubject:
         click.echo(f"Wrote {output}")
+    else:
+        click.echo(f"Wrote per-identity NWB files to {output.parent}")
 
 
 def main():

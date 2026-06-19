@@ -7,6 +7,7 @@ import logging
 import h5py
 import numpy as np
 import pytest
+from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
 
@@ -117,16 +118,16 @@ def _assert_pose_data_equal(a: PoseData, b: PoseData):
 
 
 # ---------------------------------------------------------------------------
-# Single-file roundtrip
+# Multisubject single-file roundtrip
 # ---------------------------------------------------------------------------
 
 
 def test_roundtrip_single_file(tmp_path, adapter):
-    """Write multi-identity PoseData to one file, read back, assert equality."""
+    """Write multi-identity PoseData to one multisubject file, read back, assert equality."""
     path = tmp_path / "pose.nwb"
     data = _make_pose_data()
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -137,7 +138,7 @@ def test_roundtrip_with_subjects(tmp_path, adapter):
     path = tmp_path / "pose_subjects.nwb"
     data = _make_pose_data(external_ids=["mouse_a", "mouse_b"], with_subjects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -148,7 +149,7 @@ def test_roundtrip_with_bounding_boxes(tmp_path, adapter):
     path = tmp_path / "pose_bb.nwb"
     data = _make_pose_data(with_bounding_boxes=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -159,7 +160,7 @@ def test_roundtrip_bounding_boxes_none(tmp_path, adapter):
     path = tmp_path / "pose_no_bb.nwb"
     data = _make_pose_data(with_bounding_boxes=False)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.bounding_boxes is None
@@ -170,7 +171,7 @@ def test_roundtrip_single_identity(tmp_path, adapter):
     path = tmp_path / "pose_single.nwb"
     data = _make_pose_data(num_identities=1)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -181,7 +182,7 @@ def test_roundtrip_many_identities(tmp_path, adapter):
     path = tmp_path / "pose_many.nwb"
     data = _make_pose_data(num_identities=5)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -192,7 +193,7 @@ def test_external_ids_used_in_naming(tmp_path, adapter):
     path = tmp_path / "pose_ext.nwb"
     data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -203,7 +204,7 @@ def test_external_ids_none(tmp_path, adapter):
     path = tmp_path / "pose_no_ext.nwb"
     data = _make_pose_data(external_ids=None)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.external_ids is None
@@ -215,7 +216,7 @@ def test_cm_per_pixel_none(tmp_path, adapter):
     path = tmp_path / "pose_no_cm.nwb"
     data = _make_pose_data(cm_per_pixel=None)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.cm_per_pixel is None
@@ -226,7 +227,7 @@ def test_static_objects_roundtrip(tmp_path, adapter):
     path = tmp_path / "pose_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert "lixit" in loaded.static_objects
@@ -265,7 +266,7 @@ def test_static_objects_multiple_points(tmp_path, adapter, obj_name, points):
         metadata=base.metadata,
     )
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert obj_name in loaded.static_objects
@@ -278,9 +279,9 @@ def test_static_objects_nwb_structure(tmp_path, adapter):
     path = tmp_path / "pose_static_struct.nwb"
     data = _make_pose_data(with_static_objects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         behavior = nwb.processing["behavior"]
 
@@ -303,9 +304,9 @@ def test_static_object_names_in_jabs_metadata_json(tmp_path, adapter):
     path = tmp_path / "pose_json_static.nwb"
     data = _make_pose_data(with_static_objects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         jabs_meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
         assert "static_object_names" in jabs_meta
@@ -317,9 +318,9 @@ def test_body_parts_not_in_jabs_metadata(tmp_path, adapter):
     path = tmp_path / "pose_no_bp.nwb"
     data = _make_pose_data()
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
         assert "body_parts" not in meta
@@ -340,7 +341,7 @@ def test_missing_keypoint_padded_with_nan(tmp_path, adapter, caplog):
         fps=30,
     )
     path = tmp_path / "pose_missing_kp.nwb"
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
     # Remove the NOSE series from the written file so the reader sees a missing keypoint.
     # Walk the behavior processing module to find the NOSE series dynamically so this
@@ -387,7 +388,7 @@ def test_keypoint_ordering_derived_from_series_names(tmp_path, adapter):
     )
 
     path = tmp_path / "pose_order.nwb"
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.body_parts == canonical_names
@@ -398,7 +399,7 @@ def test_empty_static_objects(tmp_path, adapter):
     path = tmp_path / "pose_no_static.nwb"
     data = _make_pose_data(with_static_objects=False)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.static_objects == {}
@@ -421,7 +422,7 @@ def test_static_objects_1d_skipped_with_warning(tmp_path, adapter, caplog):
 
     path = tmp_path / "pose_1d_static.nwb"
     with caplog.at_level(logging.WARNING):
-        adapter.write(data, path)
+        adapter.write(data, path, multisubject=True)
 
     assert "bad_obj" in caplog.text
     loaded = adapter.read(path)
@@ -443,13 +444,13 @@ def test_subjects_roundtrip(tmp_path, adapter):
         }
     )
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.subjects == subjects
 
     # Verify it's in the jabs_metadata JSON
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
         assert meta["subjects"] == subjects
@@ -460,7 +461,7 @@ def test_subjects_none_roundtrip(tmp_path, adapter):
     path = tmp_path / "pose_no_subjects.nwb"
     data = _make_pose_data()
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.subjects is None
@@ -543,9 +544,9 @@ def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
         with_bounding_boxes=True,
     )
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         behavior = nwb.processing["behavior"]
 
@@ -565,7 +566,7 @@ def test_edges_roundtrip(tmp_path, adapter):
     path = tmp_path / "pose_edges.nwb"
     data = _make_pose_data(edges=[(0, 1), (1, 2)])
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.edges == [(0, 1), (1, 2)]
@@ -576,7 +577,7 @@ def test_empty_edges(tmp_path, adapter):
     path = tmp_path / "pose_no_edges.nwb"
     data = _make_pose_data(edges=[])
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.edges == []
@@ -714,7 +715,7 @@ def test_write_sanitizes_external_ids(tmp_path, adapter):
     path = tmp_path / "pose.nwb"
     data = _make_pose_data(external_ids=["mouse/A", "mouse/B"])
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     # Data roundtrips correctly even though IDs were sanitized on disk
@@ -742,7 +743,7 @@ def test_dynamic_objects_roundtrip(tmp_path, adapter):
     path = tmp_path / "pose_dyn.nwb"
     data = _make_pose_data(with_dynamic_objects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     _assert_pose_data_equal(data, loaded)
@@ -764,9 +765,9 @@ def test_dynamic_objects_nwb_structure(tmp_path, adapter):
     path = tmp_path / "pose_dyn_struct.nwb"
     data = _make_pose_data(with_dynamic_objects=True)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         behavior = nwb.processing["behavior"]
 
@@ -789,12 +790,12 @@ def test_dynamic_objects_empty(tmp_path, adapter):
     path = tmp_path / "pose_no_dyn.nwb"
     data = _make_pose_data(with_dynamic_objects=False)
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert loaded.dynamic_objects == {}
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
         assert "dynamic_object_names" not in meta
@@ -825,7 +826,7 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
         metadata=base.metadata,
     )
 
-    adapter.write(data, path)
+    adapter.write(data, path, multisubject=True)
     loaded = adapter.read(path)
 
     assert "foo" in loaded.dynamic_objects
@@ -834,7 +835,7 @@ def test_dynamic_objects_multi_keypoint(tmp_path, adapter):
     np.testing.assert_array_equal(foo.counts, counts_foo)
     np.testing.assert_array_equal(foo.sample_indices, sample_indices_foo)
 
-    with NWBHDF5IO(str(path), "r") as io:
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
         nwb = io.read()
         foo_pe = nwb.processing["behavior"]["foo"]
         # 2 slots * 2 keypoints -> 4 series
@@ -848,9 +849,9 @@ def test_session_start_time_written_to_nwb(tmp_path, adapter):
     data = _make_pose_data()
     session_time = datetime.datetime(2024, 3, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
 
-    adapter.write(data, path, session_start_time=session_time)
+    adapter.write(data, path, multisubject=True, session_start_time=session_time)
 
-    with NWBHDF5IO(str(path), mode="r") as io:
+    with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
         nwb = io.read()
         assert nwb.session_start_time == session_time
 
@@ -863,6 +864,7 @@ def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
     adapter.write(
         data,
         path,
+        multisubject=True,
         lab="Kumar Lab",
         institution="The Jackson Laboratory",
         experimenter=["Jane Smith", "John Doe"],
@@ -870,10 +872,148 @@ def test_session_metadata_fields_written_to_nwb(tmp_path, adapter):
         session_id="session_001",
     )
 
-    with NWBHDF5IO(str(path), mode="r") as io:
+    with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
         nwb = io.read()
         assert nwb.lab == "Kumar Lab"
         assert nwb.institution == "The Jackson Laboratory"
         assert list(nwb.experimenter) == ["Jane Smith", "John Doe"]
         assert nwb.experiment_description == "Open field test"
         assert nwb.session_id == "session_001"
+
+
+# ---------------------------------------------------------------------------
+# Multisubject mode (ndx-multisubjects)
+# ---------------------------------------------------------------------------
+
+
+def test_multisubject_nwb_structure(tmp_path, adapter):
+    """multisubject=True writes one NdxMultiSubjectsNWBFile with a populated SubjectsTable."""
+    path = tmp_path / "session.nwb"
+    data = _make_pose_data(
+        num_identities=2, external_ids=["mouse_a", "mouse_b"], with_subjects=True
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    assert path.exists()  # the single combined file IS created in multisubject mode
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        assert isinstance(nwb, NdxMultiSubjectsNWBFile)
+
+        # SubjectsTable lives in acquisition, one row per identity.
+        assert "SubjectsTable" in nwb.acquisition
+        df = nwb.acquisition["SubjectsTable"].to_dataframe()
+        assert len(df) == 2
+        assert list(df["subject_id"]) == ["mouse_a", "mouse_b"]
+
+        # The behavior module still holds the per-identity pose containers.
+        behavior = nwb.processing["behavior"]
+        assert "mouse_a" in behavior.data_interfaces
+        assert "mouse_b" in behavior.data_interfaces
+
+        # jabs_metadata records the multisubject layout flag.
+        meta = json.loads(str(nwb.scratch["jabs_metadata"].data))
+        assert meta["multisubject"] is True
+        assert "per_identity_files" not in meta
+
+
+def test_multisubject_subject_id_and_sex_default(tmp_path, adapter):
+    """Required SubjectsTable columns default sensibly when subjects metadata is absent."""
+    path = tmp_path / "session.nwb"
+    data = _make_pose_data(num_identities=2, external_ids=["mouse_a", "mouse_b"])
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        df = io.read().acquisition["SubjectsTable"].to_dataframe()
+        # subject_id defaults to the identity name; sex defaults to "U".
+        assert list(df["subject_id"]) == ["mouse_a", "mouse_b"]
+        assert list(df["sex"]) == ["U", "U"]
+
+
+def test_multisubject_heterogeneous_subjects(tmp_path, adapter):
+    """Subjects with differing key sets do not raise; optional columns are unioned."""
+    path = tmp_path / "session.nwb"
+    subjects = {
+        "mouse_a": {"sex": "M", "genotype": "WT", "strain": "C57BL/6"},
+        "mouse_b": {"sex": "F"},  # missing genotype + strain
+    }
+    data = _make_pose_data(external_ids=["mouse_a", "mouse_b"])
+    data = data.__class__(
+        **{**{f: getattr(data, f) for f in data.__dataclass_fields__}, "subjects": subjects}
+    )
+
+    adapter.write(data, path, multisubject=True)  # must not raise
+
+    # subjects round-trip losslessly via jabs_metadata (not the SubjectsTable).
+    loaded = adapter.read(path)
+    assert loaded.subjects == subjects
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        df = io.read().acquisition["SubjectsTable"].to_dataframe()
+        assert "genotype" in df.columns and "strain" in df.columns
+        row_b = df[df["subject_id"] == "mouse_b"].iloc[0]
+        assert row_b["genotype"] == "" and row_b["strain"] == ""
+
+
+def test_multisubject_roundtrip_full_features(tmp_path, adapter):
+    """A multisubject file round-trips bounding boxes, static and dynamic objects together."""
+    path = tmp_path / "session.nwb"
+    data = _make_pose_data(
+        external_ids=["mouse_a", "mouse_b"],
+        with_bounding_boxes=True,
+        with_static_objects=True,
+        with_dynamic_objects=True,
+        with_subjects=True,
+    )
+
+    adapter.write(data, path, multisubject=True)
+    loaded = adapter.read(path)
+
+    _assert_pose_data_equal(data, loaded)
+
+
+def test_multisubject_requires_extension(tmp_path, adapter, monkeypatch):
+    """multisubject=True raises a clear ImportError when ndx-multisubjects is missing."""
+    monkeypatch.setattr("jabs.io.internal.pose.nwb._MULTISUBJECTS_AVAILABLE", False)
+    data = _make_pose_data()
+
+    with pytest.raises(ImportError, match="ndx-multisubjects"):
+        adapter.write(data, tmp_path / "session.nwb", multisubject=True)
+
+
+def test_read_legacy_single_file_raises(tmp_path, adapter, monkeypatch):
+    """A file whose jabs_metadata has neither layout flag (legacy single-file) raises on read."""
+    path = tmp_path / "legacy.nwb"
+    data = _make_pose_data(num_identities=2)
+
+    # Simulate the removed legacy writer: a combined file whose jabs_metadata
+    # carries neither 'multisubject' nor 'per_identity_files' by dropping the
+    # **extra flags that the current writer passes in.
+    original = PoseNWBAdapter._build_jabs_metadata
+
+    def _no_layout_flags(data_, identity_names, **extra):
+        return original(data_, identity_names)
+
+    monkeypatch.setattr(PoseNWBAdapter, "_build_jabs_metadata", staticmethod(_no_layout_flags))
+
+    adapter.write(data, path, multisubject=True)
+
+    with pytest.raises(ValueError, match="legacy"):
+        adapter.read(path)
+
+
+def test_multisubject_isolated_from_per_identity_siblings(tmp_path, adapter):
+    """A multisubject file coexists with per-identity siblings; each reads back correctly."""
+    data = _make_pose_data(num_identities=2, external_ids=["mouse_a", "mouse_b"])
+
+    ms_path = tmp_path / "session.nwb"
+    adapter.write(data, ms_path, multisubject=True)  # → session.nwb
+    adapter.write(data, tmp_path / "session.nwb")  # default → session_mouse_a/b.nwb
+
+    # Reading the multisubject file returns all identities directly.
+    _assert_pose_data_equal(data, adapter.read(ms_path))
+
+    # Reading a per-identity sibling auto-merges only the per-identity siblings;
+    # the multisubject session.nwb is excluded by the glob/split_subject_count filter.
+    _assert_pose_data_equal(data, adapter.read(tmp_path / "session_mouse_a.nwb"))

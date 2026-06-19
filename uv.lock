@@ -1678,7 +1678,7 @@ wheels = [
 
 [[package]]
 name = "jabs-behavior"
-version = "0.44.2"
+version = "0.45.0"
 source = { editable = "packages/jabs-behavior" }
 dependencies = [
     { name = "jsonschema" },
@@ -1722,7 +1722,7 @@ test = [
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.44.2"
+version = "0.45.0"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
@@ -1834,7 +1834,7 @@ test = [
 
 [[package]]
 name = "jabs-core"
-version = "0.44.2"
+version = "0.45.0"
 source = { editable = "packages/jabs-core" }
 dependencies = [
     { name = "h5py" },
@@ -1892,7 +1892,7 @@ test = [
 
 [[package]]
 name = "jabs-io"
-version = "0.44.2"
+version = "0.45.0"
 source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "jabs-core" },
@@ -1905,6 +1905,7 @@ h5py = [
     { name = "h5py" },
 ]
 nwb = [
+    { name = "ndx-multisubjects" },
     { name = "ndx-pose" },
     { name = "pynwb" },
 ]
@@ -1936,6 +1937,7 @@ test = [
 requires-dist = [
     { name = "h5py", marker = "extra == 'h5py'", specifier = ">=3.15.1" },
     { name = "jabs-core", editable = "packages/jabs-core" },
+    { name = "ndx-multisubjects", marker = "extra == 'nwb'", specifier = ">=0.1.1" },
     { name = "ndx-pose", marker = "extra == 'nwb'", specifier = ">=0.2.2" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=18.0.0" },
@@ -1961,7 +1963,7 @@ test = [
 
 [[package]]
 name = "jabs-vision"
-version = "0.44.2"
+version = "0.45.0"
 source = { editable = "packages/jabs-vision" }
 dependencies = [
     { name = "hydra-core" },
@@ -2755,6 +2757,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e9/f3/257adc69a71011b4c8cda321b00f02c5bf1980ae38ffd05a58d9632d4de8/narwhals-2.20.0.tar.gz", hash = "sha256:c10994975fa7dc5a68c2cffcddbd5908fc8ebb2d463c5bab085309c0ee1f551e", size = 627848, upload-time = "2026-04-20T12:11:45.427Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/69/f24d3d1c38ad69e256138b4ec2452a8c7cf66be49dc214771ae99dd4f0a0/narwhals-2.20.0-py3-none-any.whl", hash = "sha256:16e750ea5507d4ba6e8d03455b5f93a535e0405976561baea235bca5dc9f475d", size = 449373, upload-time = "2026-04-20T12:11:43.596Z" },
+]
+
+[[package]]
+name = "ndx-multisubjects"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hdmf" },
+    { name = "pynwb" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/42/f6bfac40d886234b522dde62e5e8d0c793edbbb9129265d54b834292f9ad/ndx_multisubjects-0.1.1.tar.gz", hash = "sha256:eec83f2913ca19b99563ea26aa036bc6663611632e868984fff5359d6f018f34", size = 19421, upload-time = "2025-11-25T17:01:36.999Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/74/80892f54af53f3d70eff30e3d43844e4e1f50080fa40e949d5f714d40359/ndx_multisubjects-0.1.1-py3-none-any.whl", hash = "sha256:6f1b766e7211434a5a70ee263232a7581de03cb0cb9364989c59fe589828ad1a", size = 7677, upload-time = "2025-11-25T17:01:35.518Z" },
 ]
 
 [[package]]

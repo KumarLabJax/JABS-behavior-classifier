@@ -22,6 +22,16 @@ try:
 except ImportError:
     _NWB_AVAILABLE = False
 
+try:
+    # Optional extension used only by the --multisubject write path. Kept in a
+    # separate guard so a missing extension does not disable the default
+    # per-identity (ndx-pose) path.
+    from ndx_multisubjects import NdxMultiSubjectsNWBFile, SubjectsTable
+
+    _MULTISUBJECTS_AVAILABLE = True
+except ImportError:
+    _MULTISUBJECTS_AVAILABLE = False
+
 from jabs.core.abstract.pose_est import PoseEstimation as _JABSPoseEstimation
 from jabs.core.enums import StorageFormat
 from jabs.core.types import DynamicObjectData, PoseData
@@ -93,6 +103,15 @@ class PoseNWBAdapter(Adapter):
                 "Install with: pip install 'jabs-io[nwb]'"
             )
 
+    @staticmethod
+    def _require_multisubjects() -> None:
+        """Raise a clear ImportError if the ndx-multisubjects extension is missing."""
+        if not _MULTISUBJECTS_AVAILABLE:
+            raise ImportError(
+                "The ndx-multisubjects extension is required for multisubject NWB "
+                "output. Install with: pip install 'jabs-io[nwb]'"
+            )
+
     @classmethod
     def can_handle(cls, data_type):  # noqa: D102
         return data_type is PoseData
@@ -100,35 +119,41 @@ class PoseNWBAdapter(Adapter):
     def write(self, data: PoseData, path: str | Path, **kwargs) -> None:
         """Write PoseData to NWB file(s).
 
-        By default, all identities are written to a single NWB file at ``path``.
-        Pass ``per_identity_files=True`` to write one file per identity instead.
-        In that mode, ``path`` is used as a naming template — the base file is
-        *not* created; instead, each identity is written to a sibling file whose
-        stem is ``{path.stem}_{identity_name}``.  Identity names come from
-        ``data.external_ids`` (sanitized for HDF5 compatibility) or fall back to
-        ``subject_1``, ``subject_2``, … when ``external_ids`` is ``None``.
+        By default, one NWB file is written per identity.  ``path`` is used as a
+        naming template — the base file is *not* created; instead, each identity
+        is written to a sibling file whose stem is ``{path.stem}_{identity_name}``.
+        Identity names come from ``data.external_ids`` (sanitized for HDF5
+        compatibility) or fall back to ``subject_1``, ``subject_2``, … when
+        ``external_ids`` is ``None``.
 
-        Example — single file::
+        Pass ``multisubject=True`` to instead write a single, self-contained file
+        at ``path`` containing every identity, using the ``ndx-multisubjects``
+        extension (an :class:`NdxMultiSubjectsNWBFile` with a ``SubjectsTable``
+        listing all subjects).  This mode is intended for sharing/DANDI.
+
+        Example — per-identity files (default) with external IDs::
 
             save(pose_data, "session.nwb")
-            # → session.nwb  (all identities)
-
-        Example — per-identity files with external IDs::
-
-            save(pose_data, "session.nwb", per_identity_files=True)
             # pose_data.external_ids = ["mouse_a", "mouse_b"]
             # → session_mouse_a.nwb
             # → session_mouse_b.nwb
 
         Example — per-identity files without external IDs::
 
-            save(pose_data, "session.nwb", per_identity_files=True)
+            save(pose_data, "session.nwb")
             # pose_data.external_ids = None
             # → session_subject_1.nwb
             # → session_subject_2.nwb
 
+        Example — single multisubject file::
+
+            save(pose_data, "session.nwb", multisubject=True)
+            # → session.nwb  (all identities + SubjectsTable)
+
         The NWB layout written by this adapter (ndx-pose 0.2)::
 
+            acquisition/
+              SubjectsTable           ← multisubject mode only: one row per subject
             processing/behavior/
               Skeletons/
                 subject/              ← animal skeleton (keypoints + edges)
@@ -145,10 +170,12 @@ class PoseNWBAdapter(Adapter):
 
         Args:
             data: The PoseData to write.
-            path: Output file path (.nwb).  In per-identity mode this is a
-                naming template; the actual files are written alongside it.
+            path: Output file path (.nwb).  In the default per-identity mode this
+                is a naming template; the actual files are written alongside it.
+                In multisubject mode the single file is written at this path.
             **kwargs:
-                per_identity_files (bool): Write one NWB file per identity.
+                multisubject (bool): Write a single multi-subject file using the
+                    ndx-multisubjects extension instead of one file per identity.
                     Default ``False``.
                 session_description (str): NWB session description string.
                     Default ``"JABS PoseEstimation Data"``.
@@ -161,23 +188,26 @@ class PoseNWBAdapter(Adapter):
         Raises:
             ValueError: If sanitized identity names are not unique (collision
                 after special-character replacement).
+            ImportError: If ``multisubject=True`` but the ndx-multisubjects
+                extension is not installed.
         """
         path = Path(path)
-        per_identity_files = kwargs.get("per_identity_files", False)
+        multisubject = kwargs.get("multisubject", False)
 
-        if per_identity_files:
-            self._write_per_identity(data, path, **kwargs)
+        if multisubject:
+            self._write_multisubject(data, path, **kwargs)
         else:
-            self._write_single_file(data, path, **kwargs)
+            self._write_per_identity(data, path, **kwargs)
 
     def read(self, path: str | Path, data_type: type | None = None) -> PoseData:
         """Read PoseData from an NWB file.
 
-        Handles both single-file and per-identity file layouts transparently —
-        no kwargs are needed; the file records which layout was used.
+        Handles both multisubject and per-identity file layouts transparently —
+        no kwargs are needed; the file records which layout was used in its
+        embedded ``jabs_metadata``.
 
-        **Single-file layout:** point ``path`` at the file written by
-        ``write()``.  All identities are returned in one ``PoseData``.
+        **Multisubject layout:** point ``path`` at a file written with
+        ``multisubject=True``.  All identities are returned in one ``PoseData``.
 
         **Per-identity layout:** point ``path`` at *any one* of the sibling
         files.  The reader detects the per-identity flag in the embedded
@@ -187,9 +217,13 @@ class PoseNWBAdapter(Adapter):
         by ``source_identity_index``, and concatenates them into a single
         ``PoseData`` with all identities restored in their original order.
 
+        The legacy combined single-file layout (a plain ``NWBFile`` with multiple
+        identities, written by JABS versions before this change) is no longer
+        supported and raises ``ValueError``.
+
         Example::
 
-            # Single file
+            # Multisubject single file
             pose_data = load("session.nwb", PoseData)
 
             # Per-identity — point at any sibling; result is the same
@@ -204,29 +238,57 @@ class PoseNWBAdapter(Adapter):
             ``PoseData`` with all identities merged in their original order.
 
         Raises:
-            ValueError: If no ``PoseEstimation`` containers are found, or if
-                the expected number of sibling files cannot be located when
-                reading a per-identity layout.
+            ValueError: If no ``PoseEstimation`` containers are found, if the
+                expected number of sibling files cannot be located when reading a
+                per-identity layout, or if the file uses the unsupported legacy
+                single-file layout.
         """
         path = Path(path)
         pose_data, jabs_meta = self._read_single(path)
 
+        if jabs_meta.get("multisubject", False):
+            return pose_data
+
         if jabs_meta.get("per_identity_files", False):
             return self._read_merged(path, jabs_meta)
 
-        return pose_data
+        raise ValueError(
+            f"{path} uses the legacy combined single-file NWB layout, which is no "
+            "longer supported. Re-export with a current version of JABS "
+            "(per-identity files, or multisubject mode)."
+        )
 
     # ------------------------------------------------------------------
     # Write helpers
     # ------------------------------------------------------------------
 
-    def _write_single_file(self, data: PoseData, path: Path, **kwargs) -> None:
+    def _write_multisubject(self, data: PoseData, path: Path, **kwargs) -> None:
+        """Write all identities to a single self-contained multisubject NWB file.
+
+        Builds an :class:`NdxMultiSubjectsNWBFile` whose ``behavior`` processing
+        module holds one ``PoseEstimation`` per identity (identical layout to the
+        per-identity files), plus a ``SubjectsTable`` in ``acquisition`` listing
+        every subject.  JABS round-trip fidelity rides on the ``jabs_metadata``
+        scratch JSON; the ``SubjectsTable`` is for external (e.g. DANDI) consumers.
+
+        Args:
+            data: The PoseData to write.
+            path: Output file path for the single combined .nwb file.
+            **kwargs: Forwarded to :meth:`_make_nwb_file` (session metadata, etc.).
+                Includes ``multisubject=True`` so an NdxMultiSubjectsNWBFile is built.
+
+        Raises:
+            ImportError: If the ndx-multisubjects extension is not installed.
+            ValueError: If sanitized identity names are not unique.
+        """
+        self._require_multisubjects()
         num_identities = data.points.shape[0]
         identity_names = [self._identity_name(data, i) for i in range(num_identities)]
         if len(set(identity_names)) != len(identity_names):
             raise ValueError(f"Identity names are not unique after sanitization: {identity_names}")
 
         nwbfile = self._make_nwb_file(**kwargs)
+        nwbfile.add_acquisition(self._build_subjects_table(data, identity_names))
         skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
         static_skeletons = self._build_static_skeletons(data.static_objects)
         dynamic_skeletons = self._build_dynamic_skeletons(data.dynamic_objects)
@@ -285,7 +347,7 @@ class PoseNWBAdapter(Adapter):
                     )
                 )
 
-        jabs_meta = self._build_jabs_metadata(data, identity_names)
+        jabs_meta = self._build_jabs_metadata(data, identity_names, multisubject=True)
         nwbfile.add_scratch(
             ScratchData(
                 name=_JABS_METADATA_KEY,
@@ -391,8 +453,13 @@ class PoseNWBAdapter(Adapter):
     # ------------------------------------------------------------------
 
     def _read_single(self, path: Path) -> tuple[PoseData, dict]:
-        """Read a single NWB file and return (PoseData, jabs_metadata_dict)."""
-        with NWBHDF5IO(str(path), mode="r") as io:
+        """Read a single NWB file and return (PoseData, jabs_metadata_dict).
+
+        ``load_namespaces=True`` lets pynwb reconstruct the
+        :class:`NdxMultiSubjectsNWBFile` subclass written in multisubject mode;
+        it is a no-op for plain ndx-pose per-identity files.
+        """
+        with NWBHDF5IO(str(path), mode="r", load_namespaces=True) as io:
             nwbfile = io.read()
             behavior = nwbfile.processing[_PROCESSING_MODULE_NAME]
 
@@ -671,7 +738,10 @@ class PoseNWBAdapter(Adapter):
                 nwb_kwargs[_field] = kwargs[_field]
         if kwargs.get("subject") is not None:
             nwb_kwargs["subject"] = kwargs["subject"]
-        return NWBFile(**nwb_kwargs)
+        # NdxMultiSubjectsNWBFile is a drop-in NWBFile subclass (identical
+        # constructor kwargs); only referenced when the extension is present.
+        nwb_cls = NdxMultiSubjectsNWBFile if kwargs.get("multisubject") else NWBFile
+        return nwb_cls(**nwb_kwargs)
 
     @staticmethod
     def _make_subject(subject_meta: dict) -> Subject:
@@ -712,6 +782,59 @@ class PoseNWBAdapter(Adapter):
                 dob = dob.replace(tzinfo=datetime.timezone.utc)
             kwargs["date_of_birth"] = dob
         return Subject(**kwargs)
+
+    @staticmethod
+    def _build_subjects_table(data: PoseData, identity_names: list[str]) -> SubjectsTable:
+        """Build an ndx-multisubjects SubjectsTable with one row per identity.
+
+        ``subject_id``, ``sex`` and ``species`` are required by the SubjectsTable
+        spec and always written (defaulting to the identity name, ``"U"`` and
+        ``""`` respectively when absent).  Optional columns are included only when
+        at least one identity provides them, and every cell is coerced to ``str``
+        so each column is a homogeneous HDF5 text column — a DynamicTable requires
+        every row to supply the same set of columns.
+
+        Args:
+            data: PoseData whose ``subjects`` dict supplies per-identity metadata.
+            identity_names: Sanitized identity names, in order, one row each.
+
+        Returns:
+            A populated SubjectsTable ready to attach via ``add_acquisition``.
+        """
+        # Map JABS subject-dict keys -> optional SubjectsTable column names.
+        optional_columns = {
+            "age": "age",
+            "date_of_birth": "date_of_birth",
+            "description": "subject_description",
+            "genotype": "genotype",
+            "strain": "strain",
+            "weight": "weight",
+        }
+        subjects = data.subjects or {}
+
+        def _cell(value: object) -> str:
+            return "" if value is None else str(value)
+
+        # An optional column is written for every row iff any identity provides it.
+        present = {
+            column
+            for jabs_key, column in optional_columns.items()
+            if any(jabs_key in subjects.get(name, {}) for name in identity_names)
+        }
+
+        table = SubjectsTable(description="Subjects recorded in this session")
+        for name in identity_names:
+            meta = subjects.get(name, {})
+            row = {
+                "subject_id": _cell(meta.get("subject_id")) or name,
+                "sex": _cell(meta.get("sex")) or "U",
+                "species": _cell(meta.get("species")),
+            }
+            for jabs_key, column in optional_columns.items():
+                if column in present:
+                    row[column] = _cell(meta.get(jabs_key))
+            table.add_row(**row)
+        return table
 
     @staticmethod
     def _make_skeleton(
