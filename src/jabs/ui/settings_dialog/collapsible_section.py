@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QFrame, QSizePolicy, QToolButton, QVBoxLayout, QWi
 from qt_material_icons import MaterialIcon
 
 # Pixel size of the disclosure triangle.
-_INDICATOR_SIZE = 16
+_INDICATOR_SIZE = 18
 
 
 class CollapsibleSection(QWidget):
