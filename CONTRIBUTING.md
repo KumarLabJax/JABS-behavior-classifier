@@ -73,9 +73,15 @@ Pre-commit hooks will automatically run these checks before each commit. If your
 ### Running Tests
 
 ```bash
-pytest              # Run all tests
+pytest              # Run the main (application) test suite
 pytest -v           # Verbose output
-pytest tests/path/  # Run specific tests
+pytest tests/path/  # Run a specific test directory or file
+
+# The reusable library packages have their own test suites; run them separately:
+pytest packages/jabs-core/tests
+pytest packages/jabs-io/tests
+pytest packages/jabs-behavior/tests
+pytest packages/jabs-vision/tests
 ```
 
 ## Types of Contributions Welcome

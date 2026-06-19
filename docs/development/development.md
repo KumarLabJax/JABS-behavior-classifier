@@ -75,9 +75,10 @@ pytest
 
 **Run tests**
 ```bash
-pytest                    # Run all tests
+pytest                    # Run the main (application) test suite
 pytest -v                 # Verbose output
-pytest tests/specific/    # Run specific tests
+pytest tests/specific/    # Run a specific test directory or file
+# Library packages have separate suites, e.g.: pytest packages/jabs-core/tests
 ```
 
 **Fix code style issues**
@@ -1025,7 +1026,7 @@ For most utilities, adding to `jabs-cli` is the better choice.
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run the main (application) test suite
 pytest
 
 # Run with verbose output
@@ -1039,6 +1040,12 @@ pytest tests/test_pose_file.py::test_function_name
 
 # Run with coverage
 pytest --cov=src/jabs --cov-report=html
+
+# The reusable library packages have their own test suites; run them separately:
+pytest packages/jabs-core/tests
+pytest packages/jabs-io/tests
+pytest packages/jabs-behavior/tests
+pytest packages/jabs-vision/tests
 ```
 
 ### Writing Tests
