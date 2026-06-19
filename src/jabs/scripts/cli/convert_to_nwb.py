@@ -217,5 +217,12 @@ def run_conversion(
             if key in session_metadata:
                 write_kwargs[key] = session_metadata[key]
 
-    logger.info("Writing NWB to %s", output_path)
+    if multisubject:
+        logger.info("Writing multisubject NWB to %s", output_path)
+    else:
+        logger.info(
+            "Writing per-identity NWB files in %s (using %s as a naming template)",
+            output_path.parent,
+            output_path.name,
+        )
     save(pose_data, output_path, **write_kwargs)

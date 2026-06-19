@@ -534,6 +534,30 @@ def test_per_identity_nwbfile_subject_minimal_without_subjects(tmp_path, adapter
         assert nwb.subject.subject_id == "mouse_a"
 
 
+def test_per_identity_subjects_keyed_by_raw_external_id(tmp_path, adapter):
+    """Subjects keyed by raw external IDs survive identity-name sanitization (per-identity)."""
+    path = tmp_path / "pose.nwb"
+    # "mouse/A" sanitizes to "mouse_A"; subjects is keyed by the raw ID.
+    subjects = {
+        "mouse/A": {"sex": "M", "genotype": "WT", "species": "Mus musculus"},
+        "mouse/B": {"sex": "F", "genotype": "KO", "species": "Mus musculus"},
+    }
+    data = _make_pose_data(external_ids=["mouse/A", "mouse/B"])
+    data = data.__class__(
+        **{**{f: getattr(data, f) for f in data.__dataclass_fields__}, "subjects": subjects}
+    )
+
+    adapter.write(data, path, per_identity_files=True)
+
+    # File is named by the sanitized identity name; subject metadata must still be present.
+    with NWBHDF5IO(str(tmp_path / "pose_mouse_A.nwb"), mode="r") as io:
+        nwb = io.read()
+        assert nwb.subject is not None
+        assert nwb.subject.subject_id == "mouse/A"  # raw external ID, not sanitized/defaulted
+        assert nwb.subject.sex == "M"
+        assert nwb.subject.genotype == "WT"
+
+
 def test_bounding_boxes_per_identity_containers(tmp_path, adapter):
     """Bounding boxes are stored as one TimeSeries per identity, not a single combined array."""
     path = tmp_path / "pose_bb_struct.nwb"
@@ -954,6 +978,30 @@ def test_multisubject_heterogeneous_subjects(tmp_path, adapter):
         assert "genotype" in df.columns and "strain" in df.columns
         row_b = df[df["subject_id"] == "mouse_b"].iloc[0]
         assert row_b["genotype"] == "" and row_b["strain"] == ""
+
+
+def test_multisubject_subjects_keyed_by_raw_external_id(tmp_path, adapter):
+    """SubjectsTable keeps metadata keyed by raw external IDs when names are sanitized."""
+    path = tmp_path / "session.nwb"
+    # "mouse/A" sanitizes to "mouse_A"; subjects is keyed by the raw ID.
+    subjects = {
+        "mouse/A": {"sex": "M", "genotype": "WT", "species": "Mus musculus"},
+        "mouse/B": {"sex": "F", "genotype": "KO", "species": "Mus musculus"},
+    }
+    data = _make_pose_data(external_ids=["mouse/A", "mouse/B"])
+    data = data.__class__(
+        **{**{f: getattr(data, f) for f in data.__dataclass_fields__}, "subjects": subjects}
+    )
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        df = io.read().acquisition["SubjectsTable"].to_dataframe()
+        # subject_id defaults to the raw external ID; metadata is preserved, not defaulted.
+        assert list(df["subject_id"]) == ["mouse/A", "mouse/B"]
+        row_a = df[df["subject_id"] == "mouse/A"].iloc[0]
+        assert row_a["sex"] == "M"
+        assert row_a["genotype"] == "WT"
 
 
 def test_multisubject_roundtrip_full_features(tmp_path, adapter):

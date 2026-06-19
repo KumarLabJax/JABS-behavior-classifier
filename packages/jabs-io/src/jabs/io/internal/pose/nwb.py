@@ -369,8 +369,8 @@ class PoseNWBAdapter(Adapter):
             identity_name = self._identity_name(data, i)
             identity_path = self._identity_file_path(path, identity_name)
 
-            raw_meta = (data.subjects or {}).get(identity_name, {})
-            subject_meta = {**raw_meta, "subject_id": raw_meta.get("subject_id", identity_name)}
+            raw_key, raw_meta = self._resolve_subject(data, i, identity_name)
+            subject_meta = {**raw_meta, "subject_id": raw_meta.get("subject_id", raw_key)}
             nwbfile = self._make_nwb_file(subject=self._make_subject(subject_meta), **kwargs)
             skeleton = self._make_skeleton(data.body_parts, data.edges, **kwargs)
             # Rebuild static/dynamic skeletons each iteration: HDMF objects can
@@ -784,15 +784,41 @@ class PoseNWBAdapter(Adapter):
         return Subject(**kwargs)
 
     @staticmethod
+    def _resolve_subject(data: PoseData, index: int, identity_name: str) -> tuple[str, dict]:
+        """Resolve the (default subject_id, metadata dict) for one identity.
+
+        ``PoseData.subjects`` is keyed by the *raw* external IDs, while
+        ``identity_name`` is the *sanitized* NWB container name.  Look metadata
+        up by the raw external ID first, falling back to the sanitized name, so
+        subject metadata survives identity names that required sanitization (e.g.
+        ``"mouse/A"`` -> ``"mouse_A"``).  The returned default subject_id is the
+        raw external ID when available, otherwise the sanitized name.
+
+        Args:
+            data: PoseData whose ``subjects``/``external_ids`` supply metadata.
+            index: Identity index into ``data.external_ids``.
+            identity_name: Sanitized NWB container name for this identity.
+
+        Returns:
+            A ``(default_subject_id, metadata)`` tuple.
+        """
+        subjects = data.subjects or {}
+        raw_key = data.external_ids[index] if data.external_ids is not None else identity_name
+        meta = subjects.get(raw_key)
+        if meta is None:
+            meta = subjects.get(identity_name, {})
+        return raw_key, meta
+
+    @staticmethod
     def _build_subjects_table(data: PoseData, identity_names: list[str]) -> SubjectsTable:
         """Build an ndx-multisubjects SubjectsTable with one row per identity.
 
         ``subject_id``, ``sex`` and ``species`` are required by the SubjectsTable
-        spec and always written (defaulting to the identity name, ``"U"`` and
-        ``""`` respectively when absent).  Optional columns are included only when
-        at least one identity provides them, and every cell is coerced to ``str``
-        so each column is a homogeneous HDF5 text column — a DynamicTable requires
-        every row to supply the same set of columns.
+        spec and always written (defaulting to the raw external ID / sanitized
+        name, ``"U"`` and ``""`` respectively when absent).  Optional columns are
+        included only when at least one identity provides them, and every cell is
+        coerced to ``str`` so each column is a homogeneous HDF5 text column — a
+        DynamicTable requires every row to supply the same set of columns.
 
         Args:
             data: PoseData whose ``subjects`` dict supplies per-identity metadata.
@@ -810,23 +836,28 @@ class PoseNWBAdapter(Adapter):
             "strain": "strain",
             "weight": "weight",
         }
-        subjects = data.subjects or {}
 
         def _cell(value: object) -> str:
             return "" if value is None else str(value)
+
+        # data.subjects is keyed by raw external IDs while identity_names are
+        # sanitized; resolve each identity's (default subject_id, metadata) so
+        # sanitized names (e.g. "mouse/A" -> "mouse_A") don't lose metadata.
+        resolved = [
+            PoseNWBAdapter._resolve_subject(data, i, name) for i, name in enumerate(identity_names)
+        ]
 
         # An optional column is written for every row iff any identity provides it.
         present = {
             column
             for jabs_key, column in optional_columns.items()
-            if any(jabs_key in subjects.get(name, {}) for name in identity_names)
+            if any(jabs_key in meta for _, meta in resolved)
         }
 
         table = SubjectsTable(description="Subjects recorded in this session")
-        for name in identity_names:
-            meta = subjects.get(name, {})
+        for default_id, meta in resolved:
             row = {
-                "subject_id": _cell(meta.get("subject_id")) or name,
+                "subject_id": _cell(meta.get("subject_id")) or default_id,
                 "sex": _cell(meta.get("sex")) or "U",
                 "species": _cell(meta.get("species")),
             }
