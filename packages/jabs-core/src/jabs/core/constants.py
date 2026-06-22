@@ -13,6 +13,8 @@ COMPRESSION_OPTS_DEFAULT = 6
 
 # settings keys for project settings stored in the project.json file
 CV_GROUPING_KEY = "cv_grouping"
+# regex used when CV_GROUPING_KEY is the "Filename Pattern" strategy
+CV_GROUPING_REGEX_KEY = "cv_grouping_regex"
 CLASSIFIER_MODE_KEY = "classifier_mode"
 CACHE_FORMAT_KEY = "cache_format"
 

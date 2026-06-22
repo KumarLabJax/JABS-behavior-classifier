@@ -5,12 +5,13 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.pose_estimation import PoseEstimation
+from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.project import VideoLabels
-from jabs.video_reader import VideoReader
+from jabs.video_reader import VideoReader, overlay_segmentation
 
 from .frame_with_overlays import FrameWithOverlaysWidget
 from .player_thread import PlayerThread
+from .pose_drawing import draw_identity_pose, native_pose_sizes
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
 
@@ -411,6 +412,99 @@ class PlayerWidget(QtWidgets.QWidget):
                 QtGui.QImage.Format.Format_RGB888,
             )
         )
+
+    def get_overlay_frame(self, frame_number: int | None = None) -> QtGui.QPixmap | None:
+        """Return a frame at original resolution with pose and segmentation overlays.
+
+        Like :meth:`get_raw_frame`, but additionally renders the segmentation contours
+        (when the pose file provides them) and the pose keypoints/skeleton for every
+        identity, all at native video resolution. The overlays are always drawn,
+        independent of the on-screen overlay toggles. Unlike the live view, the export
+        has no active identity: every identity is drawn the same way, with pose skeletons
+        at full opacity and segmentation contours in a single color. Must only be called
+        when the video is not playing.
+
+        Args:
+            frame_number: Frame index to export. Defaults to the currently selected frame.
+
+        Returns:
+            A QPixmap at native video resolution with overlays drawn, or None if no
+            video is loaded.
+
+        Raises:
+            RuntimeError: If called while the video is playing.
+        """
+        if self._playing:
+            raise RuntimeError("get_overlay_frame() must not be called while the video is playing")
+        if self._video_stream is None:
+            return None
+        target_frame = self.current_frame if frame_number is None else frame_number
+        self._video_stream.seek(target_frame)
+        frame = self._video_stream.load_next_frame()
+        if frame["data"] is None:
+            return None
+
+        img = frame["data"]
+        if img.dtype != np.uint8:
+            img = img.astype(np.uint8)
+
+        # Bake segmentation contours into the BGR frame (a no-op when the pose file has
+        # no segmentation data for this identity/frame).
+        if isinstance(self._pose_est, PoseEstimationV6):
+            for identity in self._pose_est.identities:
+                # active=True for every identity: the export has no active identity, so
+                # all contours are drawn in the same (active) color rather than singling
+                # one out.
+                overlay_segmentation(
+                    img,
+                    self._pose_est,
+                    identity=identity,
+                    frame_index=target_frame,
+                    active=True,
+                )
+
+        img_rgb = np.ascontiguousarray(img[..., ::-1])  # BGR → RGB
+        height, width, channels = img_rgb.shape
+        # QPixmap.fromImage copies the buffer, so it is safe to paint on afterwards
+        # without aliasing the numpy array backing the source QImage.
+        pixmap = QtGui.QPixmap.fromImage(
+            QtGui.QImage(
+                img_rgb.data,
+                width,
+                height,
+                channels * width,
+                QtGui.QImage.Format.Format_RGB888,
+            )
+        )
+
+        # Draw the pose keypoints/skeleton on top, at native resolution, for every identity.
+        if self._pose_est is not None:
+            keypoint_size, line_width = native_pose_sizes(width, height)
+
+            def to_native(x: float, y: float) -> tuple[int, int]:
+                # Coords come from numpy; round to whole native pixels as Python ints.
+                return round(float(x)), round(float(y))
+
+            painter = QtGui.QPainter(pixmap)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+            try:
+                for identity in self._pose_est.identities:
+                    # active=True for every identity: all skeletons are drawn at full
+                    # opacity, with no active-identity emphasis.
+                    draw_identity_pose(
+                        painter,
+                        self._pose_est,
+                        target_frame,
+                        identity,
+                        to_output=to_native,
+                        keypoint_size=keypoint_size,
+                        line_width=line_width,
+                        active=True,
+                    )
+            finally:
+                painter.end()
+
+        return pixmap
 
     def _set_overlay_attr(
         self, attr: str, signal: QtCore.Signal | None, enabled: bool | None

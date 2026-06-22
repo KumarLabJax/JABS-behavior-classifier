@@ -963,12 +963,14 @@ class CentralWidget(QtWidgets.QWidget):
                     counts_by_behavior=counts_by_behavior,
                     behavior_names=behavior_names,
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                    cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
                 )
             else:
                 project_counts = self._project.counts(self._controls.current_behavior)
                 total_steps += self._classifier.count_label_threshold(
                     project_counts,
                     cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                    cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
                 )
         else:
             total_steps += self._controls.kfold_value
@@ -1447,12 +1449,14 @@ class CentralWidget(QtWidgets.QWidget):
                 behavior_names=behavior_names,
                 min_groups=min_groups,
                 cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
             )
         else:
             threshold_met = Classifier.label_threshold_met(
                 self._included_counts(self._counts),
                 self._controls.kfold_value,
                 self._project.settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
             )
 
         if threshold_met:

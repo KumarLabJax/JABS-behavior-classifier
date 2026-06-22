@@ -45,6 +45,8 @@ if TYPE_CHECKING:
 
 # Keep the existing key so users retain the last-used directory across the rename.
 _SETTINGS_EXPORT_FRAME_DIR = "ui/save_frame_last_dir"
+# Remembers whether the "also save overlay copy" checkbox was last checked.
+_SETTINGS_EXPORT_OVERLAY = "ui/save_frame_overlay_copy"
 
 
 class UpdateCheckThread(QtCore.QThread):
@@ -104,10 +106,11 @@ class MenuHandlers:
         """Export the current video frame as a PNG image.
 
         Opens a file-save dialog pre-populated with a suggested filename derived from
-        the current video name and frame number.  The last-used directory is persisted
-        in QSettings and restored on the next invocation; if that directory no longer
-        exists the dialog falls back to OS-default behaviour.  If the user cancels, no
-        action is taken.
+        the current video name and frame number.  The dialog includes a checkbox to also
+        save a second copy, suffixed ``-overlay.png``, with the pose and (when available)
+        segmentation overlays drawn at native resolution.  The last-used directory and the
+        checkbox state are persisted in QSettings and restored on the next invocation.  If
+        the user cancels, no action is taken.
         """
         # noinspection PyProtectedMember
         player = self.window._central_widget._player_widget
@@ -118,41 +121,68 @@ class MenuHandlers:
         else:
             suggested_name = f"frame{frame_number:06d}.png"
 
+        # A checkbox is added to the dialog below, which native OS dialogs cannot host,
+        # so Qt's own (non-native) save dialog is used here regardless of the global
+        # native-dialog preference.
+        dialog = QtWidgets.QFileDialog(self.window, "Export Frame")
+        dialog.setOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
+        dialog.setNameFilter("PNG Images (*.png)")
+        dialog.setDefaultSuffix("png")
         last_dir = self.window._settings.value(_SETTINGS_EXPORT_FRAME_DIR, "", type=str)
         if last_dir and Path(last_dir).is_dir():
-            initial_path = str(Path(last_dir) / suggested_name)
-        else:
-            initial_path = suggested_name
+            dialog.setDirectory(last_dir)
+        dialog.selectFile(suggested_name)
 
-        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self.window,
-            "Export Frame",
-            initial_path,
-            "PNG Images (*.png)",
-            options=(
-                QtWidgets.QFileDialog.Option(0)
-                if USE_NATIVE_FILE_DIALOG
-                else QtWidgets.QFileDialog.Option.DontUseNativeDialog
-            ),
+        overlay_checkbox = QtWidgets.QCheckBox(
+            "Also save a copy with pose/segmentation overlay (…-overlay.png)"
         )
+        overlay_checkbox.setChecked(
+            self.window._settings.value(_SETTINGS_EXPORT_OVERLAY, False, type=bool)
+        )
+        layout = dialog.layout()
+        if isinstance(layout, QtWidgets.QGridLayout):
+            layout.addWidget(overlay_checkbox, layout.rowCount(), 0, 1, layout.columnCount())
 
-        if not save_path:
+        if dialog.exec() != QtWidgets.QFileDialog.DialogCode.Accepted:
             return  # user cancelled
+        selected_files = dialog.selectedFiles()
+        if not selected_files:
+            return
+        save_path = selected_files[0]
+        save_overlay = overlay_checkbox.isChecked()
+
+        if not save_path.lower().endswith(".png"):
+            save_path += ".png"
 
         pixmap = player.get_raw_frame(frame_number)
         if pixmap is None:
             MessageDialog.warning(self.window, message="No frame available to export.")
             return
-
-        if not save_path.lower().endswith(".png"):
-            save_path += ".png"
-
         if not pixmap.save(save_path, "PNG"):
             MessageDialog.error(self.window, message=f"Failed to export frame to:\n{save_path}")
             return
 
+        overlay_saved = False
+        if save_overlay:
+            overlay_path = str(Path(save_path).with_name(f"{Path(save_path).stem}-overlay.png"))
+            overlay_pixmap = player.get_overlay_frame(frame_number)
+            if overlay_pixmap is None:
+                MessageDialog.warning(self.window, message="No overlay frame available to export.")
+            elif not overlay_pixmap.save(overlay_path, "PNG"):
+                MessageDialog.error(
+                    self.window,
+                    message=f"Failed to export overlay frame to:\n{overlay_path}",
+                )
+            else:
+                overlay_saved = True
+
         self.window._settings.setValue(_SETTINGS_EXPORT_FRAME_DIR, str(Path(save_path).parent))
-        self.window.display_status_message(f"Frame exported: {save_path}", 5000)
+        self.window._settings.setValue(_SETTINGS_EXPORT_OVERLAY, save_overlay)
+        status = f"Frame exported: {save_path}"
+        if overlay_saved:
+            status += " (+ overlay copy)"
+        self.window.display_status_message(status, 5000)
 
     def export_training_data(self) -> None:
         """Export training data for the current classifier in a background thread."""

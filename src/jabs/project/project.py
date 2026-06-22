@@ -23,6 +23,8 @@ from jabs.core.enums import (
     ClassifierMode,
     CrossValidationGroupingStrategy,
     ProjectDistanceUnit,
+    compile_grouping_regex,
+    filename_group_key,
 )
 from jabs.pose_estimation import (
     PoseEstimation,
@@ -879,6 +881,7 @@ class Project:
         all_group_keys: list[tuple[str, int]],
         videos: list[str],
         grouping_strategy: CrossValidationGroupingStrategy,
+        regex: str | None = None,
     ) -> tuple[dict[tuple[str, int], int], dict[int, dict]]:
         """Assign deterministic cross-validation group ids.
 
@@ -886,12 +889,25 @@ class Project:
             all_group_keys: ``(video, identity)`` tuples in row order.
             videos: Canonical list of project videos; ids are assigned in this order.
             grouping_strategy: ``INDIVIDUAL`` groups one (video, identity) pair per
-                gid; ``VIDEO`` groups all identities of a video together.
+                gid; ``VIDEO`` groups all identities of a video together;
+                ``FILENAME_PATTERN`` groups all videos (and their identities) whose
+                filename yields the same key under ``regex``.
+            regex: Regular expression used to extract a grouping key from each
+                video filename. Required for ``FILENAME_PATTERN`` grouping; ignored
+                otherwise.
 
         Returns:
             Tuple of ``(key_to_gid, group_mapping)`` where ``key_to_gid`` maps each
             ``(video, identity)`` pair to its group id and ``group_mapping`` maps
-            each group id back to ``{"video": ..., "identity": ...}``.
+            each group id back to its source. ``INDIVIDUAL``/``VIDEO`` entries are
+            ``{"video": ..., "identity": ...}``; ``FILENAME_PATTERN`` entries are
+            ``{"video": None, "identity": None, "label": <key>, "videos": [...]}``
+            where ``videos`` lists the labeled videos in the group.
+
+        Raises:
+            ValueError: If ``grouping_strategy`` is ``FILENAME_PATTERN`` and
+                ``regex`` is empty or not a valid regular expression, or if the
+                strategy is unknown.
         """
         key_to_gid: dict[tuple[str, int], int] = {}
         group_mapping: dict[int, dict] = {}
@@ -918,6 +934,29 @@ class Project:
                 for video_name, ident in all_group_keys:
                     if video_name == v:
                         key_to_gid[(v, ident)] = video_to_gid[v]
+        elif grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
+            pattern = compile_grouping_regex(regex or "")
+            label_to_gid: dict[str, int] = {}
+            # Group ids are created lazily in row order (which follows canonical
+            # video order). Videos whose filename does not match the pattern fall
+            # back to their own group, since filename_group_key returns the
+            # (unique) filename as the key.
+            for video_name, ident in all_group_keys:
+                label = filename_group_key(video_name, pattern)
+                if label not in label_to_gid:
+                    label_to_gid[label] = gid
+                    group_mapping[gid] = {
+                        "video": None,
+                        "identity": None,
+                        "label": label,
+                        "videos": [],
+                    }
+                    gid += 1
+                group_gid = label_to_gid[label]
+                key_to_gid[(video_name, ident)] = group_gid
+                videos_in_group = group_mapping[group_gid]["videos"]
+                if video_name not in videos_in_group:
+                    videos_in_group.append(video_name)
         else:
             raise ValueError(f"Unknown grouping strategy: {grouping_strategy}")
         return key_to_gid, group_mapping
@@ -936,21 +975,32 @@ class Project:
         return np.concatenate(groups_list) if groups_list else np.array([], dtype=np.int32)
 
     def _excluded_group_ids(self, group_mapping: dict[int, dict]) -> set[int]:
-        """Return CV group ids whose source video is excluded from training.
+        """Return CV group ids whose source video(s) are excluded from training.
 
         Args:
-            group_mapping: Mapping of group id to ``{"video": ..., "identity": ...}``.
+            group_mapping: Mapping of group id to its source. ``INDIVIDUAL``/``VIDEO``
+                groups carry a single ``"video"``; ``FILENAME_PATTERN`` groups carry
+                a ``"videos"`` list (one group can span several videos).
 
         Returns:
-            Set of group ids belonging to videos marked excluded from training.
-            These groups are still eligible as the held-out test group in
-            leave-one-group-out cross-validation but are never used for training.
+            Set of group ids whose constituent videos are all marked excluded from
+            training. These groups are still eligible as the held-out test group in
+            leave-one-group-out cross-validation but are never used for training. A
+            filename-pattern group is excluded only when *every* labeled video in it
+            is excluded, so a partially-excluded group still contributes its
+            non-excluded videos' data to training folds.
         """
-        return {
-            gid
-            for gid, info in group_mapping.items()
-            if self._settings_manager.is_video_excluded(info["video"])
-        }
+        excluded: set[int] = set()
+        for gid, info in group_mapping.items():
+            group_videos = info.get("videos")
+            if group_videos is None:
+                video = info.get("video")
+                group_videos = [video] if video is not None else []
+            if group_videos and all(
+                self._settings_manager.is_video_excluded(v) for v in group_videos
+            ):
+                excluded.add(gid)
+        return excluded
 
     def get_labeled_features(
         self,
@@ -958,6 +1008,7 @@ class Project:
         progress_callable: Callable[[], None] | None = None,
         should_terminate_callable: Callable[[], None] | None = None,
         grouping_strategy: CrossValidationGroupingStrategy | None = None,
+        grouping_regex: str | None = None,
     ) -> tuple[dict, dict]:
         """Get labeled features for training (parallel per-video).
 
@@ -977,6 +1028,8 @@ class Project:
                 and as results complete; it should raise a `ThreadTerminatedError` if the user
                 has requested early termination.
             grouping_strategy: Optional override for cross-validation grouping strategy. If None, uses project settings.
+            grouping_regex: Optional override for the filename-pattern grouping regex
+                (only used when the strategy is ``FILENAME_PATTERN``). If None, uses project settings.
 
         Returns:
             tuple[dict, dict]: A tuple of (features, group_mapping).
@@ -989,13 +1042,16 @@ class Project:
 
                 The values in the first dict are suitable for `Classifier.leave_one_group_out()`.
 
-                The second dict maps group ids to their source:
+                The second dict maps group ids to their source (the exact shape
+                depends on the grouping strategy; see ``_assign_cv_group_ids``):
                     { <group id>: {'video': <video filename>, 'identity': <identity>}, ... }
         """
         behavior_settings = self._settings_manager.get_behavior(behavior)
         videos = list(self._video_manager.videos)
         if grouping_strategy is None:
             grouping_strategy = self.settings_manager.cv_grouping_strategy
+        if grouping_regex is None:
+            grouping_regex = self.settings_manager.cv_grouping_regex
 
         if not videos:
             return {
@@ -1046,7 +1102,7 @@ class Project:
             }, {}
 
         key_to_gid, group_mapping = self._assign_cv_group_ids(
-            all_group_keys, videos, grouping_strategy
+            all_group_keys, videos, grouping_strategy, grouping_regex
         )
         groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
         excluded_groups = self._excluded_group_ids(group_mapping)
@@ -1075,6 +1131,7 @@ class Project:
         should_terminate_callable: Callable[[], None] | None = None,
         grouping_strategy: CrossValidationGroupingStrategy | None = None,
         behavior_settings: dict[str, object] | None = None,
+        grouping_regex: str | None = None,
     ) -> tuple[dict, dict]:
         """Get multiclass-labeled features for training (parallel per-video).
 
@@ -1090,6 +1147,8 @@ class Project:
                 If None, uses project settings.
             behavior_settings: Feature-extraction settings (must include ``window_size``).
                 If None, falls back to ``get_project_defaults()``.
+            grouping_regex: Optional override for the filename-pattern grouping regex
+                (only used when the strategy is ``FILENAME_PATTERN``). If None, uses project settings.
 
         Returns:
             tuple[dict, dict]: A tuple of ``(features, group_mapping)``.
@@ -1106,6 +1165,8 @@ class Project:
         videos = list(self._video_manager.videos)
         if grouping_strategy is None:
             grouping_strategy = self.settings_manager.cv_grouping_strategy
+        if grouping_regex is None:
+            grouping_regex = self.settings_manager.cv_grouping_regex
 
         if not videos:
             return {
@@ -1179,7 +1240,7 @@ class Project:
             }, {}
 
         key_to_gid, group_mapping = self._assign_cv_group_ids(
-            all_group_keys, videos, grouping_strategy
+            all_group_keys, videos, grouping_strategy, grouping_regex
         )
         groups = self._build_groups_array(all_group_keys, all_per_frame, key_to_gid)
         excluded_groups = self._excluded_group_ids(group_mapping)

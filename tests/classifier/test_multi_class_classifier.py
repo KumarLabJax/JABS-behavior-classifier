@@ -714,6 +714,54 @@ class TestLabelThreshold:
 
         assert valid == 1
 
+    def test_count_label_threshold_filename_pattern(self) -> None:
+        """Filename-pattern grouping merges videos sharing a key before validity checks."""
+        counts_by_behavior = {
+            "None": {
+                "cage_1_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "cage_1_day2.avi": {0: {"fragmented_frame_counts": (0, 0)}},
+                "cage_2_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Walk": {
+                "cage_1_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+                "cage_1_day2.avi": {0: {"fragmented_frame_counts": (0, 0)}},
+                "cage_2_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+            "Run": {
+                "cage_1_day1.avi": {0: {"fragmented_frame_counts": (10, 0)}},
+                "cage_1_day2.avi": {0: {"fragmented_frame_counts": (10, 0)}},
+                "cage_2_day1.avi": {0: {"fragmented_frame_counts": (20, 0)}},
+            },
+        }
+
+        valid = MultiClassClassifier.count_label_threshold(
+            counts_by_behavior=counts_by_behavior,
+            behavior_names=["None", "Walk", "Run"],
+            cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+            cv_grouping_regex=r"cage_(\d+)",
+        )
+
+        # cage 1 (merged across two videos): None=20, Walk=20, Run=20.
+        # cage 2: None=20, Walk=20, Run=20. Each cage is a valid test split.
+        assert valid == 2
+
+    def test_count_label_threshold_filename_pattern_invalid_regex_returns_zero(self) -> None:
+        """An empty or invalid filename-pattern regex yields no valid splits."""
+        counts_by_behavior = {
+            "None": {"cage_1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+            "Walk": {"cage_1.avi": {0: {"fragmented_frame_counts": (20, 0)}}},
+        }
+        for bad_regex in ("", "cage_("):
+            assert (
+                MultiClassClassifier.count_label_threshold(
+                    counts_by_behavior=counts_by_behavior,
+                    behavior_names=["None", "Walk"],
+                    cv_grouping_strategy=CrossValidationGroupingStrategy.FILENAME_PATTERN,
+                    cv_grouping_regex=bad_regex,
+                )
+                == 0
+            )
+
     def test_count_label_threshold_empty_behavior_names_returns_zero(self) -> None:
         """No behaviors → no valid splits."""
         assert (

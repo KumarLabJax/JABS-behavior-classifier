@@ -20,6 +20,34 @@ if TYPE_CHECKING:
     from jabs.project import Project
 
 
+def _write_group_mapping(
+    out_h5: h5py.File, group_mapping: dict[int, dict], string_type: np.dtype
+) -> None:
+    """Write the cross-validation group mapping into the exported HDF5 file.
+
+    For each group, stores an ``identity`` (the animal identity, or ``-1`` when the
+    group is not identity-specific) and a ``video_name``. ``identity`` is ``-1`` for
+    ``VIDEO`` and ``FILENAME_PATTERN`` grouping. For ``FILENAME_PATTERN`` groups,
+    ``video_name`` holds the regex-extracted group label (e.g. ``"cage_1234"``)
+    rather than a single filename, since one group can span multiple videos.
+
+    Args:
+        out_h5: Open HDF5 file to write into.
+        group_mapping: Mapping of group id to its source descriptor.
+        string_type: h5py variable-length string dtype for the video_name dataset.
+    """
+    for group, info in group_mapping.items():
+        identity_dset = out_h5.create_dataset(
+            f"group_mapping/{group}/identity", (1,), dtype=np.int64
+        )
+        identity = info["identity"]
+        identity_dset[:] = identity if identity is not None else -1
+        video_name_dset = out_h5.create_dataset(
+            f"group_mapping/{group}/video_name", (1,), dtype=string_type
+        )
+        video_name_dset[:] = info["label"] if info.get("label") is not None else info["video"]
+
+
 def export_training_data(
     project: "Project",
     behavior: str,
@@ -76,15 +104,7 @@ def export_training_data(
         out_h5.create_dataset("label", data=features["labels"])
 
         # store the video/identity to group mapping in the h5 file
-        # identity is None when VIDEO grouping strategy is used; store -1 as a sentinel
-        for group in group_mapping:
-            dset = out_h5.create_dataset(f"group_mapping/{group}/identity", (1,), dtype=np.int64)
-            identity = group_mapping[group]["identity"]
-            dset[:] = identity if identity is not None else -1
-            dset = out_h5.create_dataset(
-                f"group_mapping/{group}/video_name", (1,), dtype=string_type
-            )
-            dset[:] = group_mapping[group]["video"]
+        _write_group_mapping(out_h5, group_mapping, string_type)
 
     # return output path, so if it was generated automatically the caller
     # will know
@@ -159,14 +179,7 @@ def export_training_data_multiclass(
 
         out_h5.create_dataset("group", data=features["groups"])
 
-        for group in group_mapping:
-            dset = out_h5.create_dataset(f"group_mapping/{group}/identity", (1,), dtype=np.int64)
-            identity = group_mapping[group]["identity"]
-            dset[:] = identity if identity is not None else -1
-            dset = out_h5.create_dataset(
-                f"group_mapping/{group}/video_name", (1,), dtype=string_type
-            )
-            dset[:] = group_mapping[group]["video"]
+        _write_group_mapping(out_h5, group_mapping, string_type)
 
     return out_file
 

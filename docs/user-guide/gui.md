@@ -115,7 +115,7 @@ Clicking the video or moving the mouse off the video frame will dismiss the slid
 - **JABS→Quit JABS:** Quit Program
 - **File→Open Project:** Select a project directory to open. If a project is already opened, it will be closed and the newly selected project will be opened.
 - **File→Open Recent:** Submenu to open recently opened projects.
-- **File→Export Frame:** Export the current paused video frame as a PNG image. The export uses the original video resolution with no overlays, is disabled during playback, and remembers the last export directory. Shortcut: Ctrl+E / ⌘E.
+- **File→Export Frame:** Export the current paused video frame as a PNG image at the original video resolution. A checkbox on the save dialog optionally saves a second copy, suffixed `-overlay.png`, with the pose and (when available) segmentation overlays. The export is disabled during playback and remembers the last export directory and the overlay-copy setting. Shortcut: Ctrl+E / ⌘E.
 - **File→Export Training Data:** Create a file with the information needed to share a classifier. This exported file is written to the project directory and has the form `<Behavior_Name>_training_<YYYYMMDD_hhmmss>.h5`. This file is used as one input for the `jabs-classify` script.
 - **File→Archive Behavior:** Remove behavior and its labels from project. Labels are archived in the `jabs/archive` directory.
 - **File→Prune Project:** Remove videos and pose files that are not labeled.
@@ -161,9 +161,19 @@ Project settings are saved within the project directory and apply only to the cu
 
 | Setting                        | Description                                                      |
 |-------------------------------|------------------------------------------------------------------|
-| Cross Validation Grouping      | Determines how cross-validation groups are defined. Options are "Individual Animal" (default) or "Video". |
+| Cross Validation Grouping      | Determines how cross-validation groups are defined. Options are "Individual Animal" (default), "Video", or "Filename Pattern". See [Cross-Validation Grouping](#cross-validation-grouping) below. |
 
 As new settings are added, they will appear in this dialog with inline documentation.
+
+### Cross-Validation Grouping
+
+The **Cross Validation Grouping** setting controls how labeled data is partitioned into groups for leave-one-group-out cross-validation:
+
+- **Individual Animal** (default): each group is a single animal identity within a single video.
+- **Video**: each group is a single video; all identities within a video are held out together.
+- **Filename Pattern**: groups are defined by a regular expression applied to each video's filename. All videos whose filenames produce the same key are placed in the same group, which is useful for grouping videos by an identifier embedded in their names (for example, a cage ID). If the pattern contains a capture group, the captured text is used as the key; otherwise the entire match is used. Videos that do not match the pattern are each placed in their own group.
+
+When you select **Filename Pattern**, a text field appears for the regular expression. For example, if your videos are named like `cage_0042_2026-06-16.mp4`, the pattern `cage_(\d+)` extracts the cage number (`0042`) so that every video recorded from the same cage forms a single cross-validation group. A live preview below the field shows how your project's videos partition into groups under the current pattern (videos excluded from training are marked), so you can confirm the pattern before saving.
 
 
 ## Overlays

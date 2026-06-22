@@ -2,7 +2,7 @@
 
 Welcome to the JABS (JAX Animal Behavior System) development guide. This document provides detailed technical information about the software architecture, development setup, code organization, and implementation details.
 
-**📝 Looking to contribute?** See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines, copyright information, and how to submit pull requests.
+**📝 Looking to contribute?** See the [Contributing Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/contributing/) for contribution guidelines, copyright information, and how to submit pull requests.
 
 **👤 End user?** See the [User Guide](user-guide.md) for instructions on using JABS.
 
@@ -57,7 +57,7 @@ pytest
 11. [Tips for Developers](#tips-for-developers)
 12. [Getting Help](#getting-help)
 
-**Note:** For contribution guidelines, copyright information, and how to submit pull requests, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+**Note:** For contribution guidelines, copyright information, and how to submit pull requests, see the [Contributing Guide](https://kumarlabjax.github.io/JABS-behavior-classifier/development/contributing/).
 
 ---
 
@@ -75,9 +75,10 @@ pytest
 
 **Run tests**
 ```bash
-pytest                    # Run all tests
+pytest                    # Run the main (application) test suite
 pytest -v                 # Verbose output
-pytest tests/specific/    # Run specific tests
+pytest tests/specific/    # Run a specific test directory or file
+# Library packages have separate suites, e.g.: pytest packages/jabs-core/tests
 ```
 
 **Fix code style issues**
@@ -1025,7 +1026,7 @@ For most utilities, adding to `jabs-cli` is the better choice.
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run the main (application) test suite
 pytest
 
 # Run with verbose output
@@ -1039,6 +1040,12 @@ pytest tests/test_pose_file.py::test_function_name
 
 # Run with coverage
 pytest --cov=src/jabs --cov-report=html
+
+# The reusable library packages have their own test suites; run them separately:
+pytest packages/jabs-core/tests
+pytest packages/jabs-io/tests
+pytest packages/jabs-behavior/tests
+pytest packages/jabs-vision/tests
 ```
 
 ### Writing Tests

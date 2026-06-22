@@ -13,7 +13,7 @@ CatBoost), and generates predictions. Supports Python 3.10-3.14.
 
 For comprehensive developer documentation, see `docs/development/development.md`
 (architecture deep-dives, detailed feature extraction guide, GUI architecture, release
-process) and `docs/development/contributing.md` (contribution guidelines, copyright
+process) and `CONTRIBUTING.md` (contribution guidelines, copyright
 assignment, PR process).
 
 ## File Protection Rules
@@ -265,7 +265,10 @@ Every module should have a **clear, single responsibility**. If a module docstri
 
 ### Framework & Tools
 
-- **pytest** (plain functions, no unittest-style classes), **pytest-cov**, **pytest-mock**
+- **pytest** (plain functions, no unittest-style classes), **pytest-cov**
+- **Mocking:** use the built-in **`monkeypatch`** fixture and the standard-library
+  **`unittest.mock`**. `pytest-mock` (the `mocker` fixture) is **not** a dependency — do
+  not use it.
 - Run coverage: `uv run pytest --cov=src/jabs --cov-report=term-missing`
 
 ### Test Organization
@@ -287,14 +290,24 @@ def test_normalize_distance_basic() -> None:
     result = normalize_distance(distance=50.0, arena_diameter=100.0)
     assert result == pytest.approx(0.5)
 
-# Mock external dependencies — never hit filesystem, network, or GPU in unit tests
-def test_classifier_predict(mocker: MockerFixture) -> None:
-    mock_model = mocker.Mock()
+# Mock external dependencies — never hit filesystem, network, or GPU in unit tests.
+# Use unittest.mock for standalone mocks; use monkeypatch to patch module-level symbols.
+from unittest import mock
+
+def test_classifier_predict() -> None:
+    mock_model = mock.Mock()
     mock_model.predict.return_value = np.array([0, 1, 0])
     classifier = BehaviorClassifier(model=mock_model)
     predictions = classifier.predict(features)
     mock_model.predict.assert_called_once()
     assert len(predictions) == 3
+
+# Patch a function/attribute for the duration of one test (auto-undone) with monkeypatch
+def test_export_calls_save(monkeypatch) -> None:
+    save_spy = mock.Mock()
+    monkeypatch.setattr("jabs.io.save", save_spy)
+    export_training_data(project)
+    save_spy.assert_called_once()
 
 # Use fixtures extensively for shared setup (in conftest.py)
 @pytest.fixture
