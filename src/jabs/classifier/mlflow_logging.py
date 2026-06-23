@@ -19,6 +19,7 @@ raises :class:`MlflowLoggingError` with installation guidance if it is missing.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import math
 import os
@@ -34,6 +35,17 @@ if TYPE_CHECKING:
     from .training_report import TrainingReportData
 
 logger = logging.getLogger(__name__)
+
+
+def mlflow_available() -> bool:
+    """Return True if the optional ``mlflow`` package is importable.
+
+    Uses :func:`importlib.util.find_spec` so the (heavy) ``mlflow`` package is
+    not actually imported just to test for its presence. Lets callers degrade
+    gracefully -- warning and skipping MLflow logging -- when the optional
+    'mlflow' extra is not installed.
+    """
+    return importlib.util.find_spec("mlflow") is not None
 
 
 class MlflowLoggingError(RuntimeError):

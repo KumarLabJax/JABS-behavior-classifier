@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from jabs.classifier import Classifier, MlflowLoggingError, parse_kv_tags
+from jabs.classifier import Classifier, MlflowLoggingError, mlflow_available, parse_kv_tags
 from jabs.core.enums import ClassifierMode, ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import (
     Project,
@@ -420,6 +420,18 @@ def cross_validation(
         parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
     except ValueError as e:
         raise click.ClickException(str(e)) from e
+
+    # If MLflow logging was requested but the optional 'mlflow' extra is not
+    # installed, warn and ignore the MLflow options rather than failing -- the
+    # cross-validation still runs and the report is still produced.
+    if mlflow_enabled and not mlflow_available():
+        click.echo(
+            "Warning: MLflow logging was requested (--mlflow) but the optional 'mlflow' "
+            "dependency is not installed; ignoring MLflow options. Install it with "
+            "\"pip install 'jabs-behavior-classifier[mlflow]'\" to enable logging.",
+            err=True,
+        )
+        mlflow_enabled = False
 
     try:
         classifier_type = ClassifierType[classifier.upper()]

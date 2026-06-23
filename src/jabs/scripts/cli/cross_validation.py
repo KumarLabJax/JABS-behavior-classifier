@@ -52,7 +52,8 @@ def run_cross_validation(
           from each video filename. Only used when ``grouping_strategy`` is
           ``FILENAME_PATTERN``. If None, uses the pattern saved in project settings.
         mlflow_enabled (bool): If True, push the cross-validation results to MLflow
-          after the report is saved.
+          after the report is saved. Callers should only enable this when the optional
+          'mlflow' dependency is installed (the CLI checks this and warns otherwise).
         mlflow_env_file (Path | None): Optional ``.env`` file with ``MLFLOW_*`` connection
           settings. If None, connection config comes from the ambient environment.
         mlflow_tags (dict[str, str] | None): Optional free-form MLflow run tags, merged

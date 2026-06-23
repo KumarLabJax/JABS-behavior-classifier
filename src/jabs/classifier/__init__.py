@@ -10,6 +10,7 @@ from .cross_validation import run_leave_one_group_out_cv
 from .mlflow_logging import (
     MlflowLoggingError,
     log_cross_validation_to_mlflow,
+    mlflow_available,
     parse_kv_tags,
 )
 from .multi_class_classifier import MultiClassClassifier
@@ -34,6 +35,7 @@ __all__ = [
     "TrainingReportData",
     "generate_markdown_report",
     "log_cross_validation_to_mlflow",
+    "mlflow_available",
     "parse_kv_tags",
     "run_leave_one_group_out_cv",
     "save_training_report",

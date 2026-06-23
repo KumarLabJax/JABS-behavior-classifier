@@ -27,6 +27,16 @@ def run_cv_spy(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     return spy
 
 
+@pytest.fixture
+def mlflow_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the CLI treat the optional 'mlflow' extra as installed.
+
+    The extra is not a root dependency, so it is typically absent from the test
+    environment; tests of the MLflow-enabled path patch this to be deterministic.
+    """
+    monkeypatch.setattr(cli_module, "mlflow_available", lambda: True)
+
+
 def _invoke(tmp_path: Path, *extra_args: str):
     """Invoke the cross-validation command against ``tmp_path`` with extra args."""
     runner = CliRunner()
@@ -109,7 +119,9 @@ def test_mlflow_absent_disables_logging(tmp_path: Path, run_cv_spy: mock.Mock) -
     assert kwargs["mlflow_log_report"] is True
 
 
-def test_mlflow_bare_flag_enables_ambient(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+def test_mlflow_bare_flag_enables_ambient(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
     """A bare --mlflow enables logging with no env file (ambient environment)."""
     result = _invoke(tmp_path, "--mlflow")
 
@@ -119,7 +131,9 @@ def test_mlflow_bare_flag_enables_ambient(tmp_path: Path, run_cv_spy: mock.Mock)
     assert kwargs["mlflow_env_file"] is None
 
 
-def test_mlflow_with_env_file(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+def test_mlflow_with_env_file(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
     """--mlflow with a path forwards that .env file."""
     result = _invoke(tmp_path, "--mlflow", "settings.env")
 
@@ -129,7 +143,9 @@ def test_mlflow_with_env_file(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
     assert kwargs["mlflow_env_file"] == Path("settings.env")
 
 
-def test_mlflow_tags_parsed_and_forwarded(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+def test_mlflow_tags_parsed_and_forwarded(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
     """Repeated --mlflow-tag entries are parsed into a dict."""
     result = _invoke(
         tmp_path, "--mlflow", "--mlflow-tag", "purpose=baseline", "--mlflow-tag", "owner=glen"
@@ -142,7 +158,9 @@ def test_mlflow_tags_parsed_and_forwarded(tmp_path: Path, run_cv_spy: mock.Mock)
     }
 
 
-def test_mlflow_no_report_flag(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+def test_mlflow_no_report_flag(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
     """--mlflow-no-report disables the report artifact upload."""
     result = _invoke(tmp_path, "--mlflow", "--mlflow-no-report")
 
@@ -158,10 +176,27 @@ def test_invalid_mlflow_tag_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> N
     run_cv_spy.assert_not_called()
 
 
-def test_mlflow_logging_failure_exits_with_code_3(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+def test_mlflow_logging_failure_exits_with_code_3(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
     """An MlflowLoggingError maps to a distinct exit code (3), not the generic 1."""
     run_cv_spy.side_effect = MlflowLoggingError("push failed")
 
     result = _invoke(tmp_path, "--mlflow")
 
     assert result.exit_code == 3
+
+
+def test_mlflow_unavailable_warns_and_ignores(
+    tmp_path: Path, run_cv_spy: mock.Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the mlflow extra is absent, --mlflow is ignored with a warning (exit 0)."""
+    monkeypatch.setattr(cli_module, "mlflow_available", lambda: False)
+
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "purpose=baseline")
+
+    assert result.exit_code == 0, result.output
+    assert "not installed" in result.stderr
+    # cross-validation still runs, but MLflow logging is disabled
+    run_cv_spy.assert_called_once()
+    assert run_cv_spy.call_args.kwargs["mlflow_enabled"] is False

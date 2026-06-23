@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from jabs.classifier import mlflow_logging
 from jabs.classifier.mlflow_logging import (
     MlflowLoggingError,
     aggregate_cv_metrics,
@@ -21,6 +22,7 @@ from jabs.classifier.mlflow_logging import (
     build_tags,
     load_env_file,
     log_cross_validation_to_mlflow,
+    mlflow_available,
     parse_kv_tags,
 )
 from jabs.classifier.training_report import BinaryCVResult, TrainingReportData
@@ -109,6 +111,18 @@ class _FakeMlflow:
 
     def get_tracking_uri(self) -> str:
         return "file:///tmp/mlruns"
+
+
+# --------------------------------------------------------------------------- #
+# mlflow_available
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("spec", "expected"), [(object(), True), (None, False)], ids=["present", "absent"]
+)
+def test_mlflow_available(spec: object, expected: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    """mlflow_available() reflects whether find_spec locates the package."""
+    monkeypatch.setattr(mlflow_logging.importlib.util, "find_spec", lambda name: spec)
+    assert mlflow_available() is expected
 
 
 # --------------------------------------------------------------------------- #
