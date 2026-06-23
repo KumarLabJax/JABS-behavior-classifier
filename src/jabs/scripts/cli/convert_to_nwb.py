@@ -225,7 +225,7 @@ def _parse_session_start_time(value: str) -> datetime.datetime:
 def run_conversion(
     input_path: Path,
     output_path: Path,
-    per_identity: bool = False,
+    multisubject: bool = False,
     session_description: str | None = None,
     subjects: dict[str, dict] | None = None,
     session_metadata: dict | None = None,
@@ -235,12 +235,20 @@ def run_conversion(
     The pose format version is inferred from the filename (e.g.
     "_pose_est_v6.h5" → v6).  Supported versions: v2-v8.
 
+    By default one NWB file is written per identity.  In that mode
+    ``output_path`` is a naming template; actual files are written alongside it
+    as "{stem}_{identity_name}.nwb".  Pass ``multisubject=True`` to instead write
+    a single combined file at ``output_path`` using the ndx-multisubjects
+    extension.
+
     Args:
         input_path: Path to the input JABS pose HDF5 file.
-        output_path: Destination path for the NWB file.  In per-identity mode
-            this is used as a naming template; actual files are written
-            alongside it as "{stem}_{identity_name}.nwb".
-        per_identity: If True, write one NWB file per identity.
+        output_path: Destination path for the NWB file.  In the default
+            per-identity mode this is used as a naming template; actual files are
+            written alongside it as "{stem}_{identity_name}.nwb".  In multisubject
+            mode the single combined file is written at this path.
+        multisubject: If True, write a single multi-subject NWB file using the
+            ndx-multisubjects extension instead of one file per identity.
         session_description: Optional NWB session description string.
         subjects: Optional per-animal biological metadata dict, keyed by
             identity name.  See PoseData.subjects for the expected
@@ -265,7 +273,7 @@ def run_conversion(
 
     pose_data = pose_to_pose_data(pose, subjects=subjects)
 
-    write_kwargs: dict = {"per_identity_files": per_identity}
+    write_kwargs: dict = {"multisubject": multisubject}
     if session_description is not None:
         write_kwargs["session_description"] = session_description
 
@@ -282,5 +290,12 @@ def run_conversion(
             if key in session_metadata:
                 write_kwargs[key] = session_metadata[key]
 
-    logger.info("Writing NWB to %s", output_path)
+    if multisubject:
+        logger.info("Writing multisubject NWB to %s", output_path)
+    else:
+        logger.info(
+            "Writing per-identity NWB files in %s (using %s as a naming template)",
+            output_path.parent,
+            output_path.name,
+        )
     save(pose_data, output_path, **write_kwargs)

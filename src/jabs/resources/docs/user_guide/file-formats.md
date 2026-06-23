@@ -125,26 +125,30 @@ See [NWB Export](nwb-export.md) for the CLI command and output-mode options.
 
 JABS writes NWB in two modes:
 
-| Mode                            | When to use                                                                     |
-|---------------------------------|---------------------------------------------------------------------------------|
-| Combined (default)              | Local analysis, sharing with collaborators who can parse JABS-specific fields   |
-| Per-identity (`--per-identity`) | DANDI archive upload; tools that expect one subject per file                    |
+| Mode                            | When to use                                                                       |
+|---------------------------------|-----------------------------------------------------------------------------------|
+| Per-identity (default)          | DANDI archive upload; tools that expect one subject per file                      |
+| Multisubject (`--multisubject`) | A single shareable file holding every subject (via the ndx-multisubjects extension) |
 
-In **combined** mode all identities are written into a single `.nwb` file.
-In **per-identity** mode one file is written per animal, named
-`{output_stem}_{identity_name}.nwb`. Static and dynamic objects are written to every
-per-identity file identically (they are session-level data). The JABS reader
-re-assembles per-identity files transparently: point it at any sibling and it merges
-all siblings into a single result in the original identity order.
+In **per-identity** mode (the default) one file is written per animal, named
+`{output_stem}_{identity_name}.nwb`; the `OUTPUT` path itself is not created. The JABS
+reader re-assembles per-identity files transparently: point it at any sibling and it
+merges all siblings into a single result in the original identity order.
+In **multisubject** mode all identities are written into a single self-contained `.nwb`
+file (an `NdxMultiSubjectsNWBFile` with a `SubjectsTable`) using the
+[ndx-multisubjects](https://github.com/nehatk17/ndx-multisubjects) extension. Static and
+dynamic objects are written to every per-identity file identically (they are
+session-level data).
 
 ### Full file layout
 
-The layout below shows a combined file with two animal identities, two static objects
+The layout below shows a multisubject file with two animal identities, two static objects
 (`corners`, `lixit`), and one dynamic object (`fecal_boli`).
 
 ```
-NWBFile
-├── subject/                               [Subject] per-identity mode only
+NdxMultiSubjectsNWBFile
+├── acquisition/
+│   └── SubjectsTable                      [DynamicTable] multisubject mode only — one row per subject
 ├── processing/
 │   └── behavior/                          [ProcessingModule]
 │       ├── Skeletons/                     [Skeletons container]
@@ -184,9 +188,11 @@ NWBFile
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
 ```
 
-In a per-identity file the layout is identical, except `NWBFile.subject` is populated
-(when subject metadata is provided), only one animal identity container is present, and
-`jabs_identity_mask` / `jabs_bounding_boxes_<identity>` cover that identity only.
+A per-identity file (the default) uses a plain `NWBFile` with the same
+`processing/behavior` layout, except there is no `SubjectsTable`, `NWBFile.subject` is
+populated (when subject metadata is provided), only one animal identity container is
+present, and `jabs_identity_mask` / `jabs_bounding_boxes_<identity>` cover that identity
+only.
 
 ### Animal pose
 
@@ -206,12 +212,12 @@ base_tail, mid_tail, tip_tail
 
 #### PoseEstimationSeries fields (per keypoint)
 
-| Field                   | Value                                                                            |
-|-------------------------|----------------------------------------------------------------------------------|
-| `name`                  | Keypoint name (e.g. `"nose"`, `"left_ear"`)                                      |
+| Field                   | Value                                                                           |
+|-------------------------|---------------------------------------------------------------------------------|
+| `name`                  | Keypoint name (e.g. `"nose"`, `"left_ear"`)                                     |
 | `data`                  | shape `(num_frames, 2)` — `(x, y)` coordinates in pixels                        |
-| `rate`                  | Frames per second (float)                                                        |
-| `unit`                  | `"pixels"`                                                                       |
+| `rate`                  | Frames per second (float)                                                       |
+| `unit`                  | `"pixels"`                                                                      |
 | `reference_frame`       | `"Top-left corner of video frame, x increases rightward, y increases downward"` |
 | `confidence`            | shape `(num_frames,)` — `0.0` = missing keypoint, `> 0.0` = valid               |
 | `confidence_definition` | `"0.0=invalid/missing keypoint, >0.0=valid keypoint"`                           |
@@ -223,7 +229,7 @@ is present in each frame.
 
 | Mode         | Shape stored in file           | Shape returned by reader       |
 |--------------|--------------------------------|--------------------------------|
-| Combined     | `(num_frames, num_identities)` | `(num_identities, num_frames)` |
+| Multisubject | `(num_frames, num_identities)` | `(num_identities, num_frames)` |
 | Per-identity | `(num_frames,)`                | `(1, num_frames)`              |
 
 ### Bounding boxes (optional)
@@ -304,11 +310,11 @@ Dynamic objects are introduced in JABS pose format v7.
 
 The source HDF5 pose file stores dynamic objects under `dynamic_objects/{name}/`:
 
-| Dataset          | Shape                                                                                   | Description                                         |
-|------------------|-----------------------------------------------------------------------------------------|-----------------------------------------------------|
-| `points`         | `(n_predictions, max_count, 2)` single-keypoint; `(n_predictions, max_count, n_kp, 2)` multi-keypoint | Keypoint coordinates |
-| `counts`         | `(n_predictions,)`                                                                      | Number of valid object instances at each prediction |
-| `sample_indices` | `(n_predictions,)`                                                                      | Frame indices at which predictions were made        |
+| Dataset          | Shape                                                                                                 | Description                                         |
+|------------------|-------------------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| `points`         | `(n_predictions, max_count, 2)` single-keypoint; `(n_predictions, max_count, n_kp, 2)` multi-keypoint | Keypoint coordinates                                |
+| `counts`         | `(n_predictions,)`                                                                                    | Number of valid object instances at each prediction |
+| `sample_indices` | `(n_predictions,)`                                                                                    | Frame indices at which predictions were made        |
 
 The `points` dataset carries an optional HDF5 attribute `axis_order` (`"xy"` or `"yx"`,
 default `"yx"`). JABS normalizes all coordinates to `(x, y)` on read.
@@ -410,38 +416,37 @@ Every JABS NWB file contains a `ScratchData` object named `jabs_metadata` in the
 needed for a lossless round-trip. It is required because pynwb returns
 `PoseEstimationSeries` in alphabetical order from HDF5, which would otherwise scramble
 the keypoint ordering. Tools that do not use the JABS reader can parse this JSON
-directly to recover ordered keypoint names, identity ordering, subject metadata, and
-object classification.
+directly to recover identity ordering, subject metadata, and object classification.
+(Keypoint ordering is not stored here; the JABS reader restores it from the canonical
+keypoint index.)
 
 #### Keys
 
-| Key                     | Type                      | Present                      | Description                                                                                                                                               |
-|-------------------------|---------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `format_version`        | `int`                     | Always                       | JABS NWB format version. Currently `1`.                                                                                                                   |
-| `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                          |
-| `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                               |
-| `body_parts`            | `list[str]`               | Always                       | Ordered list of keypoint names for animal skeletons.                                                                                                      |
-| `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                |
-| `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file (e.g. cage IDs). `null` if the pose file had no external IDs.                                        |
+| Key                     | Type                      | Present                      | Description                                                                                                                                                                                         |
+|-------------------------|---------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `format_version`        | `int`                     | Always                       | JABS NWB format version. Currently `1`.                                                                                                                                                             |
+| `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                                                                    |
+| `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                                                                         |
+| `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                          |
+| `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file (e.g. cage IDs). `null` if the pose file had no external IDs.                                                                                   |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity biological metadata keyed by identity name, for all identities. Fields: `subject_id`, `sex`, `genotype`, `strain`, `age`, `weight`, `species`, `description`. `null` if none provided. |
-| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                            |
-| `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                   |
-| `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                  |
-| `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D points array on read.                                        |
-| `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                            |
-| `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file. Used to restore original order when merging siblings.                                                      |
-| `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate all siblings are present before merging.                                  |
+| `metadata`              | `dict`                    | Always                       | Provenance from the source pose file: `source_file`, `pose_format_version`, and optionally `source_file_hash`.                                                                                      |
+| `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                             |
+| `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                            |
+| `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`. Required to reconstruct the 4-D points array on read.                                                                                  |
+| `multisubject`          | `bool`                    | Multisubject mode only       | `true` if this is a single multi-subject file written with the ndx-multisubjects extension.                                                                                                         |
+| `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                      |
+| `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file. Used to restore original order when merging siblings.                                                                                                |
+| `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files. Used to validate all siblings are present before merging.                                                                           |
 
-#### Example — combined file
+#### Example — multisubject file
 
 ```json
 {
   "format_version": 1,
+  "multisubject": true,
   "identity_names": ["subject_1", "subject_2"],
   "num_identities": 2,
-  "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
-                 "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
-                 "base_tail", "mid_tail", "tip_tail"],
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
@@ -486,9 +491,6 @@ object classification.
   "format_version": 1,
   "identity_names": ["subject_1"],
   "num_identities": 3,
-  "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
-                 "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
-                 "base_tail", "mid_tail", "tip_tail"],
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {

@@ -11,14 +11,14 @@ The `jabs-cli convert-to-nwb` command converts a JABS pose estimation HDF5 file 
 pip install "jabs-behavior-classifier[nwb]"
 ```
 
-The extra adds `pynwb` and `ndx-pose` as dependencies.
+The extra adds `pynwb`, `ndx-pose`, and `ndx-multisubjects` as dependencies.
 
 Two output modes are available. **Choose the mode based on how the files will be used:**
 
-| Mode                            | When to use                                                                   |
-|---------------------------------|-------------------------------------------------------------------------------|
-| Combined (default)              | Local analysis, sharing with collaborators who can parse JABS-specific fields |
-| Per-identity (`--per-identity`) | DANDI archive upload, tools that expect one subject per file                  |
+| Mode                            | When to use                                                                       |
+|---------------------------------|-----------------------------------------------------------------------------------|
+| Per-identity (default)          | DANDI archive upload, tools that expect one subject per file                      |
+| Multisubject (`--multisubject`) | A single shareable file holding every subject (via the ndx-multisubjects extension) |
 
 ---
 
@@ -31,8 +31,8 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 | Argument / Option            | Description                                                                                                                  |
 |------------------------------|------------------------------------------------------------------------------------------------------------------------------|
 | `INPUT_PATH`                 | JABS pose HDF5 file, any version v2–v8. Format version is inferred automatically from the filename (e.g. `_pose_est_v6.h5`). |
-| `OUTPUT`                     | Destination `.nwb` file. In `--per-identity` mode, used as a naming template; the file itself is not created directly.       |
-| `--per-identity`             | Write one NWB file per identity instead of a single combined file.                                                           |
+| `OUTPUT`                     | Destination `.nwb` file. By default (per-identity), used as a naming template; the file itself is not created directly. With `--multisubject`, the single combined file is written directly to this path. |
+| `--multisubject`             | Write a single multi-subject NWB file (using the ndx-multisubjects extension) instead of the default one file per identity. |
 | `--session-description TEXT` | NWB session description string. Defaults to `'JABS PoseEstimation Data'`.                                                    |
 | `--subjects PATH`            | Path to a JSON file with per-animal biological metadata.                                                                     |
 | `--session-metadata PATH`    | Path to a JSON file with NWB session-level metadata (start time, experimenter, etc.).                                        |
@@ -40,11 +40,11 @@ jabs-cli convert-to-nwb INPUT_PATH OUTPUT [OPTIONS]
 ### Examples
 
 ```bash
-# Single combined file — all identities in one NWB file
+# One NWB file per identity (default; recommended for DANDI upload)
 jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
 
-# One NWB file per identity (recommended for DANDI upload)
-jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --per-identity
+# A single multi-subject file holding every identity
+jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
 
 # Include per-animal metadata
 jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --subjects subjects.json
@@ -97,11 +97,12 @@ subject.** All other fields are optional.
 | `weight`         | string | Body weight, e.g. `"25g"`                                                              |
 | `description`    | string | Free-text notes                                                                        |
 
-In per-identity mode, subject metadata is written to both the standard `NWBFile.subject`
-field and the `jabs_metadata` scratch field. If no `--subjects` file is provided, a
-minimal subject with `subject_id` set to the identity name is written automatically. In 
-combined mode, subject metadata is written only to `jabs_metadata` (see
-[below](#subject-metadata-and-nwbfilesubject)).
+In per-identity mode (the default), subject metadata is written to both the standard
+`NWBFile.subject` field and the `jabs_metadata` scratch field. If no `--subjects` file is
+provided, a minimal subject with `subject_id` set to the identity name is written
+automatically. In multisubject mode, subject metadata is written to a `SubjectsTable`
+(one row per subject) and to `jabs_metadata` (see
+[below](#subject-metadata-by-mode)).
 
 ---
 
@@ -137,27 +138,11 @@ All fields are optional. Unknown keys are ignored with a warning.
 
 ## Output modes
 
-### Combined file (default)
-
-All identities from the recording session are written into a single NWB file.
-
-```
-session.nwb
-  └── all identities, all objects
-```
-
-**This is a non-standard NWB usage.** Standard NWB (`NWBFile.subject`) only supports
-one subject per file, so combined files cannot populate that field. Instead, all
-per-animal metadata is stored in the `jabs_metadata` scratch field (a JSON string).
-Tools that do not know about `jabs_metadata` will not see subject metadata at all.
-
-**DANDI upload:** Combined files will fail DANDI validation because `NWBFile.subject`
-is not set. Use per-identity mode for DANDI.
-
-### Per-identity (`--per-identity`)
+### Per-identity files (default)
 
 One NWB file is written per animal. The `OUTPUT` path is used as a naming template;
-files are written as `{output_stem}_{identity_name}.nwb` in the same directory.
+files are written as `{output_stem}_{identity_name}.nwb` in the same directory. The
+`OUTPUT` path itself is **not** created.
 
 ```
 session_subject_1.nwb   ← identity 0 + all objects
@@ -165,7 +150,7 @@ session_subject_2.nwb   ← identity 1 + all objects
 session_subject_3.nwb   ← identity 2 + all objects
 ```
 
-**This is the more standard output.** Each file contains exactly one animal, so
+**This is the most standard output.** Each file contains exactly one animal, so
 `NWBFile.subject` is populated with that animal's biological metadata (when provided
 via `--subjects`). Any standard NWB tool — including the DANDI archive — can read
 the subject field directly without knowing anything about JABS.
@@ -182,16 +167,38 @@ sibling file; it detects the `per_identity_files` flag in `jabs_metadata`, finds
 siblings, and merges them into a single result with all identities in their original
 order.
 
-### Subject metadata and `NWBFile.subject`
+### Multisubject single file (`--multisubject`)
 
-| Mode         | NWBFile.subject              | jabs_metadata.subjects   |
-|--------------|------------------------------|--------------------------|
-| Combined     | Not set                      | Set (all identities)     |
-| Per-identity | Set for this file's identity | Set (all identities)     |
+All identities from the recording session are written into a single, self-contained NWB
+file at `OUTPUT`, using the
+[ndx-multisubjects](https://github.com/nehatk17/ndx-multisubjects) extension.
 
-`jabs_metadata.subjects` always carries the full dict for all identities, even in
-per-identity files. This makes each file self-contained: the JABS reader can recover
-complete subject metadata from any sibling without loading the others.
+```
+session.nwb
+  └── all identities + all objects + a SubjectsTable listing every subject
+```
+
+The file is an `NdxMultiSubjectsNWBFile` (a drop-in `NWBFile` subclass). Because standard
+NWB's `NWBFile.subject` only holds one subject, multiple subjects are instead described by
+a **`SubjectsTable`** (one row per animal) stored in `acquisition`. The pose data itself
+is laid out in `processing/behavior` exactly as in a per-identity file, and the full,
+lossless JABS round-trip still rides on the `jabs_metadata` scratch field.
+
+This mode is intended for sharing a whole session as one artifact. Reading it back with
+the JABS reader returns all identities directly (no sibling files are involved).
+
+### Subject metadata by mode
+
+| Mode         | NWBFile.subject              | SubjectsTable          | jabs_metadata.subjects |
+|--------------|------------------------------|------------------------|------------------------|
+| Per-identity | Set for this file's identity | —                      | Set (all identities)   |
+| Multisubject | Not set                      | One row per subject    | Set (all identities)   |
+
+`jabs_metadata.subjects` always carries the full dict for all identities, in both modes.
+This makes each per-identity file self-contained: the JABS reader can recover complete
+subject metadata from any sibling without loading the others. In multisubject mode the
+`SubjectsTable` is provided for standard NWB / DANDI consumers; JABS itself recovers
+subject metadata from `jabs_metadata`.
 
 ---
 
@@ -201,12 +208,13 @@ For the full format specification — including all field definitions, `jabs_met
 keys, and worked examples for static and dynamic objects — see
 [File Formats — NWB Pose File](file-formats.md#nwb-pose-file).
 
-The layout below shows a combined file with two animal identities, two static objects
+The layout below shows a multisubject file with two animal identities, two static objects
 (`corners`, `lixit`), and one dynamic object (`fecal_boli`).
 
 ```
-NWBFile
-├── subject/                               [Subject] per-identity mode only
+NdxMultiSubjectsNWBFile
+├── acquisition/
+│   └── SubjectsTable                      [DynamicTable] multisubject mode only — one row per subject
 ├── processing/
 │   └── behavior/                          [ProcessingModule]
 │       ├── Skeletons/                     [Skeletons container]
@@ -246,7 +254,9 @@ NWBFile
     └── jabs_metadata/                     [ScratchData] JSON string (see below)
 ```
 
-In a per-identity file the layout is identical, except:
+A per-identity file (the default) uses a plain `NWBFile` and the same
+`processing/behavior` layout, except:
+- The root is a standard `NWBFile`; there is no `SubjectsTable`
 - `NWBFile.subject` is populated (when subject metadata is provided)
 - Only one animal identity container is present
 - `jabs_identity_mask` / `jabs_bounding_boxes_<identity>` cover that identity only
@@ -283,7 +293,7 @@ each frame.
 
 | Mode         | Shape stored in file           | Shape returned by reader       |
 |--------------|--------------------------------|--------------------------------|
-| Combined     | `(num_frames, num_identities)` | `(num_identities, num_frames)` |
+| Multisubject | `(num_frames, num_identities)` | `(num_identities, num_frames)` |
 | Per-identity | `(num_frames,)`                | `(1, num_frames)`              |
 
 ---
@@ -370,8 +380,9 @@ needed for a lossless round-trip. Standard NWB fields alone are insufficient bec
 pynwb returns `PoseEstimationSeries` in alphabetical order from HDF5, which would
 otherwise scramble the keypoint ordering.
 
-Tools that do not use the JABS reader can parse this JSON directly to recover ordered
-keypoint names, identity ordering, subject metadata, and object classification.
+Tools that do not use the JABS reader can parse this JSON directly to recover identity
+ordering, subject metadata, and object classification. (Keypoint ordering is not stored
+here; the JABS reader restores it from the canonical keypoint index.)
 
 #### Keys
 
@@ -380,7 +391,6 @@ keypoint names, identity ordering, subject metadata, and object classification.
 | `format_version`        | `int`                     | Always                       | JABS NWB format version. Currently `1`.                                                                                                                                                                             |
 | `identity_names`        | `list[str]`               | Always                       | Ordered list of animal identity container names. Defines identity order on read.                                                                                                                                    |
 | `num_identities`        | `int`                     | Always                       | Total number of animal identities in the recording session.                                                                                                                                                         |
-| `body_parts`            | `list[str]`               | Always                       | Ordered list of keypoint names for animal skeletons.                                                                                                                                                                |
 | `cm_per_pixel`          | `float \| null`           | Always                       | Pixel-to-centimetre scale factor. `null` if not available.                                                                                                                                                          |
 | `external_ids`          | `list[str] \| null`       | Always                       | Original external identity names from the pose file. `null` if the pose file had no external IDs.                                                                                                                   |
 | `subjects`              | `dict[str, dict] \| null` | Always                       | Per-identity subject metadata keyed by identity name, for all identities. `null` if no subject metadata is available. Fields: `subject_id`, `sex`, `species`, `age`, `date_of_birth`, `genotype`, `strain`, `weight`, `description`. DANDI requires `species`, `sex`, and either `age` or `date_of_birth`. |
@@ -388,20 +398,19 @@ keypoint names, identity ordering, subject metadata, and object classification.
 | `static_object_names`   | `list[str]`               | When static objects present  | Names of all static object `PoseEstimation` containers.                                                                                                                                                             |
 | `dynamic_object_names`  | `list[str]`               | When dynamic objects present | Names of all dynamic object `PoseEstimation` containers.                                                                                                                                                            |
 | `dynamic_object_shapes` | `dict[str, [int, int]]`   | When dynamic objects present | Maps each dynamic object name to `[max_count, n_keypoints]`.                                                                                                                                                        |
+| `multisubject`          | `bool`                    | Multisubject mode only       | `true` if this is a single multi-subject file written with the ndx-multisubjects extension.                                                                                                                         |
 | `per_identity_files`    | `bool`                    | Per-identity mode only       | `true` if this file is one of a set of per-identity NWB files.                                                                                                                                                      |
 | `source_identity_index` | `int`                     | Per-identity mode only       | Zero-based index of the identity in this file.                                                                                                                                                                      |
 | `split_subject_count`      | `int`                     | Per-identity mode only       | Total number of subjects in the session across all split files.                                                                                                                                                     |
 
-#### Example — combined file
+#### Example — multisubject file
 
 ```json
 {
   "format_version": 1,
+  "multisubject": true,
   "identity_names": ["subject_1", "subject_2"],
   "num_identities": 2,
-  "body_parts": ["nose", "left_ear", "right_ear", "base_neck", "left_front_paw",
-                 "right_front_paw", "center_spine", "left_rear_paw", "right_rear_paw",
-                 "base_tail", "mid_tail", "tip_tail"],
   "cm_per_pixel": 0.043,
   "external_ids": null,
   "subjects": {
