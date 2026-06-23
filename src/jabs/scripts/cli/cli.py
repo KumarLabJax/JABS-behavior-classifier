@@ -322,9 +322,24 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 )
 @click.option(
     "--grouping-strategy",
-    type=click.Choice(["video", "individual"], case_sensitive=False),
+    type=click.Choice(["video", "individual", "filename"], case_sensitive=False),
     default=None,
-    help=("Cross validation grouping strategy. If not provided, use the project setting."),
+    help=(
+        "Cross validation grouping strategy. If not provided, use the project setting. "
+        "The 'filename' strategy groups videos by a regular expression applied to their "
+        "filenames and requires --grouping-pattern (or a pattern saved in the project)."
+    ),
+)
+@click.option(
+    "--grouping-pattern",
+    "grouping_pattern",
+    type=str,
+    default=None,
+    help=(
+        "Regular expression used to extract a grouping key from each video filename. "
+        "Only used with '--grouping-strategy filename'. If not provided, the pattern saved "
+        "in the project settings is used."
+    ),
 )
 @click.option(
     "--classifier",
@@ -348,6 +363,7 @@ def cross_validation(
     behavior: str,
     k: int,
     grouping_strategy: str | None,
+    grouping_pattern: str | None,
     classifier: str,
     report_file: Path | None,
 ):
@@ -357,16 +373,24 @@ def cross_validation(
             "Report file must have a .md (Markdown) or .json (JSON) extension."
         )
 
-    if grouping_strategy and grouping_strategy.lower() == "video":
-        cv_grouping = CrossValidationGroupingStrategy.VIDEO
-    elif grouping_strategy and grouping_strategy.lower() == "individual":
-        cv_grouping = CrossValidationGroupingStrategy.INDIVIDUAL
-    else:
-        cv_grouping = None
+    cv_grouping_by_name = {
+        "video": CrossValidationGroupingStrategy.VIDEO,
+        "individual": CrossValidationGroupingStrategy.INDIVIDUAL,
+        "filename": CrossValidationGroupingStrategy.FILENAME_PATTERN,
+    }
+    cv_grouping = cv_grouping_by_name[grouping_strategy.lower()] if grouping_strategy else None
 
     try:
         classifier_type = ClassifierType[classifier.upper()]
-        run_cross_validation(directory, behavior, classifier_type, cv_grouping, k, report_file)
+        run_cross_validation(
+            directory,
+            behavior,
+            classifier_type,
+            cv_grouping,
+            k,
+            report_file,
+            grouping_regex=grouping_pattern,
+        )
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
