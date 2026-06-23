@@ -14,6 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.cli.cli as cli_module
+from jabs.classifier import MlflowLoggingError
 from jabs.core.enums import CrossValidationGroupingStrategy
 from jabs.scripts.cli.cli import cli
 
@@ -92,3 +93,75 @@ def test_invalid_grouping_strategy_rejected(tmp_path: Path, run_cv_spy: mock.Moc
 
     assert result.exit_code != 0
     run_cv_spy.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# MLflow options
+# --------------------------------------------------------------------------- #
+def test_mlflow_absent_disables_logging(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """Without --mlflow, logging is disabled and no env file is passed."""
+    result = _invoke(tmp_path)
+
+    assert result.exit_code == 0, result.output
+    kwargs = run_cv_spy.call_args.kwargs
+    assert kwargs["mlflow_enabled"] is False
+    assert kwargs["mlflow_env_file"] is None
+    assert kwargs["mlflow_log_report"] is True
+
+
+def test_mlflow_bare_flag_enables_ambient(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """A bare --mlflow enables logging with no env file (ambient environment)."""
+    result = _invoke(tmp_path, "--mlflow")
+
+    assert result.exit_code == 0, result.output
+    kwargs = run_cv_spy.call_args.kwargs
+    assert kwargs["mlflow_enabled"] is True
+    assert kwargs["mlflow_env_file"] is None
+
+
+def test_mlflow_with_env_file(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """--mlflow with a path forwards that .env file."""
+    result = _invoke(tmp_path, "--mlflow", "settings.env")
+
+    assert result.exit_code == 0, result.output
+    kwargs = run_cv_spy.call_args.kwargs
+    assert kwargs["mlflow_enabled"] is True
+    assert kwargs["mlflow_env_file"] == Path("settings.env")
+
+
+def test_mlflow_tags_parsed_and_forwarded(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """Repeated --mlflow-tag entries are parsed into a dict."""
+    result = _invoke(
+        tmp_path, "--mlflow", "--mlflow-tag", "purpose=baseline", "--mlflow-tag", "owner=glen"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["mlflow_tags"] == {
+        "purpose": "baseline",
+        "owner": "glen",
+    }
+
+
+def test_mlflow_no_report_flag(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """--mlflow-no-report disables the report artifact upload."""
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-no-report")
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["mlflow_log_report"] is False
+
+
+def test_invalid_mlflow_tag_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """A malformed --mlflow-tag fails before run_cross_validation is called."""
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
+
+    assert result.exit_code != 0
+    run_cv_spy.assert_not_called()
+
+
+def test_mlflow_logging_failure_exits_with_code_3(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """An MlflowLoggingError maps to a distinct exit code (3), not the generic 1."""
+    run_cv_spy.side_effect = MlflowLoggingError("push failed")
+
+    result = _invoke(tmp_path, "--mlflow")
+
+    assert result.exit_code == 3

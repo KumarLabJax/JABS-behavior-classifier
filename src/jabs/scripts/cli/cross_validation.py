@@ -9,7 +9,9 @@ from rich.table import Table
 
 from jabs.classifier import (
     Classifier,
+    MlflowLoggingError,
     TrainingReportData,
+    log_cross_validation_to_mlflow,
     run_leave_one_group_out_cv,
     save_training_report,
 )
@@ -28,6 +30,10 @@ def run_cross_validation(
     k: int,
     report_file: Path | None = None,
     grouping_regex: str | None = None,
+    mlflow_enabled: bool = False,
+    mlflow_env_file: Path | None = None,
+    mlflow_tags: dict[str, str] | None = None,
+    mlflow_log_report: bool = True,
 ) -> None:
     """Run cross-validation for a JABS project from the command line.
 
@@ -45,6 +51,18 @@ def run_cross_validation(
         grouping_regex (str | None): Regular expression used to extract a grouping key
           from each video filename. Only used when ``grouping_strategy`` is
           ``FILENAME_PATTERN``. If None, uses the pattern saved in project settings.
+        mlflow_enabled (bool): If True, push the cross-validation results to MLflow
+          after the report is saved.
+        mlflow_env_file (Path | None): Optional ``.env`` file with ``MLFLOW_*`` connection
+          settings. If None, connection config comes from the ambient environment.
+        mlflow_tags (dict[str, str] | None): Optional free-form MLflow run tags, merged
+          over the auto-derived tags.
+        mlflow_log_report (bool): Whether to upload the training report as an MLflow
+          artifact. Only used when ``mlflow_enabled`` is True.
+
+    Raises:
+        MlflowLoggingError: If MLflow logging is requested but fails. The
+          cross-validation results and the saved report are unaffected.
     """
     if k < 0:
         raise ValueError("The number of cross-validation splits 'k' must be non-negative.")
@@ -227,3 +245,27 @@ def run_cross_validation(
 
     save_training_report(training_data, report_file)
     console.print(f"\nTraining report saved to: {report_file}", style="bold green")
+
+    # Push results to MLflow last, so a logging failure (missing dependency,
+    # network, auth, TLS) never costs the cross-validation results -- they are
+    # already on screen and the report is already saved.
+    if mlflow_enabled:
+        try:
+            run_id, tracking_uri = log_cross_validation_to_mlflow(
+                report_data=training_data,
+                report_file=report_file,
+                env_file=mlflow_env_file,
+                tags=mlflow_tags,
+                log_report_artifact=mlflow_log_report,
+            )
+        except Exception as e:
+            console.print(f"\nWarning: MLflow logging failed: {e}", style="bold yellow")
+            console.print(
+                "  (cross-validation results above and the saved report are unaffected)",
+                style="yellow",
+            )
+            raise MlflowLoggingError(str(e)) from e
+        console.print(
+            f"\nLogged cross-validation results to MLflow run {run_id} ({tracking_uri})",
+            style="bold green",
+        )

@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from jabs.classifier import Classifier
+from jabs.classifier import Classifier, MlflowLoggingError, parse_kv_tags
 from jabs.core.enums import ClassifierMode, ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import (
     Project,
@@ -356,6 +356,35 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "Report format will be determined by extension (.md for Markdown, .json for JSON). "
     "If not provided, a default filename will be used.",
 )
+@click.option(
+    "--mlflow",
+    "mlflow_env",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    metavar="ENV_FILE",
+    help="Enable opt-in MLflow logging of the cross-validation results (aggregate "
+    "metrics, params, and the training report artifact). Optionally takes a path to a "
+    ".env file holding MLFLOW_* settings (tracking URI, experiment, auth, TLS); with no "
+    "path, those are read from the ambient environment. Absent leaves the command's "
+    "behavior unchanged. Requires the optional 'mlflow' extra "
+    "(pip install 'jabs-behavior-classifier[mlflow]').",
+)
+@click.option(
+    "--mlflow-tag",
+    "mlflow_tags",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="With --mlflow, add a free-form run tag (repeatable), e.g. purpose=baseline. "
+    "Merges over the auto-derived tags. No-op without --mlflow.",
+)
+@click.option(
+    "--mlflow-no-report",
+    "mlflow_no_report",
+    is_flag=True,
+    help="With --mlflow, skip uploading the training report artifact (metrics + params "
+    "only). No-op without --mlflow.",
+)
 @click.pass_context
 def cross_validation(
     ctx: click.Context,
@@ -366,6 +395,9 @@ def cross_validation(
     grouping_pattern: str | None,
     classifier: str,
     report_file: Path | None,
+    mlflow_env: str | None,
+    mlflow_tags: tuple[str, ...],
+    mlflow_no_report: bool,
 ):
     """Run leave-one-group-out cross-validation for a JABS project."""
     if report_file is not None and report_file.suffix.lower() not in {".md", ".json"}:
@@ -380,6 +412,15 @@ def cross_validation(
     }
     cv_grouping = cv_grouping_by_name[grouping_strategy.lower()] if grouping_strategy else None
 
+    # --mlflow: absent -> None (disabled); bare flag -> "" (ambient env);
+    # with a path -> that .env file.
+    mlflow_enabled = mlflow_env is not None
+    mlflow_env_file = Path(mlflow_env) if mlflow_env else None
+    try:
+        parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
     try:
         classifier_type = ClassifierType[classifier.upper()]
         run_cross_validation(
@@ -390,7 +431,16 @@ def cross_validation(
             k,
             report_file,
             grouping_regex=grouping_pattern,
+            mlflow_enabled=mlflow_enabled,
+            mlflow_env_file=mlflow_env_file,
+            mlflow_tags=parsed_mlflow_tags,
+            mlflow_log_report=not mlflow_no_report,
         )
+    except MlflowLoggingError:
+        # Cross-validation and the report succeeded; only the optional MLflow
+        # push failed (already reported on the console). Use a distinct, non-zero
+        # exit code so automation can tell this apart from a CV failure.
+        ctx.exit(3)
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
