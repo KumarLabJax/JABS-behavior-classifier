@@ -188,7 +188,7 @@ The `jabs-cli update-pose` command updates an existing JABS project to use updat
 **Usage:**
 
 ```bash
-jabs-cli update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen]
+jabs-cli update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--skip-feature-gen] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the JABS project to update in place.
@@ -198,8 +198,11 @@ jabs-cli update-pose <project_dir> <updated_pose_dir> [--min-iou-thresh <FLOAT>]
 - `--annotate-failures`: Add timeline annotations to the project for blocks whose label remap fails.
 - `--drop-timeline-annotations`: Discard existing timeline annotations from the source project instead of copying or remapping them.
 - `--skip-feature-gen`: Skip automatic feature regeneration after a successful pose update.
+- `--tolerate-orphan-identities`: Continue past orphan-identity references in the live project's annotations (warn instead of erroring at preflight). Affected `(identity, behavior)` pairs are skipped during remap; all other labels are remapped normally. By default the command aborts at preflight when orphans are detected.
 
 Before modifying the project, the command validates the updated pose files, runs the pose update and label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup`. By default, existing timeline annotations are also carried forward: video-level annotations are copied as-is, and identity-scoped annotations are remapped by the same interval-matching logic used for label blocks. Use `--drop-timeline-annotations` if you want to discard existing timeline annotations instead. Only after the staged pose update succeeds are annotations, project metadata, and pose files copied back into the project.
+
+**Orphan identity check.** Preflight rejects projects whose annotation files reference identity indices that the corresponding pose file no longer supplies — typically a sign the pose was regenerated with fewer identities, leaving stale label entries that can no longer be matched against pose data. The command lists every offending video and identity, then exits without modifying anything. Clean up the affected annotation files (drop the orphan identity entries from each `.json`) and re-run, or pass `--tolerate-orphan-identities` to warn-and-skip the affected entries instead of aborting.
 
 After a successful live pose update, features are regenerated automatically only when `--skip-feature-gen` is not passed and the existing `jabs/project.json` already contains explicit `window_sizes`. If the project file has no `window_sizes` entry, there is nothing to regenerate and feature generation is skipped. If you want more control over feature regeneration, use `--skip-feature-gen` and run `jabs-init` manually, or generate features from the GUI.
 
@@ -218,7 +221,7 @@ The `jabs-cli update-labels` command is the inverse of [`update-pose`](#jabs-cli
 **Usage:**
 
 ```bash
-jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations]
+jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLOAT>] [--verbose] [--annotate-failures] [--drop-timeline-annotations] [--tolerate-orphan-identities]
 ```
 
 - `<project_dir>`: Path to the target JABS project whose labels will be replaced in place. The target's pose is unchanged. If `<project_dir>` is a directory of videos + pose files with no `jabs/` subdirectory, a minimal JABS project is scaffolded automatically — features are not generated, so you may want to run `jabs-init` separately afterwards.
@@ -227,10 +230,13 @@ jabs-cli update-labels <project_dir> <source_project_dir> [--min-iou-thresh <FLO
 - `--verbose`: Print successful label remap assignments in addition to warnings.
 - `--annotate-failures`: Add timeline annotations to the target for blocks whose label remap fails. Annotations use the same `behavior-remap-failed` / `not-behavior-remap-failed` tags as `update-pose`; the description text distinguishes the originating operation.
 - `--drop-timeline-annotations`: Discard source timeline annotations instead of copying or remapping them.
+- `--tolerate-orphan-identities`: Continue past orphan-identity references in the source's annotations (warn instead of erroring at preflight). Affected `(identity, behavior)` pairs are skipped during remap; all other labels are imported normally. By default the command aborts at preflight when orphans are detected.
 
 Before modifying the project, the command validates both inputs, runs the label remap in disposable staging projects, and creates a timestamped backup zip under `<project_dir>/.backup` covering `jabs/project.json`, annotations, and predictions (pose files are not touched). Labels are processed block by block, matched by median bbox IoU between the source pose and the target's existing pose, and written to the staged destination label track. By default, source timeline annotations are also carried forward and remapped the same way as label blocks; use `--drop-timeline-annotations` to discard them.
 
 Existing target labels for videos that the source does not cover are left untouched (per-video replace). Behaviors named in the source's `project.json` but not present in the target are merged into the target's `project.json` so the imported labels are usable in the GUI; behaviors already configured in the target keep their existing settings.
+
+**Orphan identity check.** Preflight rejects the run if any source annotation file references identity indices that the source's own pose file no longer supplies. This typically means the source's pose was regenerated with fewer identities and the affected label entries are stranded — there is no source-side bounding-box data to anchor the IoU match against. The command lists every offending video and identity, then exits without modifying the target. Clean up the source annotation files (drop the orphan identity entries from each `.json`) and re-run, or pass `--tolerate-orphan-identities` to warn-and-skip the affected entries instead of aborting.
 
 The target's pose is unchanged, so the feature cache stays valid and is **not** regenerated. Predictions are cleared because they are stale relative to the new labels; classifiers, the performance cache, and feature files are all left in place. If you need to retrain after a label import, run training from the GUI or via `jabs-classify`.
 

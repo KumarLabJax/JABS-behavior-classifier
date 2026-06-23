@@ -15,14 +15,22 @@ from jabs.project.timeline_annotations import MAX_TAG_LEN
 from jabs.scripts.cli.cli import cli
 
 
-def _make_pose(identities, boxes_by_identity):
-    """Build a simple bbox-capable pose object for remap tests."""
+def _make_pose(identities, boxes_by_identity, *, num_identities=None):
+    """Build a simple bbox-capable pose object for remap tests.
+
+    ``num_identities`` defaults to ``len(identities)`` (the consistent case). Pass an
+    explicit value to simulate a pose file whose total identity count diverges from
+    the iterable returned by ``.identities`` — e.g. annotations that reference an
+    identity index the pose can no longer supply.
+    """
     num_frames = next(iter(boxes_by_identity.values())).shape[0]
+    identity_list = list(identities)
     return SimpleNamespace(
         format_major_version=8,
         has_bounding_boxes=True,
         num_frames=num_frames,
-        identities=list(identities),
+        num_identities=num_identities if num_identities is not None else len(identity_list),
+        identities=identity_list,
         get_bounding_boxes=lambda identity: boxes_by_identity[identity],
         identity_index_to_display=lambda identity: f"id-{identity}",
     )
@@ -71,7 +79,9 @@ def test_preflight_selects_only_latest_replacement_pose(tmp_path, monkeypatch):
     (new_pose_dir / "video1_pose_est_v7.h5").touch()
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
@@ -106,7 +116,9 @@ def test_preflight_rejects_nonwritable_live_annotation_file(tmp_path, monkeypatc
     (new_pose_dir / "video1_pose_est_v8.h5").touch()
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
 
     def fake_access(path, mode):
         return not (Path(path) == annotation_path and mode & os.W_OK)
@@ -139,7 +151,9 @@ def test_preflight_rejects_nonwritable_annotations_directory(tmp_path, monkeypat
     (new_pose_dir / "video1_pose_est_v8.h5").touch()
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
 
     def fake_access(path, mode):
         return not (Path(path) == annotations_dir and mode & os.W_OK)
@@ -185,7 +199,9 @@ def test_preflight_allows_timeline_annotations(tmp_path, monkeypatch):
     )
 
     def fake_open_pose_file(path, _cache_dir):
-        return SimpleNamespace(format_major_version=8, has_bounding_boxes=True, num_frames=10)
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
 
     monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
     monkeypatch.setattr(
@@ -221,6 +237,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         annotate_failures,
         drop_timeline_annotations,
         skip_feature_gen,
+        tolerate_orphan_identities,
     ):
         captured.update(
             {
@@ -231,6 +248,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
                 "annotate_failures": annotate_failures,
                 "drop_timeline_annotations": drop_timeline_annotations,
                 "skip_feature_gen": skip_feature_gen,
+                "tolerate_orphan_identities": tolerate_orphan_identities,
             }
         )
         return 3, 1, project_dir / ".backup" / "update_pose_test.zip", "skipped_by_option"
@@ -254,6 +272,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
             "--annotate-failures",
             "--drop-timeline-annotations",
             "--skip-feature-gen",
+            "--tolerate-orphan-identities",
         ],
     )
 
@@ -266,6 +285,7 @@ def test_update_pose_subcommand_invokes_update_project_pose_in_place(tmp_path, m
         "annotate_failures": True,
         "drop_timeline_annotations": True,
         "skip_feature_gen": True,
+        "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
     assert "Pose update summary: 3 label blocks assigned, 1 label blocks skipped" in result.output
@@ -465,7 +485,7 @@ def test_update_project_pose_in_place_uses_preexisting_window_sizes_for_feature_
     monkeypatch.setattr(
         update_pose,
         "_preflight_update_inputs",
-        lambda *_args: (
+        lambda *_args, **_kwargs: (
             ["video1.avi"],
             {"video1.avi": new_pose_dir / "video1_pose_est_v8.h5"},
             set(),
@@ -867,6 +887,247 @@ def test_remap_labels_for_video_failure_tag_fits_within_max_tag_len():
     assert annotations[0]["tag"] == "behavior-remap-failed"
     assert len(annotations[0]["tag"]) <= MAX_TAG_LEN
     assert "label remap failed during label update" in annotations[0]["description"]
+
+
+def test_orphan_identities_in_annotation_detects_label_track_keys(tmp_path):
+    """Identity keys in labels/unfragmented_labels above num_identities are reported."""
+    annotation_path = tmp_path / "video1.json"
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {
+                    "0": {"Grooming": []},
+                    "2": {"Grooming": []},
+                    "3": {"Grooming": []},
+                },
+                "labels": {},
+            }
+        )
+    )
+
+    assert update_pose._orphan_identities_in_annotation(annotation_path, 2) == [2, 3]
+
+
+def test_orphan_identities_in_annotation_detects_timeline_annotation_identity(tmp_path):
+    """Identity-scoped timeline annotation entries are also checked."""
+    annotation_path = tmp_path / "video1.json"
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "labels": {},
+                "annotations": [
+                    {"start": 1, "end": 2, "tag": "note", "color": "#fff"},
+                    {"start": 3, "end": 4, "tag": "n", "color": "#fff", "identity": 0},
+                    {"start": 5, "end": 6, "tag": "n", "color": "#fff", "identity": 5},
+                ],
+            }
+        )
+    )
+
+    assert update_pose._orphan_identities_in_annotation(annotation_path, 2) == [5]
+
+
+def test_orphan_identities_in_annotation_handles_clean_files(tmp_path):
+    """A consistent annotation file yields an empty list."""
+    annotation_path = tmp_path / "video1.json"
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {"0": {"Grooming": []}, "1": {"Grooming": []}},
+                "labels": {},
+            }
+        )
+    )
+
+    assert update_pose._orphan_identities_in_annotation(annotation_path, 2) == []
+
+
+def test_orphan_identities_in_annotation_missing_file_returns_empty(tmp_path):
+    """A missing annotation file is treated as nothing to check rather than an error."""
+    assert update_pose._orphan_identities_in_annotation(tmp_path / "nope.json", 2) == []
+
+
+def test_handle_orphan_identities_raises_by_default_listing_every_offender():
+    """The composite error must list every video and identity, not just the first."""
+    issues = [
+        ("video1.avi", 2, [2, 3]),
+        ("video2.avi", 3, [4]),
+    ]
+
+    with pytest.raises(ValueError) as excinfo:
+        update_pose._handle_orphan_identities(issues, source_label="source")
+
+    msg = str(excinfo.value)
+    assert "video1.avi" in msg
+    assert "video2.avi" in msg
+    assert "identity 2, 3" in msg
+    assert "identity 4" in msg
+    # Should describe the remediation, not just the problem.
+    assert "Clean up" in msg or "clean up" in msg
+    # Should mention the escape-hatch flag so users discover it from the error.
+    assert "--tolerate-orphan-identities" in msg
+
+
+def test_handle_orphan_identities_warns_when_tolerated(capsys):
+    """With ``tolerate=True``, issues are reported via stderr and execution continues."""
+    issues = [("video1.avi", 2, [2, 3])]
+
+    update_pose._handle_orphan_identities(issues, source_label="source", tolerate=True)
+
+    stderr = capsys.readouterr().err
+    assert "WARNING" in stderr
+    assert "video1.avi" in stderr
+    assert "identity 2, 3" in stderr
+    assert "--tolerate-orphan-identities" in stderr
+
+
+def test_handle_orphan_identities_noop_when_empty():
+    """No exception, no output, regardless of tolerate."""
+    update_pose._handle_orphan_identities([])
+    update_pose._handle_orphan_identities([], tolerate=True)
+
+
+def test_preflight_update_inputs_raises_on_orphan_source_identities(tmp_path, monkeypatch):
+    """Preflight must abort before any mutation when source labels reference orphans."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {"0": {"Grooming": []}, "2": {"Grooming": []}},
+                "labels": {},
+            }
+        )
+    )
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        update_pose.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+
+    with pytest.raises(ValueError, match=r"video1\.avi.*identity 2"):
+        update_pose._preflight_update_inputs(project_dir, new_pose_dir)
+
+
+def test_preflight_update_inputs_tolerates_orphans_and_warns(tmp_path, monkeypatch, capsys):
+    """``tolerate_orphan_identities=True`` swaps the preflight error for a warning."""
+    project_dir = tmp_path / "project"
+    new_pose_dir = tmp_path / "new_pose"
+    annotations_dir = project_dir / "jabs" / "annotations"
+    annotations_dir.mkdir(parents=True)
+    new_pose_dir.mkdir()
+
+    (project_dir / "jabs" / "project.json").write_text("{}")
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video1_pose_est_v8.h5").touch()
+    (new_pose_dir / "video1_pose_est_v8.h5").touch()
+    (annotations_dir / "video1.json").write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {"0": {"Grooming": []}, "2": {"Grooming": []}},
+                "labels": {},
+            }
+        )
+    )
+
+    def fake_open_pose_file(path, _cache_dir):
+        return SimpleNamespace(
+            format_major_version=8, has_bounding_boxes=True, num_frames=10, num_identities=2
+        )
+
+    monkeypatch.setattr(update_pose, "open_pose_file", fake_open_pose_file)
+    monkeypatch.setattr(
+        update_pose.VideoReader,
+        "get_nframes_from_file",
+        staticmethod(lambda _path: 10),
+    )
+
+    videos, _, live_annotations = update_pose._preflight_update_inputs(
+        project_dir, new_pose_dir, tolerate_orphan_identities=True
+    )
+
+    assert videos == ["video1.avi"]
+    assert "video1.avi" in live_annotations
+
+    stderr = capsys.readouterr().err
+    assert "WARNING" in stderr
+    assert "identity 2" in stderr
+
+
+def test_remap_labels_for_video_inline_guard_skips_orphan_blocks(capsys):
+    """When preflight is tolerated, the inline guard skips orphan (identity, behavior) pairs.
+
+    Without the guard, ``_find_best_identity`` would crash on
+    ``_bboxes_for_identity(src_pose, src_identity)`` for any out-of-range source
+    identity. The guard preserves all valid identities' blocks and reports a
+    single warning per skipped pair.
+    """
+    src_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+    dst_boxes = np.array([[[0.0, 0.0], [10.0, 10.0]]] * 10)
+
+    source_pose = _make_pose([0, 1], {0: src_boxes, 1: src_boxes}, num_identities=2)
+    dest_pose = _make_pose([0, 1, 2], {0: dst_boxes, 1: dst_boxes, 2: dst_boxes})
+
+    source_labels = VideoLabels("video1.avi", 10)
+    source_labels.get_track_labels("0", "Grooming").label_behavior(1, 2)
+    orphan_track = source_labels.get_track_labels("2", "Grooming")
+    orphan_track.label_behavior(3, 4)
+    orphan_track.label_not_behavior(5, 6)
+
+    label_source_project = MagicMock()
+    label_source_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_source_project.video_manager.load_video_labels.return_value = source_labels
+    label_source_project.load_pose_est.return_value = source_pose
+
+    label_dest_project = MagicMock()
+    label_dest_project.video_manager.video_path.return_value = Path("video1.avi")
+    label_dest_project.load_pose_est.return_value = dest_pose
+    label_dest_project.project_paths.annotations_dir = Path("/tmp/stage-annotations")
+
+    success_count, skipped_count = update_pose._remap_labels_for_video(
+        "video1.avi",
+        label_source_project,
+        label_dest_project,
+        min_iou=0.5,
+        annotate_failures=True,
+    )
+
+    assert success_count == 1
+    assert skipped_count == 2
+
+    stderr = capsys.readouterr().err
+    assert "src_id=2 not present in source pose" in stderr
+    assert "behavior=Grooming" in stderr
+
+    # No failure annotation is written for the orphan blocks even with
+    # --annotate-failures, since the root cause is in source.
+    saved_labels = label_dest_project.save_annotations.call_args[0][0]
+    assert saved_labels.timeline_annotations.serialize() == []
 
 
 def test_apply_live_update_replaces_pose_set_and_clears_derived_files(tmp_path):
