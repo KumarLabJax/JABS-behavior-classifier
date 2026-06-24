@@ -546,7 +546,7 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
     [--grouping-pattern REGEX] \
     [--classifier {catboost|random_forest|xgboost}] \
     [--report-file FILE] \
-    [--mlflow [ENV_FILE]] [--mlflow-tag KEY=VALUE] [--mlflow-no-report]
+    [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] [--mlflow-no-report]
 ```
 
 - `DIRECTORY`: Path to the JABS project directory.
@@ -556,7 +556,7 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
 - `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
 - `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`).
-- `--mlflow`, `--mlflow-tag`, `--mlflow-no-report`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
+- `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
 
 ### Grouping strategies
 

@@ -269,6 +269,10 @@ def run_cross_validation(
                 "  (cross-validation results above and the saved report are unaffected)",
                 style="yellow",
             )
+            # Preserve an MlflowLoggingError raised by the logger (e.g. missing
+            # dependency); only wrap genuinely unexpected exceptions.
+            if isinstance(e, MlflowLoggingError):
+                raise
             raise MlflowLoggingError(str(e)) from e
         console.print(
             f"\nLogged cross-validation results to MLflow run {run_id} ({tracking_uri})",

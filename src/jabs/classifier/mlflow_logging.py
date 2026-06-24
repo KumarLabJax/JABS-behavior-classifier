@@ -5,11 +5,12 @@ invocation that records aggregate cross-validation metrics, a curated set of
 configuration scalars as params, descriptive tags, and the generated training
 report as an artifact.
 
-Connection configuration (tracking URI, experiment, auth, TLS) is **not**
-hard-coded here; it is read from standard ``MLFLOW_*`` environment variables,
-populated either from a ``.env`` file (see :func:`load_env_file`) or from the
-ambient environment. The experiment is whatever ``MLFLOW_EXPERIMENT_NAME``
-names, falling back to MLflow's built-in "Default" experiment.
+Connection configuration (tracking URI, auth, TLS) is **not** hard-coded here;
+it is read from standard ``MLFLOW_*`` environment variables, populated either
+from a ``.env`` file (see :func:`load_env_file`) or from the ambient
+environment. Each run is logged to a per-behavior experiment by default
+(``jabs-<behavior>``); see :func:`resolve_experiment_name` for the override
+precedence (explicit name, then ``MLFLOW_EXPERIMENT_NAME``, then the default).
 
 ``mlflow`` is an optional dependency. Install it with
 ``pip install 'jabs-behavior-classifier[mlflow]'`` (or, for a development

@@ -426,11 +426,8 @@ def cross_validation(
     # --mlflow: absent -> None (disabled); bare flag -> "" (ambient env);
     # with a path -> that .env file.
     mlflow_enabled = mlflow_env is not None
-    mlflow_env_file = Path(mlflow_env) if mlflow_env else None
-    try:
-        parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
+    mlflow_env_file: Path | None = None
+    parsed_mlflow_tags: dict[str, str] = {}
 
     # If MLflow logging was requested but the optional 'mlflow' extra is not
     # installed, warn and ignore the MLflow options rather than failing -- the
@@ -443,6 +440,16 @@ def cross_validation(
             err=True,
         )
         mlflow_enabled = False
+
+    # Only interpret the other MLflow options when logging is actually enabled.
+    # They are documented as no-ops without --mlflow, so e.g. a malformed
+    # --mlflow-tag is ignored rather than failing the command.
+    if mlflow_enabled:
+        mlflow_env_file = Path(mlflow_env) if mlflow_env else None
+        try:
+            parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
 
     try:
         classifier_type = ClassifierType[classifier.upper()]

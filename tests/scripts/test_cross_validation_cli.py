@@ -182,12 +182,24 @@ def test_mlflow_experiment_forwarded(
     assert run_cv_spy.call_args.kwargs["mlflow_experiment"] is None
 
 
-def test_invalid_mlflow_tag_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
-    """A malformed --mlflow-tag fails before run_cross_validation is called."""
+def test_invalid_mlflow_tag_rejected(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
+    """A malformed --mlflow-tag fails before run_cross_validation when MLflow is enabled."""
     result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
 
     assert result.exit_code != 0
     run_cv_spy.assert_not_called()
+
+
+def test_mlflow_tag_ignored_without_mlflow(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """--mlflow-tag is a no-op (even if malformed) when --mlflow is not given."""
+    result = _invoke(tmp_path, "--mlflow-tag", "noequals")
+
+    assert result.exit_code == 0, result.output
+    run_cv_spy.assert_called_once()
+    assert run_cv_spy.call_args.kwargs["mlflow_enabled"] is False
+    assert run_cv_spy.call_args.kwargs["mlflow_tags"] == {}
 
 
 def test_mlflow_logging_failure_exits_with_code_3(
@@ -207,10 +219,13 @@ def test_mlflow_unavailable_warns_and_ignores(
     """When the mlflow extra is absent, --mlflow is ignored with a warning (exit 0)."""
     monkeypatch.setattr(cli_module, "mlflow_available", lambda: False)
 
-    result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "purpose=baseline")
+    # A malformed tag must NOT error here: the options are ignored when the extra
+    # is missing, so the tag is never parsed.
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
 
     assert result.exit_code == 0, result.output
     assert "not installed" in result.stderr
     # cross-validation still runs, but MLflow logging is disabled
     run_cv_spy.assert_called_once()
     assert run_cv_spy.call_args.kwargs["mlflow_enabled"] is False
+    assert run_cv_spy.call_args.kwargs["mlflow_tags"] == {}
