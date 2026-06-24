@@ -171,13 +171,18 @@ def test_load_env_file_applies_only_mlflow_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Only MLFLOW_* keys are applied to the environment; others are ignored."""
+    # Use a unique, clearly-unrelated key and ensure it is absent from the
+    # (copied) environment up front, so the negative assertion below proves
+    # load_env_file did not add it rather than depending on the ambient env.
+    non_mlflow_key = "JABS_TEST_NON_MLFLOW_VAR"
     monkeypatch.setattr(os, "environ", dict(os.environ))
+    os.environ.pop(non_mlflow_key, None)
     env_file = tmp_path / "mlflow.env"
     env_file.write_text(
         "# a comment\n"
         'MLFLOW_TRACKING_URI="https://mlflow.example.org"\n'
         "export MLFLOW_EXPERIMENT_NAME=behaviors\n"
-        "OTHER_VAR=should-be-ignored\n"
+        f"{non_mlflow_key}=should-be-ignored\n"
     )
 
     applied = load_env_file(env_file)
@@ -188,7 +193,7 @@ def test_load_env_file_applies_only_mlflow_keys(
     }
     assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.example.org"
     assert os.environ["MLFLOW_EXPERIMENT_NAME"] == "behaviors"
-    assert "OTHER_VAR" not in os.environ
+    assert non_mlflow_key not in os.environ
 
 
 def test_load_env_file_missing_raises(tmp_path: Path) -> None:
