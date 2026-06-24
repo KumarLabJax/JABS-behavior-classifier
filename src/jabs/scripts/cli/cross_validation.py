@@ -54,7 +54,8 @@ def run_cross_validation(
           ``FILENAME_PATTERN``. If None, uses the pattern saved in project settings.
         mlflow_enabled (bool): If True, push the cross-validation results to MLflow
           after the report is saved. Callers should only enable this when the optional
-          'mlflow' dependency is installed (the CLI checks this and warns otherwise).
+          'mlflow' dependency is installed (the CLI checks this and fails fast with an
+          error before running when --mlflow is requested without the extra installed).
         mlflow_env_file (Path | None): Optional ``.env`` file with ``MLFLOW_*`` connection
           settings. If None, connection config comes from the ambient environment.
         mlflow_experiment (str | None): Explicit MLflow experiment name. If None, defaults
