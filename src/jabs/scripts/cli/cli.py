@@ -371,6 +371,16 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "(pip install 'jabs-behavior-classifier[mlflow]').",
 )
 @click.option(
+    "--mlflow-experiment",
+    "mlflow_experiment",
+    type=str,
+    default=None,
+    metavar="NAME",
+    help="With --mlflow, the MLflow experiment to log the run under. If not provided, "
+    "defaults to the MLFLOW_EXPERIMENT_NAME environment variable, else 'jabs-<behavior>' "
+    "(one experiment per behavior). No-op without --mlflow.",
+)
+@click.option(
     "--mlflow-tag",
     "mlflow_tags",
     multiple=True,
@@ -396,6 +406,7 @@ def cross_validation(
     classifier: str,
     report_file: Path | None,
     mlflow_env: str | None,
+    mlflow_experiment: str | None,
     mlflow_tags: tuple[str, ...],
     mlflow_no_report: bool,
 ):
@@ -445,6 +456,7 @@ def cross_validation(
             grouping_regex=grouping_pattern,
             mlflow_enabled=mlflow_enabled,
             mlflow_env_file=mlflow_env_file,
+            mlflow_experiment=mlflow_experiment,
             mlflow_tags=parsed_mlflow_tags,
             mlflow_log_report=not mlflow_no_report,
         )

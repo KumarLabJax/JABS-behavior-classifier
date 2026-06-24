@@ -628,30 +628,43 @@ Connection details — tracking server URI, experiment, authentication, TLS — 
 
 Common variables:
 
-| Variable | Purpose |
-|---|---|
-| `MLFLOW_TRACKING_URI` | URL (or local path) of the tracking server, e.g. `https://mlflow.example.org` |
-| `MLFLOW_EXPERIMENT_NAME` | Name of the experiment the run is logged under |
-| `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` | HTTP basic-auth credentials |
-| `MLFLOW_TRACKING_TOKEN` | Bearer-token auth (alternative to username/password) |
+| Variable                                                | Purpose                                                                                           |
+|---------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `MLFLOW_TRACKING_URI`                                   | URL (or local path) of the tracking server, e.g. `https://mlflow.example.org`                     |
+| `MLFLOW_EXPERIMENT_NAME`                                | Overrides the default experiment name (see [Selecting the experiment](#selecting-the-experiment)) |
+| `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` | HTTP basic-auth credentials                                                                       |
+| `MLFLOW_TRACKING_TOKEN`                                 | Bearer-token auth (alternative to username/password)                                              |
 
 Example `.env` file:
 
 ```
 MLFLOW_TRACKING_URI=https://mlflow.example.org
-MLFLOW_EXPERIMENT_NAME=mouse-grooming
 MLFLOW_TRACKING_USERNAME=jabs
 MLFLOW_TRACKING_PASSWORD=hunter2
 ```
 
 #### Selecting the experiment
 
-The run is logged under the experiment named by `MLFLOW_EXPERIMENT_NAME` (or `MLFLOW_EXPERIMENT_ID`). If neither is set, MLflow's built-in **Default** experiment is used. There is no dedicated command-line option for the experiment; set the environment variable in the `.env` file or your shell:
+Each behavior is logged to its **own experiment** by default, named `jabs-<behavior>` (for example `jabs-grooming`). This keeps comparisons meaningful: an experiment's runs table is effectively a leaderboard, and you want to rank runs of the *same* behavior over time rather than mix behaviors, whose metrics are not comparable. The experiment is created automatically if it does not exist.
+
+To override the experiment name, in order of precedence:
+
+1. `--mlflow-experiment NAME` (highest) — use a specific experiment for this run.
+2. `MLFLOW_EXPERIMENT_NAME` (in your shell or the `.env` file).
+3. The default `jabs-<behavior>`.
 
 ```bash
-export MLFLOW_EXPERIMENT_NAME=mouse-grooming
+# Default: logs to experiment "jabs-grooming"
 jabs-cli cross-validation /path/to/project --behavior grooming --mlflow
+
+# Override the experiment for this run
+jabs-cli cross-validation /path/to/project --behavior grooming --mlflow \
+    --mlflow-experiment grooming-hyperparam-sweep
 ```
+
+#### Comparing runs (leaderboard)
+
+The aggregate scores below (`cv_f1_behavior_mean`, `cv_accuracy_mean`, etc.) are logged as MLflow **metrics**, so an experiment's runs table doubles as a leaderboard — sort by the `cv_f1_behavior_mean` column to rank a behavior's runs by mean F1. The full per-fold breakdown rides along as the training-report artifact.
 
 #### What gets logged
 

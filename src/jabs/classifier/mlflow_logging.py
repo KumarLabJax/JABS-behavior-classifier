@@ -233,11 +233,37 @@ def build_tags(report_data: TrainingReportData) -> dict[str, str]:
     return {key: value for key, value in tags.items() if value}
 
 
+def resolve_experiment_name(report_data: TrainingReportData, experiment_name: str | None) -> str:
+    """Resolve the MLflow experiment name for a cross-validation run.
+
+    Each behavior is logged to its own experiment by default so that runs of the
+    same behavior are compared together (and not mixed with other behaviors, whose
+    metrics are not comparable). Precedence, highest first:
+
+    1. ``experiment_name`` -- an explicit override (e.g. from ``--mlflow-experiment``).
+    2. The ``MLFLOW_EXPERIMENT_NAME`` environment variable, if set.
+    3. The default ``jabs-<behavior>``.
+
+    Args:
+        report_data: Completed training report data (supplies the behavior name).
+        experiment_name: Explicit override, or None to fall back to the env var/default.
+
+    Returns:
+        The experiment name to use.
+    """
+    return (
+        experiment_name
+        or os.environ.get("MLFLOW_EXPERIMENT_NAME")
+        or f"jabs-{report_data.behavior_name}"
+    )
+
+
 def log_cross_validation_to_mlflow(
     *,
     report_data: TrainingReportData,
     report_file: Path | None = None,
     env_file: Path | None = None,
+    experiment_name: str | None = None,
     run_name: str | None = None,
     tags: dict[str, str] | None = None,
     log_report_artifact: bool = True,
@@ -255,6 +281,10 @@ def log_cross_validation_to_mlflow(
             False.
         env_file: Optional ``.env`` file with ``MLFLOW_*`` connection settings.
             If None, connection config comes from the ambient environment.
+        experiment_name: Explicit MLflow experiment name. If None, the experiment is
+            resolved by :func:`resolve_experiment_name` (``MLFLOW_EXPERIMENT_NAME`` env
+            var, else the default ``jabs-<behavior>``). The experiment is created if it
+            does not exist.
         run_name: MLflow run name. Defaults to ``<behavior>-cv-<timestamp>``, where the
             timestamp is the report's completion time (so it matches the saved report).
         tags: Caller-supplied run tags; merged over the auto-derived tags (so a
@@ -278,10 +308,17 @@ def log_cross_validation_to_mlflow(
 
     load_env_file(env_file)
 
+    resolved_experiment = resolve_experiment_name(report_data, experiment_name)
+    mlflow.set_experiment(resolved_experiment)
+
     if run_name is None:
         run_name = f"{report_data.behavior_name}-cv-{report_data.timestamp:%Y%m%d-%H%M%S}"
 
-    logger.info("Logging cross-validation results to MLflow run %r", run_name)
+    logger.info(
+        "Logging cross-validation results to MLflow experiment %r run %r",
+        resolved_experiment,
+        run_name,
+    )
     with mlflow.start_run(run_name=run_name) as run:
         metrics = aggregate_cv_metrics(report_data)
         for key, value in metrics.items():

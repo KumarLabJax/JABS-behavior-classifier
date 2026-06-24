@@ -32,6 +32,7 @@ def run_cross_validation(
     grouping_regex: str | None = None,
     mlflow_enabled: bool = False,
     mlflow_env_file: Path | None = None,
+    mlflow_experiment: str | None = None,
     mlflow_tags: dict[str, str] | None = None,
     mlflow_log_report: bool = True,
 ) -> None:
@@ -56,6 +57,8 @@ def run_cross_validation(
           'mlflow' dependency is installed (the CLI checks this and warns otherwise).
         mlflow_env_file (Path | None): Optional ``.env`` file with ``MLFLOW_*`` connection
           settings. If None, connection config comes from the ambient environment.
+        mlflow_experiment (str | None): Explicit MLflow experiment name. If None, defaults
+          to the ``MLFLOW_EXPERIMENT_NAME`` env var, else ``jabs-<behavior>``.
         mlflow_tags (dict[str, str] | None): Optional free-form MLflow run tags, merged
           over the auto-derived tags.
         mlflow_log_report (bool): Whether to upload the training report as an MLflow
@@ -256,6 +259,7 @@ def run_cross_validation(
                 report_data=training_data,
                 report_file=report_file,
                 env_file=mlflow_env_file,
+                experiment_name=mlflow_experiment,
                 tags=mlflow_tags,
                 log_report_artifact=mlflow_log_report,
             )

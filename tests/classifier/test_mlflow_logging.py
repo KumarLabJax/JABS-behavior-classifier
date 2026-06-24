@@ -24,6 +24,7 @@ from jabs.classifier.mlflow_logging import (
     log_cross_validation_to_mlflow,
     mlflow_available,
     parse_kv_tags,
+    resolve_experiment_name,
 )
 from jabs.classifier.training_report import BinaryCVResult, TrainingReportData
 from jabs.core.enums import CrossValidationGroupingStrategy
@@ -88,10 +89,14 @@ class _FakeMlflow:
 
     def __init__(self) -> None:
         self.run_name: str | None = None
+        self.experiment: str | None = None
         self.metrics: dict[str, float] = {}
         self.params: dict[str, str] = {}
         self.tags: dict[str, str] = {}
         self.artifacts: list[str] = []
+
+    def set_experiment(self, name: str) -> None:
+        self.experiment = name
 
     def start_run(self, run_name: str | None = None) -> _FakeRun:
         self.run_name = run_name
@@ -251,6 +256,33 @@ def test_build_tags_omits_empty(
 
 
 # --------------------------------------------------------------------------- #
+# resolve_experiment_name
+# --------------------------------------------------------------------------- #
+def test_resolve_experiment_name_default(
+    binary_report: TrainingReportData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no override or env var, the experiment defaults to jabs-<behavior>."""
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
+    assert resolve_experiment_name(binary_report, None) == "jabs-Walk"
+
+
+def test_resolve_experiment_name_env_var(
+    binary_report: TrainingReportData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MLFLOW_EXPERIMENT_NAME overrides the default when no explicit name is given."""
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "shared-experiment")
+    assert resolve_experiment_name(binary_report, None) == "shared-experiment"
+
+
+def test_resolve_experiment_name_explicit_wins(
+    binary_report: TrainingReportData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit name takes precedence over both the env var and the default."""
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "shared-experiment")
+    assert resolve_experiment_name(binary_report, "custom") == "custom"
+
+
+# --------------------------------------------------------------------------- #
 # log_cross_validation_to_mlflow
 # --------------------------------------------------------------------------- #
 def test_log_cross_validation_to_mlflow(
@@ -261,6 +293,7 @@ def test_log_cross_validation_to_mlflow(
     """A run logs metrics/params/tags/artifact and returns run id + tracking URI."""
     fake = _FakeMlflow()
     monkeypatch.setitem(sys.modules, "mlflow", fake)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
     monkeypatch.setattr("jabs.classifier.mlflow_logging._git_sha", lambda: "abc1234")
     report_file = tmp_path / "report.md"
     report_file.write_text("# report")
@@ -273,6 +306,8 @@ def test_log_cross_validation_to_mlflow(
 
     assert run_id == "run-123"
     assert tracking_uri == "file:///tmp/mlruns"
+    # default per-behavior experiment
+    assert fake.experiment == "jabs-Walk"
     assert fake.run_name == "Walk-cv-20260623-120000"
     assert fake.metrics["cv_accuracy_mean"] == pytest.approx(0.85)
     assert fake.params["behavior"] == "Walk"

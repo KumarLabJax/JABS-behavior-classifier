@@ -168,6 +168,20 @@ def test_mlflow_no_report_flag(
     assert run_cv_spy.call_args.kwargs["mlflow_log_report"] is False
 
 
+def test_mlflow_experiment_forwarded(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
+    """--mlflow-experiment is forwarded; default is None (resolved downstream)."""
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-experiment", "my-experiment")
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["mlflow_experiment"] == "my-experiment"
+
+    run_cv_spy.reset_mock()
+    result = _invoke(tmp_path, "--mlflow")
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["mlflow_experiment"] is None
+
+
 def test_invalid_mlflow_tag_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
     """A malformed --mlflow-tag fails before run_cross_validation is called."""
     result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
