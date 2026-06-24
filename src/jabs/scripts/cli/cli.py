@@ -429,17 +429,15 @@ def cross_validation(
     mlflow_env_file: Path | None = None
     parsed_mlflow_tags: dict[str, str] = {}
 
-    # If MLflow logging was requested but the optional 'mlflow' extra is not
-    # installed, warn and ignore the MLflow options rather than failing -- the
-    # cross-validation still runs and the report is still produced.
+    # If MLflow logging was explicitly requested but the optional 'mlflow' extra
+    # is not installed, fail fast before running the (potentially long)
+    # cross-validation rather than silently producing a run with no logging.
     if mlflow_enabled and not mlflow_available():
-        click.echo(
-            "Warning: MLflow logging was requested (--mlflow) but the optional 'mlflow' "
-            "dependency is not installed; ignoring MLflow options. Install it with "
-            "\"pip install 'jabs-behavior-classifier[mlflow]'\" to enable logging.",
-            err=True,
+        raise click.ClickException(
+            "MLflow logging was requested (--mlflow) but the optional 'mlflow' "
+            "dependency is not installed. Install it with "
+            "\"pip install 'jabs-behavior-classifier[mlflow]'\", or omit --mlflow."
         )
-        mlflow_enabled = False
 
     # Only interpret the other MLflow options when logging is actually enabled.
     # They are documented as no-ops without --mlflow, so e.g. a malformed

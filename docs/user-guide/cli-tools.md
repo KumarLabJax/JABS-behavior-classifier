@@ -606,7 +606,7 @@ MLflow is an optional dependency. Install it with the `mlflow` extra:
 pip install 'jabs-behavior-classifier[mlflow]'
 ```
 
-If you request MLflow logging without the extra installed, the command prints a warning, ignores the MLflow options, and still runs the cross-validation and writes the report (it exits `0`).
+If you request MLflow logging (`--mlflow`) without the extra installed, the command fails immediately with an error and exits `1` (before running the cross-validation), so you can install the extra and re-run rather than discovering after a long run that nothing was logged.
 
 #### Enabling logging
 
@@ -707,7 +707,7 @@ jabs-cli cross-validation /path/to/project --behavior grooming --mlflow --mlflow
 
 MLflow logging happens **after** the cross-validation results are printed and the report is saved, so a logging failure never costs you the results:
 
-- **Extra not installed:** a warning is printed, the MLflow options are ignored, and the command exits `0`.
+- **Extra not installed:** the command fails fast with an error and exits `1` before running the cross-validation, since logging was explicitly requested but cannot be honored. Install the extra (or drop `--mlflow`) and re-run.
 - **Logging fails** (for example the tracking server is unreachable or authentication fails): the results and report are preserved, a warning is printed, and the command exits with code **`3`** — distinct from the generic error code `1`, so automation can tell a push failure apart from a cross-validation failure.
 
 #### Full example

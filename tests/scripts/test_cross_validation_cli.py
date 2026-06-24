@@ -213,19 +213,15 @@ def test_mlflow_logging_failure_exits_with_code_3(
     assert result.exit_code == 3
 
 
-def test_mlflow_unavailable_warns_and_ignores(
+def test_mlflow_unavailable_fails_fast(
     tmp_path: Path, run_cv_spy: mock.Mock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When the mlflow extra is absent, --mlflow is ignored with a warning (exit 0)."""
+    """When the mlflow extra is absent, --mlflow fails fast (exit 1) before running CV."""
     monkeypatch.setattr(cli_module, "mlflow_available", lambda: False)
 
-    # A malformed tag must NOT error here: the options are ignored when the extra
-    # is missing, so the tag is never parsed.
-    result = _invoke(tmp_path, "--mlflow", "--mlflow-tag", "noequals")
+    result = _invoke(tmp_path, "--mlflow")
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "not installed" in result.stderr
-    # cross-validation still runs, but MLflow logging is disabled
-    run_cv_spy.assert_called_once()
-    assert run_cv_spy.call_args.kwargs["mlflow_enabled"] is False
-    assert run_cv_spy.call_args.kwargs["mlflow_tags"] == {}
+    # cross-validation must not run when an explicitly requested feature is unavailable
+    run_cv_spy.assert_not_called()
