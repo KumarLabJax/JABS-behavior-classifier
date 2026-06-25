@@ -8,14 +8,14 @@
 
 [![Python 3.10-3.14](https://img.shields.io/badge/python-3.10--3.14-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/jabs-behavior-classifier.svg)](https://pypi.org/project/jabs-behavior-classifier/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.7554%2FeLife.107259.2-green.svg)](https://doi.org/10.7554/eLife.107259.2)
 
-[Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
+[Documentation](https://jabs-tutorial.readthedocs.io/) · [User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/docs/user-guide/overview.md) · [Sample Data](https://doi.org/10.5281/zenodo.16697331) · [Contact Us](mailto:jabs@jax.org)
 
 ---
 
-![JABS Screenshot](https://raw.githubusercontent.com/KumarLabJax/JABS-behavior-classifier/v0.45.0/docs/assets/images/jabs_screenshot.png)
+![JABS Screenshot](https://raw.githubusercontent.com/KumarLabJax/JABS-behavior-classifier/v0.46.0/docs/assets/images/jabs_screenshot.png)
 
 </div>
 
@@ -145,7 +145,7 @@ JABS requires pose files generated from the Kumar Lab's mouse pose estimation ne
 
 We provide Singularity/Apptainer definition files and SLURM batch scripts for running
 JABS on Linux compute clusters. See
-[vm/README.md](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/vm/README.md)
+[vm/README.md](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/vm/README.md)
 for build instructions and usage details.
 
 ## Project Portability
@@ -181,14 +181,14 @@ JABS uses four version numbers to track compatibility:
 ## Documentation
 
 - **[ReadTheDocs Tutorial](https://jabs-tutorial.readthedocs.io/)** — Complete user guide and tutorials
-- **[User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/docs/user-guide/overview.md)** — Markdown documentation
+- **[User Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/docs/user-guide/overview.md)** — Markdown documentation
 - **[Sample Data](https://doi.org/10.5281/zenodo.16697331)** — Test datasets for demonstration
 
 ## Contributing
 
 Interested in contributing? Check out our:
-- [Contributing Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/CONTRIBUTING.md)
-- [Development Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.45.0/docs/development/development.md)
+- [Contributing Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/CONTRIBUTING.md)
+- [Development Guide](https://github.com/KumarLabJax/JABS-behavior-classifier/blob/v0.46.0/docs/development/development.md)
 
 ## Citation
 
