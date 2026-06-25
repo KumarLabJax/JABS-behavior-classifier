@@ -708,6 +708,7 @@ jabs-cli cross-validation /path/to/project --behavior grooming --mlflow --mlflow
 MLflow logging happens **after** the cross-validation results are printed and the report is saved, so a logging failure never costs you the results:
 
 - **Extra not installed:** the command fails fast with an error and exits `1` before running the cross-validation, since logging was explicitly requested but cannot be honored. Install the extra (or drop `--mlflow`) and re-run.
+- **Env file not found:** if the path passed to `--mlflow` does not exist, the command fails fast and exits `1` before running the cross-validation. The path is validated up front (with a leading `~` expanded), so a typo or missing file is caught immediately rather than after the run.
 - **Logging fails** (for example the tracking server is unreachable or authentication fails): the results and report are preserved, a warning is printed, and the command exits with code **`3`** — distinct from the generic error code `1`, so automation can tell a push failure apart from a cross-validation failure.
 
 #### Full example

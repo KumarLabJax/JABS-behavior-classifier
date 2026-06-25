@@ -443,7 +443,14 @@ def cross_validation(
     # They are documented as no-ops without --mlflow, so e.g. a malformed
     # --mlflow-tag is ignored rather than failing the command.
     if mlflow_enabled:
-        mlflow_env_file = Path(mlflow_env) if mlflow_env else None
+        if mlflow_env:
+            # Validate an explicit --mlflow env-file path up front. Logging runs
+            # only after the (potentially long) cross-validation, so a missing
+            # file should fail fast here (exit 1) instead of aborting the push at
+            # the very end (exit 3). expanduser() so a literal '~' still resolves.
+            mlflow_env_file = Path(mlflow_env).expanduser()
+            if not mlflow_env_file.is_file():
+                raise click.ClickException(f"--mlflow env file not found: {mlflow_env_file}")
         try:
             parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
         except ValueError as e:

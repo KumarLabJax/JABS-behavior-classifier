@@ -134,13 +134,50 @@ def test_mlflow_bare_flag_enables_ambient(
 def test_mlflow_with_env_file(
     tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
 ) -> None:
-    """--mlflow with a path forwards that .env file."""
-    result = _invoke(tmp_path, "--mlflow", "settings.env")
+    """--mlflow with a path to an existing .env file forwards that file."""
+    env_file = tmp_path / "settings.env"
+    env_file.write_text("MLFLOW_TRACKING_URI=http://localhost:5000\n")
+
+    result = _invoke(tmp_path, "--mlflow", str(env_file))
 
     assert result.exit_code == 0, result.output
     kwargs = run_cv_spy.call_args.kwargs
     assert kwargs["mlflow_enabled"] is True
-    assert kwargs["mlflow_env_file"] == Path("settings.env")
+    assert kwargs["mlflow_env_file"] == env_file
+
+
+def test_mlflow_missing_env_file_fails_fast(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
+    """--mlflow with a nonexistent .env file fails fast (exit 1) before running CV."""
+    missing = tmp_path / "nope.env"
+
+    result = _invoke(tmp_path, "--mlflow", str(missing))
+
+    assert result.exit_code == 1, result.output
+    assert "not found" in result.stderr
+    # the explicitly requested env file is missing, so CV must not run
+    run_cv_spy.assert_not_called()
+
+
+def test_mlflow_env_file_tilde_expanded(
+    tmp_path: Path,
+    run_cv_spy: mock.Mock,
+    mlflow_installed: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leading '~' in the --mlflow env-file path is expanded before validation."""
+    # Point the home directory at tmp_path on both POSIX (HOME) and Windows
+    # (USERPROFILE) so Path.expanduser() resolves '~' deterministically.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    env_file = tmp_path / "settings.env"
+    env_file.write_text("MLFLOW_TRACKING_URI=http://localhost:5000\n")
+
+    result = _invoke(tmp_path, "--mlflow", "~/settings.env")
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["mlflow_env_file"] == env_file
 
 
 def test_mlflow_tags_parsed_and_forwarded(

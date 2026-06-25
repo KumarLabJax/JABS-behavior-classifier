@@ -39,12 +39,15 @@ logger = logging.getLogger(__name__)
 
 
 def mlflow_available() -> bool:
-    """Return True if the optional ``mlflow`` package is importable.
+    """Return True if an import spec for the optional ``mlflow`` package is found.
 
     Uses :func:`importlib.util.find_spec` so the (heavy) ``mlflow`` package is
-    not actually imported just to test for its presence. Lets callers degrade
-    gracefully -- warning and skipping MLflow logging -- when the optional
-    'mlflow' extra is not installed.
+    not actually imported just to test for its presence. A located spec means
+    the package is installed and discoverable, not that ``import mlflow`` is
+    guaranteed to succeed -- a broken install or a missing transitive dependency
+    can still raise at import time. The CLI uses this to fail fast with a clear
+    error when ``--mlflow`` is requested without the optional 'mlflow' extra
+    installed.
     """
     return importlib.util.find_spec("mlflow") is not None
 
