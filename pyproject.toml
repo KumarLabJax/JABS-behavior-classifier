@@ -45,6 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 nwb = ["jabs-io[nwb]"]
 yaml = ["pyyaml>=6.0.0"]
+mlflow = ["mlflow>=3.8.1"]
 
 [tool.uv.sources]
 jabs-behavior = { workspace = true }
