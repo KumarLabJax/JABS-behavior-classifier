@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from jabs.classifier import Classifier
+from jabs.classifier import Classifier, MlflowLoggingError, mlflow_available, parse_kv_tags
 from jabs.core.enums import ClassifierMode, ClassifierType, CrossValidationGroupingStrategy
 from jabs.project import (
     Project,
@@ -322,9 +322,24 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
 )
 @click.option(
     "--grouping-strategy",
-    type=click.Choice(["video", "individual"], case_sensitive=False),
+    type=click.Choice(["video", "individual", "filename"], case_sensitive=False),
     default=None,
-    help=("Cross validation grouping strategy. If not provided, use the project setting."),
+    help=(
+        "Cross validation grouping strategy. If not provided, use the project setting. "
+        "The 'filename' strategy groups videos by a regular expression applied to their "
+        "filenames and requires --grouping-pattern (or a pattern saved in the project)."
+    ),
+)
+@click.option(
+    "--grouping-pattern",
+    "grouping_pattern",
+    type=str,
+    default=None,
+    help=(
+        "Regular expression used to extract a grouping key from each video filename. "
+        "Only used with '--grouping-strategy filename'. If not provided, the pattern saved "
+        "in the project settings is used."
+    ),
 )
 @click.option(
     "--classifier",
@@ -341,6 +356,45 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "Report format will be determined by extension (.md for Markdown, .json for JSON). "
     "If not provided, a default filename will be used.",
 )
+@click.option(
+    "--mlflow",
+    "mlflow_env",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    metavar="ENV_FILE",
+    help="Enable opt-in MLflow logging of the cross-validation results (aggregate "
+    "metrics, params, and the training report artifact). Optionally takes a path to a "
+    ".env file holding MLFLOW_* settings (tracking URI, experiment, auth, TLS); with no "
+    "path, those are read from the ambient environment. Absent leaves the command's "
+    "behavior unchanged. Requires the optional 'mlflow' extra "
+    "(pip install 'jabs-behavior-classifier[mlflow]').",
+)
+@click.option(
+    "--mlflow-experiment",
+    "mlflow_experiment",
+    type=str,
+    default=None,
+    metavar="NAME",
+    help="With --mlflow, the MLflow experiment to log the run under. If not provided, "
+    "defaults to the MLFLOW_EXPERIMENT_NAME environment variable, else 'jabs-<behavior>' "
+    "(one experiment per behavior). No-op without --mlflow.",
+)
+@click.option(
+    "--mlflow-tag",
+    "mlflow_tags",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="With --mlflow, add a free-form run tag (repeatable), e.g. purpose=baseline. "
+    "Merges over the auto-derived tags. No-op without --mlflow.",
+)
+@click.option(
+    "--mlflow-no-report",
+    "mlflow_no_report",
+    is_flag=True,
+    help="With --mlflow, skip uploading the training report artifact (metrics + params "
+    "only). No-op without --mlflow.",
+)
 @click.pass_context
 def cross_validation(
     ctx: click.Context,
@@ -348,8 +402,13 @@ def cross_validation(
     behavior: str,
     k: int,
     grouping_strategy: str | None,
+    grouping_pattern: str | None,
     classifier: str,
     report_file: Path | None,
+    mlflow_env: str | None,
+    mlflow_experiment: str | None,
+    mlflow_tags: tuple[str, ...],
+    mlflow_no_report: bool,
 ):
     """Run leave-one-group-out cross-validation for a JABS project."""
     if report_file is not None and report_file.suffix.lower() not in {".md", ".json"}:
@@ -357,16 +416,67 @@ def cross_validation(
             "Report file must have a .md (Markdown) or .json (JSON) extension."
         )
 
-    if grouping_strategy and grouping_strategy.lower() == "video":
-        cv_grouping = CrossValidationGroupingStrategy.VIDEO
-    elif grouping_strategy and grouping_strategy.lower() == "individual":
-        cv_grouping = CrossValidationGroupingStrategy.INDIVIDUAL
-    else:
-        cv_grouping = None
+    cv_grouping_by_name = {
+        "video": CrossValidationGroupingStrategy.VIDEO,
+        "individual": CrossValidationGroupingStrategy.INDIVIDUAL,
+        "filename": CrossValidationGroupingStrategy.FILENAME_PATTERN,
+    }
+    cv_grouping = cv_grouping_by_name[grouping_strategy.lower()] if grouping_strategy else None
+
+    # --mlflow: absent -> None (disabled); bare flag -> "" (ambient env);
+    # with a path -> that .env file.
+    mlflow_enabled = mlflow_env is not None
+    mlflow_env_file: Path | None = None
+    parsed_mlflow_tags: dict[str, str] = {}
+
+    # If MLflow logging was explicitly requested but the optional 'mlflow' extra
+    # is not installed, fail fast before running the (potentially long)
+    # cross-validation rather than silently producing a run with no logging.
+    if mlflow_enabled and not mlflow_available():
+        raise click.ClickException(
+            "MLflow logging was requested (--mlflow) but the optional 'mlflow' "
+            "dependency is not installed. Install it with "
+            "\"pip install 'jabs-behavior-classifier[mlflow]'\", or omit --mlflow."
+        )
+
+    # Only interpret the other MLflow options when logging is actually enabled.
+    # They are documented as no-ops without --mlflow, so e.g. a malformed
+    # --mlflow-tag is ignored rather than failing the command.
+    if mlflow_enabled:
+        if mlflow_env:
+            # Validate an explicit --mlflow env-file path up front. Logging runs
+            # only after the (potentially long) cross-validation, so a missing
+            # file should fail fast here (exit 1) instead of aborting the push at
+            # the very end (exit 3). expanduser() so a literal '~' still resolves.
+            mlflow_env_file = Path(mlflow_env).expanduser()
+            if not mlflow_env_file.is_file():
+                raise click.ClickException(f"--mlflow env file not found: {mlflow_env_file}")
+        try:
+            parsed_mlflow_tags = parse_kv_tags(list(mlflow_tags))
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
 
     try:
         classifier_type = ClassifierType[classifier.upper()]
-        run_cross_validation(directory, behavior, classifier_type, cv_grouping, k, report_file)
+        run_cross_validation(
+            directory,
+            behavior,
+            classifier_type,
+            cv_grouping,
+            k,
+            report_file,
+            grouping_regex=grouping_pattern,
+            mlflow_enabled=mlflow_enabled,
+            mlflow_env_file=mlflow_env_file,
+            mlflow_experiment=mlflow_experiment,
+            mlflow_tags=parsed_mlflow_tags,
+            mlflow_log_report=not mlflow_no_report,
+        )
+    except MlflowLoggingError:
+        # Cross-validation and the report succeeded; only the optional MLflow
+        # push failed (already reported on the console). Use a distinct, non-zero
+        # exit code so automation can tell this apart from a CV failure.
+        ctx.exit(3)
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
@@ -381,13 +491,13 @@ def cross_validation(
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
 )
 @click.option(
-    "--per-identity",
+    "--multisubject",
     is_flag=True,
     default=False,
     help=(
-        "Write one NWB file per identity instead of a single combined file. "
-        "OUTPUT is used as a naming template; files are written as "
-        "{output_stem}_{identity_name}.nwb alongside it."
+        "Write a single multi-subject NWB file (using the ndx-multisubjects "
+        "extension) instead of the default one file per identity. The combined "
+        "file is written directly to OUTPUT."
     ),
 )
 @click.option(
@@ -428,7 +538,7 @@ def convert_to_nwb(
     ctx: click.Context,
     input_path: Path,
     output: Path,
-    per_identity: bool,
+    multisubject: bool,
     session_description: str | None,
     subjects_path: Path | None,
     session_metadata_path: Path | None,
@@ -438,19 +548,21 @@ def convert_to_nwb(
     INPUT_PATH is a JABS pose HDF5 file (any version, v2-v8). The format
     version is inferred automatically from the filename (e.g. _pose_est_v6.h5).
 
-    OUTPUT is the destination NWB file. In --per-identity mode, OUTPUT is a
-    naming template and is not created directly; instead one file per identity
-    is written as {output_stem}_{identity_name}.nwb in the same directory.
+    OUTPUT is the destination NWB file. By default one file per identity is
+    written: OUTPUT is a naming template and is not created directly; instead
+    one file per identity is written as {output_stem}_{identity_name}.nwb in the
+    same directory. With --multisubject, a single combined file is written
+    directly to OUTPUT.
 
     Examples:
 
     \b
-        # Single file, all identities
+        # One NWB file per identity (default)
         jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb
 
     \b
-        # One NWB file per identity
-        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --per-identity
+        # A single multi-subject file (ndx-multisubjects)
+        jabs-cli convert-to-nwb session_pose_est_v6.h5 session.nwb --multisubject
 
     \b
         # Include per-animal metadata
@@ -463,7 +575,7 @@ def convert_to_nwb(
     if ctx.obj["VERBOSE"]:
         click.echo(f"Input:  {input_path}")
         click.echo(f"Output: {output}")
-        click.echo(f"Per-identity: {per_identity}")
+        click.echo(f"Multisubject: {multisubject}")
         if subjects_path:
             click.echo(f"Subjects: {subjects_path}")
         if session_metadata_path:
@@ -498,7 +610,7 @@ def convert_to_nwb(
             run_conversion(
                 input_path=input_path,
                 output_path=output,
-                per_identity=per_identity,
+                multisubject=multisubject,
                 session_description=session_description,
                 subjects=subjects,
                 session_metadata=session_metadata,
@@ -506,10 +618,10 @@ def convert_to_nwb(
         except Exception as e:
             raise click.ClickException(str(e)) from e
 
-    if per_identity:
-        click.echo(f"Wrote per-identity NWB files to {output.parent}")
-    else:
+    if multisubject:
         click.echo(f"Wrote {output}")
+    else:
+        click.echo(f"Wrote per-identity NWB files to {output.parent}")
 
 
 def main():

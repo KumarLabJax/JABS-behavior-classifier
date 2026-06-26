@@ -9,7 +9,9 @@ from rich.table import Table
 
 from jabs.classifier import (
     Classifier,
+    MlflowLoggingError,
     TrainingReportData,
+    log_cross_validation_to_mlflow,
     run_leave_one_group_out_cv,
     save_training_report,
 )
@@ -27,6 +29,12 @@ def run_cross_validation(
     grouping_strategy: CrossValidationGroupingStrategy | None,
     k: int,
     report_file: Path | None = None,
+    grouping_regex: str | None = None,
+    mlflow_enabled: bool = False,
+    mlflow_env_file: Path | None = None,
+    mlflow_experiment: str | None = None,
+    mlflow_tags: dict[str, str] | None = None,
+    mlflow_log_report: bool = True,
 ) -> None:
     """Run cross-validation for a JABS project from the command line.
 
@@ -41,6 +49,25 @@ def run_cross_validation(
         k (int): Number of cross-validation splits. Use 0 for max splits.
         report_file (Path | None): Path to save the training report file.
           Format will be determined by the extension (.md for markdown or .json for JSON).
+        grouping_regex (str | None): Regular expression used to extract a grouping key
+          from each video filename. Only used when ``grouping_strategy`` is
+          ``FILENAME_PATTERN``. If None, uses the pattern saved in project settings.
+        mlflow_enabled (bool): If True, push the cross-validation results to MLflow
+          after the report is saved. Callers should only enable this when the optional
+          'mlflow' dependency is installed (the CLI checks this and fails fast with an
+          error before running when --mlflow is requested without the extra installed).
+        mlflow_env_file (Path | None): Optional ``.env`` file with ``MLFLOW_*`` connection
+          settings. If None, connection config comes from the ambient environment.
+        mlflow_experiment (str | None): Explicit MLflow experiment name. If None, defaults
+          to the ``MLFLOW_EXPERIMENT_NAME`` env var, else ``jabs-<behavior>``.
+        mlflow_tags (dict[str, str] | None): Optional free-form MLflow run tags, merged
+          over the auto-derived tags.
+        mlflow_log_report (bool): Whether to upload the training report as an MLflow
+          artifact. Only used when ``mlflow_enabled`` is True.
+
+    Raises:
+        MlflowLoggingError: If MLflow logging is requested but fails. The
+          cross-validation results and the saved report are unaffected.
     """
     if k < 0:
         raise ValueError("The number of cross-validation splits 'k' must be non-negative.")
@@ -90,6 +117,7 @@ def run_cross_validation(
         features, group_mapping = project.get_labeled_features(
             behavior,
             grouping_strategy=grouping_strategy,
+            grouping_regex=grouping_regex,
         )
 
     with progress:
@@ -178,6 +206,19 @@ def run_cross_validation(
     unit = "cm" if project.feature_manager.distance_unit == ProjectDistanceUnit.CM else "pixel"
     report_timestamp = datetime.now()
     behavior_settings = project.settings_manager.get_behavior(behavior)
+
+    # resolve the grouping strategy/regex actually used so the report reflects any
+    # command-line overrides rather than the project's saved settings.
+    effective_grouping_strategy = (
+        grouping_strategy
+        if grouping_strategy is not None
+        else project.settings_manager.cv_grouping_strategy
+    )
+    effective_grouping_regex = (
+        grouping_regex
+        if grouping_regex is not None
+        else project.settings_manager.cv_grouping_regex
+    )
     training_data = TrainingReportData(
         behavior_name=behavior,
         classifier_type=classifier.classifier_name,
@@ -193,8 +234,12 @@ def run_cross_validation(
         training_time_ms=elapsed_ms,
         timestamp=report_timestamp,
         window_size=behavior_settings["window_size"],
-        cv_grouping_strategy=project.settings_manager.cv_grouping_strategy,
-        cv_grouping_regex=project.settings_manager.cv_grouping_regex,
+        cv_grouping_strategy=effective_grouping_strategy,
+        cv_grouping_regex=(
+            effective_grouping_regex
+            if effective_grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN
+            else None
+        ),
     )
 
     # Save markdown report
@@ -205,3 +250,32 @@ def run_cross_validation(
 
     save_training_report(training_data, report_file)
     console.print(f"\nTraining report saved to: {report_file}", style="bold green")
+
+    # Push results to MLflow last, so a logging failure (missing dependency,
+    # network, auth, TLS) never costs the cross-validation results -- they are
+    # already on screen and the report is already saved.
+    if mlflow_enabled:
+        try:
+            run_id, tracking_uri = log_cross_validation_to_mlflow(
+                report_data=training_data,
+                report_file=report_file,
+                env_file=mlflow_env_file,
+                experiment_name=mlflow_experiment,
+                tags=mlflow_tags,
+                log_report_artifact=mlflow_log_report,
+            )
+        except Exception as e:
+            console.print(f"\nWarning: MLflow logging failed: {e}", style="bold yellow")
+            console.print(
+                "  (cross-validation results above and the saved report are unaffected)",
+                style="yellow",
+            )
+            # Preserve an MlflowLoggingError raised by the logger (e.g. missing
+            # dependency); only wrap genuinely unexpected exceptions.
+            if isinstance(e, MlflowLoggingError):
+                raise
+            raise MlflowLoggingError(str(e)) from e
+        console.print(
+            f"\nLogged cross-validation results to MLflow run {run_id} ({tracking_uri})",
+            style="bold green",
+        )
