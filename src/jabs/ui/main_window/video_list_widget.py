@@ -133,6 +133,8 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
     """
 
     selectionChanged = QtCore.Signal(str)
+    # Emitted when the user chooses "Classify Video" for a video (its filename).
+    classify_video_requested = QtCore.Signal(str)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -140,6 +142,9 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         self._project = None
         self._suppress_selection_event = False
         self._pending_selection = None  # Track the pending video selection
+        # whether a trained classifier is ready to classify a single video;
+        # kept in sync by the main window and gates the context-menu action
+        self._classify_available = False
 
         # Debounce timer to delay video loading when rapidly switching videos
         self._debounce_timer = QtCore.QTimer(self)
@@ -222,6 +227,11 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         menu = QtWidgets.QMenu(self)
         get_info_action = menu.addAction("Get Info")
         copy_video_name_action = menu.addAction("Copy Video Name")
+        menu.addSeparator()
+        classify_action = menu.addAction("Classify Video")
+
+        # only offer single-video classification when a trained classifier is ready
+        classify_action.setEnabled(self._project is not None and self._classify_available)
         exclude_action = menu.addAction("Exclude from Training")
         exclude_action.setCheckable(True)
         exclude_action.setChecked(bool(item.data(_EXCLUDED_ROLE)))
@@ -232,6 +242,8 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
             self._show_video_info(video_name)
         elif action == copy_video_name_action:
             QtWidgets.QApplication.clipboard().setText(video_name)
+        elif action == classify_action:
+            self.classify_video_requested.emit(video_name)
         elif action == exclude_action:
             self._set_video_excluded(item, video_name, exclude_action.isChecked())
 
@@ -267,6 +279,14 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
             return
         dialog = VideoInfoDialog(video_path, pose_path, identity_count=identity_count, parent=self)
         dialog.exec()
+
+    def set_classify_available(self, available: bool) -> None:
+        """Set whether the "Classify Video" context-menu action is available.
+
+        Args:
+            available: True if a trained classifier is ready to classify a video.
+        """
+        self._classify_available = available
 
     def set_project(self, project):
         """Update the video list with the active project's videos and select first video in list."""

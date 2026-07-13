@@ -42,6 +42,9 @@ class ClassifyThread(QThread):
         project (Project): The project containing data and settings.
         behavior (str): The behavior label to classify.
         current_video (str): The video currently loaded in the video player.
+        videos (list[str] | None, optional): Restrict classification to these video
+            filenames. When ``None`` (the default) every video in the project is
+            classified, preserving the "classify all" behavior.
         parent (QWidget or None, optional): Optional parent widget.
 
     Note:
@@ -62,6 +65,7 @@ class ClassifyThread(QThread):
         project: Project,
         behavior: str,
         current_video: str,
+        videos: list[str] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent=parent)
@@ -70,6 +74,7 @@ class ClassifyThread(QThread):
         self._behavior = behavior
         self._tasks_complete = 0
         self._current_video = current_video
+        self._videos = videos
         self._should_terminate = False
 
     def request_termination(self) -> None:
@@ -118,7 +123,10 @@ class ClassifyThread(QThread):
             strategy = self._build_strategy()
             project_settings = strategy.project_settings()
 
-            for video in self._project.video_manager.videos:
+            videos = (
+                self._videos if self._videos is not None else self._project.video_manager.videos
+            )
+            for video in videos:
                 check_termination_requested()
 
                 video_path = self._project.video_manager.video_path(video)

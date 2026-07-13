@@ -48,6 +48,14 @@ class CentralWidget(QtWidgets.QWidget):
     search_hit_loaded = QtCore.Signal(SearchHit)
     bbox_overlay_supported = QtCore.Signal(bool)
 
+    # Emitted whenever the classify button's enabled state changes, so the video
+    # list's "Classify Video" context-menu action can track classifier readiness.
+    classify_availability_changed = QtCore.Signal(bool)
+
+    # Requests that the video list select (and thus load) the given video, used to
+    # auto-switch to a single video after it is classified from the context menu.
+    request_video_selection = QtCore.Signal(str)
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -92,6 +100,9 @@ class CentralWidget(QtWidgets.QWidget):
         self._classifier = Classifier(n_jobs=-1)
         self._training_thread: TrainingThread | None = None
         self._classify_thread: ClassifyThread | None = None
+        # videos targeted by the in-flight classification run (None == all videos),
+        # used to decide how the completion handler updates the display
+        self._classification_targets: list[str] | None = None
         self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
 
@@ -906,6 +917,19 @@ class CentralWidget(QtWidgets.QWidget):
             str(self._controls.current_identity_index), self._controls.current_behavior
         )
 
+    def _set_classify_enabled(self, enabled: bool) -> None:
+        """Set the classify button's enabled state and notify listeners.
+
+        Centralizes updates to the classify button so the video list's
+        "Classify Video" context-menu action can track classifier readiness via
+        the ``classify_availability_changed`` signal.
+
+        Args:
+            enabled: True to enable classification, False to disable it.
+        """
+        self._controls.classify_button_enabled = enabled
+        self.classify_availability_changed.emit(enabled)
+
     def _update_classifier_controls(self) -> None:
         """Called when settings related to a loaded classifier should be updated"""
         self._controls.set_classifier_selection(self._classifier.classifier_type)
@@ -920,11 +944,11 @@ class CentralWidget(QtWidgets.QWidget):
             and classifier_settings.get("symmetric_behavior", None) == self._controls.use_symmetric
         ):
             # if yes, we can enable the classify button
-            self._controls.classify_button_enabled = True
+            self._set_classify_enabled(True)
         else:
             # if not, the classify button needs to be disabled until the
             # user retrains
-            self._controls.classify_button_enabled = False
+            self._set_classify_enabled(False)
 
     def _train_button_clicked(self) -> None:
         """handle user click on "Train" button"""
@@ -1028,7 +1052,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.status_message.emit(
             f"Training Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
-        self._controls.classify_button_enabled = True
+        self._set_classify_enabled(True)
 
         # Display training report if available
         if self._training_report_markdown:
@@ -1100,7 +1124,7 @@ class CentralWidget(QtWidgets.QWidget):
                 message=f"An exception occurred during training:\n{error}",
                 details="".join(traceback.format_exception(error)),
             )
-            self._controls.classify_button_enabled = False
+            self._set_classify_enabled(False)
 
     def _classify_thread_error_callback(self, error: Exception) -> None:
         """handle an error in the classification thread"""
@@ -1158,26 +1182,62 @@ class CentralWidget(QtWidgets.QWidget):
         self._progress_dialog.setValue(step)
 
     def _classify_button_clicked(self) -> None:
-        """handle user click on "Classify" button"""
+        """handle user click on "Classify" button (classifies every video)"""
+        self._start_classification(None)
+
+    def classify_single_video(self, video_name: str) -> None:
+        """Classify a single video, e.g. from the video list context menu.
+
+        Runs the same classification pipeline as the "Classify" button, but
+        restricted to ``video_name``. If no trained classifier is ready for the
+        current behavior, a warning is shown and nothing runs.
+
+        Args:
+            video_name: The video filename to classify.
+        """
+        if not self._controls.classify_button_enabled:
+            MessageDialog.warning(
+                self,
+                message="Train a classifier for this behavior before classifying a video.",
+            )
+            return
+        self._start_classification([video_name])
+
+    def _start_classification(self, videos: list[str] | None) -> None:
+        """Launch the classification thread for the given videos.
+
+        Args:
+            videos: Video filenames to classify, or ``None`` to classify every
+                video in the project.
+        """
+        # ignore the request if a classification run is already in progress
+        if self._classify_thread is not None:
+            return
+
         # make sure video playback is stopped
         self._player_widget.stop()
         self._ensure_classifier_for_mode()
+
+        self._classification_targets = videos
+        current_video = self._loaded_video.name if self._loaded_video else ""
+        total_videos = (
+            len(videos) if videos is not None else self._project.video_manager.num_videos
+        )
 
         # setup classification thread
         self._classify_thread = ClassifyThread(
             self._classifier,
             self._project,
             self._controls.current_behavior,
-            self._loaded_video.name,
+            current_video,
+            videos=videos,
             parent=self,
         )
         self._classify_thread.classification_complete.connect(self._classify_thread_complete)
         self._classify_thread.error_callback.connect(self._classify_thread_error_callback)
         self._classify_thread.update_progress.connect(self._update_classify_progress)
         self._classify_thread.current_status.connect(lambda m: self.status_message.emit(m, 0))
-        self._progress_dialog = create_cancelable_progress_dialog(
-            self, "Predicting", self._project.video_manager.num_videos
-        )
+        self._progress_dialog = create_cancelable_progress_dialog(self, "Predicting", total_videos)
         self._progress_dialog.show()
         self._progress_dialog.canceled.connect(self._classify_thread.request_termination)
 
@@ -1186,18 +1246,29 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
-        # display the new predictions
-        self._predictions = output["predictions"]
-        self._probabilities = output["probabilities"]
-        self._predictions_postprocessed = output["predictions_postprocessed"]
-        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
-            self._multiclass_class_names = output.get("class_names")
+        targets = self._classification_targets
+        loaded_video = self._loaded_video.name if self._loaded_video else None
+
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
+        self._classification_targets = None
         self.status_message.emit(
             f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )
-        self._set_prediction_vis()
+
+        # if the classified set includes the currently loaded video (or we
+        # classified every video), refresh the display with the new predictions
+        if targets is None or (loaded_video is not None and loaded_video in targets):
+            self._predictions = output["predictions"]
+            self._probabilities = output["probabilities"]
+            self._predictions_postprocessed = output["predictions_postprocessed"]
+            if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+                self._multiclass_class_names = output.get("class_names")
+            self._set_prediction_vis()
+        elif len(targets) == 1:
+            # a single, non-loaded video was classified from the context menu;
+            # switch to it so its freshly-saved predictions are displayed
+            self.request_video_selection.emit(targets[0])
 
     def _update_classify_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
@@ -1560,7 +1631,7 @@ class CentralWidget(QtWidgets.QWidget):
         """handle classifier selection change"""
         if self._classifier.classifier_type != self._controls.classifier_type:
             # changing classifier type, disable until retrained
-            self._controls.classify_button_enabled = False
+            self._set_classify_enabled(False)
             self._classifier.set_classifier(self._controls.classifier_type)
 
     def _on_pixmap_clicked(self, event: dict[str, int]) -> None:
@@ -1664,7 +1735,7 @@ class CentralWidget(QtWidgets.QWidget):
         if classifier_loaded:
             self._update_classifier_controls()
         else:
-            self._controls.classify_button_enabled = False
+            self._set_classify_enabled(False)
 
     def _on_search_hit_changed_later(self, _: SearchHit | None) -> None:
         """Update the search hit after a short delay to allow UI updates to complete."""
