@@ -75,3 +75,17 @@ def test_included_project_bout_totals_handles_none_counts():
     """No counts yet -> zero totals (no crash)."""
     stub = _bout_stub_widget(None, set())
     assert CentralWidget._included_project_bout_totals(stub) == (0, 0)
+
+
+def test_frame_count_mismatch_message_none_when_equal():
+    """Matching video/pose frame counts produce no warning message."""
+    assert CentralWidget._frame_count_mismatch_message("v.avi", 100, 100) is None
+
+
+def test_frame_count_mismatch_message_reports_counts():
+    """A mismatch yields a message naming the video and both frame counts."""
+    msg = CentralWidget._frame_count_mismatch_message("v.avi", 100, 90)
+    assert msg is not None
+    assert "v.avi" in msg
+    assert "100" in msg
+    assert "90" in msg

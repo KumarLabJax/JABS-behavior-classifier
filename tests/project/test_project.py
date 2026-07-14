@@ -227,9 +227,24 @@ def test_no_saved_video_labels(project_with_data):
 
 
 def test_bad_video_file(project_with_data):
-    """test loading a video file that doesn't exist raises ValueError"""
+    """Opt-in up-front video check raises IOError when a video can't be opened."""
     with pytest.raises(IOError), hide_stderr():
-        _ = Project(Path("test_project_with_data"), enable_session_tracker=False)
+        _ = Project(
+            Path("test_project_with_data"),
+            enable_video_check=True,
+            enable_session_tracker=False,
+        )
+
+
+def test_load_defers_video_frame_check_by_default(project_with_data):
+    """By default the video frame-count check is deferred.
+
+    The fixture's ``.avi`` files are empty stubs that cannot be opened, so the
+    opt-in path raises IOError (see ``test_bad_video_file``). With the default
+    (deferred) behavior no video file is opened, so the project loads cleanly.
+    """
+    project = Project(Path("test_project_with_data"), enable_session_tracker=False)
+    assert set(project.video_manager.videos) == {"test_file_1.avi", "test_file_2.avi"}
 
 
 def test_min_pose_version(project_with_data):
