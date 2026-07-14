@@ -484,6 +484,31 @@ Features can specify minimum pose versions and required static objects via class
 
 See `src/jabs/feature_extraction/landmark_features/` for examples.
 
+**Embedding features (V-JEPA sidecars):**
+
+`src/jabs/feature_extraction/embedding_features/` exposes precomputed video-model
+(V-JEPA) embeddings as per-frame features, so a classifier can be trained on learned
+embeddings instead of pose-derived geometry. Unlike other groups, the data is not
+derived from the pose file: it is read from an HDF5 **sidecar** produced externally by
+the `pbs-vjepa` tooling and placed next to the pose file as `<video_stem>.vjepa.h5`.
+
+Key points:
+
+- **One column per embedding dimension** (`emb_0000`, `emb_0001`, ...); the dimension
+  count is read from the sidecar (it may be PCA-reduced).
+- **Window operations are disabled** (`EmbeddingFeature.window()` returns `{}`): each
+  embedding already integrates temporal context over its source clip, so rolling
+  statistics would be redundant and would explode the feature count.
+- **Uncovered frames are NaN** (frames where the identity is absent or no clip covered
+  them), so JABS's `clean_features` treats them as missing.
+- **Activation requires BOTH** the project setting `embedding: True` **and** a sidecar
+  present next to the pose file. With either missing, the group contributes nothing
+  (pose-only projects are unaffected). Gating happens once in `IdentityFeatures.__init__`.
+- **Format contract:** `SUPPORTED_SIDECAR_FORMAT_VERSION` in
+  `embedding_features/sidecar.py` pins the sidecar layout; a frame-count mismatch between
+  the sidecar and the pose file raises `EmbeddingSidecarError` rather than silently
+  misaligning rows. The reader validates the format version at load.
+
 ##### Detailed Initialization and Execution Flow
 
 Understanding when and how features are initialized is key to extending the feature extraction system.
