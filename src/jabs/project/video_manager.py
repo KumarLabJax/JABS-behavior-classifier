@@ -151,8 +151,20 @@ class VideoManager:
 
     @staticmethod
     def get_videos(dir_path: Path):
-        """Get list of video filenames (without path) in a directory"""
-        return [f.name for f in dir_path.glob("*") if f.suffix in [".avi", ".mp4"]]
+        """Get list of video filenames (without path) in a directory.
+
+        Dotfiles are skipped. In particular this excludes macOS AppleDouble
+        sidecar files (``._<name>``) that the OS creates when writing to
+        non-APFS/HFS+ volumes (e.g. exFAT/NTFS external drives). Those are not
+        real videos, and ``pathlib.Path.glob`` matches them (unlike the shell);
+        their companion ``._..._pose_est_v*.h5`` sidecars are not valid HDF5 and
+        would otherwise break the project video scan.
+        """
+        return [
+            f.name
+            for f in dir_path.glob("*")
+            if f.suffix in [".avi", ".mp4"] and not f.name.startswith(".")
+        ]
 
     def get_video_identity_count(self, video_name: str) -> int:
         """Get the number of identity count for a specific video.

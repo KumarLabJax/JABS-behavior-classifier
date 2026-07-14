@@ -77,6 +77,22 @@ def test_get_videos(video_manager, project_paths):
     assert len(videos) == 2
 
 
+def test_get_videos_excludes_dotfiles(tmp_path):
+    """get_videos ignores dotfiles, including macOS AppleDouble ('._*') sidecars."""
+    (tmp_path / "real1.mp4").touch()
+    (tmp_path / "real2.avi").touch()
+    # macOS AppleDouble sidecars written when copying to exFAT/NTFS volumes
+    (tmp_path / "._real1.mp4").touch()
+    (tmp_path / "._real2.avi").touch()
+    # other hidden files that should never be treated as videos
+    (tmp_path / ".DS_Store").touch()
+    (tmp_path / ".hidden.mp4").touch()
+
+    videos = VideoManager.get_videos(tmp_path)
+
+    assert sorted(videos) == ["real1.mp4", "real2.avi"]
+
+
 def test_check_video_name(video_manager):
     """Test checking if a video name is valid."""
     video_manager.check_video_name("video1.avi")  # Should not raise an exception
