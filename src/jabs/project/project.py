@@ -33,6 +33,7 @@ from jabs.pose_estimation import (
     open_pose_file,
 )
 
+from . import pose_attribute_cache
 from .feature_manager import FeatureManager
 from .parallel_workers import (
     BinaryFeatureLoadJobSpec,
@@ -59,6 +60,57 @@ MULTICLASS_CLASSIFIER_FILENAME = "_multiclass.pickle"
 if TYPE_CHECKING:
     from jabs.classifier import ClassifierProtocol
     from jabs.core.utils.process_pool_manager import ProcessPoolManager
+
+
+# Pose-derived fields cached per video; an entry is trusted only when it carries
+# a matching token and pose filename plus all of these fields.
+_POSE_CACHE_FIELDS = (
+    "hdf5_frame_count",
+    "identity_count",
+    "static_objects",
+    "lixit_keypoints",
+    "has_cm_per_pixel",
+)
+
+
+def _pose_cache_entry_matches(entry: object, token: str, pose_file: str) -> bool:
+    """Return True when a cache entry is usable for a video's current pose file."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("token") == token
+        and entry.get("pose_file") == pose_file
+        and all(field in entry for field in _POSE_CACHE_FIELDS)
+    )
+
+
+def _scan_result_from_pose_cache(video: str, entry: dict) -> VideoScanResult:
+    """Reconstruct a VideoScanResult from a cached entry.
+
+    ``video_frame_count`` is left ``None``: video frame counts are validated on
+    demand rather than at load, so they are never cached.
+    """
+    return VideoScanResult(
+        video=video,
+        hdf5_frame_count=entry["hdf5_frame_count"],
+        video_frame_count=None,
+        identity_count=entry["identity_count"],
+        static_objects=list(entry["static_objects"]),
+        lixit_keypoints=entry["lixit_keypoints"],
+        has_cm_per_pixel=entry["has_cm_per_pixel"],
+    )
+
+
+def _pose_cache_entry(result: VideoScanResult, pose_file: str, token: str) -> dict:
+    """Build a cache entry from a fresh scan result."""
+    return {
+        "token": token,
+        "pose_file": pose_file,
+        "hdf5_frame_count": result["hdf5_frame_count"],
+        "identity_count": result["identity_count"],
+        "static_objects": list(result["static_objects"]),
+        "lixit_keypoints": result["lixit_keypoints"],
+        "has_cm_per_pixel": result["has_cm_per_pixel"],
+    }
 
 
 class Project:
@@ -211,6 +263,28 @@ class Project:
         if not jobs:
             return {}
 
+        # The opt-in up-front check reads video frame counts, which are not
+        # cached, so it always performs a full scan.
+        if enable_video_check:
+            return self._scan_jobs(jobs, process_pool)
+
+        return self._run_cached_video_scan(jobs, process_pool)
+
+    @staticmethod
+    def _scan_jobs(
+        jobs: list[VideoScanJobSpec],
+        process_pool: "ProcessPoolManager | None",
+    ) -> dict[str, VideoScanResult]:
+        """Run scan jobs in parallel when a pool is available, else sequentially.
+
+        Args:
+            jobs: Scan jobs to execute.
+            process_pool: Optional shared pool; when ``None`` the jobs run
+                sequentially in the calling process.
+
+        Returns:
+            Mapping from video filename to its scan result.
+        """
         if process_pool is not None:
             future_to_video = {
                 process_pool.submit(scan_video_metadata, job): job["video"] for job in jobs
@@ -222,6 +296,57 @@ class Project:
             return results
 
         return {job["video"]: scan_video_metadata(job) for job in jobs}
+
+    def _run_cached_video_scan(
+        self,
+        jobs: list[VideoScanJobSpec],
+        process_pool: "ProcessPoolManager | None",
+    ) -> dict[str, VideoScanResult]:
+        """Scan only new/changed pose files, reusing cached attributes otherwise.
+
+        Pose attributes are intrinsic to the pose file, so an entry whose cached
+        ``stat`` token still matches is reused without opening the file. Only
+        videos with a missing or stale entry are scanned; the cache is then
+        rewritten when anything changed (a rescan happened, or the set of videos
+        differs from what was cached).
+
+        Args:
+            jobs: Scan jobs for every video with a locatable pose file.
+            process_pool: Optional shared pool for parallelizing the scan of the
+                uncached videos.
+
+        Returns:
+            Mapping from video filename to its scan result.
+        """
+        cache_path = self._paths.pose_attribute_cache_file
+        cached = pose_attribute_cache.load(cache_path)
+
+        results: dict[str, VideoScanResult] = {}
+        tokens: dict[str, str] = {}
+        to_scan: list[VideoScanJobSpec] = []
+        for job in jobs:
+            video = job["video"]
+            token = pose_attribute_cache.pose_token(job["pose_path"])
+            tokens[video] = token
+            entry = cached.get(video)
+            if _pose_cache_entry_matches(entry, token, job["pose_path"].name):
+                results[video] = _scan_result_from_pose_cache(video, entry)
+            else:
+                to_scan.append(job)
+
+        if to_scan:
+            results.update(self._scan_jobs(to_scan, process_pool))
+
+        updated = {
+            job["video"]: _pose_cache_entry(
+                results[job["video"]], job["pose_path"].name, tokens[job["video"]]
+            )
+            for job in jobs
+        }
+        if to_scan or set(updated) != set(cached):
+            pose_attribute_cache.save(cache_path, updated)
+
+        return results
 
     def _validate_pose_files(self):
         """Ensure all videos have corresponding pose files."""

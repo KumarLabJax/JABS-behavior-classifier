@@ -86,6 +86,16 @@ class ProjectPaths:
         return self._cache_dir
 
     @property
+    def pose_attribute_cache_file(self) -> Path | None:
+        """Get the path to the per-video pose-attribute cache file.
+
+        Returns ``None`` when the project has no cache directory
+        (``use_cache=False``), in which case pose attributes are not persisted
+        and every load performs a full pose scan.
+        """
+        return self._cache_dir / "pose_attribute_cache.json" if self._cache_dir else None
+
+    @property
     def session_dir(self) -> Path:
         """Get the path to the session directory."""
         return self._session_dir
