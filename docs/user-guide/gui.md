@@ -28,6 +28,7 @@ Right-click a video name to open a context menu:
 
 - **Get Info:** Open a dialog showing details about the video and its associated pose file.
 - **Copy Video Name:** Copy the video's filename to the clipboard.
+- **Classify Video:** Run the trained classifier for the current behavior on just this video, rather than every video the way the **Classify** button does. This item is only available once a classifier has been trained for the current behavior (if none is ready, JABS prompts you to train one first). When classification finishes, JABS displays the new predictions, switching to the video if it is not already the active one.
 - **Exclude from Training:** Toggle whether the video is held out of classifier training (unchecked by default). When a video is excluded:
     - its labels are **not** used to train the classifier, and
     - it does **not** count toward the labeling thresholds that enable the **Train** button, so excluding too many videos can disable training.
@@ -39,7 +40,7 @@ Right-click a video name to open a context menu:
 <img src="imgs/classifier_controls.png" alt="JABS Classifier Controls" width=900 />
 
 - **Train Button:** Train the classifier with the current parameters. This button is disabled until minimum number of frames have been labeled for a minimum number of mice (increasing the cross validation k parameter increases the minimum number of labeled mice). When training completes, a training report dialog will display performance metrics including cross-validation results and feature importance rankings.
-- **Classify Button:** Infer class of unlabeled frames. Disabled until classifier is trained. Changing classifier parameters may require retraining before the Classify button becomes active again.
+- **Classify Button:** Infer class of unlabeled frames for every video in the project. Disabled until classifier is trained. Changing classifier parameters may require retraining before the Classify button becomes active again. To classify a single video instead, use **Classify Video** in the video list's right-click menu.
 - **Classifier Type Selection:** Users can select from a list of supported classifiers.
 - **Window Size Selection:** Number of frames on each side of the current frame to include in window feature calculations for that frame. A "window size" of 5 means that 11 frames are included into the window feature calculations for each frame (5 previous frames, current frame, 5 following frames).
 - **New Window Size:** Add a new window size to the project.
