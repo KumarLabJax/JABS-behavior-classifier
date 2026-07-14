@@ -521,6 +521,9 @@ class Project:
                 for obj in fe.landmark_features.LandmarkFeatureGroup.feature_map
             },
             "segmentation": pose_version >= 6,
+            # V-JEPA embedding features: opt-in, and only active when a sidecar exists
+            # next to the pose file (see feature_extraction.embedding_features).
+            "embedding": False,
             "window": True,
             "fft": True,
             "balance_labels": False,

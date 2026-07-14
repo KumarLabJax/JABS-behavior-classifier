@@ -19,6 +19,8 @@ from jabs.pose_estimation import PoseEstimation, PoseEstimationV6, PoseHashExcep
 from .base_features import BaseFeatureGroup
 
 # import feature modules
+from .embedding_features import EmbeddingFeatureGroup
+from .embedding_features.sidecar import sidecar_exists
 from .feature_base_class import Feature
 from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
@@ -35,9 +37,14 @@ FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
-FEATURE_VERSION = 17
+FEATURE_VERSION = 18
 
-_FEATURE_MODULES = [BaseFeatureGroup, SocialFeatureGroup, SegmentationFeatureGroup]
+_FEATURE_MODULES = [
+    BaseFeatureGroup,
+    SocialFeatureGroup,
+    SegmentationFeatureGroup,
+    EmbeddingFeatureGroup,
+]
 
 _EXTENDED_FEATURE_MODULES = [LandmarkFeatureGroup]
 
@@ -187,6 +194,12 @@ class IdentityFeatures:
             and cast(PoseEstimationV6, pose_est).has_segmentation
         )
 
+        # embeddings activate only when explicitly enabled AND a sidecar exists next
+        # to the pose file (both gate; mirrors the segmentation capability+toggle pattern)
+        self._compute_embedding_features = bool(
+            (op_settings or {}).get("embedding", False)
+        ) and sidecar_exists(pose_est.pose_file)
+
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
         )
@@ -198,6 +211,9 @@ class IdentityFeatures:
                 continue
             # don't include segmentation features if it is not supported by the pose file
             if not self._compute_segmentation_features and m is SegmentationFeatureGroup:
+                continue
+            # don't include embedding features unless enabled and a sidecar is present
+            if not self._compute_embedding_features and m is EmbeddingFeatureGroup:
                 continue
             self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
