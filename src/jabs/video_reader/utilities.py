@@ -47,10 +47,11 @@ def get_fps_and_nframes(video_path: str) -> tuple[int, int]:
         OSError: if unable to open the specified video.
     """
     stream = cv2.VideoCapture(video_path)
-    if not stream.isOpened():
-        raise OSError(f"unable to open {video_path}")
-
-    fps = round(stream.get(cv2.CAP_PROP_FPS))
-    num_frames = int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
-    stream.release()
+    try:
+        if not stream.isOpened():
+            raise OSError(f"unable to open {video_path}")
+        fps = round(stream.get(cv2.CAP_PROP_FPS))
+        num_frames = int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        stream.release()
     return fps, num_frames

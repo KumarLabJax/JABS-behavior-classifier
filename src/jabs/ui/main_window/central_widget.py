@@ -427,12 +427,20 @@ class CentralWidget(QtWidgets.QWidget):
 
             # Frame-count check deferred from project load: warn (do not block)
             # if the video and its pose file disagree on frame count, since labels
-            # and features are pose-indexed but the player shows video frames.
+            # and features are pose-indexed but the player shows video frames. The
+            # dialog is scheduled on the next event-loop turn so it does not pause
+            # the rest of load_video; the video finishes loading, then the warning
+            # appears over it.
             mismatch_message = self._frame_count_mismatch_message(
                 path.name, self._player_widget.num_frames, self._pose_est.num_frames
             )
             if mismatch_message is not None:
-                MessageDialog.warning(self, "Video / pose frame count mismatch", mismatch_message)
+                QtCore.QTimer.singleShot(
+                    0,
+                    lambda: MessageDialog.warning(
+                        self, "Video / pose frame count mismatch", mismatch_message
+                    ),
+                )
 
             # load saved predictions for this video
             (
