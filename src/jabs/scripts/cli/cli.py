@@ -33,7 +33,7 @@ from .update_labels import update_labels_command
 from .update_pose import update_pose_command
 
 # find out which classifiers are supported in this environment
-CLASSIFIER_CHOICES: list[ClassifierType] = Classifier().classifier_choices()
+CLASSIFIER_CHOICES = Classifier().classifier_choices()
 DEFAULT_CLASSIFIER: str = (
     ClassifierType.XGBOOST.value.lower()
     if ClassifierType.XGBOOST in CLASSIFIER_CHOICES

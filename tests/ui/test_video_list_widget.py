@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 import pytest
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6 import QtWidgets
+    from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QColor, QPalette
     from PySide6.QtWidgets import QApplication
 
@@ -92,3 +93,64 @@ def test_text_pen_color_dims_excluded_rows_in_all_states():
     assert pen(palette, selected=True, excluded=True).name() == QColor("green").name()
     # selected included -> normal highlighted text
     assert pen(palette, selected=True, excluded=False).name() == QColor("blue").name()
+
+
+def _patch_menu(monkeypatch, chooser):
+    """Replace QMenu with a non-modal subclass whose exec() delegates to chooser.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture.
+        chooser: callable taking the menu's action list and returning the action
+            to treat as "chosen" (or None for no selection).
+    """
+
+    class _NonModalMenu(QtWidgets.QMenu):
+        def exec(self, *_args, **_kwargs):
+            return chooser(self.actions())
+
+    monkeypatch.setattr(QtWidgets, "QMenu", _NonModalMenu)
+
+
+def _classify_action(actions):
+    """Return the "Classify Video" action from a list of menu actions."""
+    for action in actions:
+        if action.text() == "Classify Video":
+            return action
+    raise AssertionError("no 'Classify Video' action in menu")
+
+
+@pytest.mark.parametrize("available", [True, False], ids=["ready", "not-ready"])
+def test_classify_action_enabled_reflects_availability(monkeypatch, available):
+    """The Classify Video action is enabled only when a classifier is available."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi"], excluded=set()))
+    widget.set_classify_available(available)
+    item = _item_for(widget, "a.avi")
+    monkeypatch.setattr(widget._file_list, "itemAt", lambda _pos: item)
+
+    captured = {}
+
+    def chooser(actions):
+        captured["enabled"] = _classify_action(actions).isEnabled()
+        return None  # choose nothing
+
+    _patch_menu(monkeypatch, chooser)
+    widget._show_context_menu(QPoint(0, 0))
+
+    assert captured["enabled"] is available
+
+
+def test_choosing_classify_action_emits_request(monkeypatch):
+    """Choosing Classify Video emits classify_video_requested with the video name."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["a.avi"], excluded=set()))
+    widget.set_classify_available(True)
+    item = _item_for(widget, "a.avi")
+    monkeypatch.setattr(widget._file_list, "itemAt", lambda _pos: item)
+    _patch_menu(monkeypatch, _classify_action)
+
+    requested = []
+    widget.classify_video_requested.connect(requested.append)
+    widget._show_context_menu(QPoint(0, 0))
+
+    assert requested == ["a.avi"]

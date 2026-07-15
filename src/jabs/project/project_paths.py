@@ -107,10 +107,18 @@ class ProjectPaths:
                 the jabs directory. Defaults to True.
         """
         if validate and not self._jabs_dir.exists():
+            # Skip dotfiles (e.g. macOS AppleDouble "._*" sidecars created on
+            # exFAT/NTFS external drives), which are not real videos or valid
+            # pose HDF5 files and must not make a directory look like a project.
             has_video = any(
-                file for ext in ("*.mp4", "*.avi") for file in self._video_dir.glob(ext)
+                file
+                for ext in ("*.mp4", "*.avi")
+                for file in self._video_dir.glob(ext)
+                if not file.name.startswith(".")
             )
-            has_pose = any(self._pose_dir.glob("*_pose_est_v*.h5"))
+            has_pose = any(
+                p for p in self._pose_dir.glob("*_pose_est_v*.h5") if not p.name.startswith(".")
+            )
             if not has_video or not has_pose:
                 raise ValueError(
                     f"{self._base_path} does not appear to be a valid JABS project. "
