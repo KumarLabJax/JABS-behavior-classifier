@@ -123,6 +123,17 @@ class MainWindow(QtWidgets.QMainWindow):
         # Handle event where user selects a different video in the playlist
         self.video_list.selectionChanged.connect(self._video_list_selection)
 
+        # Classify a single video from the video list context menu, and keep the
+        # menu action's availability in sync with the classifier's readiness
+        self.video_list.classify_video_requested.connect(
+            self._central_widget.classify_single_video
+        )
+        self._central_widget.classify_availability_changed.connect(
+            self.video_list.set_classify_available
+        )
+        # After a single video is classified, switch to it so its predictions show
+        self._central_widget.request_video_selection.connect(self.video_list.select_video)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """override keyPressEvent so we can pass some key press events on to the centralWidget"""
         key = event.key()
