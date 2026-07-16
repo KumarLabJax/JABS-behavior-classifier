@@ -177,14 +177,13 @@ def _load_metadata(metadata_path: Path | None) -> dict | None:
     try:
         metadata = json.loads(metadata_path.read_text())
         validate_metadata(metadata)
+        return metadata
     except json.JSONDecodeError as e:
         _exit_with_message(f"Error reading metadata file {metadata_path}: {e}")
     except OSError as e:
         _exit_with_message(f"Error opening metadata file {metadata_path}: {e}")
     except ValidationError as e:
         _exit_with_message(f"Metadata file {metadata_path} is not valid: {e.message}")
-
-    return metadata
 
 
 def _apply_project_metadata(project: jabs.project.Project, metadata: dict | None) -> None:
