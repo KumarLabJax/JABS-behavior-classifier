@@ -287,8 +287,8 @@ def run_initialize_project(
         # pose file and video frame number mismatch, etc
 
         def validation_job_producer():
-            for video in videos:
-                yield {"video": video, "project_dir": project_dir}
+            for video_name in videos:
+                yield {"video": video_name, "project_dir": project_dir}
 
         # do work in parallel (not really necessary for this test, but we already
         # have the worker pool for generating features)
