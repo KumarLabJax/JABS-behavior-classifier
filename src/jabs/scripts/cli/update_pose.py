@@ -577,10 +577,14 @@ def _handle_orphan_identities(
     lines = [intro]
     for video, num_identities, orphans in issues:
         orphans_str = ", ".join(str(i) for i in orphans)
+        range_str = (
+            "no valid indices"
+            if num_identities == 0
+            else f"valid indices 0 to {num_identities - 1}"
+        )
         lines.append(
             f"  {video}: {source_label} pose has {num_identities} identities "
-            f"(valid indices 0 to {num_identities - 1}) but annotation references "
-            f"identity {orphans_str}"
+            f"({range_str}) but annotation references identity {orphans_str}"
         )
     lines.append("")
     lines.append(

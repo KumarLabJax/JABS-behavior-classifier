@@ -993,6 +993,20 @@ def test_handle_orphan_identities_noop_when_empty():
     update_pose._handle_orphan_identities([], tolerate=True)
 
 
+def test_handle_orphan_identities_message_handles_zero_identities():
+    """A pose with ``num_identities == 0`` must not render an inverted range."""
+    issues = [("video1.avi", 0, [0, 1])]
+
+    with pytest.raises(ValueError) as excinfo:
+        update_pose._handle_orphan_identities(issues, source_label="source")
+
+    msg = str(excinfo.value)
+    assert "pose has 0 identities" in msg
+    assert "no valid indices" in msg
+    # Guard against a regression to the "0 to -1" phrasing.
+    assert "-1" not in msg
+
+
 def test_preflight_update_inputs_raises_on_orphan_source_identities(tmp_path, monkeypatch):
     """Preflight must abort before any mutation when source labels reference orphans."""
     project_dir = tmp_path / "project"
