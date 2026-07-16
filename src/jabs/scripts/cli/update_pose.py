@@ -383,6 +383,24 @@ def _remap_labels_for_video(
             )
             continue
 
+        # Source's annotation references an identity its own pose can no longer
+        # supply. Under normal strict operation this is caught earlier by
+        # ``_handle_orphan_identities`` in preflight; this inline guard handles
+        # the ``--tolerate-orphan-identities`` mode where preflight only warns.
+        # All blocks for this (identity, behavior) pair are counted as skipped
+        # with a single per-pair warning; no failure annotation is written
+        # because the root cause is in the source project.
+        if src_identity >= source_pose.num_identities:
+            orphan_block_count = sum(1 for _ in track_labels.get_blocks())
+            print(
+                f"WARNING: {video} src_id={src_identity} not present in source pose "
+                f"(only {source_pose.num_identities} identities); skipping "
+                f"{orphan_block_count} block(s) for behavior={behavior}.",
+                file=sys.stderr,
+            )
+            skipped_count += orphan_block_count
+            continue
+
         for block in track_labels.get_blocks():
             start, end, present = block["start"], block["end"], block["present"]
             dst_identity, iou = _find_best_identity(
@@ -452,8 +470,12 @@ def _validate_pose_file(
     pose_path: Path,
     role: str,
     require_bboxes: bool,
-) -> int:
-    """Validate that a pose file is readable and matches the video frame count."""
+) -> tuple[int, int]:
+    """Validate that a pose file is readable and matches the video frame count.
+
+    Returns:
+        Tuple of ``(format_major_version, num_identities)``.
+    """
     pose = open_pose_file(pose_path, None)
     version = getattr(pose, "format_major_version", 0)
     if require_bboxes and (version < 8 or not getattr(pose, "has_bounding_boxes", False)):
@@ -466,7 +488,128 @@ def _validate_pose_file(
             f"{video} {role} pose frame count ({pose_frames}) does not match video ({video_frames})"
         )
 
-    return int(version)
+    return int(version), int(pose.num_identities)
+
+
+def _orphan_identities_in_annotation(
+    annotation_path: Path,
+    num_identities: int,
+) -> list[int]:
+    """Return identity indices referenced in the annotation file that are orphaned.
+
+    An identity index is orphaned when it is ``>= num_identities`` — i.e. the
+    pose file does not have a corresponding row of pose data for it.
+
+    Inspects the per-identity label tracks (from ``unfragmented_labels`` when
+    present, else ``labels`` — mirroring :meth:`VideoLabels.load`, so whichever
+    section the remap loop will actually iterate is the one that gets scanned)
+    and identity-scoped timeline annotations (the optional ``identity`` field
+    on each entry of ``annotations``). Non-integer or null identity values are
+    ignored — they refer to video-level annotations or are otherwise out of
+    scope for this check.
+
+    Args:
+        annotation_path: Path to a JABS annotation JSON file. Returns an empty
+            list if the file does not exist or cannot be parsed.
+        num_identities: The corresponding pose file's ``num_identities``. Any
+            identity index ``>= num_identities`` is reported as orphaned.
+
+    Returns:
+        Sorted, deduplicated list of orphan identity indices.
+    """
+    try:
+        with annotation_path.open() as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+    orphans: set[int] = set()
+
+    label_key = "unfragmented_labels" if "unfragmented_labels" in data else "labels"
+    for identity_key in data.get(label_key, {}):
+        try:
+            identity_index = int(identity_key)
+        except (TypeError, ValueError):
+            continue
+        if identity_index >= num_identities:
+            orphans.add(identity_index)
+
+    for annotation in data.get("annotations", []):
+        identity = annotation.get("identity")
+        if identity is None:
+            continue
+        try:
+            identity_index = int(identity)
+        except (TypeError, ValueError):
+            continue
+        if identity_index >= num_identities:
+            orphans.add(identity_index)
+
+    return sorted(orphans)
+
+
+def _handle_orphan_identities(
+    issues: list[tuple[str, int, list[int]]],
+    *,
+    source_label: str = "source",
+    tolerate: bool = False,
+) -> None:
+    """Report orphan-identity issues, either by raising or by warning to stderr.
+
+    Args:
+        issues: List of ``(video, pose_num_identities, orphan_identity_indices)``
+            tuples accumulated during preflight. Empty list is a no-op.
+        source_label: Human label for the side that owns the broken data
+            (e.g. ``"source"`` or ``"live"``). Used in the message.
+        tolerate: When ``True``, write a consolidated warning to stderr and let
+            the caller proceed. The remap loop's inline guard then skips any
+            affected ``(identity, behavior)`` pairs as they are encountered.
+            When ``False`` (default), raise a ``ValueError`` so the run aborts
+            before any backup or mutation.
+    """
+    if not issues:
+        return
+
+    intro = (
+        f"{source_label.capitalize()} project has orphan identity references "
+        "that cannot be matched against pose data:"
+    )
+    lines = [intro]
+    for video, num_identities, orphans in issues:
+        orphans_str = ", ".join(str(i) for i in orphans)
+        range_str = (
+            "no valid indices"
+            if num_identities == 0
+            else f"valid indices 0 to {num_identities - 1}"
+        )
+        lines.append(
+            f"  {video}: {source_label} pose has {num_identities} identities "
+            f"({range_str}) but annotation references identity {orphans_str}"
+        )
+    lines.append("")
+    lines.append(
+        "These identity indices have no corresponding entries in the pose file. "
+        "Typically the pose was regenerated with fewer identities, leaving stale "
+        "label entries that can no longer be matched against pose data."
+    )
+
+    if tolerate:
+        lines.append("")
+        lines.append(
+            "Proceeding because --tolerate-orphan-identities is set. The affected "
+            "(identity, behavior) pairs will be skipped; all other labels are "
+            "remapped normally."
+        )
+        print("WARNING: " + "\n".join(lines), file=sys.stderr)
+        return
+
+    lines.append("")
+    lines.append(
+        f"Clean up the {source_label} annotation files (drop the orphan identity "
+        "entries from the affected .json files) and re-run, or pass "
+        "--tolerate-orphan-identities to skip the affected entries instead."
+    )
+    raise ValueError("\n".join(lines))
 
 
 def _validate_live_update_targets(
@@ -529,8 +672,20 @@ def _validate_live_update_targets(
 def _preflight_update_inputs(
     project_dir: Path,
     new_pose_dir: Path,
+    *,
+    tolerate_orphan_identities: bool = False,
 ) -> tuple[list[str], dict[str, Path], set[str]]:
-    """Validate live and replacement inputs before any live mutation occurs."""
+    """Validate live and replacement inputs before any live mutation occurs.
+
+    Args:
+        project_dir: Live project directory.
+        new_pose_dir: Directory containing replacement pose files.
+        tolerate_orphan_identities: When ``True``, orphan identity references in
+            the live project's annotation files are warned about and remap
+            continues, with the affected ``(identity, behavior)`` pairs skipped
+            during remap. When ``False`` (default), the orphan check raises
+            before any backup or mutation.
+    """
     if not Project.is_valid_project_directory(project_dir):
         raise ValueError(f"{project_dir} is not a valid JABS project directory")
     if not new_pose_dir.is_dir():
@@ -544,20 +699,21 @@ def _preflight_update_inputs(
     live_annotations: set[str] = set()
     annotations_dir = project_dir / "jabs" / "annotations"
     replacement_version: int | None = None
+    orphan_issues: list[tuple[str, int, list[int]]] = []
 
     for video in videos:
         video_path = project_dir / video
         live_pose_path = get_pose_path(video_path)
         replacement_pose_path = get_pose_path(video_path, new_pose_dir)
 
-        _validate_pose_file(
+        _, live_num_identities = _validate_pose_file(
             video,
             video_path,
             live_pose_path,
             "source",
             require_bboxes=True,
         )
-        video_replacement_version = _validate_pose_file(
+        video_replacement_version, _ = _validate_pose_file(
             video,
             video_path,
             replacement_pose_path,
@@ -577,6 +733,13 @@ def _preflight_update_inputs(
         annotation_path = annotations_dir / Path(video).with_suffix(".json")
         if annotation_path.exists():
             live_annotations.add(video)
+            orphans = _orphan_identities_in_annotation(annotation_path, live_num_identities)
+            if orphans:
+                orphan_issues.append((video, live_num_identities, orphans))
+
+    _handle_orphan_identities(
+        orphan_issues, source_label="live", tolerate=tolerate_orphan_identities
+    )
 
     _validate_live_update_targets(project_dir, videos, live_annotations)
 
@@ -990,6 +1153,7 @@ def update_project_pose_in_place(
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
     skip_feature_gen: bool = False,
+    tolerate_orphan_identities: bool = False,
 ) -> tuple[int, int, Path, str]:
     """Update a live project in place using replacement pose files from ``new_pose_dir``.
 
@@ -1002,6 +1166,10 @@ def update_project_pose_in_place(
         drop_timeline_annotations: Whether to discard existing source timeline annotations
             instead of copying or remapping them.
         skip_feature_gen: Whether to skip feature generation after pose update.
+        tolerate_orphan_identities: When ``True``, warn about orphan identity
+            references in the live project's annotations and skip the affected
+            ``(identity, behavior)`` pairs during remap instead of aborting at
+            preflight.
 
     Returns:
         Tuple of ``(total_success, total_skipped, backup_path, feature_regen_status)`` for
@@ -1014,6 +1182,7 @@ def update_project_pose_in_place(
     videos, replacement_pose_files, live_annotation_videos = _preflight_update_inputs(
         project_dir,
         new_pose_dir,
+        tolerate_orphan_identities=tolerate_orphan_identities,
     )
     backup_path = _create_backup_archive(project_dir, videos)
 
@@ -1125,6 +1294,16 @@ def update_project_pose_in_place(
         "contains explicit window_sizes."
     ),
 )
+@click.option(
+    "--tolerate-orphan-identities",
+    is_flag=True,
+    help=(
+        "Continue past orphan identity references in the live project's "
+        "annotation files (warn instead of erroring at preflight). The affected "
+        "(identity, behavior) pairs are skipped during remap; all other labels "
+        "are remapped normally. By default, the command aborts at preflight."
+    ),
+)
 def update_pose_command(
     project: Path,
     new_pose_dir: Path,
@@ -1133,6 +1312,7 @@ def update_pose_command(
     annotate_failures: bool,
     drop_timeline_annotations: bool,
     skip_feature_gen: bool,
+    tolerate_orphan_identities: bool,
 ) -> None:
     """Update a JABS project in place to use updated pose files while remapping labels."""
     total_success, total_skipped, backup_path, feature_regen_status = update_project_pose_in_place(
@@ -1143,6 +1323,7 @@ def update_pose_command(
         annotate_failures=annotate_failures,
         drop_timeline_annotations=drop_timeline_annotations,
         skip_feature_gen=skip_feature_gen,
+        tolerate_orphan_identities=tolerate_orphan_identities,
     )
 
     click.echo(f"Backup archive: {backup_path}")
