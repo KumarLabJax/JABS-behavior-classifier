@@ -31,8 +31,9 @@ class VideoManager:
     Args:
         paths: Object containing project directory paths.
         settings_manager: Manages project settings and metadata.
-        enable_video_check: Whether to validate that video and pose file frame
-            counts match. Defaults to True.
+        enable_video_check: Opt-in up-front validation that video and pose file
+            frame counts match; when True, every video file is opened. Defaults
+            to False, which defers the check to when a video is opened.
         scan_results: Per-video metadata collected by
             :func:`~jabs.project.parallel_workers.scan_video_metadata`, keyed
             by video filename. Every video in the project directory must have an
@@ -47,7 +48,7 @@ class VideoManager:
         self,
         paths: ProjectPaths,
         settings_manager: SettingsManager,
-        enable_video_check: bool = True,
+        enable_video_check: bool = False,
         *,
         scan_results: "dict[str, VideoScanResult]",
     ):

@@ -1,5 +1,6 @@
 """Tests for parallel_workers — scan_video_metadata and _get_identity_count."""
 
+import logging
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,6 +14,7 @@ from jabs.project.parallel_workers import (
     VideoScanJobSpec,
     VideoScanResult,
     _get_identity_count,
+    _warn_on_frame_count_mismatch,
     collect_multiclass_labeled_features,
     scan_video_metadata,
 )
@@ -26,6 +28,7 @@ class _MockPose:
     def __init__(self, mask: np.ndarray):
         self._mask = mask
         self.identities = [0]
+        self.num_frames = int(mask.shape[0])
 
     def identity_mask(self, identity: int) -> np.ndarray:
         assert identity == 0
@@ -64,7 +67,9 @@ def test_collect_labeled_features_multiclass_filters_and_aligns(
             return window_features
 
     monkeypatch.setattr("jabs.project.parallel_workers.open_pose_file", lambda *_: pose)
-    monkeypatch.setattr("jabs.project.parallel_workers.get_fps", lambda *_: 30)
+    monkeypatch.setattr(
+        "jabs.project.parallel_workers.get_fps_and_nframes", lambda *_: (30, pose.num_frames)
+    )
     monkeypatch.setattr("jabs.project.parallel_workers._load_video_labels", lambda *_: labels)
     monkeypatch.setattr("jabs.project.parallel_workers.fe.IdentityFeatures", _FakeIdentityFeatures)
 
@@ -134,7 +139,9 @@ def test_collect_labeled_features_multiclass_requires_behavior_names(
     labels.get_track_labels("0", MULTICLASS_NONE_BEHAVIOR).label_behavior(0, 0)
     pose = _MockPose(mask=np.array([1, 1], dtype=np.uint8))
     monkeypatch.setattr("jabs.project.parallel_workers.open_pose_file", lambda *_: pose)
-    monkeypatch.setattr("jabs.project.parallel_workers.get_fps", lambda *_: 30)
+    monkeypatch.setattr(
+        "jabs.project.parallel_workers.get_fps_and_nframes", lambda *_: (30, pose.num_frames)
+    )
     monkeypatch.setattr("jabs.project.parallel_workers._load_video_labels", lambda *_: labels)
 
     with pytest.raises(ValueError, match="behavior_names is required"):
@@ -379,6 +386,20 @@ def test_video_manager_scan_results_frame_mismatch_raises(tmp_path):
 # ---------------------------------------------------------------------------
 # FeatureManager with pre-loaded scan_results — no HDF5 opens
 # ---------------------------------------------------------------------------
+
+
+def test_warn_on_frame_count_mismatch_logs_warning(caplog):
+    """A video/pose frame-count mismatch emits a warning naming the video."""
+    with caplog.at_level(logging.WARNING):
+        _warn_on_frame_count_mismatch("video1.avi", 100, 90)
+    assert any("video1.avi" in m and "does not match" in m for m in caplog.messages)
+
+
+def test_warn_on_frame_count_mismatch_silent_when_equal(caplog):
+    """No warning is emitted when the frame counts match."""
+    with caplog.at_level(logging.WARNING):
+        _warn_on_frame_count_mismatch("video1.avi", 100, 100)
+    assert not any("does not match" in m for m in caplog.messages)
 
 
 def test_feature_manager_with_scan_results_no_hdf5_open(tmp_path):

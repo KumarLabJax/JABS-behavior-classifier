@@ -29,3 +29,29 @@ def get_fps(video_path: str):
         raise OSError(f"unable to open {video_path}")
 
     return round(stream.get(cv2.CAP_PROP_FPS))
+
+
+def get_fps_and_nframes(video_path: str) -> tuple[int, int]:
+    """Get the frames per second and frame count from a video in a single open.
+
+    Reads both properties from one ``cv2.VideoCapture`` handle so callers that
+    already need the FPS can obtain the frame count without a second file open.
+
+    Args:
+        video_path: string containing path to video file.
+
+    Returns:
+        Tuple of ``(fps, num_frames)`` where ``fps`` is rounded to an int.
+
+    Raises:
+        OSError: if unable to open the specified video.
+    """
+    stream = cv2.VideoCapture(video_path)
+    try:
+        if not stream.isOpened():
+            raise OSError(f"unable to open {video_path}")
+        fps = round(stream.get(cv2.CAP_PROP_FPS))
+        num_frames = int(stream.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        stream.release()
+    return fps, num_frames

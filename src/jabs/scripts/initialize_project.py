@@ -9,7 +9,7 @@ overwrite existing feature H5 files.
 import json
 import logging
 import os
-from multiprocessing import Pool
+from multiprocessing.pool import Pool
 from pathlib import Path
 
 import click
@@ -177,14 +177,13 @@ def _load_metadata(metadata_path: Path | None) -> dict | None:
     try:
         metadata = json.loads(metadata_path.read_text())
         validate_metadata(metadata)
+        return metadata
     except json.JSONDecodeError as e:
         _exit_with_message(f"Error reading metadata file {metadata_path}: {e}")
     except OSError as e:
         _exit_with_message(f"Error opening metadata file {metadata_path}: {e}")
     except ValidationError as e:
         _exit_with_message(f"Metadata file {metadata_path} is not valid: {e.message}")
-
-    return metadata
 
 
 def _apply_project_metadata(project: jabs.project.Project, metadata: dict | None) -> None:
@@ -253,7 +252,12 @@ def run_initialize_project(
         videos = VideoManager.get_videos(project_dir)
         metadata = _load_metadata(metadata_path)
 
-        project = jabs.project.Project(project_dir, enable_session_tracker=False)
+        # jabs-init performs a full up-front validation of the project, including
+        # confirming each video and its pose file agree on frame count, so it fails
+        # fast on an inconsistent project before any features are generated.
+        project = jabs.project.Project(
+            project_dir, enable_video_check=True, enable_session_tracker=False
+        )
         distance_unit = project.feature_manager.distance_unit
         _apply_project_metadata(project, metadata)
 
@@ -283,8 +287,8 @@ def run_initialize_project(
         # pose file and video frame number mismatch, etc
 
         def validation_job_producer():
-            for video in videos:
-                yield {"video": video, "project_dir": project_dir}
+            for video_name in videos:
+                yield {"video": video_name, "project_dir": project_dir}
 
         # do work in parallel (not really necessary for this test, but we already
         # have the worker pool for generating features)
