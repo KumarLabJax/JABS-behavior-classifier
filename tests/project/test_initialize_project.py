@@ -1,3 +1,4 @@
+import pytest
 from click.testing import CliRunner
 
 import jabs.scripts.initialize_project as initialize_project
@@ -146,3 +147,38 @@ def test_jabs_init_click_rejects_invalid_process_count(tmp_path):
     result = runner.invoke(initialize_project.main, ["-p", "0", str(project_dir)])
 
     assert result.exit_code == 2
+
+
+def test_run_initialize_project_enables_video_frame_check(tmp_path, monkeypatch):
+    """jabs-init builds the Project with the up-front video-frame check enabled.
+
+    Phase 1 (KLAUS-505) made ``enable_video_check`` default to False, so this
+    guards that batch initialization still validates that video and pose files
+    agree on frame count.
+    """
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    captured: dict = {}
+
+    class _StopAfterProject(Exception):
+        pass
+
+    def fake_project(*args, **kwargs):
+        captured.update(kwargs)
+        raise _StopAfterProject
+
+    monkeypatch.setattr("jabs.project.Project", fake_project)
+
+    with pytest.raises(_StopAfterProject):
+        initialize_project.run_initialize_project(
+            force=False,
+            processes=1,
+            window_sizes=(),
+            force_pixel_distances=False,
+            metadata_path=None,
+            skip_feature_generation=True,
+            project_dir=project_dir,
+        )
+
+    assert captured.get("enable_video_check") is True

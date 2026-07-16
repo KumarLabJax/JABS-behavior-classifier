@@ -253,7 +253,12 @@ def run_initialize_project(
         videos = VideoManager.get_videos(project_dir)
         metadata = _load_metadata(metadata_path)
 
-        project = jabs.project.Project(project_dir, enable_session_tracker=False)
+        # jabs-init performs a full up-front validation of the project, including
+        # confirming each video and its pose file agree on frame count, so it fails
+        # fast on an inconsistent project before any features are generated.
+        project = jabs.project.Project(
+            project_dir, enable_video_check=True, enable_session_tracker=False
+        )
         distance_unit = project.feature_manager.distance_unit
         _apply_project_metadata(project, metadata)
 
