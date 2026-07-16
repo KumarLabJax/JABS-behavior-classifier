@@ -9,7 +9,7 @@ overwrite existing feature H5 files.
 import json
 import logging
 import os
-from multiprocessing import Pool
+from multiprocessing.pool import Pool
 from pathlib import Path
 
 import click
