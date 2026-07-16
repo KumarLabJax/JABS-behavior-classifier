@@ -500,10 +500,12 @@ def _orphan_identities_in_annotation(
     An identity index is orphaned when it is ``>= num_identities`` — i.e. the
     pose file does not have a corresponding row of pose data for it.
 
-    Inspects both per-identity label tracks (the ``labels``/``unfragmented_labels``
-    sections) and identity-scoped timeline annotations (the optional ``identity``
-    field on each entry of ``annotations``). Non-integer or null identity values
-    are ignored — they refer to video-level annotations or are otherwise out of
+    Inspects the per-identity label tracks (from ``unfragmented_labels`` when
+    present, else ``labels`` — mirroring :meth:`VideoLabels.load`, so whichever
+    section the remap loop will actually iterate is the one that gets scanned)
+    and identity-scoped timeline annotations (the optional ``identity`` field
+    on each entry of ``annotations``). Non-integer or null identity values are
+    ignored — they refer to video-level annotations or are otherwise out of
     scope for this check.
 
     Args:
