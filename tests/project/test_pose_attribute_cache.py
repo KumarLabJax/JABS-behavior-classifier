@@ -5,7 +5,10 @@ import os
 import shutil
 from pathlib import Path
 
+import pytest
+
 from jabs.project import Project, pose_attribute_cache
+from jabs.project.project import _pose_cache_entry_matches
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SAMPLE_POSE = DATA_DIR / "sample_pose_est_v3.h5"
@@ -101,6 +104,84 @@ def test_save_none_is_noop():
     pose_attribute_cache.save(None, {"v.avi": {}})
 
 
+# --- _pose_cache_entry_matches unit tests ----------------------------------
+
+
+def _valid_entry() -> dict:
+    """Return a well-formed cache entry for token ``"1:2"`` / pose ``"v.h5"``."""
+    return {
+        "token": "1:2",
+        "pose_file": "v.h5",
+        "hdf5_frame_count": 10,
+        "identity_count": 2,
+        "static_objects": ["lixit", "food_hopper"],
+        "lixit_keypoints": 3,
+        "has_cm_per_pixel": True,
+    }
+
+
+def test_matches_well_formed_entry():
+    """A complete, correctly-typed entry with matching token/pose is a hit."""
+    assert _pose_cache_entry_matches(_valid_entry(), "1:2", "v.h5")
+
+
+def test_matches_empty_static_objects():
+    """An empty static_objects list is valid (no static objects in the pose file)."""
+    entry = _valid_entry()
+    entry["static_objects"] = []
+    assert _pose_cache_entry_matches(entry, "1:2", "v.h5")
+
+
+@pytest.mark.parametrize(
+    ("token", "pose_file"),
+    [("9:9", "v.h5"), ("1:2", "other.h5")],
+    ids=["stale-token", "different-pose-file"],
+)
+def test_no_match_on_token_or_pose_mismatch(token, pose_file):
+    """A mismatched token or pose filename is a miss."""
+    assert not _pose_cache_entry_matches(_valid_entry(), token, pose_file)
+
+
+def test_no_match_when_not_dict():
+    """A non-dict entry (e.g. None for a missing video) is a miss."""
+    assert not _pose_cache_entry_matches(None, "1:2", "v.h5")
+
+
+def test_no_match_on_missing_field():
+    """An entry missing a required field is a miss."""
+    entry = _valid_entry()
+    del entry["identity_count"]
+    assert not _pose_cache_entry_matches(entry, "1:2", "v.h5")
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("hdf5_frame_count", "10"),
+        ("identity_count", 2.0),
+        ("lixit_keypoints", True),
+        ("has_cm_per_pixel", 1),
+        ("static_objects", {"lixit": 1}),
+        ("static_objects", "lixit"),
+        ("static_objects", [1, 2]),
+    ],
+    ids=[
+        "count-as-str",
+        "count-as-float",
+        "int-field-as-bool",
+        "bool-field-as-int",
+        "static-objects-as-dict",
+        "static-objects-as-str",
+        "static-objects-non-str-items",
+    ],
+)
+def test_no_match_on_wrong_type(field, bad_value):
+    """A parseable-but-wrong-typed field is a miss so the video is rescanned."""
+    entry = _valid_entry()
+    entry[field] = bad_value
+    assert not _pose_cache_entry_matches(entry, "1:2", "v.h5")
+
+
 # --- Project-level caching behavior ----------------------------------------
 
 
@@ -135,6 +216,22 @@ def test_new_video_only_scans_new(tmp_path, monkeypatch):
     calls = _spy_scan(monkeypatch)
     _open(project_dir)
     assert calls == ["v2.avi"]
+
+
+def test_malformed_cache_entry_is_rescanned(tmp_path, monkeypatch):
+    """A parseable cache whose entry has a wrong-typed field is rescanned."""
+    project_dir = _make_project(tmp_path / "proj", ["v1.avi"])
+    _open(project_dir)  # populate the cache
+
+    cache_file = project_dir / CACHE_RELPATH
+    data = json.loads(cache_file.read_text())
+    # Corrupt a field's type: identity_count stored as a string.
+    data["videos"]["v1.avi"]["identity_count"] = "not-an-int"
+    cache_file.write_text(json.dumps(data))
+
+    calls = _spy_scan(monkeypatch)
+    _open(project_dir)
+    assert calls == ["v1.avi"]
 
 
 def test_use_cache_false_writes_no_cache(tmp_path):

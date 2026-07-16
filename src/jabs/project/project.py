@@ -62,24 +62,45 @@ if TYPE_CHECKING:
     from jabs.core.utils.process_pool_manager import ProcessPoolManager
 
 
-# Pose-derived fields cached per video; an entry is trusted only when it carries
-# a matching token and pose filename plus all of these fields.
-_POSE_CACHE_FIELDS = (
-    "hdf5_frame_count",
-    "identity_count",
-    "static_objects",
-    "lixit_keypoints",
-    "has_cm_per_pixel",
-)
+def _is_int(value: object) -> bool:
+    """Return True for a genuine int (JSON bools are ints in Python; reject them)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_str_list(value: object) -> bool:
+    """Return True for a list whose every element is a string."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+# Pose-derived fields cached per video, mapped to a predicate validating the
+# cached value's type (matching the corresponding VideoScanResult field). An
+# entry is trusted only when it carries a matching token and pose filename plus
+# every field present with the expected type; a parseable-but-malformed entry
+# (e.g. a hand-edited or corrupted cache) is treated as a miss and rescanned.
+_POSE_CACHE_FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
+    "hdf5_frame_count": _is_int,
+    "identity_count": _is_int,
+    "static_objects": _is_str_list,
+    "lixit_keypoints": _is_int,
+    "has_cm_per_pixel": lambda value: isinstance(value, bool),
+}
 
 
 def _pose_cache_entry_matches(entry: object, token: str, pose_file: str) -> bool:
-    """Return True when a cache entry is usable for a video's current pose file."""
+    """Return True when a cache entry is usable for a video's current pose file.
+
+    Validates field types as well as presence so a parseable-but-malformed entry
+    is treated as a miss (triggering a rescan) rather than reconstructed into
+    wrong metadata or a reconstruction-time error.
+    """
     return (
         isinstance(entry, dict)
         and entry.get("token") == token
         and entry.get("pose_file") == pose_file
-        and all(field in entry for field in _POSE_CACHE_FIELDS)
+        and all(
+            field in entry and validator(entry[field])
+            for field, validator in _POSE_CACHE_FIELD_VALIDATORS.items()
+        )
     )
 
 
