@@ -21,7 +21,7 @@ from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 from jabs.core.enums import CacheFormat
 from jabs.pose_estimation import open_pose_file
 from jabs.video_reader import VideoReader
-from jabs.video_reader.utilities import get_fps
+from jabs.video_reader.utilities import get_fps_and_nframes
 
 from .track_labels import TrackLabels
 from .video_labels import VideoLabels
@@ -212,13 +212,39 @@ def _apply_macos_fork_lapack_workaround() -> None:
         fe.feature_base_class._use_numpy_detrend = True
 
 
+def _warn_on_frame_count_mismatch(
+    video: str, video_frame_count: int, pose_frame_count: int
+) -> None:
+    """Log a warning when a video and its pose file disagree on frame count.
+
+    The video/pose frame-count check is deferred from project load. Feature
+    extraction and predictions are indexed to pose frames, so a mismatch does
+    not corrupt them; this surfaces the discrepancy for headless/batch runs
+    where no video is opened interactively.
+
+    Args:
+        video: Video filename, used in the log message.
+        video_frame_count: Frame count read from the video file.
+        pose_frame_count: Frame count from the pose file.
+    """
+    if video_frame_count != pose_frame_count:
+        logger.warning(
+            "%s: video frame count (%d) does not match pose file frame count (%d); "
+            "features and predictions are pose-indexed and unaffected",
+            video,
+            video_frame_count,
+            pose_frame_count,
+        )
+
+
 def _open_pose_and_labels(
     job: _BaseFeatureLoadJobSpec,
 ) -> "tuple[PoseEstimation, VideoLabels | None, float]":
     """Set up the macOS workaround and open pose + label resources for a job."""
     _apply_macos_fork_lapack_workaround()
     pose_est = open_pose_file(job["pose_path"], job["cache_dir"])
-    fps = get_fps(str(job["video_path"]))
+    fps, video_frame_count = get_fps_and_nframes(str(job["video_path"]))
+    _warn_on_frame_count_mismatch(job["video"], video_frame_count, pose_est.num_frames)
     labels_obj = _load_video_labels(job["annotations_path"], pose_est)
     return pose_est, labels_obj, fps
 

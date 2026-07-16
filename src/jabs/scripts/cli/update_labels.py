@@ -54,6 +54,8 @@ from jabs.project import Project
 
 from .update_pose import (
     _create_backup_archive,
+    _handle_orphan_identities,
+    _orphan_identities_in_annotation,
     _print_manual_restore,
     _project_videos,
     _restore_cleanup_paths,
@@ -160,6 +162,8 @@ def _scaffold_target_project_if_missing(target_dir: Path) -> bool:
 def _preflight_label_update_inputs(
     target_dir: Path,
     source_project_dir: Path,
+    *,
+    tolerate_orphan_identities: bool = False,
 ) -> tuple[list[str], set[str]]:
     """Validate target and source inputs, scaffolding the target if needed.
 
@@ -170,6 +174,15 @@ def _preflight_label_update_inputs(
     ``jabs/``). Scaffolding only creates an empty ``jabs/`` skeleton — no labels,
     features, or pose changes — so on any subsequent failure the user is left
     with a harmless no-op directory that the next run reuses.
+
+    Args:
+        target_dir: Path to the target JABS project (or a videos+pose dir to scaffold).
+        source_project_dir: Path to the source JABS project providing labels.
+        tolerate_orphan_identities: When ``True``, orphan identity references in
+            the source's annotations are warned about and remap continues, with
+            the affected ``(identity, behavior)`` pairs skipped during remap.
+            When ``False`` (default), the orphan check raises before any backup
+            or mutation.
 
     Returns:
         Tuple ``(videos, live_annotation_videos)`` where ``videos`` is the sorted
@@ -205,10 +218,13 @@ def _preflight_label_update_inputs(
             f"Source-labeled videos missing from target project: {', '.join(missing_in_target)}"
         )
 
+    source_annotations_dir = source_project_dir / "jabs" / "annotations"
+    orphan_issues: list[tuple[str, int, list[int]]] = []
+
     for video in labeled_videos:
         source_video_path = source_project_dir / video
         source_pose_path = get_pose_path(source_video_path)
-        _validate_pose_file(
+        _, source_num_identities = _validate_pose_file(
             video,
             source_video_path,
             source_pose_path,
@@ -225,6 +241,15 @@ def _preflight_label_update_inputs(
             "target",
             require_bboxes=True,
         )
+
+        annotation_path = source_annotations_dir / Path(video).with_suffix(".json")
+        orphans = _orphan_identities_in_annotation(annotation_path, source_num_identities)
+        if orphans:
+            orphan_issues.append((video, source_num_identities, orphans))
+
+    _handle_orphan_identities(
+        orphan_issues, source_label="source", tolerate=tolerate_orphan_identities
+    )
 
     target_annotations_dir = target_dir / "jabs" / "annotations"
     live_annotation_videos: set[str] = set()
@@ -369,6 +394,7 @@ def update_project_labels_in_place(
     verbose: bool = False,
     annotate_failures: bool = False,
     drop_timeline_annotations: bool = False,
+    tolerate_orphan_identities: bool = False,
 ) -> tuple[int, int, Path, list[str]]:
     """Update a live project in place by replacing its labels from ``source_project_dir``.
 
@@ -384,6 +410,10 @@ def update_project_labels_in_place(
         annotate_failures: Whether to write timeline annotations for failed block matches.
         drop_timeline_annotations: Whether to discard source timeline annotations
             instead of copying or remapping them.
+        tolerate_orphan_identities: When ``True``, warn about orphan identity
+            references in the source's annotations and skip the affected
+            ``(identity, behavior)`` pairs during remap instead of aborting at
+            preflight.
 
     Returns:
         Tuple ``(total_success, total_skipped, backup_path, newly_added_behaviors)``
@@ -398,6 +428,7 @@ def update_project_labels_in_place(
     labeled_videos, _live_annotation_videos = _preflight_label_update_inputs(
         project_dir,
         source_project_dir,
+        tolerate_orphan_identities=tolerate_orphan_identities,
     )
     backup_path = _create_backup_archive(
         project_dir,
@@ -501,6 +532,16 @@ def update_project_labels_in_place(
     is_flag=True,
     help="Discard source timeline annotations instead of copying or remapping them.",
 )
+@click.option(
+    "--tolerate-orphan-identities",
+    is_flag=True,
+    help=(
+        "Continue past orphan identity references in the source's annotation "
+        "files (warn instead of erroring at preflight). The affected "
+        "(identity, behavior) pairs are skipped during remap; all other labels "
+        "are imported normally. By default, the command aborts at preflight."
+    ),
+)
 def update_labels_command(
     project: Path,
     source_project: Path,
@@ -508,6 +549,7 @@ def update_labels_command(
     verbose: bool,
     annotate_failures: bool,
     drop_timeline_annotations: bool,
+    tolerate_orphan_identities: bool,
 ) -> None:
     """Update a JABS project in place by replacing labels imported from another project."""
     total_success, total_skipped, backup_path, newly_added_behaviors = (
@@ -518,6 +560,7 @@ def update_labels_command(
             verbose=verbose,
             annotate_failures=annotate_failures,
             drop_timeline_annotations=drop_timeline_annotations,
+            tolerate_orphan_identities=tolerate_orphan_identities,
         )
     )
 

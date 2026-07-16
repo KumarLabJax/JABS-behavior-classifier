@@ -379,6 +379,33 @@ class CentralWidget(QtWidgets.QWidget):
         self._search_bar_widget.update_project(project)
         self._update_timeline_search_results()
 
+    @staticmethod
+    def _frame_count_mismatch_message(
+        video_name: str, video_frame_count: int, pose_frame_count: int
+    ) -> str | None:
+        """Build a warning message when video and pose frame counts differ.
+
+        The project-load frame-count check is deferred, so it runs here when a
+        video is opened. Labels and features are indexed to pose frames while the
+        player displays video frames, so a mismatch means the displayed frame may
+        not line up with labels for this video.
+
+        Args:
+            video_name: Name of the video being opened.
+            video_frame_count: Frame count reported by the video player.
+            pose_frame_count: Frame count from the pose file.
+
+        Returns:
+            A user-facing warning message, or None when the counts match.
+        """
+        if video_frame_count == pose_frame_count:
+            return None
+        return (
+            f"{video_name} has {video_frame_count} video frames but its pose file "
+            f"has {pose_frame_count}. Labels are indexed to pose frames, so the "
+            f"displayed frame may not align with labels for this video."
+        )
+
     def load_video(self, path: Path) -> None:
         """load a new video file into self._player_widget
 
@@ -408,6 +435,23 @@ class CentralWidget(QtWidgets.QWidget):
                 self._labels = VideoLabels(path.name, self._pose_est.num_frames)
 
             self._player_widget.load_video(path, self._pose_est, self._labels)
+
+            # Frame-count check deferred from project load: warn (do not block)
+            # if the video and its pose file disagree on frame count, since labels
+            # and features are pose-indexed but the player shows video frames. The
+            # dialog is scheduled on the next event-loop turn so it does not pause
+            # the rest of load_video; the video finishes loading, then the warning
+            # appears over it.
+            mismatch_message = self._frame_count_mismatch_message(
+                path.name, self._player_widget.num_frames, self._pose_est.num_frames
+            )
+            if mismatch_message is not None:
+                QtCore.QTimer.singleShot(
+                    0,
+                    lambda: MessageDialog.warning(
+                        self, "Video / pose frame count mismatch", mismatch_message
+                    ),
+                )
 
             # load saved predictions for this video
             (

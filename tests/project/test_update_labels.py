@@ -30,7 +30,12 @@ def _make_valid_project_dir(
     return project_dir
 
 
-def _stub_pose_reader(monkeypatch, num_frames: int = 10, version: int = 8) -> None:
+def _stub_pose_reader(
+    monkeypatch,
+    num_frames: int = 10,
+    version: int = 8,
+    num_identities: int = 2,
+) -> None:
     """Replace pose-file readers used by the preflight with a permissive stub."""
     monkeypatch.setattr(
         update_pose,
@@ -39,6 +44,7 @@ def _stub_pose_reader(monkeypatch, num_frames: int = 10, version: int = 8) -> No
             format_major_version=version,
             has_bounding_boxes=True,
             num_frames=num_frames,
+            num_identities=num_identities,
         ),
     )
     monkeypatch.setattr(
@@ -160,6 +166,58 @@ def test_preflight_returns_labeled_videos_and_live_annotation_set(tmp_path, monk
 
     assert videos == ["video1.avi"]
     assert live_annotation_videos == {"video1.avi"}
+
+
+def test_preflight_raises_on_orphan_source_identities(tmp_path, monkeypatch):
+    """Preflight must abort before any mutation when source labels reference orphans."""
+    target_dir = tmp_path / "target"
+    source_dir = tmp_path / "source"
+    _make_valid_project_dir(target_dir, write_annotation=True)
+    _make_valid_project_dir(source_dir, write_annotation=False)
+    # Write a source annotation referencing identity 2 against a source pose that
+    # only advertises 2 identities (indices 0 and 1).
+    (source_dir / "jabs" / "annotations" / "video1.json").write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {"0": {"Grooming": []}, "2": {"Grooming": []}},
+                "labels": {},
+            }
+        )
+    )
+    _stub_pose_reader(monkeypatch, num_identities=2)
+
+    with pytest.raises(ValueError, match=r"video1\.avi.*identity 2"):
+        update_labels._preflight_label_update_inputs(target_dir, source_dir)
+
+
+def test_preflight_tolerates_orphan_source_identities_when_flag_set(tmp_path, monkeypatch, capsys):
+    """``tolerate_orphan_identities=True`` lets preflight complete with a warning."""
+    target_dir = tmp_path / "target"
+    source_dir = tmp_path / "source"
+    _make_valid_project_dir(target_dir, write_annotation=True)
+    _make_valid_project_dir(source_dir, write_annotation=False)
+    (source_dir / "jabs" / "annotations" / "video1.json").write_text(
+        json.dumps(
+            {
+                "file": "video1.avi",
+                "num_frames": 10,
+                "unfragmented_labels": {"0": {"Grooming": []}, "2": {"Grooming": []}},
+                "labels": {},
+            }
+        )
+    )
+    _stub_pose_reader(monkeypatch, num_identities=2)
+
+    videos, _ = update_labels._preflight_label_update_inputs(
+        target_dir, source_dir, tolerate_orphan_identities=True
+    )
+
+    assert videos == ["video1.avi"]
+    stderr = capsys.readouterr().err
+    assert "WARNING" in stderr
+    assert "identity 2" in stderr
 
 
 def test_preflight_rejects_empty_target_dir(tmp_path):
@@ -546,6 +604,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         verbose,
         annotate_failures,
         drop_timeline_annotations,
+        tolerate_orphan_identities,
     ):
         captured.update(
             {
@@ -555,6 +614,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
                 "verbose": verbose,
                 "annotate_failures": annotate_failures,
                 "drop_timeline_annotations": drop_timeline_annotations,
+                "tolerate_orphan_identities": tolerate_orphan_identities,
             }
         )
         return 4, 2, project_dir / ".backup" / "update_labels_test.zip", ["Climbing"]
@@ -577,6 +637,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
             "--verbose",
             "--annotate-failures",
             "--drop-timeline-annotations",
+            "--tolerate-orphan-identities",
         ],
     )
 
@@ -588,6 +649,7 @@ def test_update_labels_subcommand_forwards_options(tmp_path, monkeypatch):
         "verbose": True,
         "annotate_failures": True,
         "drop_timeline_annotations": True,
+        "tolerate_orphan_identities": True,
     }
     assert "Backup archive:" in result.output
     assert "Label update summary: 4 label blocks assigned, 2 label blocks skipped" in result.output
@@ -634,7 +696,7 @@ def test_update_project_labels_in_place_invokes_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(
         update_labels,
         "_preflight_label_update_inputs",
-        lambda *_args: (sequence.append("preflight") or (["video1.avi"], set())),
+        lambda *_args, **_kwargs: (sequence.append("preflight") or (["video1.avi"], set())),
     )
 
     def fake_create_backup_archive(project_dir_arg, videos_arg, *, include_pose_files, prefix):
@@ -702,7 +764,7 @@ def test_update_project_labels_in_place_passes_labeled_videos_and_description_ph
     monkeypatch.setattr(
         update_labels,
         "_preflight_label_update_inputs",
-        lambda *_args: (["video1.avi"], set()),
+        lambda *_args, **_kwargs: (["video1.avi"], set()),
     )
     monkeypatch.setattr(
         update_labels,

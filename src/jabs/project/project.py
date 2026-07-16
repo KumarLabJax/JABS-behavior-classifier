@@ -154,7 +154,11 @@ class Project:
         project_path: Path to the project directory.
         process_pool: Optional shared ProcessPoolManager for feature extraction. If None, runs single-threaded.
         use_cache: Whether to use cached data.
-        enable_video_check: Whether to check for video file validity.
+        enable_video_check: Opt-in up-front validation that every video's frame
+            count matches its pose file. When True, opens every video file at
+            load time (expensive). When False (the default), this check is
+            deferred to when a video is opened (GUI) and to the feature-extraction
+            workers (headless), which warn on a mismatch.
         enable_session_tracker: Whether to enable session tracking for this project.
         validate_project_dir: Whether to validate the project directory structure on creation.
         video_dir: Optional directory containing video files. Defaults to `project_path`.
@@ -179,7 +183,7 @@ class Project:
         project_path,
         process_pool: "ProcessPoolManager | None" = None,
         use_cache=True,
-        enable_video_check=True,
+        enable_video_check=False,
         enable_session_tracker=True,
         validate_project_dir=True,
         video_dir: Path | None = None,
