@@ -1700,7 +1700,7 @@ wheels = [
 
 [[package]]
 name = "jabs-behavior"
-version = "0.46.0"
+version = "0.46.1"
 source = { editable = "packages/jabs-behavior" }
 dependencies = [
     { name = "jsonschema" },
@@ -1744,7 +1744,7 @@ test = [
 
 [[package]]
 name = "jabs-behavior-classifier"
-version = "0.46.0"
+version = "0.46.1"
 source = { editable = "." }
 dependencies = [
     { name = "argparse-formatter" },
@@ -1860,7 +1860,7 @@ test = [
 
 [[package]]
 name = "jabs-core"
-version = "0.46.0"
+version = "0.46.1"
 source = { editable = "packages/jabs-core" }
 dependencies = [
     { name = "h5py" },
@@ -1918,7 +1918,7 @@ test = [
 
 [[package]]
 name = "jabs-io"
-version = "0.46.0"
+version = "0.46.1"
 source = { editable = "packages/jabs-io" }
 dependencies = [
     { name = "jabs-core" },
@@ -1989,7 +1989,7 @@ test = [
 
 [[package]]
 name = "jabs-vision"
-version = "0.46.0"
+version = "0.46.1"
 source = { editable = "packages/jabs-vision" }
 dependencies = [
     { name = "hydra-core" },
