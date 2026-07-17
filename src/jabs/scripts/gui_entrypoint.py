@@ -42,10 +42,23 @@ def _select_start_method() -> None:
     and safe like ``spawn``. See KLAUS-525.
 
     Other platforms keep their default (Linux fork/forkserver, Windows spawn).
+
+    Configure logging before calling this: it warns (rather than failing) if the
+    method could not be set, so the degraded state is at least visible.
     """
-    if sys.platform == "darwin":
-        with contextlib.suppress(RuntimeError):
-            multiprocessing.set_start_method("forkserver", force=True)
+    if sys.platform != "darwin":
+        return
+    with contextlib.suppress(RuntimeError):
+        multiprocessing.set_start_method("forkserver", force=True)
+    method = multiprocessing.get_start_method()
+    if method != "forkserver":
+        # The macOS default is 'spawn' (safe but slow); 'fork' would be unstable.
+        # Warn rather than abort -- spawn still works, just with a slow first load.
+        logger.warning(
+            "Could not set multiprocessing start method to 'forkserver' (got '%s'); "
+            "worker startup will be slower, and 'fork' would risk the worker-pool crash.",
+            method,
+        )
 
 
 def main() -> None:
@@ -53,8 +66,8 @@ def main() -> None:
 
     Takes one optional positional argument: path to a project directory to open.
     """
-    _select_start_method()
     _configure_logging()
+    _select_start_method()
 
     # Deferred imports (see module docstring). The QtWebEngine flags must be set
     # before importing anything that pulls in QtWebEngine (jabs.ui), so these
@@ -80,17 +93,16 @@ def main() -> None:
     parser.add_argument("--version", action="version", version=f"JABS {version_str()}")
     args = parser.parse_args()
 
-    # Warm the process pool up front so worker start-up cost (spawning the
-    # forkserver and pre-importing the worker modules via the initializer) is
-    # paid once here, not on the first project load / training run.
-    logger.info(
-        "Initializing process pool (start method: '%s')...",
-        multiprocessing.get_start_method(),
-    )
+    # Warm the pool up front on fork/forkserver so worker start-up (and the
+    # initializer's module preloading) is paid once at launch, making the first
+    # project load / training run instant. Leave spawn (e.g. Windows) lazy so it
+    # doesn't slow GUI launch -- those workers start on first use instead.
+    start_method = multiprocessing.get_start_method()
+    logger.info("Initializing process pool (start method: '%s')...", start_method)
     process_pool = ProcessPoolManager(
         name="JABS-AppProcessPool", initializer=preload_worker_modules
     )
-    process_pool.warm_up(wait=True)
+    process_pool.warm_up(wait=start_method in ("fork", "forkserver"))
     logger.info("Process pool ready (%d workers)", process_pool.max_workers)
 
     app = QtWidgets.QApplication(sys.argv)

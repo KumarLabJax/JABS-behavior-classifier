@@ -37,11 +37,13 @@ def preload_worker_modules() -> None:
 
     Intended to be passed as the ``initializer`` for the application
     ``ProcessPoolManager``. A worker must import this module to resolve this
-    reference, and importing it pulls in the heavy scientific stack workers need
-    (numpy, scipy, pandas, cv2, h5py, and ``jabs.feature_extraction``). Doing
-    that once at pool warm-up means the first project-load scan and the first
-    training run don't pay the import cost. The function body is intentionally
-    empty; the import triggered by resolving it is the whole point.
+    reference, and importing it (with its transitive dependencies) pulls in the
+    heavy stack workers need: numpy, pandas and h5py directly, plus
+    ``jabs.feature_extraction`` (which brings in scipy) and the pose/video
+    readers (which bring in OpenCV). Doing that once at pool warm-up means the
+    first project-load scan and the first training run don't pay the import
+    cost. The function body is intentionally empty; the import triggered by
+    resolving it is the whole point.
     """
 
 
