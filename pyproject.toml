@@ -30,7 +30,7 @@ dependencies = [
   "tabulate>=0.9.0,<1.0.0",
   "toml>=0.10.2,<0.11.0",
   "xgboost>=2.0.0,<3.0.0",
-  "pyarrow>=20.0.0,<23.0.0",
+  "pyarrow>=23.0.1,<24.0.0",
   "rich>=14.0.0,<15.0.0",
   "rich-argparse>=1.7.1,<2.0.0",
   "intervaltree>=3.1.0,<4.0.0",
@@ -46,6 +46,13 @@ dependencies = [
 nwb = ["jabs-io[nwb]"]
 yaml = ["pyyaml>=6.0.0"]
 mlflow = ["mlflow>=3.8.1"]
+
+[tool.uv]
+# Security floors for transitive dependencies (Dependabot). These packages are
+# pulled indirectly (e.g. cryptography via the optional `mlflow` extra ->
+# google-auth); constraining them here bumps the locked version past known
+# vulnerabilities without adding them as direct dependencies.
+constraint-dependencies = ["cryptography>=48.0.1"]
 
 [tool.uv.sources]
 jabs-behavior = { workspace = true }
