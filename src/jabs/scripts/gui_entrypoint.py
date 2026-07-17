@@ -1,3 +1,13 @@
+"""GUI entry point for JABS.
+
+Heavy GUI imports (PySide6, ``jabs.ui``) are performed inside :func:`main` rather
+than at module scope. On macOS the process pool uses the ``forkserver`` start
+method (see :func:`main`); the forkserver server process imports this module, and
+keeping Qt out of module scope ensures that server stays free of Qt/Foundation so
+the workers it forks do not hit the Objective-C fork-safety guard. It also keeps
+the worker import footprint small.
+"""
+
 import argparse
 import contextlib
 import logging
@@ -5,72 +15,49 @@ import multiprocessing
 import os
 import sys
 
-# PERFORMANCE FIX: Use fork instead of spawn for faster process creation on macOS
-#
-# Background: Initializing JABS-AppProcessPool on macOS was taking significant time, which
-# got significantly worse (25s)  with macOS Tahoe (maybe Sequoia+ ?)
-# Potential cause: macOS Sequoia+ scans adhoc-signed executables on every spawn,
-# causing significant overhead per worker process. Using fork() avoids this entirely.
-#
-# Why it's faster:
-# - Workers inherit parent's memory (no re-importing modules)
-# - No new executable spawned (no macOS security scans)
-#
-# Safety considerations:
-# - fork() is generally unsafe with multi-threaded programs
-# - Qt uses threads internally, so there's some risk
-# - We mitigate this by:
-#   1. Initialize pool BEFORE Qt initializes (forked from single-threaded state)
-#   2. Workers only read files and do data processing (no Qt usage)
-#   3. Extensive testing shows stability in practice
-#
-# TODO: Test Windows to see if there is benefit to using "fork" there as well.
-if sys.platform == "darwin":
-    # try to use 'fork' start method on macOS, suppress RuntimeError if it fails -- we'll fall back to default
-    with contextlib.suppress(RuntimeError):
-        multiprocessing.set_start_method("fork", force=True)
-
-# suppress some potential harmless warnings from Chromium when user opens UserGuideDialog on some platforms
-# we need to set these before importing PySide6.QtWebEngine, so we do it before all PySide6 and JABS imports
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
-    "--disable-skia-graphite --disable-logging --log-level=3"
-)
-os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
-from PySide6 import QtWidgets
-from PySide6.QtGui import QIcon
-
-from jabs.core.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
-from jabs.core.utils.process_pool_manager import ProcessPoolManager
-from jabs.resources import ICON_PATH
-from jabs.ui import MainWindow
-from jabs.version import version_str
-
-# Set log level from environment variable if present
-log_level_str = os.environ.get("JABS_LOG_LEVEL", "WARNING").upper()
-try:
-    log_level = getattr(logging, log_level_str)
-except AttributeError:
-    log_level = logging.WARNING
-    logger = logging.getLogger("jabs.gui_entrypoint")
-    logger.warning(f"Invalid JABS_LOG_LEVEL '{log_level_str}', defaulting to WARNING.")
-logging.basicConfig(level=log_level)
 logger = logging.getLogger("jabs.gui_entrypoint")
 
 
-# logger wasn't setup when we set the multiprocessing start method
-# if we need to log anything related to that, do it here
-if sys.platform == "darwin" and multiprocessing.get_start_method() != "fork":
-    logger.warning(
-        "Failed to set multiprocessing start method to 'fork' on macOS, "
-        "this may lead to slower process pool initialization."
-    )
+def _configure_logging() -> None:
+    """Configure root logging from the ``JABS_LOG_LEVEL`` env var (default WARNING)."""
+    log_level_str = os.environ.get("JABS_LOG_LEVEL", "WARNING").upper()
+    log_level = getattr(logging, log_level_str, None)
+    if not isinstance(log_level, int):
+        logging.basicConfig(level=logging.WARNING)
+        logger.warning("Invalid JABS_LOG_LEVEL '%s', defaulting to WARNING.", log_level_str)
+        return
+    logging.basicConfig(level=log_level)
 
 
-def main():
-    """main entrypoint for JABS video labeling and classifier GUI
+def _select_start_method() -> None:
+    """Select the multiprocessing start method (macOS only).
 
-    takes one optional positional argument: path to project directory
+    macOS: use ``forkserver``. ``fork`` is unsafe here -- forked workers abort
+    via the Objective-C fork-safety guard when they call into Apple Accelerate
+    (numpy/scipy) or Qt/Foundation, surfacing as ``BrokenProcessPool`` during
+    project load (parallel pose scan) or training. ``spawn`` is safe but
+    cold-starts a fresh interpreter per worker (~15-20s on first project load).
+    ``forkserver`` forks workers from a single pre-warmed, Qt/Accelerate-free
+    server: fast like ``fork`` and safe like ``spawn``. See KLAUS-525.
+
+    Other platforms keep their default (Linux fork/forkserver, Windows spawn).
     """
+    if sys.platform == "darwin":
+        with contextlib.suppress(RuntimeError):
+            multiprocessing.set_start_method("forkserver", force=True)
+
+
+def main() -> None:
+    """Main entry point for the JABS video labeling and classifier GUI.
+
+    Takes one optional positional argument: path to a project directory to open.
+    """
+    _select_start_method()
+    _configure_logging()
+
+    # Lightweight import; needed before building the arg parser for --version.
+    from jabs.version import version_str
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "project_dir", nargs="?", help="Path to JABS project directory to open on startup"
@@ -78,20 +65,36 @@ def main():
     parser.add_argument("--version", action="version", version=f"JABS {version_str()}")
     args = parser.parse_args()
 
-    # CRITICAL: Create and warm the process pool BEFORE QApplication
-    # QApplication creates threads; forking after that can be unsafe
-    logger.info("Initializing process pool (before Qt)...")
-    logger.debug(f"multiprocessing start method: '{multiprocessing.get_start_method()}'")
-    process_pool = ProcessPoolManager(name="JABS-AppProcessPool")
-    if multiprocessing.get_start_method() == "fork":
-        # on fork platforms, start the pool and wait for workers to be ready
-        process_pool.warm_up(wait=True)
-    else:
-        # on non-fork platforms, start the pool without waiting, workers will be spawned on-demand
-        process_pool.warm_up(wait=False)
-    logger.info(f"Process pool ready ({process_pool.max_workers} workers)")
+    # Warm the process pool up front so worker start-up cost (spawning the
+    # forkserver and pre-importing the worker modules via the initializer) is
+    # paid once here, not on the first project load / training run.
+    from jabs.core.utils.process_pool_manager import ProcessPoolManager
+    from jabs.project.parallel_workers import preload_worker_modules
 
-    # Now safe to create QApplication (fork already happened)
+    logger.info(
+        "Initializing process pool (start method: '%s')...",
+        multiprocessing.get_start_method(),
+    )
+    process_pool = ProcessPoolManager(
+        name="JABS-AppProcessPool", initializer=preload_worker_modules
+    )
+    process_pool.warm_up(wait=True)
+    logger.info("Process pool ready (%d workers)", process_pool.max_workers)
+
+    # Heavy GUI imports, deferred to keep the forkserver server (and worker
+    # import footprint) free of Qt. Set the QtWebEngine flags before importing
+    # anything that pulls in QtWebEngine.
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--disable-skia-graphite --disable-logging --log-level=3"
+    )
+    os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
+    from PySide6 import QtWidgets
+    from PySide6.QtGui import QIcon
+
+    from jabs.core.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
+    from jabs.resources import ICON_PATH
+    from jabs.ui import MainWindow
+
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
@@ -103,16 +106,14 @@ def main():
     main_window.show()
 
     if args.project_dir is not None:
-        # this forces the GUI to process events before opening the project
-        # this is necessary to avoid a race condition where the main window
-        # is not fully initialized before trying to open the project
+        # force the GUI to process events before opening the project to avoid a
+        # race where the main window is not fully initialized before opening
         QtWidgets.QApplication.processEvents()
         try:
             main_window.open_project(args.project_dir)
         except Exception as e:
             sys.exit(f"Error opening project:  {e}")
 
-    # user accepted license terms, run the main application loop
     sys.exit(app.exec())
 
 
