@@ -316,7 +316,15 @@ class Project:
             }
             results: dict[str, VideoScanResult] = {}
             for future in as_completed(future_to_video):
-                result: VideoScanResult = future.result()
+                try:
+                    result: VideoScanResult = future.result()
+                except Exception:
+                    logger.error(
+                        "Failed to scan pose metadata for %s",
+                        future_to_video[future],
+                        exc_info=True,
+                    )
+                    raise
                 results[result["video"]] = result
             return results
 

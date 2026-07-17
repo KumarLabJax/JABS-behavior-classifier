@@ -80,6 +80,17 @@ def test_load_corrupt_returns_empty(tmp_path):
     assert pose_attribute_cache.load(p) == {}
 
 
+def test_load_invalid_encoding_returns_empty(tmp_path):
+    """A cache file with invalid text encoding is treated as empty (rescan).
+
+    ``UnicodeDecodeError`` is a subclass of ``ValueError``, so the decode failure
+    raised while reading is caught like any other unreadable cache.
+    """
+    p = tmp_path / "c.json"
+    p.write_bytes(b"\xff\xfe not valid utf-8")
+    assert pose_attribute_cache.load(p) == {}
+
+
 def test_load_schema_mismatch_returns_empty(tmp_path):
     """A cache written by a different schema version is ignored."""
     p = tmp_path / "c.json"
