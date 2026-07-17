@@ -1,11 +1,12 @@
 """GUI entry point for JABS.
 
-Heavy GUI imports (PySide6, ``jabs.ui``) are performed inside :func:`main` rather
-than at module scope. On macOS the process pool uses the ``forkserver`` start
-method (see :func:`main`); the forkserver server process imports this module, and
-keeping Qt out of module scope ensures that server stays free of Qt/Foundation so
-the workers it forks do not hit the Objective-C fork-safety guard. It also keeps
-the worker import footprint small.
+All non-stdlib imports are deferred into :func:`main` rather than performed at
+module scope. On macOS the process pool uses the ``forkserver`` start method (see
+:func:`_select_start_method`): its server process imports this module to locate
+worker functions but never runs :func:`main`, so keeping the imports out of module
+scope keeps that server free of Qt/Foundation. Otherwise the workers it forks
+would abort via the Objective-C fork-safety guard (surfacing as
+``BrokenProcessPool``) on their first Accelerate or Qt call.
 """
 
 import argparse
@@ -51,31 +52,13 @@ def main() -> None:
     """Main entry point for the JABS video labeling and classifier GUI.
 
     Takes one optional positional argument: path to a project directory to open.
-
-    Note:
-        The heavy GUI imports (PySide6, ``jabs.ui``) are performed here inside
-        ``main()`` rather than at module scope, and that placement is
-        load-bearing on macOS. ``fork`` is unsafe (see
-        :func:`_select_start_method`) and ``spawn`` cold-starts a fresh
-        interpreter per worker (~15-20s on the first project load), so the pool
-        uses ``forkserver``: workers are forked from a single long-lived server
-        process. That server imports this module to locate the worker functions,
-        but it never executes ``main()``. Keeping Qt out of module scope
-        therefore keeps the server free of Qt's Objective-C/Cocoa frameworks; if
-        Qt were imported at module scope the server would load them, and every
-        worker it forks would abort via the Objective-C fork-safety guard
-        (surfacing as ``BrokenProcessPool``) the moment it touched Accelerate or
-        Qt. Only module scope matters -- the order of these imports relative to
-        the pool warm-up below does not.
     """
     _select_start_method()
     _configure_logging()
 
-    # All imports are deferred into main() so the forkserver server -- which
-    # imports this module but never runs main() -- stays free of Qt (see the
-    # docstring). The QtWebEngine flags must be set before importing anything
-    # that pulls in QtWebEngine (jabs.ui), so these os.environ lines stay above
-    # the imports below.
+    # Deferred imports (see module docstring). The QtWebEngine flags must be set
+    # before importing anything that pulls in QtWebEngine (jabs.ui), so these
+    # os.environ lines stay above the imports below.
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
         "--disable-skia-graphite --disable-logging --log-level=3"
     )
