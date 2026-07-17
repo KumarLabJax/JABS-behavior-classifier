@@ -35,10 +35,10 @@ def _select_start_method() -> None:
     macOS: use ``forkserver``. ``fork`` is unsafe here -- forked workers abort
     via the Objective-C fork-safety guard when they call into Apple Accelerate
     (numpy/scipy) or Qt/Foundation, surfacing as ``BrokenProcessPool`` during
-    project load (parallel pose scan) or training. ``spawn`` is safe but
-    cold-starts a fresh interpreter per worker (~15-20s on first project load).
-    ``forkserver`` forks workers from a single pre-warmed, Qt/Accelerate-free
-    server: fast like ``fork`` and safe like ``spawn``. See KLAUS-525.
+    feature generation. ``spawn`` is safe but cold-starts a fresh interpreter
+    per worker (~15-20s on first project load). ``forkserver`` forks workers
+    from a single pre-warmed, Qt/Accelerate-free server: fast like ``fork``
+    and safe like ``spawn``. See KLAUS-525.
 
     Other platforms keep their default (Linux fork/forkserver, Windows spawn).
     """
@@ -51,11 +51,43 @@ def main() -> None:
     """Main entry point for the JABS video labeling and classifier GUI.
 
     Takes one optional positional argument: path to a project directory to open.
+
+    Note:
+        The heavy GUI imports (PySide6, ``jabs.ui``) are performed here inside
+        ``main()`` rather than at module scope, and that placement is
+        load-bearing on macOS. ``fork`` is unsafe (see
+        :func:`_select_start_method`) and ``spawn`` cold-starts a fresh
+        interpreter per worker (~15-20s on the first project load), so the pool
+        uses ``forkserver``: workers are forked from a single long-lived server
+        process. That server imports this module to locate the worker functions,
+        but it never executes ``main()``. Keeping Qt out of module scope
+        therefore keeps the server free of Qt's Objective-C/Cocoa frameworks; if
+        Qt were imported at module scope the server would load them, and every
+        worker it forks would abort via the Objective-C fork-safety guard
+        (surfacing as ``BrokenProcessPool``) the moment it touched Accelerate or
+        Qt. Only module scope matters -- the order of these imports relative to
+        the pool warm-up below does not.
     """
     _select_start_method()
     _configure_logging()
 
-    # Lightweight import; needed before building the arg parser for --version.
+    # All imports are deferred into main() so the forkserver server -- which
+    # imports this module but never runs main() -- stays free of Qt (see the
+    # docstring). The QtWebEngine flags must be set before importing anything
+    # that pulls in QtWebEngine (jabs.ui), so these os.environ lines stay above
+    # the imports below.
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--disable-skia-graphite --disable-logging --log-level=3"
+    )
+    os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
+    from PySide6 import QtWidgets
+    from PySide6.QtGui import QIcon
+
+    from jabs.core.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
+    from jabs.core.utils.process_pool_manager import ProcessPoolManager
+    from jabs.project.parallel_workers import preload_worker_modules
+    from jabs.resources import ICON_PATH
+    from jabs.ui import MainWindow
     from jabs.version import version_str
 
     parser = argparse.ArgumentParser()
@@ -68,9 +100,6 @@ def main() -> None:
     # Warm the process pool up front so worker start-up cost (spawning the
     # forkserver and pre-importing the worker modules via the initializer) is
     # paid once here, not on the first project load / training run.
-    from jabs.core.utils.process_pool_manager import ProcessPoolManager
-    from jabs.project.parallel_workers import preload_worker_modules
-
     logger.info(
         "Initializing process pool (start method: '%s')...",
         multiprocessing.get_start_method(),
@@ -80,20 +109,6 @@ def main() -> None:
     )
     process_pool.warm_up(wait=True)
     logger.info("Process pool ready (%d workers)", process_pool.max_workers)
-
-    # Heavy GUI imports, deferred to keep the forkserver server (and worker
-    # import footprint) free of Qt. Set the QtWebEngine flags before importing
-    # anything that pulls in QtWebEngine.
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
-        "--disable-skia-graphite --disable-logging --log-level=3"
-    )
-    os.environ["QT_LOGGING_RULES"] = "qt.webenginecontext=false"
-    from PySide6 import QtWidgets
-    from PySide6.QtGui import QIcon
-
-    from jabs.core.constants import APP_NAME, APP_NAME_LONG, ORG_NAME
-    from jabs.resources import ICON_PATH
-    from jabs.ui import MainWindow
 
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
