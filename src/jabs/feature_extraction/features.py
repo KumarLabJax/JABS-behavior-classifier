@@ -7,7 +7,11 @@ import numpy.typing as npt
 
 import jabs.project.track_labels
 from jabs.core.enums import CacheFormat
-from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.exceptions import (
+    DistanceScaleException,
+    EmbeddingProvenanceException,
+    FeatureVersionException,
+)
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
 from jabs.core.utils import pose_file_stem
 from jabs.io.feature_cache import clear_cache, detect_cache_format
@@ -20,7 +24,7 @@ from .base_features import BaseFeatureGroup
 
 # import feature modules
 from .embedding_features import EmbeddingFeatureGroup
-from .embedding_features.sidecar import sidecar_exists
+from .embedding_features.sidecar import read_provenance_hash, sidecar_exists
 from .feature_base_class import Feature
 from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
@@ -37,7 +41,7 @@ FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
-FEATURE_VERSION = 18
+FEATURE_VERSION = 19
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
@@ -200,6 +204,14 @@ class IdentityFeatures:
             (op_settings or {}).get("embedding", False)
         ) and sidecar_exists(pose_est.pose_file)
 
+        # Sidecar provenance is part of the cache key: feature-set membership normally
+        # depends only on the pose file (covered by pose_hash), but the embedding
+        # group's membership depends on external sidecar state. Empty when embeddings
+        # are inactive, so a cache built with embeddings off vs on never collides.
+        self._embedding_provenance = (
+            read_provenance_hash(pose_est.pose_file) if self._compute_embedding_features else ""
+        )
+
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
         )
@@ -296,6 +308,7 @@ class IdentityFeatures:
                 FeatureVersionException,
                 DistanceScaleException,
                 PoseHashException,
+                EmbeddingProvenanceException,
             ) as e:
                 # otherwise compute the per frame features and save
                 logger.info(
@@ -328,12 +341,14 @@ class IdentityFeatures:
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._embedding_provenance,
                 )
             case CacheFormat.HDF5:
                 return HDF5FeatureCacheReader(
                     FEATURE_VERSION,
                     self._pose_hash,
                     self._distance_scale_factor,
+                    self._embedding_provenance,
                 )
             case _:
                 raise NotImplementedError(f"Unsupported cache format: {fmt}")
@@ -409,6 +424,7 @@ class IdentityFeatures:
             pose_hash=self._pose_hash,
             distance_scale_factor=self._distance_scale_factor,
             avg_wall_length=avg_wall_length,
+            embedding_provenance=self._embedding_provenance,
         )
         cache_data = PerFrameCacheData(
             frame_valid=self._frame_valid,
@@ -434,6 +450,7 @@ class IdentityFeatures:
             num_frames=self._num_frames,
             pose_hash=self._pose_hash,
             distance_scale_factor=self._distance_scale_factor,
+            embedding_provenance=self._embedding_provenance,
         )
         self._writer.write_window(
             self._identity_feature_dir,
@@ -511,6 +528,7 @@ class IdentityFeatures:
                 FeatureVersionException,
                 DistanceScaleException,
                 PoseHashException,
+                EmbeddingProvenanceException,
             ) as e:
                 # h5 file does not exist for this window size, the version
                 # is not compatible, or the pose file changes.

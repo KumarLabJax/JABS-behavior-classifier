@@ -51,6 +51,7 @@ class HDF5FeatureCacheReader(FeatureCacheReader):
             pose_hash=str(f.attrs["pose_hash"]),
             distance_scale_factor=float(scale) if scale is not None else None,
             avg_wall_length=(float(f["avg_wall_length"][...]) if "avg_wall_length" in f else None),
+            embedding_provenance=str(f.attrs.get("embedding_provenance", "")),
             cached_window_sizes=cached_window_sizes,
         )
 
@@ -196,6 +197,7 @@ class HDF5FeatureCacheWriter(FeatureCacheWriter):
         f.attrs["identity"] = metadata.identity
         f.attrs["version"] = metadata.feature_version
         f.attrs["pose_hash"] = metadata.pose_hash
+        f.attrs["embedding_provenance"] = metadata.embedding_provenance
         if metadata.distance_scale_factor is not None:
             f.attrs["distance_scale_factor"] = metadata.distance_scale_factor
 

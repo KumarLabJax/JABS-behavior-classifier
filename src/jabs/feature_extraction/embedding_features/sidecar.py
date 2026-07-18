@@ -31,6 +31,27 @@ def sidecar_exists(pose_file: Path) -> bool:
     return sidecar_path_for_pose(pose_file).is_file()
 
 
+def read_provenance_hash(pose_file: Path) -> str:
+    """Return the sidecar's provenance hash, or ``""`` if no sidecar exists.
+
+    Used to key the feature cache on sidecar state so a stale or changed sidecar
+    forces a recompute. Validates the sidecar's format version on the way (so a
+    bad sidecar is caught even on a cache-hit path, where the sidecar is otherwise
+    never opened).
+    """
+    path = sidecar_path_for_pose(pose_file)
+    if not path.is_file():
+        return ""
+    with h5py.File(path, "r") as f:
+        version = int(f.attrs["format_version"])
+        if version != SUPPORTED_SIDECAR_FORMAT_VERSION:
+            raise EmbeddingSidecarError(
+                f"sidecar {path} format_version {version}, "
+                f"expected {SUPPORTED_SIDECAR_FORMAT_VERSION}"
+            )
+        return str(f.attrs["provenance_hash"])
+
+
 class EmbeddingInfo:
     """Per-identity embedding block loaded from a sidecar, uncovered frames NaN-filled."""
 

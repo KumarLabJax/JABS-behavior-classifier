@@ -6,7 +6,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.exceptions import (
+    DistanceScaleException,
+    EmbeddingProvenanceException,
+    FeatureVersionException,
+)
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheReader, HDF5FeatureCacheWriter
 from jabs.pose_estimation import PoseHashException
@@ -35,6 +39,7 @@ def _metadata(**overrides) -> FeatureCacheMetadata:
         pose_hash=overrides.get("pose_hash", _POSE_HASH),
         distance_scale_factor=overrides.get("distance_scale_factor", _DISTANCE_SCALE),
         avg_wall_length=overrides.get("avg_wall_length"),
+        embedding_provenance=overrides.get("embedding_provenance", ""),
     )
 
 
@@ -183,6 +188,31 @@ def test_hdf5_distance_scale_mismatch(tmp_path, writer: HDF5FeatureCacheWriter) 
 
     bad_reader = HDF5FeatureCacheReader(_FEATURE_VERSION, _POSE_HASH, 0.25)
     with pytest.raises(DistanceScaleException):
+        bad_reader.read_per_frame(identity_dir)
+
+
+def test_hdf5_embedding_provenance_round_trip(tmp_path, writer: HDF5FeatureCacheWriter) -> None:
+    """embedding_provenance survives a write/read round-trip and validates when matched."""
+    rng = np.random.default_rng(5)
+    identity_dir = tmp_path / "identity_0"
+    writer.write_per_frame(
+        identity_dir, _metadata(embedding_provenance="abc123"), _per_frame_data(rng)
+    )
+
+    reader = HDF5FeatureCacheReader(_FEATURE_VERSION, _POSE_HASH, _DISTANCE_SCALE, "abc123")
+    assert reader.read_metadata(identity_dir).embedding_provenance == "abc123"
+
+
+def test_hdf5_embedding_provenance_mismatch(tmp_path, writer: HDF5FeatureCacheWriter) -> None:
+    """EmbeddingProvenanceException raised when stored provenance differs from expected."""
+    rng = np.random.default_rng(6)
+    identity_dir = tmp_path / "identity_0"
+    writer.write_per_frame(
+        identity_dir, _metadata(embedding_provenance="abc123"), _per_frame_data(rng)
+    )
+
+    bad_reader = HDF5FeatureCacheReader(_FEATURE_VERSION, _POSE_HASH, _DISTANCE_SCALE, "different")
+    with pytest.raises(EmbeddingProvenanceException):
         bad_reader.read_per_frame(identity_dir)
 
 

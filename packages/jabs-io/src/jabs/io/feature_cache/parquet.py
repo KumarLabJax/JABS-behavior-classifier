@@ -65,6 +65,7 @@ def _metadata_to_dict(metadata: FeatureCacheMetadata) -> dict[str, object]:
         if metadata.avg_wall_length is not None
         else None,
         "cached_window_sizes": sorted(metadata.cached_window_sizes),
+        "embedding_provenance": metadata.embedding_provenance,
     }
 
 
@@ -257,6 +258,7 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
         expected_feature_version: int,
         expected_pose_hash: str,
         expected_distance_scale_factor: float | None,
+        expected_embedding_provenance: str = "",
     ) -> None:
         """Initialize the reader, raising ``ImportError`` if pyarrow is absent.
 
@@ -267,12 +269,15 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
                 requested; used to detect caches built from a different pose file.
             expected_distance_scale_factor: Pixels-to-cm scale factor, or ``None``
                 when not using cm units.
+            expected_embedding_provenance: Provenance hash of the embedding sidecar
+                whose columns are expected in the cache, or ``""`` when none.
         """
         _require_pyarrow()
         super().__init__(
             expected_feature_version,
             expected_pose_hash,
             expected_distance_scale_factor,
+            expected_embedding_provenance,
         )
 
     @staticmethod
@@ -325,6 +330,7 @@ class ParquetFeatureCacheReader(FeatureCacheReader):
                     int(s)
                     for s in raw["cached_window_sizes"]  # type: ignore[union-attr]
                 ),
+                embedding_provenance=str(raw.get("embedding_provenance", "")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             logger.debug("Failed to parse cache metadata: %s", exc)

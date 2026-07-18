@@ -29,6 +29,10 @@ class FeatureCacheMetadata:
             written to this cache. Updated each time a new window size is
             written by replacing the instance:
             ``replace(meta, cached_window_sizes=meta.cached_window_sizes | {size})``.
+        embedding_provenance: Provenance hash of the V-JEPA embedding sidecar whose
+            columns are baked into this cache, or ``""`` when no embedding features
+            were included. Distinguishes caches built under different sidecar state
+            (the one piece of feature-set membership ``pose_hash`` does not cover).
     """
 
     feature_version: int
@@ -38,6 +42,7 @@ class FeatureCacheMetadata:
     distance_scale_factor: float | None = None
     avg_wall_length: float | None = None
     cached_window_sizes: frozenset[int] = field(default_factory=frozenset)
+    embedding_provenance: str = ""
 
 
 @dataclass(frozen=True)

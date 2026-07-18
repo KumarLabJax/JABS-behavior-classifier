@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from jabs.core.exceptions import DistanceScaleException, FeatureVersionException
+from jabs.core.exceptions import (
+    DistanceScaleException,
+    EmbeddingProvenanceException,
+    FeatureVersionException,
+)
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
 from jabs.pose_estimation import PoseHashException
 
@@ -37,10 +41,12 @@ class FeatureCacheReader(ABC):
         expected_feature_version: int,
         expected_pose_hash: str,
         expected_distance_scale_factor: float | None,
+        expected_embedding_provenance: str = "",
     ) -> None:
         self._expected_feature_version = expected_feature_version
         self._expected_pose_hash = expected_pose_hash
         self._expected_distance_scale_factor = expected_distance_scale_factor
+        self._expected_embedding_provenance = expected_embedding_provenance
 
     def _validate(self, metadata: FeatureCacheMetadata) -> None:
         """Raise if metadata fails any validation check.
@@ -82,6 +88,13 @@ class FeatureCacheReader(ABC):
                 metadata.distance_scale_factor,
             )
             raise DistanceScaleException
+        if metadata.embedding_provenance != self._expected_embedding_provenance:
+            logger.debug(
+                "Embedding provenance mismatch: expected %s, got %s",
+                self._expected_embedding_provenance,
+                metadata.embedding_provenance,
+            )
+            raise EmbeddingProvenanceException
 
     @abstractmethod
     def read_metadata(self, identity_dir: Path) -> FeatureCacheMetadata:
