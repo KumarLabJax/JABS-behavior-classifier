@@ -1910,6 +1910,7 @@ version = "0.46.1"
 source = { editable = "packages/jabs-core" }
 dependencies = [
     { name = "h5py" },
+    { name = "joblib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "packaging" },
@@ -1940,6 +1941,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "h5py", specifier = ">=3.10.0,<4.0.0" },
+    { name = "joblib", specifier = ">=1.3.0" },
     { name = "numpy", specifier = ">=2.0.0,<3.0.0" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "shapely", specifier = ">=2.0.1,<3.0.0" },
