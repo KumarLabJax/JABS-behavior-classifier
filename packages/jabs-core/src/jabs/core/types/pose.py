@@ -45,6 +45,8 @@ class PoseData:
         cm_per_pixel: Optional scale factor for converting pixels to centimeters.
         bounding_boxes: Optional bounding boxes of shape (num_identities, num_frames, 2, 2).
             Format is [[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]].
+        confidence: Optional per-keypoint confidence scores, shape
+            (num_identities, num_frames, num_keypoints).  None when unknown.
         segmentation_data: Optional segmentation masks or data.
         static_objects: Dictionary of static objects (e.g., 'lixit') and their positions.
         dynamic_objects: Dictionary of dynamic objects (e.g., 'fecal_boli') and their data.
@@ -65,6 +67,7 @@ class PoseData:
     fps: int
     cm_per_pixel: float | None = None
     bounding_boxes: np.ndarray | None = None
+    confidence: np.ndarray | None = None
     segmentation_data: np.ndarray | None = None
     static_objects: dict[str, np.ndarray] = field(default_factory=dict)
     dynamic_objects: dict[str, DynamicObjectData] = field(default_factory=dict)
@@ -111,6 +114,16 @@ class PoseData:
             raise ValueError(
                 f"bounding_boxes shape {self.bounding_boxes.shape} must "
                 f"be {(num_idents, num_frames, 2, 2)}"
+            )
+
+        if self.confidence is not None and self.confidence.shape != (
+            num_idents,
+            num_frames,
+            num_keypoints,
+        ):
+            raise ValueError(
+                f"confidence shape {self.confidence.shape} must match points "
+                f"dimensions {(num_idents, num_frames, num_keypoints)}"
             )
 
         invalid_edges = [e for e in self.edges if e[0] >= num_keypoints or e[1] >= num_keypoints]
