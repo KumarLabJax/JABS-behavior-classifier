@@ -92,7 +92,6 @@ jabs = "jabs.scripts.gui_entrypoint:main"
 
 [tool.uv.workspace]
 members = ["packages/*"]
-exclude = ["packages/jabs-behavior-aside"]
 
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]
