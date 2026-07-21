@@ -145,6 +145,22 @@ def test_cm_per_pixel_absent_when_none(adapter, tmp_path):
         assert "cm_per_pixel" not in h5["poseest"].attrs
 
 
+def test_failed_write_preserves_existing_file(adapter, tmp_path):
+    """A write that fails validation must not destroy an existing valid file."""
+    out = tmp_path / "x_pose_est_v2.h5"
+    adapter.write(_make_pose(num_frames=3), out)  # write a valid file first
+
+    bad = _make_pose(num_idents=2)  # invalid: multi-identity
+    with pytest.raises(ValueError, match="single-identity"):
+        adapter.write(bad, out)
+
+    # the original valid file must still be intact (not truncated)
+    with h5py.File(out, "r") as h5:
+        assert "poseest/points" in h5
+        assert h5["poseest/points"].shape == (3, 12, 2)
+        assert h5["poseest"].attrs["version"].tolist() == [2, 0]
+
+
 def test_read_not_implemented(adapter, tmp_path):
     """read is intentionally not implemented in this increment."""
     out = tmp_path / "x_pose_est_v2.h5"
