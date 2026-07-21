@@ -75,8 +75,17 @@ class PoseHDF5Adapter(HDF5Adapter):
         if data.confidence is None:
             raise ValueError("Legacy v2 requires confidence; PoseData.confidence is None")
 
-        # canonical (x, y) -> on-disk (y, x); float -> uint16
-        points_yx = np.flip(data.points[0], axis=-1).astype(np.uint16)
+        # canonical (x, y) -> on-disk (y, x). v2 stores pixel coordinates as uint16, so
+        # guard against silent wrap/truncation before casting (NaN -> 0, negatives wrap).
+        points_xy_to_yx = np.flip(data.points[0], axis=-1)
+        if not np.all(np.isfinite(points_xy_to_yx)):
+            raise ValueError("points contain non-finite values; cannot write legacy v2")
+        _UINT16_MAX = np.iinfo(np.uint16).max
+        if np.any(points_xy_to_yx < 0) or np.any(points_xy_to_yx > _UINT16_MAX):
+            raise ValueError(
+                f"points out of uint16 range [0, {_UINT16_MAX}] for legacy v2 pixel coordinates"
+            )
+        points_yx = np.rint(points_xy_to_yx).astype(np.uint16)
         confidence = data.confidence[0].astype(np.float32)
 
         pose_grp = h5.require_group("poseest")
@@ -85,3 +94,5 @@ class PoseHDF5Adapter(HDF5Adapter):
         points_ds.attrs["model"] = str(data.metadata.get("model", ""))
         pose_grp.create_dataset("confidence", data=confidence)
         pose_grp.attrs["version"] = np.asarray([2, 0], dtype=np.uint16)
+        if data.cm_per_pixel is not None:
+            pose_grp.attrs["cm_per_pixel"] = float(data.cm_per_pixel)

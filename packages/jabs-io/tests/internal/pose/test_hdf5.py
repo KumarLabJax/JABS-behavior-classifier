@@ -95,6 +95,56 @@ def test_missing_confidence_raises(adapter, tmp_path):
         adapter.write(pose, tmp_path / "z.h5")
 
 
+def test_rounds_fractional_coordinates(adapter, tmp_path):
+    """Fractional canonical coordinates are rounded (not truncated) to uint16."""
+    pose = _make_pose(num_frames=1)
+    pts = pose.points.copy()
+    pts[0, 0, 0] = [1.6, 2.4]  # (x, y) -> on-disk (y, x) = (2.4, 1.6) -> round (2, 2)
+    object.__setattr__(pose, "points", pts)
+    out = tmp_path / "r.h5"
+    adapter.write(pose, out)
+    with h5py.File(out, "r") as h5:
+        assert h5["poseest/points"][0, 0].tolist() == [2, 2]
+
+
+def test_non_finite_points_raise(adapter, tmp_path):
+    """Non-finite coordinates are rejected instead of silently casting to 0."""
+    pose = _make_pose(num_frames=1)
+    pts = pose.points.copy()
+    pts[0, 0, 0] = [np.nan, 1.0]
+    object.__setattr__(pose, "points", pts)
+    with pytest.raises(ValueError, match="non-finite"):
+        adapter.write(pose, tmp_path / "z.h5")
+
+
+def test_out_of_uint16_range_points_raise(adapter, tmp_path):
+    """Coordinates outside the uint16 range are rejected instead of wrapping."""
+    pose = _make_pose(num_frames=1)
+    pts = pose.points.copy()
+    pts[0, 0, 0] = [-1.0, 1.0]  # negative would wrap
+    object.__setattr__(pose, "points", pts)
+    with pytest.raises(ValueError, match="uint16 range"):
+        adapter.write(pose, tmp_path / "z.h5")
+
+
+def test_cm_per_pixel_persisted_when_present(adapter, tmp_path):
+    """cm_per_pixel is written to the poseest group when set on PoseData."""
+    pose = _make_pose()
+    object.__setattr__(pose, "cm_per_pixel", 0.0725)
+    out = tmp_path / "s.h5"
+    adapter.write(pose, out)
+    with h5py.File(out, "r") as h5:
+        assert h5["poseest"].attrs["cm_per_pixel"] == pytest.approx(0.0725)
+
+
+def test_cm_per_pixel_absent_when_none(adapter, tmp_path):
+    """cm_per_pixel is not written when PoseData.cm_per_pixel is None."""
+    out = tmp_path / "s.h5"
+    adapter.write(_make_pose(), out)  # default cm_per_pixel is None
+    with h5py.File(out, "r") as h5:
+        assert "cm_per_pixel" not in h5["poseest"].attrs
+
+
 def test_read_not_implemented(adapter, tmp_path):
     """read is intentionally not implemented in this increment."""
     out = tmp_path / "x_pose_est_v2.h5"

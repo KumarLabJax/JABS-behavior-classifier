@@ -8,7 +8,8 @@ import pytest
 import torch
 
 import jabs.vision.cli.pose as pose_cli
-from jabs.vision.cli.pose import run_pose_inference
+from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE
+from jabs.vision.cli.pose import _build_pose_data, run_pose_inference
 
 
 class _DummyPoseModel(torch.nn.Module):
@@ -45,6 +46,20 @@ def test_run_pose_inference_writes_v2(monkeypatch, tmp_path):
         assert h5["poseest/confidence"].shape == (3, 12)
         # dummy peak (row=1, col=2) -> stored on-disk as (y, x) = (1, 2)
         assert h5["poseest/points"][0, 0].tolist() == [1, 2]
+
+
+def test_build_pose_data_derives_point_mask_from_confidence(tmp_path):
+    """point_mask reflects the confidence threshold, matching the v2 reader semantics."""
+    pose_yx = np.zeros((1, 12, 2), dtype=np.uint16)
+    confidence = np.full((1, 12), 0.9, dtype=np.float32)
+    confidence[0, 3] = 0.1  # below MINIMUM_CONFIDENCE
+    pose_data = _build_pose_data(
+        pose_yx, confidence, fps=30, config=tmp_path / "g.yaml", checkpoint=tmp_path / "g.pth"
+    )
+    assert bool(pose_data.point_mask[0, 0, 3]) is False
+    assert pose_data.point_mask[0, 0, 0]  # high-confidence keypoint stays valid
+    # sanity: threshold used is the shared jabs-core constant
+    assert 0.1 < MINIMUM_CONFIDENCE < 0.9
 
 
 def test_run_pose_inference_loads_strict(monkeypatch, tmp_path):

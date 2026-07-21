@@ -8,7 +8,7 @@ import click
 import numpy as np
 import numpy.typing as npt
 
-from jabs.core.abstract.pose_est import PoseEstimation
+from jabs.core.abstract.pose_est import MINIMUM_CONFIDENCE, PoseEstimation
 from jabs.core.enums import JabsPoseVersion
 from jabs.core.types import PoseData
 from jabs.io import save
@@ -51,15 +51,18 @@ def _build_pose_data(
         checkpoint: Checkpoint path (recorded for provenance).
 
     Returns:
-        A single-identity PoseData with points in (x, y) order.
+        A single-identity PoseData with points in (x, y) order. ``point_mask`` is
+        derived from the confidence threshold so it matches how the legacy v2 reader
+        interprets confidence on read-back.
     """
     points_xy = np.flip(pose_yx.astype(np.float64), axis=-1)[np.newaxis, ...]
-    conf = confidence.astype(np.float32)[np.newaxis, ...]
+    conf_2d = confidence.astype(np.float32)
+    conf = conf_2d[np.newaxis, ...]
+    point_mask = (conf_2d > MINIMUM_CONFIDENCE)[np.newaxis, ...]
     n_frames = points_xy.shape[1]
-    n_kp = points_xy.shape[2]
     return PoseData(
         points=points_xy,
-        point_mask=np.ones((1, n_frames, n_kp), dtype=bool),
+        point_mask=point_mask,
         identity_mask=np.ones((1, n_frames), dtype=bool),
         body_parts=_BODY_PARTS,
         edges=_SKELETON_EDGES,
