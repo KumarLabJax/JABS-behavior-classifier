@@ -1,0 +1,29 @@
+name: Build pose image
+
+on:
+  pull_request:
+    paths:
+      - "packages/jabs-vision/**"
+      - "packages/jabs-io/**"
+      - "packages/jabs-core/**"
+      - "containers/docker/Dockerfile.pose"
+      - ".github/workflows/build-pose-image.yml"
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build pose image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: containers/docker/Dockerfile.pose
+          push: false
+          tags: jabs-pose:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
