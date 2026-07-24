@@ -24,7 +24,11 @@ from .base_features import BaseFeatureGroup
 
 # import feature modules
 from .embedding_features import EmbeddingFeatureGroup
-from .embedding_features.sidecar import read_provenance_hash, sidecar_exists
+from .embedding_features.sidecar import (
+    read_provenance_hash,
+    sidecar_exists,
+    sidecar_path_for_pose,
+)
 from .feature_base_class import Feature
 from .landmark_features import LandmarkFeatureGroup
 from .segmentation_features import SegmentationFeatureGroup
@@ -57,6 +61,18 @@ _BASE_FILTERS: dict[str, dict[str, list[str]]] = {
     "segmentation": {"_all": SegmentationFeatureGroup.module_names()},
     "static_objects": LandmarkFeatureGroup.feature_map,
 }
+
+# Per-frame module names that are NOT embeddings. When op_settings["embedding_only"] is set,
+# these are all filtered out so the classifier trains on the embedding columns alone (the
+# pose-free "replace pose" condition). "point_mask" is the keypoint-presence block added
+# outside any feature group; the rest are the pose feature groups' modules.
+_NON_EMBEDDING_MODULE_NAMES: list[str] = [
+    "point_mask",
+    *BaseFeatureGroup.module_names(),
+    *SocialFeatureGroup.module_names(),
+    *SegmentationFeatureGroup.module_names(),
+    *LandmarkFeatureGroup.module_names(),
+]
 
 
 def _migrate_legacy_cache_dir(directory: Path, source_file: str | Path) -> None:
@@ -203,6 +219,17 @@ class IdentityFeatures:
         self._compute_embedding_features = bool(
             (op_settings or {}).get("embedding", False)
         ) and sidecar_exists(pose_est.pose_file)
+
+        # embedding_only removes all pose features; it is only meaningful when embeddings
+        # are actually active, otherwise the feature set would be empty. Fail loudly.
+        if bool((op_settings or {}).get("embedding_only", False)) and not (
+            self._compute_embedding_features
+        ):
+            raise ValueError(
+                "embedding_only=True requires the embedding feature to be active: set "
+                "embedding=True and ensure a '.vjepa.h5' sidecar exists next to the pose file "
+                f"({sidecar_path_for_pose(pose_est.pose_file)})"
+            )
 
         # Sidecar provenance is part of the cache key: feature-set membership normally
         # depends only on the pose file (covered by pose_hash), but the embedding
@@ -574,6 +601,10 @@ class IdentityFeatures:
 
     def _compute_base_filter_names(self) -> list[str]:
         """Return the list of top-level module names to remove based on op_settings."""
+        # embedding_only removes every non-embedding module, leaving only the embedding
+        # columns (the pose-free "replace pose" condition), regardless of other toggles.
+        if self._op_settings.get("embedding_only"):
+            return list(_NON_EMBEDDING_MODULE_NAMES)
         names: list[str] = []
         for setting_name, sub_settings in self._op_settings.items():
             if setting_name not in _BASE_FILTERS:

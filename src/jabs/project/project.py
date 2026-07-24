@@ -524,6 +524,9 @@ class Project:
             # V-JEPA embedding features: opt-in, and only active when a sidecar exists
             # next to the pose file (see feature_extraction.embedding_features).
             "embedding": False,
+            # embedding_only: train on embeddings alone (filter out all pose features) -- the
+            # pose-free "replace pose" condition. Requires "embedding" active.
+            "embedding_only": False,
             "window": True,
             "fft": True,
             "balance_labels": False,
