@@ -139,6 +139,26 @@ def _test_label_from_group(test_info: dict) -> str:
     return test_info["video"]
 
 
+def _fold_auprc(
+    classifier: "Classifier | MultiClassClassifier",
+    data: dict,
+    is_multiclass: bool,
+) -> float:
+    """AUPRC for one CV fold.
+
+    Macro-averaged over classes for multi-class; the behavior class for binary. Returns
+    ``nan`` when the classifier is unfitted or the fold's AUPRC is undefined.
+    """
+    class_labels = getattr(classifier, "class_labels", None)
+    if class_labels is None:
+        return float("nan")
+    proba = classifier.predict_proba(data["test_data"])
+    truth = data["test_labels"]
+    if is_multiclass:
+        return classifier_utils.macro_auprc(truth, proba, class_labels)
+    return classifier_utils.binary_auprc(truth, proba, class_labels)
+
+
 def _build_binary_cv_result(
     iteration: int,
     test_label: str,
@@ -147,6 +167,7 @@ def _build_binary_cv_result(
     top_features: list[tuple[str, float]],
     data: dict,
     predictions: npt.NDArray,
+    auprc: float = float("nan"),
 ) -> BinaryCVResult:
     """Construct a binary CV iteration result from prediction outputs."""
     pr = classifier_utils.precision_recall_score(data["test_labels"], predictions)
@@ -154,6 +175,7 @@ def _build_binary_cv_result(
         iteration=iteration,
         test_label=test_label,
         accuracy=accuracy,
+        auprc=auprc,
         confusion_matrix=confusion,
         top_features=top_features,
         precision_behavior=float(pr[0][1]),
@@ -175,6 +197,7 @@ def _build_multiclass_cv_result(
     data: dict,
     predictions: npt.NDArray,
     class_names: list[str],
+    auprc: float = float("nan"),
 ) -> MultiClassCVResult:
     """Construct a multi-class CV iteration result from prediction outputs."""
     class_idx = np.arange(len(class_names))
@@ -201,6 +224,7 @@ def _build_multiclass_cv_result(
         iteration=iteration,
         test_label=test_label,
         accuracy=accuracy,
+        auprc=auprc,
         confusion_matrix=confusion,
         top_features=top_features,
         class_names=class_names,
@@ -294,6 +318,7 @@ def run_leave_one_group_out_cv(
         confusion = classifier_utils.confusion_matrix(data["test_labels"], predictions)
         top_features = classifier.get_feature_importance(limit=10)
         test_label = _test_label_from_group(group_mapping[data["test_group"]])
+        auprc = _fold_auprc(classifier, data, is_multiclass)
 
         if is_multiclass and class_names is not None:
             cv_results.append(
@@ -306,6 +331,7 @@ def run_leave_one_group_out_cv(
                     data,
                     predictions,
                     class_names,
+                    auprc,
                 )
             )
         else:
@@ -318,6 +344,7 @@ def run_leave_one_group_out_cv(
                     top_features,
                     data,
                     predictions,
+                    auprc,
                 )
             )
         emit_progress()

@@ -24,6 +24,9 @@ class CrossValidationResult:
             for binary mode, ``(n_classes, n_classes)`` for multi-class.
         top_features: List of ``(feature_name, importance)`` tuples for this
             iteration.
+        auprc: Area under the precision-recall curve (average precision) for the
+            behavior class (binary) or macro-averaged over classes (multi-class).
+            ``nan`` when undefined (e.g. a test group with a single class).
     """
 
     iteration: int
@@ -31,6 +34,7 @@ class CrossValidationResult:
     accuracy: float
     confusion_matrix: np.ndarray
     top_features: list[tuple[str, float]] = field(default_factory=list)
+    auprc: float = float("nan")
 
 
 @dataclass
@@ -181,6 +185,9 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
                 f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} "
                 f"(± {np.std(f1_behavior):.4f})"
             )
+    auprc_vals = [r.auprc for r in cv_results if not np.isnan(r.auprc)]
+    if auprc_vals:
+        lines.append(f"- **Mean AUPRC:** {np.mean(auprc_vals):.4f} (± {np.std(auprc_vals):.4f})")
     return lines
 
 
@@ -194,6 +201,7 @@ def _binary_iteration_row(result: BinaryCVResult) -> list[str | int]:
         f"{result.recall_not_behavior:.4f}",
         f"{result.recall_behavior:.4f}",
         f"{result.f1_behavior:.4f}",
+        f"{result.auprc:.4f}",
         _escape_markdown(result.test_label),
     ]
 
@@ -207,6 +215,7 @@ def _multiclass_iteration_row(result: MultiClassCVResult) -> list[str | int]:
         f"{result.recall_macro:.4f}",
         f"{result.f1_macro:.4f}",
         f"{result.f1_micro:.4f}",
+        f"{result.auprc:.4f}",
         _escape_markdown(result.test_label),
     ]
 
@@ -219,6 +228,7 @@ _BINARY_HEADERS = [
     "Recall (Not Behavior)",
     "Recall (Behavior)",
     "F1 Score",
+    "AUPRC",
     "Test Group",
 ]
 
@@ -229,6 +239,7 @@ _MULTICLASS_HEADERS = [
     "Recall (Macro)",
     "F1 Score (Macro)",
     "F1 Score (Micro)",
+    "AUPRC",
     "Test Group",
 ]
 
@@ -338,6 +349,7 @@ def _common_cv_dict(result: CrossValidationResult) -> dict:
         "iteration": int(result.iteration),
         "test_label": str(result.test_label),
         "accuracy": float(result.accuracy),
+        "auprc": float(result.auprc),
         "confusion_matrix": _to_python_type(result.confusion_matrix),
         "top_features": [
             {"feature_name": str(name), "importance": float(importance)}

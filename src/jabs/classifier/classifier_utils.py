@@ -14,6 +14,9 @@ from sklearn.metrics import (
     accuracy_score as _accuracy_score,
 )
 from sklearn.metrics import (
+    average_precision_score as _average_precision_score,
+)
+from sklearn.metrics import (
     confusion_matrix as _confusion_matrix,
 )
 from sklearn.metrics import (
@@ -328,6 +331,56 @@ def confusion_matrix(truth: npt.NDArray, predictions: npt.NDArray) -> npt.NDArra
         Confusion matrix as a 2D integer array.
     """
     return _confusion_matrix(truth, predictions)
+
+
+def binary_auprc(truth: npt.NDArray, proba: npt.NDArray, classes: npt.NDArray) -> float:
+    """Area under the precision-recall curve (average precision) for the behavior class.
+
+    The positive class is the larger label value, matching the "behavior" index used for
+    precision/recall. ``proba`` columns follow ``classes`` sorted ascending (sklearn's
+    ``classes_`` order), so the behavior probability is the last column.
+
+    Args:
+        truth: Ground-truth label array for the test set.
+        proba: Predicted class-probability matrix, shape ``(n_samples, n_classes)``.
+        classes: The classifier's fitted class labels (sorted ascending).
+
+    Returns:
+        Average precision for the behavior class, or ``nan`` when the test set contains a
+        single class (AUPRC is undefined without both positive and negative examples).
+    """
+    truth = np.asarray(truth)
+    classes = np.asarray(classes)
+    pos_col = int(np.argmax(classes))  # behavior == largest label
+    y_true = (truth == classes[pos_col]).astype(int)
+    if np.unique(y_true).size < 2:
+        return float("nan")
+    return float(_average_precision_score(y_true, proba[:, pos_col]))
+
+
+def macro_auprc(truth: npt.NDArray, proba: npt.NDArray, classes: npt.NDArray) -> float:
+    """Macro-averaged AUPRC over the classes represented in the test set.
+
+    Each class is scored one-vs-rest; classes not present (or fully present) in ``truth``
+    are skipped because their AUPRC is undefined. Returns ``nan`` if no class qualifies.
+
+    Args:
+        truth: Ground-truth label array for the test set.
+        proba: Predicted class-probability matrix, shape ``(n_samples, n_classes)``.
+        classes: The classifier's fitted class labels (sorted ascending).
+
+    Returns:
+        Mean of the per-class average-precision scores, or ``nan``.
+    """
+    truth = np.asarray(truth)
+    classes = np.asarray(classes)
+    scores: list[float] = []
+    for col in range(classes.size):
+        y_true = (truth == classes[col]).astype(int)
+        if np.unique(y_true).size < 2:
+            continue
+        scores.append(float(_average_precision_score(y_true, proba[:, col])))
+    return float(np.mean(scores)) if scores else float("nan")
 
 
 def merge_labels(

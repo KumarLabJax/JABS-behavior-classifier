@@ -881,3 +881,33 @@ class TestFromTrainingFile:
             assert clf._classifier is not None
             assert clf.classifier_file == training_file_path.name
             assert clf._classifier_source == "training_file"
+
+
+def test_fold_auprc_finite_for_real_binary_classifier(
+    sample_features, sample_labels, mock_project
+):
+    """A fitted binary classifier yields a finite AUPRC in [0, 1] for a two-class fold."""
+    from jabs.classifier.cross_validation import _fold_auprc
+
+    clf = Classifier(classifier=ClassifierType.RANDOM_FOREST)
+    clf.behavior_name = "Test Behavior"
+    clf.set_project_settings(mock_project)
+    clf.train(
+        {
+            "training_data": sample_features,
+            "training_labels": sample_labels,
+            "feature_names": sample_features.columns.to_list(),
+        },
+        random_seed=42,
+    )
+
+    ap = _fold_auprc(
+        clf,
+        {"test_data": sample_features, "test_labels": sample_labels},
+        is_multiclass=False,
+    )
+    assert not np.isnan(ap)
+    assert 0.0 <= ap <= 1.0
+    # class_labels is populated after fit and matches predict_proba's column count
+    assert clf.class_labels is not None
+    assert len(clf.class_labels) == clf.predict_proba(sample_features).shape[1]

@@ -76,6 +76,14 @@ class BaseClassifier:
         return self._classifier_type
 
     @property
+    def class_labels(self) -> np.ndarray | None:
+        """Fitted class labels (sorted ascending), or ``None`` before training.
+
+        The order matches the columns of :meth:`predict_proba`.
+        """
+        return getattr(self._classifier, "classes_", None)
+
+    @property
     def classifier_file(self) -> str | None:
         """Return the filename of the saved classifier, if any."""
         return self._classifier_file

@@ -147,6 +147,7 @@ def run_cross_validation(
         table.add_column("Recall\n(Behavior)", justify="right")
         table.add_column("Recall\n(Not Behavior)", justify="right")
         table.add_column("F1 Score", justify="right")
+        table.add_column("AUPRC", justify="right")
         table.add_column("Test Group", justify="left")
         for cv in cv_results:
             table.add_row(
@@ -157,6 +158,7 @@ def run_cross_validation(
                 f"{cv.recall_behavior:.3f}",
                 f"{cv.recall_not_behavior:.3f}",
                 f"{cv.f1_behavior:.3f}",
+                f"{cv.auprc:.3f}",
                 str(cv.test_label),
             )
         console.print(table)
