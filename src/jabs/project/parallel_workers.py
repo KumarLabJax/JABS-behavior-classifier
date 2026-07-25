@@ -263,7 +263,15 @@ def _extract_identity_features(
     window_size: int = behavior_settings["window_size"]
     window_features = features.get_window_features(window_size, labels)
     window_features = fe.IdentityFeatures.merge_window_features(window_features)
-    return pd.DataFrame(per_frame), pd.DataFrame(window_features)
+    per_frame_df = pd.DataFrame(per_frame)
+    window_df = pd.DataFrame(window_features)
+    if window_df.shape[1] == 0:
+        # No window features (e.g. embedding_only, which emits none): keep the window frame
+        # row-aligned to per_frame (N rows, 0 columns) rather than the (0, 0) that an empty
+        # dict produces, so downstream length checks and the axis=1 per_frame/window combine
+        # stay consistent.
+        window_df = pd.DataFrame(index=per_frame_df.index)
+    return per_frame_df, window_df
 
 
 def collect_binary_labeled_features(job: BinaryFeatureLoadJobSpec) -> BinaryFeatureResult:
