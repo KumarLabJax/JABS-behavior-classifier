@@ -527,6 +527,8 @@ class Project:
             # embedding_only: train on embeddings alone (filter out all pose features) -- the
             # pose-free "replace pose" condition. Requires "embedding" active.
             "embedding_only": False,
+            # Rolling-std embedding window radii; [] = off (per-frame embeddings only).
+            "embedding_window_sizes": [],
             "window": True,
             "fft": True,
             "balance_labels": False,

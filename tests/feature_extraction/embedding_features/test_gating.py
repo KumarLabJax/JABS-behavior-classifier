@@ -57,3 +57,11 @@ def test_default_settings_do_not_activate(tmp_path, sidecar_writer):
     poses, ident = _setup(tmp_path, sidecar_writer, with_sidecar=True)
     feats = IdentityFeatures("sample.mp4", ident, None, poses, op_settings=None)
     assert not _has_embedding_columns(feats)
+
+
+def test_default_settings_include_embedding_window_sizes():
+    """Default per-pose-version settings expose embedding_window_sizes, defaulting to off ([])."""
+    from jabs.project.project import Project
+
+    defaults = Project.settings_by_pose_version(pose_version=6)
+    assert defaults.get("embedding_window_sizes") == []
