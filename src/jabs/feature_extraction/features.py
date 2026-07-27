@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from pathlib import Path
 from typing import TypeAlias, cast
@@ -45,7 +46,7 @@ FlatFeatureMap: TypeAlias = dict[str, npt.NDArray[np.generic]]
 PerFrameFeatureMap: TypeAlias = dict[str, dict[str, npt.NDArray[np.generic]]]
 WindowFeatureMap: TypeAlias = dict[str, dict[str, dict[str, npt.NDArray[np.generic]]]]
 
-FEATURE_VERSION = 19
+FEATURE_VERSION = 20
 
 _FEATURE_MODULES = [
     BaseFeatureGroup,
@@ -231,13 +232,24 @@ class IdentityFeatures:
                 f"({sidecar_path_for_pose(pose_est.pose_file)})"
             )
 
+        # Rolling-std radii for embedding window features (decoupled from window_size).
+        # Only meaningful when embeddings are active; normalized to a sorted unique tuple.
+        raw_ws = (op_settings or {}).get("embedding_window_sizes", []) or []
+        self._embedding_window_sizes = (
+            tuple(sorted({int(w) for w in raw_ws})) if self._compute_embedding_features else ()
+        )
+
         # Sidecar provenance is part of the cache key: feature-set membership normally
         # depends only on the pose file (covered by pose_hash), but the embedding
         # group's membership depends on external sidecar state. Empty when embeddings
-        # are inactive, so a cache built with embeddings off vs on never collides.
-        self._embedding_provenance = (
-            read_provenance_hash(pose_est.pose_file) if self._compute_embedding_features else ""
-        )
+        # are inactive, so a cache built with embeddings off vs on never collides. The
+        # embedding window radii are folded in so a windowed run never shares a cache
+        # entry with an unwindowed one (same staleness class as the sidecar-state fix).
+        prov = read_provenance_hash(pose_est.pose_file) if self._compute_embedding_features else ""
+        if prov and self._embedding_window_sizes:
+            radii = ",".join(str(w) for w in self._embedding_window_sizes)
+            prov = hashlib.sha1(f"{prov}|emb_win={radii}".encode()).hexdigest()
+        self._embedding_provenance = prov
 
         distance_scale = (
             self._distance_scale_factor if self._distance_scale_factor is not None else 1.0
@@ -254,7 +266,12 @@ class IdentityFeatures:
             # don't include embedding features unless enabled and a sidecar is present
             if not self._compute_embedding_features and m is EmbeddingFeatureGroup:
                 continue
-            self._feature_modules[m.name()] = m(pose_est, distance_scale)
+            if m is EmbeddingFeatureGroup:
+                self._feature_modules[m.name()] = m(
+                    pose_est, distance_scale, window_sizes=self._embedding_window_sizes
+                )
+            else:
+                self._feature_modules[m.name()] = m(pose_est, distance_scale)
 
         # load extended feature modules
         for m in _EXTENDED_FEATURE_MODULES:

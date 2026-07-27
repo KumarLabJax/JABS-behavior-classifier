@@ -81,3 +81,73 @@ def test_embedding_cache_does_not_leak_into_pose_only(tmp_path, sidecar_writer, 
         "sample.mp4", ident, feat_dir, poses, op_settings={"embedding": False}, cache_format=fmt
     )
     assert _emb_cols(f2) == []
+
+
+def _emb_window_cols(feats: IdentityFeatures, window_size: int) -> list[str]:
+    """Window feature column names contributed by the embedding module."""
+    win = feats.get_features(window_size)["window"]
+    return [k for k in win if k.startswith("embedding std_dev")]
+
+
+def test_embedding_window_columns_emitted_when_radii_set(tmp_path, sidecar_writer):
+    """embedding_window_sizes produces embedding std_dev window columns."""
+    poses = _open_pose(tmp_path)
+    ident = poses.identities[0]
+    _write_sidecar(tmp_path, poses, sidecar_writer)
+    feats = IdentityFeatures(
+        "sample.mp4",
+        ident,
+        None,
+        poses,
+        op_settings={"embedding": True, "embedding_only": True, "embedding_window_sizes": [2]},
+    )
+    cols = _emb_window_cols(feats, 5)
+    assert cols, "expected embedding std_dev window columns"
+    assert all(c.startswith("embedding std_dev_w2 emb_") for c in cols)
+    assert len(cols) == _EMBED_DIM
+
+
+def test_window_radii_change_feature_provenance(tmp_path, sidecar_writer):
+    """Different embedding_window_sizes yield different cache provenance (no collision)."""
+    poses = _open_pose(tmp_path)
+    ident = poses.identities[0]
+    _write_sidecar(tmp_path, poses, sidecar_writer)
+
+    def prov(radii):
+        return IdentityFeatures(
+            "sample.mp4",
+            ident,
+            None,
+            poses,
+            op_settings={"embedding": True, "embedding_window_sizes": radii},
+        )._embedding_provenance
+
+    assert prov([]) != prov([8, 15, 30])
+    assert prov([8, 15, 30]) != prov([15])
+    assert prov([8, 15, 30]) == prov([30, 8, 15])  # order-insensitive
+
+
+def test_windowed_embedding_cache_does_not_leak_into_unwindowed(tmp_path, sidecar_writer):
+    """A windowed-embedding run must not serve its window cache to an unwindowed run."""
+    poses = _open_pose(tmp_path)
+    ident = poses.identities[0]
+    feat_dir = tmp_path / "features"
+    _write_sidecar(tmp_path, poses, sidecar_writer)
+
+    f_win = IdentityFeatures(
+        "sample.mp4",
+        ident,
+        feat_dir,
+        poses,
+        op_settings={"embedding": True, "embedding_only": True, "embedding_window_sizes": [2]},
+    )
+    assert _emb_window_cols(f_win, 5)
+
+    f_plain = IdentityFeatures(
+        "sample.mp4",
+        ident,
+        feat_dir,
+        poses,
+        op_settings={"embedding": True, "embedding_only": True, "embedding_window_sizes": []},
+    )
+    assert _emb_window_cols(f_plain, 5) == []
