@@ -55,3 +55,15 @@ def test_group_raises_on_frame_count_mismatch(tmp_path, sidecar_writer):
     group = EmbeddingFeatureGroup(poses, 1.0)
     with pytest.raises(EmbeddingSidecarError):
         group.per_frame(ident)
+
+
+def test_group_window_emits_std_dev_when_radii_configured(tmp_path, sidecar_writer):
+    """With window_sizes set, the group's embedding module emits std_dev ops per radius."""
+    poses, ident = _pose_with_sidecar(tmp_path, sidecar_writer, embed_dim=3)
+    group = EmbeddingFeatureGroup(poses, 1.0, window_sizes=(2, 4))
+    pf = group.per_frame(ident)
+    win = group.window(ident, 5, pf)
+    assert set(win.keys()) == {"embedding"}
+    assert set(win["embedding"].keys()) == {"std_dev_w2", "std_dev_w4"}
+    assert set(win["embedding"]["std_dev_w2"].keys()) == {"emb_0000", "emb_0001", "emb_0002"}
+    assert win["embedding"]["std_dev_w2"]["emb_0000"].shape == (poses.num_frames,)

@@ -19,8 +19,11 @@ class EmbeddingFeatureGroup(FeatureGroup):
         EmbeddingFeature.name(): EmbeddingFeature,
     }
 
-    def __init__(self, poses: PoseEstimation, pixel_scale: float) -> None:
+    def __init__(
+        self, poses: PoseEstimation, pixel_scale: float, window_sizes: tuple[int, ...] = ()
+    ) -> None:
         super().__init__(poses, pixel_scale)
+        self._embedding_window_sizes = tuple(int(w) for w in window_sizes)
 
     def _init_feature_mods(self, identity: int) -> dict:
         """Load the sidecar block for ``identity`` and build the embedding feature."""
@@ -34,6 +37,8 @@ class EmbeddingFeatureGroup(FeatureGroup):
                 f"has {self._poses.num_frames}; regenerate the sidecar for this video"
             )
         return {
-            feature: self._features[feature](self._poses, self._pixel_scale, info)
+            feature: self._features[feature](
+                self._poses, self._pixel_scale, info, window_sizes=self._embedding_window_sizes
+            )
             for feature in self._enabled_features
         }
