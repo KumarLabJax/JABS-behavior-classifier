@@ -16,6 +16,7 @@ import h5py
 import joblib
 import numpy as np
 import pandas as pd
+from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
 from sklearn.exceptions import InconsistentVersionWarning
 
@@ -113,9 +114,11 @@ def train_multiclass(
     Returns:
         Trained ``MultiClassClassifier`` instance.
     """
-    classifier = MultiClassClassifier.from_training_file(
-        training_file, classifier_type=classifier_type
-    )
+    console = Console()
+    with console.status("Training multi-class classifier...", spinner="dots"):
+        classifier = MultiClassClassifier.from_training_file(
+            training_file, classifier_type=classifier_type
+        )
     classifier_settings = classifier.project_settings
 
     print("Training multi-class classifier for:", ", ".join(classifier.behavior_names))
@@ -309,7 +312,9 @@ def train(training_file: Path, classifier_type: ClassifierType | None = None) ->
     Returns:
         Trained ``Classifier`` instance.
     """
-    classifier = Classifier.from_training_file(training_file, classifier_type=classifier_type)
+    console = Console()
+    with console.status("Training classifier...", spinner="dots"):
+        classifier = Classifier.from_training_file(training_file, classifier_type=classifier_type)
     classifier_settings = classifier.project_settings
 
     print("Training classifier for:", classifier.behavior_name)
