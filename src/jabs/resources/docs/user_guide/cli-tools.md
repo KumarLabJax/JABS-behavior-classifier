@@ -692,7 +692,7 @@ Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`.
 **Artifacts:**
 
 - The generated training report file, unless `--mlflow-no-report` is passed.
-- `annotations.zip` — a zip of the project's `jabs/annotations` directory, unless `--mlflow-no-annotations` is passed. This captures the label set the run was computed from, so a run's metrics can be traced back to (and reproduced from) the exact annotations. Unpacking it recreates an `annotations/` directory. It is skipped silently if the project has no annotations directory or the directory is empty.
+- `annotations.zip` — a zip of the project's `jabs/annotations` directory, unless `--mlflow-no-annotations` is passed. This captures the label set the run was computed from, so a run's metrics can be traced back to (and reproduced from) the exact annotations. Unpacking it recreates an `annotations/` directory. If the project has no annotations directory, or it holds no archivable files, no artifact is uploaded and a warning is logged. Symlinks are not archived (zipping one would store the target's content, publishing files from outside the project); any that are skipped are logged.
 
 #### Free-form tags
 

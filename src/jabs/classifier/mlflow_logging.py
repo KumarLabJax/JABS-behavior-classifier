@@ -147,13 +147,19 @@ def archive_annotations(annotations_dir: Path, output_path: Path) -> Path | None
     the directory rather than scattering JSON files into the current directory.
     Files are added in sorted order to keep archives reproducible.
 
+    Symlinks are **not** archived, and neither are files reached through one. The
+    archive is uploaded to a tracking server, so it must contain only what really
+    lives in the project: zipping a symlink stores the *target's* content, which
+    would publish files from outside the project. Skipped symlinks are logged.
+
     Args:
         annotations_dir: The project's ``jabs/annotations`` directory.
         output_path: Destination path for the ``.zip`` file.
 
     Returns:
         ``output_path`` if an archive was written, or None if ``annotations_dir``
-        does not exist or holds no files -- there is then nothing worth uploading.
+        does not exist or holds no archivable files -- there is then nothing worth
+        uploading.
 
     Raises:
         OSError: If reading the annotations or writing the archive fails.
@@ -164,10 +170,31 @@ def archive_annotations(annotations_dir: Path, output_path: Path) -> Path | None
         )
         return None
 
-    files = sorted(path for path in annotations_dir.rglob("*") if path.is_file())
+    real_root = annotations_dir.resolve()
+    files: list[Path] = []
+    skipped_links = 0
+    for path in sorted(annotations_dir.rglob("*")):
+        # Skip symlinks themselves, and any entry whose real location falls
+        # outside the annotations directory -- the latter guards against a
+        # directory symlink being traversed (which pathlib does not currently do,
+        # but is not contractually guaranteed across Python versions).
+        if path.is_symlink() or not path.resolve().is_relative_to(real_root):
+            skipped_links += 1
+            continue
+        if path.is_file():
+            files.append(path)
+
+    if skipped_links:
+        logger.warning(
+            "Skipped %d symlinked entr%s under %s: symlinks are not archived",
+            skipped_links,
+            "y" if skipped_links == 1 else "ies",
+            annotations_dir,
+        )
+
     if not files:
         logger.warning(
-            "Annotations directory is empty, no annotations artifact: %s", annotations_dir
+            "No archivable annotation files in %s, no annotations artifact", annotations_dir
         )
         return None
 

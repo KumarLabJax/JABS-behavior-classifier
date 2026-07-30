@@ -329,19 +329,81 @@ def test_archive_annotations_creates_zip(annotations_dir: Path, tmp_path: Path) 
         assert archive.read("annotations/video1.json") == b'{"labels": 1}'
 
 
-def test_archive_annotations_missing_dir_returns_none(tmp_path: Path) -> None:
-    """A project with no annotations directory yields no archive (and no error)."""
-    assert archive_annotations(tmp_path / "absent", tmp_path / "annotations.zip") is None
+def test_archive_annotations_missing_dir_returns_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A project with no annotations directory yields no archive, with a warning."""
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(tmp_path / "absent", tmp_path / "annotations.zip") is None
+
     assert not (tmp_path / "annotations.zip").exists()
+    assert "not found" in caplog.text
 
 
-def test_archive_annotations_empty_dir_returns_none(tmp_path: Path) -> None:
-    """An annotations directory with no files yields no archive."""
+def test_archive_annotations_empty_dir_returns_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An annotations directory with no files yields no archive, with a warning."""
     empty = tmp_path / "annotations"
     empty.mkdir()
 
-    assert archive_annotations(empty, tmp_path / "annotations.zip") is None
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(empty, tmp_path / "annotations.zip") is None
+
     assert not (tmp_path / "annotations.zip").exists()
+    assert "No archivable annotation files" in caplog.text
+
+
+def test_archive_annotations_excludes_symlinked_file(
+    annotations_dir: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A symlinked annotation file is not archived, so its target is not uploaded."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.json"
+    secret.write_text('{"secret": true}')
+    (annotations_dir / "linked.json").symlink_to(secret)
+    output = tmp_path / "annotations.zip"
+
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        names = archive.namelist()
+        assert "annotations/linked.json" not in names
+        assert b'{"secret": true}' not in b"".join(archive.read(name) for name in names)
+    assert "Skipped 1 symlinked entry" in caplog.text
+
+
+def test_archive_annotations_excludes_symlinked_directory(
+    annotations_dir: Path, tmp_path: Path
+) -> None:
+    """A symlinked directory is not traversed, so files outside are not archived."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.json").write_text('{"secret": true}')
+    (annotations_dir / "linked_dir").symlink_to(outside, target_is_directory=True)
+    output = tmp_path / "annotations.zip"
+
+    assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        assert not any("secret" in name or "linked_dir" in name for name in archive.namelist())
+
+
+def test_archive_annotations_survives_symlink_cycle(annotations_dir: Path, tmp_path: Path) -> None:
+    """A self-referential symlink neither hangs the walk nor lands in the archive."""
+    (annotations_dir / "loop").symlink_to(annotations_dir, target_is_directory=True)
+    output = tmp_path / "annotations.zip"
+
+    assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        assert sorted(archive.namelist()) == [
+            "annotations/archive/video3.json",
+            "annotations/video1.json",
+            "annotations/video2.json",
+        ]
 
 
 # --------------------------------------------------------------------------- #
