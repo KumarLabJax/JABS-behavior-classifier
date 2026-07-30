@@ -364,7 +364,8 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     default=None,
     metavar="ENV_FILE",
     help="Enable opt-in MLflow logging of the cross-validation results (aggregate "
-    "metrics, params, and the training report artifact). Optionally takes a path to a "
+    "metrics, params, the training report artifact, and a zip of the project's "
+    "annotations). Optionally takes a path to a "
     ".env file holding MLFLOW_* settings (tracking URI, experiment, auth, TLS); with no "
     "path, those are read from the ambient environment. Absent leaves the command's "
     "behavior unchanged. Requires the optional 'mlflow' extra "
@@ -392,8 +393,14 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "--mlflow-no-report",
     "mlflow_no_report",
     is_flag=True,
-    help="With --mlflow, skip uploading the training report artifact (metrics + params "
-    "only). No-op without --mlflow.",
+    help="With --mlflow, skip uploading the training report artifact. No-op without --mlflow.",
+)
+@click.option(
+    "--mlflow-no-annotations",
+    "mlflow_no_annotations",
+    is_flag=True,
+    help="With --mlflow, skip uploading the zipped jabs/annotations directory. "
+    "No-op without --mlflow.",
 )
 @click.pass_context
 def cross_validation(
@@ -409,6 +416,7 @@ def cross_validation(
     mlflow_experiment: str | None,
     mlflow_tags: tuple[str, ...],
     mlflow_no_report: bool,
+    mlflow_no_annotations: bool,
 ):
     """Run leave-one-group-out cross-validation for a JABS project."""
     if report_file is not None and report_file.suffix.lower() not in {".md", ".json"}:
@@ -471,6 +479,7 @@ def cross_validation(
             mlflow_experiment=mlflow_experiment,
             mlflow_tags=parsed_mlflow_tags,
             mlflow_log_report=not mlflow_no_report,
+            mlflow_log_annotations=not mlflow_no_annotations,
         )
     except MlflowLoggingError:
         # Cross-validation and the report succeeded; only the optional MLflow

@@ -35,6 +35,7 @@ def run_cross_validation(
     mlflow_experiment: str | None = None,
     mlflow_tags: dict[str, str] | None = None,
     mlflow_log_report: bool = True,
+    mlflow_log_annotations: bool = True,
 ) -> None:
     """Run cross-validation for a JABS project from the command line.
 
@@ -64,6 +65,9 @@ def run_cross_validation(
           over the auto-derived tags.
         mlflow_log_report (bool): Whether to upload the training report as an MLflow
           artifact. Only used when ``mlflow_enabled`` is True.
+        mlflow_log_annotations (bool): Whether to upload a zip of the project's
+          ``jabs/annotations`` directory as an MLflow artifact, capturing the labels
+          the run was computed from. Only used when ``mlflow_enabled`` is True.
 
     Raises:
         MlflowLoggingError: If MLflow logging is requested but fails. The
@@ -259,10 +263,12 @@ def run_cross_validation(
             run_id, tracking_uri = log_cross_validation_to_mlflow(
                 report_data=training_data,
                 report_file=report_file,
+                annotations_dir=project.annotation_dir,
                 env_file=mlflow_env_file,
                 experiment_name=mlflow_experiment,
                 tags=mlflow_tags,
                 log_report_artifact=mlflow_log_report,
+                log_annotations_artifact=mlflow_log_annotations,
             )
         except Exception as e:
             console.print(f"\nWarning: MLflow logging failed: {e}", style="bold yellow")

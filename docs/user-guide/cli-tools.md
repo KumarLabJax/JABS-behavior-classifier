@@ -552,7 +552,8 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
     [--grouping-pattern REGEX] \
     [--classifier {catboost|random_forest|xgboost}] \
     [--report-file FILE] \
-    [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] [--mlflow-no-report]
+    [--mlflow [ENV_FILE]] [--mlflow-experiment NAME] [--mlflow-tag KEY=VALUE] \
+    [--mlflow-no-report] [--mlflow-no-annotations]
 ```
 
 - `DIRECTORY`: Path to the JABS project directory.
@@ -562,7 +563,7 @@ jabs-cli cross-validation DIRECTORY --behavior BEHAVIOR \
 - `--grouping-pattern REGEX`: Regular expression applied to each video filename to derive a grouping key. Only used with `--grouping-strategy filename`. If omitted, the pattern saved in the project is used.
 - `--classifier {catboost|random_forest|xgboost}`: Classifier to evaluate. Defaults to `xgboost`. The available choices depend on which classifier libraries are installed; see [Classifier Types](classifier-types.md).
 - `--report-file FILE`: Where to write the training report. The format is chosen by extension: `.md` (Markdown) or `.json` (JSON). If omitted, a timestamped Markdown file is written to the current directory (`<behavior>_<timestamp>_training_report.md`).
-- `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
+- `--mlflow`, `--mlflow-experiment`, `--mlflow-tag`, `--mlflow-no-report`, `--mlflow-no-annotations`: Optional MLflow logging (see [MLflow logging](#mlflow-logging)).
 
 ### Grouping strategies
 
@@ -602,7 +603,7 @@ jabs-cli cross-validation /path/to/project --behavior grooming \
 
 ### MLflow logging
 
-The cross-validation command can optionally log each run to an [MLflow](https://mlflow.org/) tracking server, recording aggregate metrics, run parameters, descriptive tags, and the training report as an artifact. This is opt-in and off by default.
+The cross-validation command can optionally log each run to an [MLflow](https://mlflow.org/) tracking server, recording aggregate metrics, run parameters, descriptive tags, and — as artifacts — the training report and a zip of the project's annotations. This is opt-in and off by default.
 
 #### Installing the MLflow extra
 
@@ -688,7 +689,10 @@ Each invocation creates one MLflow run named `<behavior>-cv-<timestamp>`.
 
 **Tags:** auto-derived `behavior`, `classifier`, `cv_grouping_strategy`, and `jabs_git` (the short git SHA of the JABS checkout, when available). Any `--mlflow-tag` entries are merged on top, so a user tag wins over an auto tag with the same key.
 
-**Artifact:** the generated training report file, unless `--mlflow-no-report` is passed.
+**Artifacts:**
+
+- The generated training report file, unless `--mlflow-no-report` is passed.
+- `annotations.zip` — a zip of the project's `jabs/annotations` directory, unless `--mlflow-no-annotations` is passed. This captures the label set the run was computed from, so a run's metrics can be traced back to (and reproduced from) the exact annotations. Unpacking it recreates an `annotations/` directory. It is skipped silently if the project has no annotations directory or the directory is empty.
 
 #### Free-form tags
 
@@ -701,13 +705,18 @@ jabs-cli cross-validation /path/to/project --behavior grooming --mlflow settings
 
 Each entry is `KEY=VALUE`; only the first `=` splits the entry, so values may contain `=`.
 
-#### Skipping the report artifact
+#### Skipping artifacts
 
-To log metrics and parameters only (no report upload):
+Each artifact has its own opt-out flag. To log metrics and parameters only:
 
 ```bash
-jabs-cli cross-validation /path/to/project --behavior grooming --mlflow --mlflow-no-report
+jabs-cli cross-validation /path/to/project --behavior grooming --mlflow \
+    --mlflow-no-report --mlflow-no-annotations
 ```
+
+Pass only `--mlflow-no-annotations` to keep the report but skip the annotations upload — worth doing for a project with a very large annotations directory, since the archive is uploaded on every run.
+
+Archiving the annotations is best-effort: if the zip cannot be written, a warning is logged and the run still gets its metrics, parameters, and report artifact.
 
 #### Exit codes and failure handling
 

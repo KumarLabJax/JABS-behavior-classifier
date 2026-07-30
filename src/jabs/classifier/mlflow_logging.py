@@ -25,6 +25,8 @@ import logging
 import math
 import os
 import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,6 +38,10 @@ if TYPE_CHECKING:
     from .training_report import TrainingReportData
 
 logger = logging.getLogger(__name__)
+
+#: File name used for the zipped annotations artifact attached to each run. Kept
+#: constant across runs so the artifact is easy to find and compare in the UI.
+ANNOTATIONS_ARCHIVE_NAME = "annotations.zip"
 
 
 def mlflow_available() -> bool:
@@ -128,6 +134,56 @@ def load_env_file(env_file: Path | None, *, override: bool = True) -> dict[str, 
         if override or key not in os.environ:
             os.environ[key] = value
     return values
+
+
+def archive_annotations(annotations_dir: Path, output_path: Path) -> Path | None:
+    """Zip a JABS project's annotations directory for upload as an MLflow artifact.
+
+    Captures the label set the cross-validation run was computed from, so a run's
+    metrics can be traced back to (and reproduced from) the exact annotations.
+
+    Archive members are stored under a single top-level directory named after
+    ``annotations_dir`` (normally ``annotations/``), so unpacking the zip recreates
+    the directory rather than scattering JSON files into the current directory.
+    Files are added in sorted order to keep archives reproducible.
+
+    Args:
+        annotations_dir: The project's ``jabs/annotations`` directory.
+        output_path: Destination path for the ``.zip`` file.
+
+    Returns:
+        ``output_path`` if an archive was written, or None if ``annotations_dir``
+        does not exist or holds no files -- there is then nothing worth uploading.
+
+    Raises:
+        OSError: If reading the annotations or writing the archive fails.
+    """
+    if not annotations_dir.is_dir():
+        logger.warning(
+            "Annotations directory not found, no annotations artifact: %s", annotations_dir
+        )
+        return None
+
+    files = sorted(path for path in annotations_dir.rglob("*") if path.is_file())
+    if not files:
+        logger.warning(
+            "Annotations directory is empty, no annotations artifact: %s", annotations_dir
+        )
+        return None
+
+    root = Path(annotations_dir.name)
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            archive.write(path, arcname=str(root / path.relative_to(annotations_dir)))
+
+    logger.info(
+        "Archived %d annotation file(s) from %s into %s (%d bytes)",
+        len(files),
+        annotations_dir,
+        output_path.name,
+        output_path.stat().st_size,
+    )
+    return output_path
 
 
 def _git_sha() -> str | None:
@@ -266,23 +322,29 @@ def log_cross_validation_to_mlflow(
     *,
     report_data: TrainingReportData,
     report_file: Path | None = None,
+    annotations_dir: Path | None = None,
     env_file: Path | None = None,
     experiment_name: str | None = None,
     run_name: str | None = None,
     tags: dict[str, str] | None = None,
     log_report_artifact: bool = True,
+    log_annotations_artifact: bool = True,
 ) -> tuple[str, str]:
     """Create one MLflow run for a cross-validation run and return its ids.
 
     Logs aggregate CV metrics, curated params, auto-derived plus caller tags,
-    and (optionally) the training report as an artifact. Connection config comes
-    from the environment; ``env_file``, if given, is loaded into it first.
+    and (optionally) the training report and a zip of the project's annotations
+    as artifacts. Connection config comes from the environment; ``env_file``, if
+    given, is loaded into it first.
 
     Args:
         report_data: Completed training report data.
         report_file: Path to the saved training report to upload as an artifact.
             Ignored if None or missing on disk, or if ``log_report_artifact`` is
             False.
+        annotations_dir: The project's ``jabs/annotations`` directory, zipped and
+            uploaded as ``annotations.zip``. Ignored if None, if the directory is
+            missing or empty, or if ``log_annotations_artifact`` is False.
         env_file: Optional ``.env`` file with ``MLFLOW_*`` connection settings.
             If None, connection config comes from the ambient environment.
         experiment_name: Explicit MLflow experiment name. If None, the experiment is
@@ -294,12 +356,15 @@ def log_cross_validation_to_mlflow(
         tags: Caller-supplied run tags; merged over the auto-derived tags (so a
             user tag with the same key wins).
         log_report_artifact: Whether to upload the training report artifact.
+        log_annotations_artifact: Whether to upload the zipped annotations artifact.
 
     Returns:
         A ``(run_id, tracking_uri)`` tuple for the created MLflow run.
 
     Raises:
-        MlflowLoggingError: If the ``mlflow`` package is not installed.
+        MlflowLoggingError: If the ``mlflow`` package is not installed. A failure
+            to archive the annotations is *not* fatal: it is logged as a warning
+            and the run keeps its metrics, params, and report artifact.
     """
     try:
         import mlflow
@@ -339,6 +404,24 @@ def log_cross_validation_to_mlflow(
 
         if log_report_artifact and report_file is not None and Path(report_file).is_file():
             mlflow.log_artifact(str(report_file))
+
+        if log_annotations_artifact and annotations_dir is not None:
+            # The annotations are supplementary provenance, so a failure to
+            # archive them must not cost the run its metrics, params, or report.
+            try:
+                with tempfile.TemporaryDirectory() as staging_dir:
+                    archive = archive_annotations(
+                        Path(annotations_dir), Path(staging_dir) / ANNOTATIONS_ARCHIVE_NAME
+                    )
+                    if archive is not None:
+                        mlflow.log_artifact(str(archive))
+            except OSError:
+                logger.warning(
+                    "Failed to archive annotations from %s; run %s has no annotations artifact",
+                    annotations_dir,
+                    run.info.run_id,
+                    exc_info=True,
+                )
 
         run_id = run.info.run_id
 
