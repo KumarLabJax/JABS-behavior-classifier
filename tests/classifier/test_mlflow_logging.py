@@ -7,6 +7,7 @@ The actual MLflow client is never imported here; tests that exercise
 
 import os
 import sys
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from jabs.classifier import mlflow_logging
 from jabs.classifier.mlflow_logging import (
     MlflowLoggingError,
     aggregate_cv_metrics,
+    archive_annotations,
     build_params,
     build_tags,
     load_env_file,
@@ -94,6 +96,7 @@ class _FakeMlflow:
         self.params: dict[str, str] = {}
         self.tags: dict[str, str] = {}
         self.artifacts: list[str] = []
+        self.artifact_members: dict[str, list[str]] = {}
 
     def set_experiment(self, name: str) -> None:
         self.experiment = name
@@ -113,6 +116,12 @@ class _FakeMlflow:
 
     def log_artifact(self, path: str) -> None:
         self.artifacts.append(path)
+        # Capture zip contents at call time: the annotations archive is staged in
+        # a temporary directory that is removed once the logger returns, so the
+        # file no longer exists by the time assertions run.
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                self.artifact_members[Path(path).name] = sorted(archive.namelist())
 
     def get_tracking_uri(self) -> str:
         return "file:///tmp/mlruns"
@@ -288,6 +297,116 @@ def test_resolve_experiment_name_explicit_wins(
 
 
 # --------------------------------------------------------------------------- #
+# archive_annotations
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def annotations_dir(tmp_path: Path) -> Path:
+    """A jabs/annotations directory holding two annotation files and a subdirectory."""
+    annotations = tmp_path / "jabs" / "annotations"
+    annotations.mkdir(parents=True)
+    (annotations / "video1.json").write_text('{"labels": 1}')
+    (annotations / "video2.json").write_text('{"labels": 2}')
+    nested = annotations / "archive"
+    nested.mkdir()
+    (nested / "video3.json").write_text('{"labels": 3}')
+    return annotations
+
+
+def test_archive_annotations_creates_zip(annotations_dir: Path, tmp_path: Path) -> None:
+    """Every file is archived under a single top-level annotations/ directory."""
+    output = tmp_path / "annotations.zip"
+
+    result = archive_annotations(annotations_dir, output)
+
+    assert result == output
+    assert output.is_file()
+    with zipfile.ZipFile(output) as archive:
+        assert sorted(archive.namelist()) == [
+            "annotations/archive/video3.json",
+            "annotations/video1.json",
+            "annotations/video2.json",
+        ]
+        assert archive.read("annotations/video1.json") == b'{"labels": 1}'
+
+
+def test_archive_annotations_missing_dir_returns_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A project with no annotations directory yields no archive, with a warning."""
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(tmp_path / "absent", tmp_path / "annotations.zip") is None
+
+    assert not (tmp_path / "annotations.zip").exists()
+    assert "not found" in caplog.text
+
+
+def test_archive_annotations_empty_dir_returns_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An annotations directory with no files yields no archive, with a warning."""
+    empty = tmp_path / "annotations"
+    empty.mkdir()
+
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(empty, tmp_path / "annotations.zip") is None
+
+    assert not (tmp_path / "annotations.zip").exists()
+    assert "No archivable annotation files" in caplog.text
+
+
+def test_archive_annotations_excludes_symlinked_file(
+    annotations_dir: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A symlinked annotation file is not archived, so its target is not uploaded."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.json"
+    secret.write_text('{"secret": true}')
+    (annotations_dir / "linked.json").symlink_to(secret)
+    output = tmp_path / "annotations.zip"
+
+    with caplog.at_level("WARNING"):
+        assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        names = archive.namelist()
+        assert "annotations/linked.json" not in names
+        assert b'{"secret": true}' not in b"".join(archive.read(name) for name in names)
+    assert "Skipped 1 symlinked entry" in caplog.text
+
+
+def test_archive_annotations_excludes_symlinked_directory(
+    annotations_dir: Path, tmp_path: Path
+) -> None:
+    """A symlinked directory is not traversed, so files outside are not archived."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.json").write_text('{"secret": true}')
+    (annotations_dir / "linked_dir").symlink_to(outside, target_is_directory=True)
+    output = tmp_path / "annotations.zip"
+
+    assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        assert not any("secret" in name or "linked_dir" in name for name in archive.namelist())
+
+
+def test_archive_annotations_survives_symlink_cycle(annotations_dir: Path, tmp_path: Path) -> None:
+    """A self-referential symlink neither hangs the walk nor lands in the archive."""
+    (annotations_dir / "loop").symlink_to(annotations_dir, target_is_directory=True)
+    output = tmp_path / "annotations.zip"
+
+    assert archive_annotations(annotations_dir, output) == output
+
+    with zipfile.ZipFile(output) as archive:
+        assert sorted(archive.namelist()) == [
+            "annotations/archive/video3.json",
+            "annotations/video1.json",
+            "annotations/video2.json",
+        ]
+
+
+# --------------------------------------------------------------------------- #
 # log_cross_validation_to_mlflow
 # --------------------------------------------------------------------------- #
 def test_log_cross_validation_to_mlflow(
@@ -340,6 +459,91 @@ def test_log_cross_validation_skips_artifact_when_disabled(
     )
 
     assert fake.artifacts == []
+
+
+def test_log_cross_validation_uploads_annotations_archive(
+    binary_report: TrainingReportData,
+    annotations_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The annotations directory is zipped and uploaded alongside the report."""
+    fake = _FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+    report_file = tmp_path / "report.md"
+    report_file.write_text("# report")
+
+    log_cross_validation_to_mlflow(
+        report_data=binary_report,
+        report_file=report_file,
+        annotations_dir=annotations_dir,
+    )
+
+    assert [Path(a).name for a in fake.artifacts] == ["report.md", "annotations.zip"]
+    # the archive still existed (and held the annotations) when it was uploaded
+    assert fake.artifact_members["annotations.zip"] == [
+        "annotations/archive/video3.json",
+        "annotations/video1.json",
+        "annotations/video2.json",
+    ]
+
+
+def test_log_cross_validation_skips_annotations_when_disabled(
+    binary_report: TrainingReportData,
+    annotations_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With log_annotations_artifact=False, no annotations archive is uploaded."""
+    fake = _FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+
+    log_cross_validation_to_mlflow(
+        report_data=binary_report,
+        annotations_dir=annotations_dir,
+        log_annotations_artifact=False,
+    )
+
+    assert fake.artifacts == []
+
+
+def test_log_cross_validation_without_annotations_dir(
+    binary_report: TrainingReportData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Omitting annotations_dir logs the run without an annotations archive."""
+    fake = _FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+
+    log_cross_validation_to_mlflow(report_data=binary_report)
+
+    assert fake.artifacts == []
+
+
+def test_log_cross_validation_tolerates_annotations_failure(
+    binary_report: TrainingReportData,
+    annotations_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure to archive annotations leaves the rest of the run logged."""
+    fake = _FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mlflow_logging, "archive_annotations", boom)
+    report_file = tmp_path / "report.md"
+    report_file.write_text("# report")
+
+    run_id, _ = log_cross_validation_to_mlflow(
+        report_data=binary_report,
+        report_file=report_file,
+        annotations_dir=annotations_dir,
+    )
+
+    assert run_id == "run-123"
+    assert [Path(a).name for a in fake.artifacts] == ["report.md"]
+    assert fake.metrics["cv_accuracy_mean"] == pytest.approx(0.85)
 
 
 def test_log_cross_validation_missing_mlflow_raises(

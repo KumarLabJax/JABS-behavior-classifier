@@ -117,6 +117,7 @@ def test_mlflow_absent_disables_logging(tmp_path: Path, run_cv_spy: mock.Mock) -
     assert kwargs["mlflow_enabled"] is False
     assert kwargs["mlflow_env_file"] is None
     assert kwargs["mlflow_log_report"] is True
+    assert kwargs["mlflow_log_annotations"] is True
 
 
 def test_mlflow_bare_flag_enables_ambient(
@@ -203,6 +204,18 @@ def test_mlflow_no_report_flag(
 
     assert result.exit_code == 0, result.output
     assert run_cv_spy.call_args.kwargs["mlflow_log_report"] is False
+
+
+def test_mlflow_no_annotations_flag(
+    tmp_path: Path, run_cv_spy: mock.Mock, mlflow_installed: None
+) -> None:
+    """--mlflow-no-annotations disables the annotations archive upload only."""
+    result = _invoke(tmp_path, "--mlflow", "--mlflow-no-annotations")
+
+    assert result.exit_code == 0, result.output
+    kwargs = run_cv_spy.call_args.kwargs
+    assert kwargs["mlflow_log_annotations"] is False
+    assert kwargs["mlflow_log_report"] is True
 
 
 def test_mlflow_experiment_forwarded(
