@@ -130,6 +130,7 @@ Commands:
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
   export-training       Export training data for a specified behavior and JABS project directory.
+  merge                 Merge one JABS project into another.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
   sample-frames         Sample PNG frames from a JABS project filtered by a behavior label.
@@ -249,6 +250,35 @@ jabs-cli update-labels /path/to/target_project /path/to/source_project --min-iou
 ```
 
 If instead you want to replace the target's pose while keeping its labels, see [`jabs-cli update-pose`](#jabs-cli-update-pose).
+
+## jabs-cli merge
+
+The `jabs-cli merge` command merges a source JABS project into a destination JABS project. Videos, pose files, behaviors, and labels from the source project are imported into the destination project, which is modified in place. The source project is left unchanged.
+
+Note: this command was previously the standalone `jabs-project-merge` script, which has been removed.
+
+**Usage:**
+
+```bash
+jabs-cli merge <destination_project> <source_project> --merge-strategy <STRATEGY>
+```
+
+- `<destination_project>`: Path to the destination JABS project. This project is modified by importing videos and labels from the source project.
+- `<source_project>`: Path to the source JABS project. Not modified.
+- `--merge-strategy <STRATEGY>`: Required. How to resolve conflicting labels, i.e. frames labeled differently in both projects for the same video, identity, and behavior:
+    - `behavior-wins`: Keep the label with the behavior annotation.
+    - `not-behavior-wins`: Keep the label without the behavior annotation.
+    - `destination-wins`: Keep the label from the destination project.
+
+Videos present only in the source project are copied into the destination project along with their pose files, and behaviors defined only in the source project are added to the destination project's `project.json`. Labels for videos already in the destination project are merged annotation by annotation using the selected strategy.
+
+Both paths must already be valid JABS project directories, and they must be different directories.
+
+**Example:**
+
+```bash
+jabs-cli merge /path/to/destination_project /path/to/source_project --merge-strategy destination-wins
+```
 
 ## jabs-cli sample-frames
 

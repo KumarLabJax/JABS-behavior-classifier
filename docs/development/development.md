@@ -960,6 +960,7 @@ jabs-cli --help
 **Current commands:**
 - `jabs-cli convert-parquet` - Convert a parquet pose file to JABS HDF5 pose format
 - `jabs-cli export-training` - Export training data from a project
+- `jabs-cli merge` - Merge one JABS project into another
 - `jabs-cli rename-behavior` - Rename a behavior across a project
 - `jabs-cli prune` - Remove videos from a project based on criteria
 
@@ -1001,9 +1002,10 @@ See existing commands in `cli.py` for complete examples.
 
 Some standalone scripts may be deprecated in favor of expanding `jabs-cli`. Candidates (non-exhaustive) for consolidation include:
 - `jabs-init` → `jabs-cli init-project`
-- `jabs-project-merge` → `jabs-cli merge`
 
-This consolidation would provide a more cohesive user experience and easier maintenance. However, backward compatibility will be maintained during any transition period.
+The former `jabs-project-merge` script has already been consolidated as `jabs-cli merge`; the standalone entry point was removed.
+
+This consolidation would provide a more cohesive user experience and easier maintenance.
 
 **When to create a standalone script:**
 
