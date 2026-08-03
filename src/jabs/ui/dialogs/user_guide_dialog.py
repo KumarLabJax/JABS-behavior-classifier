@@ -195,9 +195,9 @@ class UserGuideDialog(QDialog):
             "Command Line Tools": {
                 "_file": "cli-tools.md",
                 "jabs-classify": "cli-tools.md#jabs-classify",
-                "jabs-features": "cli-tools.md#jabs-features",
                 "jabs-cli": {
                     "_file": "cli-tools.md#jabs-cli",
+                    "compute-features": "cli-tools.md#jabs-cli-compute-features",
                     "update-pose": "cli-tools.md#jabs-cli-update-pose",
                     "update-labels": "cli-tools.md#jabs-cli-update-labels",
                 },

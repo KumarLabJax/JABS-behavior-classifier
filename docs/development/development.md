@@ -938,8 +938,8 @@ jabs
 # Initialize a JABS project
 jabs-init /path/to/project
 
-# Generate features for an HDF5 file without requring a JABS project (for batch processing)
-jabs-features /path/to/project
+# Generate features for a pose file without requiring a JABS project (for batch processing)
+jabs-cli compute-features --pose-file /path/to/pose_file.h5 --feature-dir /path/to/features
 
 # Run batch classification
 jabs-classify --classifier my_classifier.pkl /path/to/pose_file.h5
@@ -958,6 +958,7 @@ jabs-cli --help
 `jabs-cli` is a unified command-line interface that consolidates smaller JABS utilities under a single entry point. Instead of having many separate standalone scripts, `jabs-cli` uses Click's group/command pattern to organize related functionality.
 
 **Current commands:**
+- `jabs-cli compute-features` - Compute and cache features for a single pose file
 - `jabs-cli convert-parquet` - Convert a parquet pose file to JABS HDF5 pose format
 - `jabs-cli export-training` - Export training data from a project
 - `jabs-cli merge` - Merge one JABS project into another
