@@ -200,6 +200,7 @@ class UserGuideDialog(QDialog):
                     "compute-features": "cli-tools.md#jabs-cli-compute-features",
                     "update-pose": "cli-tools.md#jabs-cli-update-pose",
                     "update-labels": "cli-tools.md#jabs-cli-update-labels",
+                    "merge": "cli-tools.md#jabs-cli-merge",
                 },
                 "jabs-init": "cli-tools.md#jabs-init",
             },

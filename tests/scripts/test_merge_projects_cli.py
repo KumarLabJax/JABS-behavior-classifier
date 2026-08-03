@@ -95,8 +95,16 @@ def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
     dest = _make_project_dir(tmp_path / "dest")
     source = _make_project_dir(tmp_path / "source")
 
+    # distinct instances so the assertion below fails if the same project is
+    # forwarded twice, or if only one of the two is ever instantiated
+    dest_project = mock.Mock(name="destination_project")
+    source_project = mock.Mock(name="source_project")
+
     with (
-        mock.patch("jabs.scripts.cli.merge_projects.Project") as mock_project,
+        mock.patch(
+            "jabs.scripts.cli.merge_projects.Project",
+            side_effect=[dest_project, source_project],
+        ) as mock_project,
         mock.patch("jabs.scripts.cli.merge_projects.merge_projects") as mock_merge,
     ):
         result = CliRunner().invoke(
@@ -107,7 +115,7 @@ def test_merge_invoked_with_selected_strategy(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert mock_project.call_args_list == [mock.call(dest), mock.call(source)]
     mock_merge.assert_called_once_with(
-        mock_project.return_value,
-        mock_project.return_value,
+        dest_project,
+        source_project,
         MergeStrategy.BEHAVIOR_WINS,
     )
