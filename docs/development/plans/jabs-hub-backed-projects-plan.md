@@ -1,15 +1,15 @@
 # Plan: Hub-Backed JABS Projects — Client Integration (jabs-behavior-classifier)
 
-**Status:** Draft / planning 
-**Author:** Glen Beane (with Claude Code)  
-**Repository:** `jabs-behavior-classifier` (this repo — the PySide6 desktop GUI / Python client).  
-**Companion doc:** the Hub-side (Go) design lives in the `jabs-hub` repo at
-`docs/specs/0006-jabs-project-backend-design.md`. The REST API, the PostgreSQL data model, and
-the annotation-document schema (Appendix A.1) are the **shared contract** — keep them in sync. 
-**Scope:** The client half of Hub-backed JABS projects under a **cloud-native** model: the desktop
-GUI becomes a caching client that pulls videos, pose files, annotations, and project metadata from
-JABS Hub / Google Cloud Storage into a local cache, works against the cache (frame-accurate
-labeling, feature extraction, training, offline), and pushes changes back.
+- **Status:** Draft / planning
+- **Author:** Glen Beane (with Claude Code)
+- **Repository:** `jabs-behavior-classifier` (this repo — the PySide6 desktop GUI / Python client).
+- **Companion doc:** the Hub-side (Go) design lives in the `jabs-hub` repo at
+  `docs/specs/0006-jabs-project-backend-design.md`. The REST API, the PostgreSQL data model, and the
+  annotation-document schema (Appendix A.1) are the **shared contract** — keep them in sync.
+- **Scope:** the client half of Hub-backed JABS projects under a **cloud-native** model: the desktop
+  GUI becomes a caching client that pulls videos, pose files, annotations, and project metadata from
+  JABS Hub / Google Cloud Storage into a local cache, works against the cache (frame-accurate
+  labeling, feature extraction, training, offline), and pushes changes back.
 
 ---
 
@@ -97,6 +97,9 @@ warned.
   expensive one) and a classifier registry for predictions/classifiers are post-MVP (§10).
 - Real-time collaborative cursors / live presence (post-MVP).
 - True frame streaming of remote video (playback is download-to-cache + prefetch; §4.6).
+- **Fine-grained permissions** (roles, per-video/per-behavior rights, group- or lab-level access).
+  The MVP is authenticated access + per-project membership, enforced by Hub — see §2.5 for the full
+  in-scope / out-of-scope breakdown, and D24.
 
 ### 2.3 Motivating use cases
 
@@ -111,6 +114,10 @@ warned.
    project and adds videos to it from the library (JABS recordings or uploaded external files), then
    opens it in the desktop GUI (§4.7) — the media hydrates on demand.
 3. **Work from any machine / HPC** with no manual file copying — the cache hydrates from Hub.
+4. **Going offline, or onto low bandwidth.** Before a flight, a field trip, or a move to a slow or
+   metered link, a user hydrates the **whole** project in one deliberate action — every video, pinned
+   pose file, and annotation document — instead of relying on lazy per-video downloads that would
+   fail once the connection is gone, and pins it so cache eviction leaves it alone (§4.6, D22).
 
 ### 2.4 Unobtrusiveness for non-Hub users (hard requirement)
 
@@ -130,6 +137,50 @@ to them:
 
 A regression test asserts that launching the app and opening a local project make **zero** Hub
 imports or network calls (§7).
+
+### 2.5 Permissions and authorization — what is in and out of scope
+
+Authorization is **enforced by Hub**, not by the client (Hub doc, D5), but the *goals* it has to meet
+belong in scope here so they are not left implicit. Users are **not** assumed to be uniformly
+trustworthy with write access to everything.
+
+**In scope (MVP)**
+
+- **Authenticated access only.** Every Hub request carries an OIDC access token (§4.5); there is no
+  anonymous, shared-secret, or unauthenticated read path. Without a token the client sees no projects.
+- **Per-project membership, enforced server-side on every request.** A project has an owner and a
+  membership set (`project_members`); Hub authorizes each call against the caller's membership. Per
+  D19 projects are **personal (owner-only)** in the first cut, so the MVP membership set is normally
+  one user — but the check is a membership check from day one, so sharing is an added row, not a
+  redesign.
+- **The client is not a trust boundary.** The GUI only *reflects* permissions (e.g. greying out
+  labeling for a project it may not write); it never grants them. A patched client, a hand-edited
+  `hub.json`, or a guessed project ID gains nothing — every read and write is re-authorized by Hub.
+- **Possessing a project identifier is not access.** Pasting a project link (§4.7) only names the
+  project; the caller must still be a member. Links are shareable *because* they confer no rights.
+- **Short-lived, per-request media credentials.** Signed GCS URLs are minted per authorized request
+  and expire; a cached URL is not a durable capability, and copying a cache directory to another
+  machine does not carry Hub access with it.
+- **Attribution comes from the token.** Annotation history records the identity Hub derives from the
+  access token, not the client-supplied `labeler` field (Appendix A.1), which stays a display value.
+
+**Out of scope (MVP) — named so they are deliberate omissions, not oversights**
+
+- **Roles and fine-grained permissions.** No viewer/labeler/owner distinction, no per-behavior or
+  per-video permissions: a project member reads and writes everything in that project. A role model
+  is post-MVP (§10); when it lands, the client's only job is to honor a `permissions` field on the
+  project manifest and disable the corresponding UI.
+- **Lab-, group-, or organization-level access control**, including any mapping from JAX directory
+  groups. Membership is per project and explicit.
+- **Locking as a permission concept.** Concurrent writers are handled by optimistic concurrency
+  (D2/§4.8), not by access control; behavior/video-level locking is post-MVP (§10).
+- **Protecting the local cache.** Cached video, pose, and annotation files are ordinary files under
+  normal filesystem permissions — no client-side encryption at rest, and no attempt to stop a local
+  user from reading a cache they have filesystem access to. Consequence to document for users: do not
+  place a Hub project cache on shared storage whose readers are not all project members. Tokens are
+  the exception — OS keyring, never in project files (§2.4).
+- **Audit and compliance reporting.** Annotation version history provides attribution and rollback,
+  not a tamper-evident audit log.
 
 ---
 
@@ -196,8 +247,8 @@ flowchart LR
         UI[GUI / Project]
         RES[Media resolver]
         AS[Annotation cache/store]
-        CACHE[(Local cache dir\nvideo + pose + jabs/)]
-        DERIVED[(Derived: features/predictions\nrecomputed locally)]
+        CACHE[(Local cache dir<br/>video + pose + jabs/)]
+        DERIVED[(Derived: features/predictions<br/>recomputed locally)]
         HC[HubClient + OIDC]
         UI --> RES
         UI --> AS
@@ -210,8 +261,8 @@ flowchart LR
 
     subgraph Hub["JABS Hub (Go / net-http / api/v0)"]
         API[HTTP API + JWT auth]
-        DB[(PostgreSQL\nvideos, projects, annotations)]
-        GCS[(GCS object storage\nvideo + pose, content-addressed)]
+        DB[(PostgreSQL<br/>videos, projects, annotations)]
+        GCS[(GCS object storage<br/>video + pose, content-addressed)]
         API --> DB
         API --> GCS
     end
@@ -284,8 +335,8 @@ A new workspace package `packages/jabs-hub-client` (namespace `jabs.hub`):
   annotations, media URLs). Maps the `{code,message}` envelope to typed exceptions.
 - **OIDC auth** — Authorization-Code + PKCE against Auth0, token cache + refresh, OS-keyring
   storage. Net-new client capability (the app has no networking today).
-- **Cache manager** — the local cache root, LRU eviction + size cap + "pin for offline," and the
-  sync-state file.
+- **Cache manager** — the local cache root, LRU eviction + size cap + "pin for offline" (D22,
+  including whole-project hydration), and the sync-state file.
 - **Lazy-loaded core dependency.** `jabs.hub` ships as a **core dependency** (always present, so the
   menu action always works) but is **lazy-imported** — it and its networking/auth/keyring
   dependencies load only when a Hub action runs, so non-Hub users pay no import or startup cost
@@ -320,6 +371,21 @@ directory name disambiguates from the Go `jabs-hub` repo while the import stays 
   blake2b hash (a deterministic slice) keys the clip's feature/prediction caches. Annotations are
   clip-relative. *(Client-side offset into a full-source download is the fallback for an
   un-materialized clip.)*
+- **Explicit full hydration — "make available offline" (D22).** Lazy per-video hydration is the
+  default, but the user can also pull an entire project up front for the offline / low-bandwidth case
+  (§2.3 use case 4). **File → "Download Project for Offline Use"** fetches every video, pinned pose,
+  and annotation document in the manifest with progress + cancel, and **pins** the project so the
+  cache LRU (§4.5) will not evict it until it is unpinned. Properties that make this safe to invoke
+  casually:
+  - **Resumable and idempotent** — already-cached, hash-verified files are skipped, so re-running
+    after a cancel, a crash, or a dropped connection fetches only what is missing.
+  - **Budget-aware** — the manifest carries per-video sizes, so the client can state the total up
+    front and warn (with the required vs configured cache cap) before a hydration that would exceed
+    the cache budget, rather than thrashing the LRU mid-download.
+  - **Granular** — the same action exists per video (pin/hydrate a subset) for projects larger than
+    the local cache budget.
+  - **Headless equivalent** — a `jabs-cli` command performs the same hydration for HPC/batch use, so
+    a compute node can pre-warm a cache without launching the GUI.
 - **Library upload is a web-UI / `jabs-cli` task, not a desktop-GUI flow** (§4.7). The upload
   mechanics (compute blake2b, request an upload URL, PUT to GCS, `upload-complete`; pose optional)
   live in `HubClient` and are exercised by a `jabs-cli` helper (to seed/bulk-load the library) and
@@ -377,6 +443,26 @@ See D4.
   the cache so nothing is lost; `VideoLabels.merge` available for a later 3-way merge. Hub enforces
   the check-and-set atomically and returns `409` with the current version (Hub doc —
   Optimistic-Concurrency Contract).
+- **Conflict UX (D23).** Conflicts are rare in the first cut — personal, single-user projects (D19) —
+  but the user-visible behavior is specified now, because "last-write-wins" silently losing a labeling
+  session would be worse than today's manual zip hand-off:
+  - **Never block, never lose.** Labeling never waits on the network; a `409` is resolved on the sync
+    thread. Before applying the resolution the client writes the losing document to
+    `jabs/hub-conflicts/<video>-<version>-<timestamp>.json` in the cache, so a discarded edit is
+    always recoverable from disk (and re-importable via `VideoLabels.load`).
+  - **Notify, don't interrupt.** Resolution surfaces as a non-modal status-bar / sync-indicator
+    message — "Labels for `<video>` were also changed by `<user>`; your version was kept, theirs saved
+    to …" — with a link that reveals the conflict file. No modal dialog appears mid-labeling.
+  - **Sync state is always legible.** A per-project indicator shows `synced` / `syncing` /
+    `offline (N queued)` / `conflict`, with per-video detail on hover, so "did my labels reach Hub?"
+    is answerable at a glance instead of inferred.
+  - **Remote changes don't yank the current video.** For a video the user does not have open, a newer
+    pulled document just updates the cache. For the **currently open** video the client keeps showing
+    the user's labels and offers an explicit **"Reload labels from Hub"** — safe to accept, since the
+    local version is already in the cache and the conflict file.
+  - **Post-MVP:** with `VideoLabels.merge`, disjoint edits (different identity, behavior, or frame
+    range) merge silently and only genuine overlaps surface — the point at which a review dialog
+    showing the conflicting intervals becomes worth building. Deliberately not in the MVP.
 - **Pose consistency is guaranteed** (not just warned): the client pulls the project's **pinned**
   pose file (§4.6), so the labels' identities always align, and the pose changes only via an
   explicit upgrade. The client asserts its cached pose matches the pinned pose file's `poseHash` as a cheap
@@ -399,7 +485,7 @@ sequenceDiagram
     else conflict
         Hub-->>Sync: 409 {currentVersion: M}
         Sync->>Hub: GET annotations (M)
-        Sync->>Sync: resolve (LWW; merge optional)
+        Sync->>Sync: resolve (LWW, merge optional)
         Sync->>Hub: PUT (If-Match: M)
     end
 ```
@@ -452,7 +538,10 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 - **Unit** (pytest + `monkeypatch`/`unittest.mock`, no network; `pytest-mock` is not available):
   media-resolver download/cache/hash-verify with a faked `HubClient`; `AnnotationStore` contract
   tests for both implementations; `VideoLabels.as_dict → store → load` round-trip; sync engine
-  debounce/outbox/409-retry; `ensure_local` hydration keeps the training path local.
+  debounce/outbox/409-retry; `ensure_local` hydration keeps the training path local; full-project
+  hydration is resumable and idempotent — re-running after a simulated cancel re-fetches only the
+  missing files and skips hash-verified ones (D22); a 409 resolution always leaves a loadable document
+  in `jabs/hub-conflicts/` (D23).
 - **Integration (opt-in):** against a locally-run Hub in `AUTH_DEV_MODE`.
 - **Backward-compat guard:** a project with no `hub.json` behaves byte-for-byte as today.
 
@@ -462,7 +551,8 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 
 | Risk | Mitigation |
 |---|---|
-| First open of a large cloud project = many big downloads | Manifest-driven, lazy per-video hydration + prefetch + LRU cache; never download a whole project at open. |
+| First open of a large cloud project = many big downloads | Manifest-driven, lazy per-video hydration + prefetch + LRU cache; never download a whole project at open. Whole-project hydration exists only as an explicit, resumable user action (D22). |
+| Lazy hydration is useless once the user is offline or on a slow link | Explicit "Download Project for Offline Use" + pin (D22), resumable and budget-aware, plus a `jabs-cli` equivalent for headless pre-warming. |
 | `VideoReader` is path-only + needs seeking (no streaming) | Download-to-cache before opening; prefetch adjacent videos; pin-for-offline. |
 | Multiprocess workers can't use a network client | `ensure_local` (media + annotations) hydrates the cache before job dispatch; workers read `Path`s. |
 | Scattered annotation reads (4 sites) drift from the store | Land the Phase-0 seam refactor first, local-only, with contract tests; flag direct `open()` of `annotations/`. |
@@ -488,10 +578,13 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 | D14 | **Derived artifacts stay local for the MVP** (features/predictions/classifiers recomputed from the cached pose); only source artifacts live in Hub. *Planned future work:* an **optional cloud feature cache** — features are expensive to compute and are safely shareable via pose-hash + `FEATURE_VERSION` keying (§4.9/§10). *(shared)* | **Confirmed (MVP); cloud feature cache planned** |
 | D15 | **Build order is library/media → projects → annotations** (cloud-native throughout; no annotations-first hybrid). | **Confirmed** |
 | D17 | GUI entry is **File → "Open Project from JABS Hub"** (paste a **project identifier** — the project URL, or a bare project ID when a default Hub base is configured) first; an in-GUI **project browser** is a later addition once auth + listing exist. The paste action persists for opening shared projects. | **Confirmed** |
+| D18 | Hub integration is **unobtrusive for non-Hub users** (§2.4): no startup network/auth, lazy-imported Hub client, local workflows untouched. `jabs-hub-client` ships as a **core dependency, lazy-imported** (not an optional extra) — always present so the menu action works, never imported until a Hub action runs. | **Confirmed** |
 | D19 | **Hub projects are created and managed in the JABS Hub web UI** (create project, add library videos, share); the desktop GUI **opens** existing Hub projects only. The web UI is built ahead of this work (devices/sessions + library first, project creation layered on). Projects are **personal** (owner) initially; sharing — and thus the multi-user label-sharing use case (§2.3) — lands later, so the first cut is single-user cloud projects. | **Confirmed** |
 | D20 | **A project pins a specific pose file per video** (`project_videos.pose_file_id`); a library video may have **multiple** `pose_files` (one per pose run). The project keeps its pinned pose even when newer runs are added; changing it is an **explicit pose upgrade** that re-pins and migrates labels by bbox-IoU. Pinning is what guarantees label/identity alignment. **Where the migration runs (server-side batch job vs GUI client) is undecided** — not committed to the client. *(shared)* | **Confirmed (migration location open)** |
 | D21 | **A project reference is a clip** — an optional `[clip_start, clip_end]` frame range on `project_videos` (null = whole video); one source video may appear as **multiple clips** in a project. Clips are **materialized server-side** as concrete clip video + clip pose objects in a **regenerable, content-addressed cache** keyed by (video, pinned pose, range) (Hub §10), so the client downloads only the clip (not the whole source) and needs no offset/pose-slicing; the canonical library stays single-copy. Annotations are **clip-relative** (0-based within the clip). *(shared)* | **Confirmed** |
-| D18 | Hub integration is **unobtrusive for non-Hub users** (§2.4): no startup network/auth, lazy-imported Hub client, local workflows untouched. `jabs-hub-client` ships as a **core dependency, lazy-imported** (not an optional extra) — always present so the menu action works, never imported until a Hub action runs. | **Confirmed** |
+| D22 | **Hydration is lazy by default, plus an explicit full-project "make available offline" action** (GUI + a `jabs-cli` equivalent) that downloads every video/pose/annotation, pins the project against LRU eviction, and is resumable, idempotent, and budget-aware; per-video pin/hydrate is also available (§2.3 use case 4, §4.6). | **Recommended (pending confirm)** |
+| D23 | **Conflict resolution is user-visible, not silent** (§4.8): the losing document is always written to `jabs/hub-conflicts/`, resolution is reported non-modally with a persistent sync-state indicator, and the currently open video is never reloaded without an explicit user action. A merge-review dialog waits for 3-way merge (post-MVP). | **Recommended (pending confirm)** |
+| D24 | **Permission scope is explicit** (§2.5): authenticated-only access with per-project membership enforced server-side on every request, one access level per project for the MVP, client is not a trust boundary, project links confer nothing. Roles, group/org-level access, locking-as-permission, cache encryption at rest, and audit logging are **out of scope**. Authorization itself is Hub-owned (Hub doc D5). | **Recommended (pending confirm)** |
 
 Hub-owned decisions (D5 authz, D6 name uniqueness, D7 pagination, D9 opaque document, D16 decoupled
 library upload) are in the Hub doc.
@@ -505,7 +598,7 @@ Order-of-magnitude, 1 developer, Hub work landing in parallel. Not a commitment.
 | Phase | Client (Python) |
 |---|---|
 | **0** Foundations + seams | 3-4 wk — OIDC + `HubClient` + media-resolver & annotation-store refactor. |
-| **1** Library + media | 4-6 wk — Hub-aware resolver, cache manager, lazy hydration, upload, playback prefetch. |
+| **1** Library + media | 4-6 wk — Hub-aware resolver, cache manager, lazy hydration, full-project hydration/pin (D22), upload, playback prefetch. |
 | **2** Projects | 2-3 wk — create/open cloud projects, manifest-driven video list, settings sync. |
 | **3** Annotations | 4-5 wk — annotation cache + sync engine + offline outbox + conflict; GUI wiring. |
 
@@ -530,6 +623,10 @@ Roughly **3.5-4.5 developer-months** of client work. (Hub estimates in the Hub d
   (§3.1/§4.9), so another machine's features are valid for a byte-identical Hub pose. Client lookup
   order: local cache → Hub feature cache → compute (optionally upload). Does not change the MVP
   "recompute locally" default.
+- **Project sharing + role-based permissions** — membership beyond the owner (D19), then a role model
+  (viewer / labeler / owner, potentially per-video or per-behavior) that the client honors via a
+  `permissions` field on the project manifest; group- and lab-level access control. Explicitly out of
+  scope for the MVP (§2.5, D24).
 - **Behavior/video-level locking**, **real-time collaboration**.
 
 ### 10.1 Fine-grained label storage (future)
@@ -592,6 +689,8 @@ The exact payload `VideoLabels.as_dict` produces / `VideoLabels.load` consumes
 | `jabs/project.json` (shared keys) | `projects.settings` (JSONB) | Hub |
 | `jabs/project.json` (local/GUI keys) | — | local only |
 | `jabs/features/`, `jabs/predictions/`, `jabs/classifiers/` | — | **local, derived** (recomputed from cached pose; D14) |
+| `jabs/hub-sync.json` (versions, dirty flags, outbox) | — | local only (§4.8) |
+| `jabs/hub-conflicts/<video>-<version>-<timestamp>.json` | superseded `annotations` version | local only, recovery copy (D23) |
 | `jabs/hub.json` (`{baseUrl, projectId}`) | client-only link marker | local |
 
 ### A.3 Client source references
