@@ -140,9 +140,9 @@ imports or network calls (§7).
 
 ### 2.5 Permissions and authorization — what is in and out of scope
 
-Authorization is **enforced by Hub**, not by the client (Hub doc, D5), but the *goals* it has to meet
-belong in scope here so they are not left implicit. Users are **not** assumed to be uniformly
-trustworthy with write access to everything.
+Authorization is **enforced by Hub**, not by the client (Hub doc D5, recorded in the `jabs-hub`
+repo as **ADR-0014**), but the *goals* it has to meet belong in scope here so they are not left
+implicit. Users are **not** assumed to be uniformly trustworthy with write access to everything.
 
 **In scope (MVP)**
 
@@ -153,6 +153,15 @@ trustworthy with write access to everything.
   D19 projects are **personal (owner-only)** in the first cut, so the MVP membership set is normally
   one user — but the check is a membership check from day one, so sharing is an added row, not a
   redesign.
+- **Membership gates projects, not the video library.** A library video exists before and
+  independently of any project (ADR-0012), so project membership is not a well-defined question for
+  library media: **ADR-0014 Decision 3 makes the library readable *and writable* by any authenticated
+  Hub caller.** For a JABS user that means any colleague with Hub access can list, download, and add
+  to the library — including the videos a project pins — while **projects and annotations**, the
+  scientific work product, are what membership actually protects. This deliberately narrows ADR-0001
+  §4 ("the API checks project membership before generating any URL") to *project* media; per-video
+  library ACLs are deferred (ADR-0014 Open Question 2). Do not present library media in the GUI as
+  though it were private to the project that references it.
 - **The client is not a trust boundary.** The GUI only *reflects* permissions (e.g. greying out
   labeling for a project it may not write); it never grants them. A patched client, a hand-edited
   `hub.json`, or a guessed project ID gains nothing — every read and write is re-authorized by Hub.
@@ -172,6 +181,9 @@ trustworthy with write access to everything.
   project manifest and disable the corresponding UI.
 - **Lab-, group-, or organization-level access control**, including any mapping from JAX directory
   groups. Membership is per project and explicit.
+- **Per-video library ACLs or library ownership.** The catalogue is lab-wide (above). If library
+  videos ever become sensitive — collaborator data, embargoed studies — that is a Hub-side change
+  (ADR-0014 OQ2), and the client would honor it rather than enforce it.
 - **Locking as a permission concept.** Concurrent writers are handled by optimistic concurrency
   (D2/§4.8), not by access control; behavior/video-level locking is post-MVP (§10).
 - **Protecting the local cache.** Cached video, pose, and annotation files are ordinary files under
@@ -353,7 +365,9 @@ directory name disambiguates from the Go `jabs-hub` repo while the import stays 
   pose it fetches the project's **pinned** pose file (by its `poseHash`, §4.3/D20), not the
   library's latest, and verifies the blake2b hash; (3) **defers per-video probing** so open is
   metadata-driven (manifest `numFrames`/`poseVersion`) and hydrates lazily — never a full-project
-  download at open.
+  download at open. **`numFrames` is optional** (§5): when the manifest omits it, the client probes
+  that video on first open instead of treating the gap as an error, so metadata-driven open must
+  degrade to probe-on-demand rather than depend on it.
 - **Pose upgrades are explicit.** A library video may accrue multiple pose runs; the project keeps
   its pinned pose until a user upgrades it. An upgrade re-pins to a newer pose file and **migrates
   labels** by bbox-IoU (the algorithm exists in `jabs-cli update-pose`,
@@ -517,11 +531,20 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 - **Projects & the join manifest:** `GET/POST /projects`, `GET /projects/{id}`; `GET
   /projects/{id}/videos` returns the manifest — per association: `projectVideoId`, `videoId`,
   `nameInProject`, `contentHash`, `poseFileId`, `poseHash`, `poseVersion`, `numFrames` (= clip
-  length), `clipStart`/`clipEnd`, `videoState`/`poseState`, `annotationVersion`. Per-association
-  **signed media URLs** (in the manifest or via `.../videos/{projectVideoId}/media-urls`) resolve the
-  **pinned** pose and the source-or-materialized-clip video — never the library "latest". (Linking
-  videos, `register-recording`, and per-video `pose-files` are web-UI / `jabs-cli` operations, not
+  length, **optional** — see below), `clipStart`/`clipEnd`, `videoState`/`poseState`,
+  `annotationVersion`. Per-association **signed media URLs** (in the manifest or via
+  `.../videos/{projectVideoId}/media-urls`) resolve the **pinned** pose and the
+  source-or-materialized-clip video — never the library "latest". (Linking videos,
+  `register-recording`, and per-video `pose-files` are web-UI / `jabs-cli` operations, not
   desktop-client calls.)
+
+  > `numFrames` is **optional**. It is populated for videos processed by the pipeline (which emits it
+  > in its artifact manifest) and for external uploads whose client supplied it, but is NULL for a
+  > `RECORDING_ONLY` session or any video not yet processed — no Hub table records an exact frame
+  > count. Treat a missing `numFrames` as "probe on first open" rather than an error, and do not
+  > assume the manifest always carries it.
+
+  (Wording from the Hub spec 0006 *Amendments* section, ADR-0012 Decision 3; §4.6 relies on it.)
 - **Annotations:** `GET/PUT /projects/{id}/videos/{projectVideoId}/annotations` with the
   `If-Match`/`version`/`409` optimistic-concurrency contract; `GET /projects/{id}/annotations`
   bulk. On write the client also sends a compact **behavior summary** (per behavior/identity:
@@ -541,7 +564,8 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   debounce/outbox/409-retry; `ensure_local` hydration keeps the training path local; full-project
   hydration is resumable and idempotent — re-running after a simulated cancel re-fetches only the
   missing files and skips hash-verified ones (D22); a 409 resolution always leaves a loadable document
-  in `jabs/hub-conflicts/` (D23).
+  in `jabs/hub-conflicts/` (D23); a manifest entry with **no** `numFrames` opens via the probe
+  fallback instead of raising (§5).
 - **Integration (opt-in):** against a locally-run Hub in `AUTH_DEV_MODE`.
 - **Backward-compat guard:** a project with no `hub.json` behaves byte-for-byte as today.
 
