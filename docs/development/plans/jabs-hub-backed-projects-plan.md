@@ -159,9 +159,11 @@ implicit. Users are **not** assumed to be uniformly trustworthy with write acces
   Hub caller.** For a JABS user that means any colleague with Hub access can list, download, and add
   to the library — including the videos a project pins — while **projects and annotations**, the
   scientific work product, are what membership actually protects. This deliberately narrows ADR-0001
-  §4 ("the API checks project membership before generating any URL") to *project* media; per-video
-  library ACLs are deferred (ADR-0014 Open Question 2). Do not present library media in the GUI as
-  though it were private to the project that references it.
+  §4 ("the API checks project membership before generating any URL") to *project* media. Do not
+  present library media in the GUI as though it were private to the project that references it. This
+  is the MVP posture, **not the end state** — group-scoped library visibility is a known future
+  requirement (below), so treat the open catalogue as temporary and keep browse paths behind a
+  filtered query.
 - **The client is not a trust boundary.** The GUI only *reflects* permissions (e.g. greying out
   labeling for a project it may not write); it never grants them. A patched client, a hand-edited
   `hub.json`, or a guessed project ID gains nothing — every read and write is re-authorized by Hub.
@@ -181,9 +183,17 @@ implicit. Users are **not** assumed to be uniformly trustworthy with write acces
   project manifest and disable the corresponding UI.
 - **Lab-, group-, or organization-level access control**, including any mapping from JAX directory
   groups. Membership is per project and explicit.
-- **Per-video library ACLs or library ownership.** The catalogue is lab-wide (above). If library
-  videos ever become sensitive — collaborator data, embargoed studies — that is a Hub-side change
-  (ADR-0014 OQ2), and the client would honor it rather than enforce it.
+- **Group-scoped library visibility — out of scope for the MVP, but a known future requirement, not a
+  hypothetical.** Library videos will eventually need to be readable only to specified groups
+  (collaborator data, embargoed studies), so the lab-wide catalogue above is a starting posture rather
+  than the end state. Enforcement is Hub-side (ADR-0014 Decision 3 today, its OQ2 for the ACL model);
+  the client's job when it lands is to **honor** a visibility/permissions field on the manifest and
+  the library listing, not to enforce one — which is why the client must not build UI that assumes an
+  open catalogue (e.g. "browse everything" affordances with no filtered-query path behind them).
+  **Revocation cannot be retroactive for a cached project:** the cache holds video and pose bytes on
+  disk (§4.2), so withdrawing a group's access later does not reach bytes already pulled. That is
+  inherent to offline-first, and it means group scoping has to be applied at upload/link time rather
+  than relied on as a later withdrawal.
 - **Locking as a permission concept.** Concurrent writers are handled by optimistic concurrency
   (D2/§4.8), not by access control; behavior/video-level locking is post-MVP (§10).
 - **Protecting the local cache.** Cached video, pose, and annotation files are ordinary files under
@@ -651,6 +661,12 @@ Roughly **3.5-4.5 developer-months** of client work. (Hub estimates in the Hub d
   (viewer / labeler / owner, potentially per-video or per-behavior) that the client honors via a
   `permissions` field on the project manifest; group- and lab-level access control. Explicitly out of
   scope for the MVP (§2.5, D24).
+- **Group-scoped library visibility (a committed requirement, not a maybe).** Library videos readable
+  only to specified groups — see §2.5. Client-side work when it lands: honor a visibility field on the
+  library listing and the project manifest, present "no longer accessible" states for cached media
+  whose access was withdrawn, and keep every library browse path behind a filtered query rather than a
+  full scan. Sequenced after Hub decides where group membership lives (ADR-0014 OQ1/OQ2), which is the
+  same decision that gates project sharing.
 - **Behavior/video-level locking**, **real-time collaboration**.
 
 ### 10.1 Fine-grained label storage (future)
