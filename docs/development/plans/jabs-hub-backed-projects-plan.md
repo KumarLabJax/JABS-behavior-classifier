@@ -241,7 +241,7 @@ implicit. Users are **not** assumed to be uniformly trustworthy with write acces
   `VideoManager.load_video_labels` (`video_manager.py:109`), `VideoManager.load_annotations`
   (`:262`), `Project.load_counts` (`project.py:1461`), and — in a **child process** —
   `parallel_workers._load_video_labels` (`parallel_workers.py:207`, path from `project.py:978`).
-- **Serialization is clean:** `VideoLabels.as_dict` / `.load` (`video_labels.py:178` / `:278`),
+- **Serialization is clean:** `VideoLabels.as_dict` / `.load` (`video_labels.py:178` / `:279`),
   plain JSON, `SERIALIZED_VERSION = 1` (`video_labels.py:16`). Schema in Appendix A.1.
 - **No storage abstraction** today; all concrete `pathlib` + `json`. GUI saves eagerly and
   synchronously on every edit (`central_widget.py:880`, …). `VideoLabels.merge` with a
@@ -254,7 +254,7 @@ implicit. Users are **not** assumed to be uniformly trustworthy with write acces
   (`settings_manager.py`) owns `project.json` (behaviors, window sizes, settings, metadata,
   video_files, selected_behavior).
 - Videos are enumerated by a **local directory glob** (`VideoManager.get_videos`,
-  `video_manager.py:153`) → for a cloud project this becomes the Hub **manifest**
+  `video_manager.py:154`) → for a cloud project this becomes the Hub **manifest**
   (`GET /projects/{id}/videos`).
 
 ---
@@ -281,7 +281,7 @@ flowchart LR
         RES --> HC
     end
 
-    subgraph Hub["JABS Hub (Go / net-http / api/v0)"]
+    subgraph Hub["JABS Hub (Go / net/http / api/v0)"]
         API[HTTP API + JWT auth]
         DB[(PostgreSQL<br/>videos, projects, annotations)]
         GCS[(GCS object storage<br/>video + pose, content-addressed)]
@@ -538,7 +538,7 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 - **Library + media:** `GET /videos` (list/search), `POST /videos` + `.../video-upload-url` /
   `.../pose-upload-url` / `.../upload-complete` (upload), `GET /videos/{id}/video-url` /
   `.../pose-url` (signed download). Media is content-addressed; **exact pose bytes preserved**.
-- **Projects & the join manifest:** `GET/POST /projects`, `GET /projects/{id}`; `GET
+- **Projects & the join manifest:** `GET /projects`, `POST /projects`, `GET /projects/{id}`; `GET
   /projects/{id}/videos` returns the manifest — per association: `projectVideoId`, `videoId`,
   `nameInProject`, `contentHash`, `poseFileId`, `poseHash`, `poseVersion`, `numFrames` (= clip
   length, **optional** — see below), `clipStart`/`clipEnd`, `videoState`/`poseState`,
@@ -699,7 +699,7 @@ design is in the Hub doc (**§15.1 Fine-grained label storage**). Client-facing 
 ### A.1 Annotation document schema (client-owned; the shared contract; opaque to Hub)
 
 The exact payload `VideoLabels.as_dict` produces / `VideoLabels.load` consumes
-(`src/jabs/project/video_labels.py:178` / `:278`). `labels` are masked by `pose.identity_mask`;
+(`src/jabs/project/video_labels.py:178` / `:279`). `labels` are masked by `pose.identity_mask`;
 `unfragmented_labels` are raw; load prefers `unfragmented_labels`. Blocks are inclusive
 `{start, end, present}` (`present=true` → behavior). Hub stores this as an opaque JSONB `document`.
 
@@ -739,9 +739,9 @@ The exact payload `VideoLabels.as_dict` produces / `VideoLabels.load` consumes
   (`get_cached_pose_path`), `src/jabs/pose_estimation/__init__.py:40` (`get_pose_path`); open point
   `src/jabs/video_reader/video_reader.py:19`; `ProjectPaths` decoupling `project_paths.py:18`.
 - Annotation seams: write `project.py:618`; reads `video_manager.py:109`/`:262`, `project.py:1461`,
-  `parallel_workers.py:207` (job base `project.py:978`); serialization `video_labels.py:178`/`:278`,
+  `parallel_workers.py:207` (job base `project.py:978`); serialization `video_labels.py:178`/`:279`,
   merge `:301`; `SERIALIZED_VERSION` `video_labels.py:16`.
 - Cache keying (why derived caches survive a Hub pull): `features.py:178`,
   `packages/jabs-io/.../feature_cache/base.py:71`, `prediction_manager.py:167`.
-- Settings/manifest: `settings_manager.py`; video enumeration `video_manager.py:153`.
+- Settings/manifest: `settings_manager.py`; video enumeration `video_manager.py:154`.
 ```
