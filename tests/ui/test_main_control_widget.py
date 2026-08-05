@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+
 import pytest
 
 try:
+    from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QApplication
 
+    import jabs.ui.main_control_widget.main_control_widget as main_control_widget_module
     from jabs.ui.colors import BEHAVIOR_COLOR
     from jabs.ui.main_control_widget.main_control_widget import MainControlWidget
 
@@ -88,3 +92,36 @@ def test_default_disabled_text_is_grey() -> None:
 
     widget.set_behavior_button_color(None)
     assert "color: grey" in widget._label_behavior_button.styleSheet()
+
+
+def test_first_label_quit_closes_windows_before_exiting(monkeypatch) -> None:
+    """Choosing "Quit JABS" at the first-behavior prompt runs window cleanup first.
+
+    Closing the windows delivers MainWindow.closeEvent (stopping background threads
+    and shutting down the process pool) before the interpreter exits.
+    """
+    calls = []
+
+    class _RejectedDialog:
+        """Stands in for the QInputDialog the user cancels."""
+
+        def __getattr__(self, _name):
+            return lambda *args, **kwargs: None
+
+        def windowFlags(self):
+            return Qt.WindowType.Dialog
+
+        def exec(self):
+            return 0  # rejected: the "Quit JABS" button
+
+    fake_qtwidgets = SimpleNamespace(
+        QInputDialog=_RejectedDialog,
+        QApplication=SimpleNamespace(closeAllWindows=lambda: calls.append("closeAllWindows")),
+    )
+    monkeypatch.setattr(main_control_widget_module, "QtWidgets", fake_qtwidgets)
+
+    with pytest.raises(SystemExit) as exit_info:
+        MainControlWidget._get_first_label(SimpleNamespace())
+
+    assert exit_info.value.code == 0
+    assert calls == ["closeAllWindows"]

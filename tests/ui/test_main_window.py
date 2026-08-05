@@ -1,11 +1,11 @@
-"""Tests for MainWindow feature cache scan handling.
+"""Tests for MainWindow shutdown and feature cache scan handling.
 
 The methods under test are called unbound with lightweight stand-ins for ``self``,
 so a full MainWindow (and its child widgets) never has to be constructed.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -23,6 +23,25 @@ pytestmark = pytest.mark.skipif(
     SKIP_UI_TESTS,
     reason=SKIP_REASON if SKIP_UI_TESTS else "",
 )
+
+
+def test_quit_application_closes_window_before_quitting(monkeypatch):
+    """Quit closes the window first so closeEvent's cleanup runs, then quits.
+
+    Closing delivers the close event synchronously; the explicit quit is what
+    ends the application even when another top-level window is still open.
+    """
+    calls = MagicMock()
+    stub = SimpleNamespace(close=calls.close)
+    monkeypatch.setattr(
+        main_window_module,
+        "QtWidgets",
+        SimpleNamespace(QApplication=SimpleNamespace(quit=calls.quit)),
+    )
+
+    MainWindow.quit_application(stub)
+
+    assert calls.mock_calls == [call.close(), call.quit()]
 
 
 def test_feature_cache_scan_results_stored_on_project():

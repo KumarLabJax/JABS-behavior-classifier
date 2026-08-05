@@ -670,6 +670,11 @@ class MainControlWidget(QtWidgets.QWidget):
                 self.new_behavior_label.emit(self._behaviors)
                 self._behavior_changed()
         else:
+            # Close the main window first so its closeEvent runs (stopping
+            # background threads and shutting down the process pool) before the
+            # interpreter exits. close() delivers the event synchronously, so the
+            # cleanup completes before sys.exit below.
+            QtWidgets.QApplication.closeAllWindows()
             sys.exit(0)
 
     def _new_window_size(self):

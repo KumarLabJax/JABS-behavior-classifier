@@ -489,6 +489,23 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
             self._identity_overlay_minimal.setChecked(True)
 
+    def quit_application(self) -> None:
+        """Quit JABS, running the shutdown cleanup first.
+
+        Wired to the Quit menu action. ``QCoreApplication.quit()`` on its own
+        leaves the event loop without delivering a close event, which skips
+        :meth:`closeEvent` and therefore the background-thread and process-pool
+        shutdown it performs; a worker thread still running when the interpreter
+        tears down aborts the process. ``close()`` delivers the event
+        synchronously, so the cleanup has finished by the time we quit.
+
+        The explicit quit matters: closing this window is only enough to end the
+        application when no other top-level window is open, and JABS creates some
+        without a parent (for example the training report).
+        """
+        self.close()
+        QtWidgets.QApplication.quit()
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Handle the close event for the main window.
 
