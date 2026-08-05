@@ -80,6 +80,19 @@ class VideoFeatureCacheStatus:
         return len({info.identity for info in self.identity_caches})
 
     @property
+    def identities_missing_per_frame(self) -> tuple[int, ...]:
+        """Sorted identities whose caches hold no per-frame features.
+
+        Evaluated per identity rather than per cache directory: an identity with
+        caches under several pose-hash subdirectories only needs per-frame
+        features in one of them, matching how :attr:`window_sizes` merges.
+        """
+        present: dict[int, bool] = {}
+        for info in self.identity_caches:
+            present[info.identity] = present.get(info.identity, False) or info.per_frame_present
+        return tuple(sorted(identity for identity, found in present.items() if not found))
+
+    @property
     def is_complete(self) -> bool:
         """Whether every identity in the video has per-frame features cached.
 
@@ -88,8 +101,9 @@ class VideoFeatureCacheStatus:
         """
         if self.expected_identity_count is None or not self.has_cached_features:
             return False
-        return self.cached_identity_count >= self.expected_identity_count and all(
-            info.per_frame_present for info in self.identity_caches
+        return (
+            self.cached_identity_count >= self.expected_identity_count
+            and not self.identities_missing_per_frame
         )
 
     @property
@@ -144,7 +158,12 @@ class VideoFeatureCacheStatus:
         More than one format means the cache is mixed, which can happen when a
         project's cache format setting changed without clearing the cache.
         """
-        return tuple(sorted({info.cache_format for info in self.identity_caches}, key=str))
+        return tuple(
+            sorted(
+                {info.cache_format for info in self.identity_caches},
+                key=lambda cache_format: cache_format.value,
+            )
+        )
 
     @property
     def feature_versions(self) -> tuple[int, ...]:

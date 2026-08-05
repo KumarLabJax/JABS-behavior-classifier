@@ -167,10 +167,19 @@ def test_dialog_reports_incomplete_identity_coverage():
 
 
 def test_dialog_warns_about_missing_per_frame_features():
-    """A cache without per-frame features shows a warning row."""
+    """A cache without per-frame features names the affected identities."""
     dialog = _dialog(_status(per_frame_present=False))
 
-    assert "Per-frame features are missing" in _value_for(dialog, "Warning:")
+    warning = _value_for(dialog, "Warning:")
+    assert "Per-frame features are missing" in warning
+    assert warning.endswith("0, 1")
+
+
+def test_dialog_omits_warning_when_per_frame_features_are_present():
+    """No warning row appears for a healthy cache."""
+    dialog = _dialog(_status())
+
+    assert "Warning:" not in _label_texts(dialog)
 
 
 @pytest.mark.parametrize(

@@ -226,9 +226,11 @@ class VideoInfoDialog(QDialog):
 
         form.addRow("Size on disk:", QLabel(format_byte_size(status.size_bytes)))
 
-        if any(not info.per_frame_present for info in status.identity_caches):
+        if missing_per_frame := status.identities_missing_per_frame:
+            identity_list = ", ".join(str(identity) for identity in missing_per_frame)
             form.addRow(
-                "Warning:", QLabel("Per-frame features are missing for one or more identities")
+                "Warning:",
+                QLabel(f"Per-frame features are missing for identities: {identity_list}"),
             )
 
     def sizeHint(self) -> QSize:
