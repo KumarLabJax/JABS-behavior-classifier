@@ -3,10 +3,25 @@
 import pytest
 
 from jabs.core.enums import CacheFormat
-from jabs.ui.feature_cache_text import (
-    format_byte_size,
-    format_cache_formats,
-    format_window_sizes,
+
+try:
+    # These helpers are Qt-free, but importing anything under jabs.ui executes
+    # jabs/ui/__init__.py, which imports MainWindow and therefore PySide6.
+    from jabs.ui.feature_cache_text import (
+        format_byte_size,
+        format_cache_formats,
+        format_window_sizes,
+    )
+
+    SKIP_UI_TESTS = False
+    SKIP_REASON = None
+except ImportError as e:
+    SKIP_UI_TESTS = True
+    SKIP_REASON = f"Qt/UI dependencies not available: {e}"
+
+pytestmark = pytest.mark.skipif(
+    SKIP_UI_TESTS,
+    reason=SKIP_REASON if SKIP_UI_TESTS else "",
 )
 
 
