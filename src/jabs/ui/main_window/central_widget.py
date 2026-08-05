@@ -1008,22 +1008,9 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._ensure_classifier_for_mode()
 
-        # training only reads features for labeled identities, so only those need
-        # to be cached to avoid computing features during the run
         window_size = self._feature_window_size()
-        labeled_identities = self._project.labeled_identities(self._training_behaviors())
-        if not self._confirm_on_demand_features(
-            self._project.videos_missing_window_features(
-                window_size, identities=labeled_identities
-            ),
-            window_size,
-            "training",
-        ):
+        if not self._confirm_training_features(window_size):
             return
-
-        # these are the only videos whose features this run can compute, so they
-        # are the only ones whose cache status goes stale
-        self._training_cache_targets = list(labeled_identities)
 
         # reset training report
         self._training_report_markdown = None
@@ -1073,6 +1060,38 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
+
+    def _confirm_training_features(self, window_size: int) -> bool:
+        """Check the feature cache for the videos training will read, and warn if needed.
+
+        Training only reads features for labeled identities, so only those need to
+        be cached to avoid computing features mid-run. Working out which identities
+        those are means reading every annotation file, so it is only done when the
+        cheaper whole-video check finds something missing: when every identity of
+        every video is cached, no subset of them can be missing.
+
+        Records the videos this run may compute features for, so only their cache
+        status is invalidated when it finishes.
+
+        Args:
+            window_size: Window size the run will extract features for.
+
+        Returns:
+            True if training should go ahead.
+        """
+        if not self._project.videos_missing_window_features(window_size):
+            self._training_cache_targets = []
+            return True
+
+        labeled_identities = self._project.labeled_identities(self._training_behaviors())
+        missing = self._project.videos_missing_window_features(
+            window_size, identities=labeled_identities
+        )
+        if not self._confirm_on_demand_features(missing, window_size, "training"):
+            return False
+
+        self._training_cache_targets = list(labeled_identities)
+        return True
 
     def _training_behaviors(self) -> list[str]:
         """Behaviors whose labels the next training run will use.
@@ -1304,7 +1323,7 @@ class CentralWidget(QtWidgets.QWidget):
         self.feature_cache_changed.emit()
 
     def _cleanup_classify_thread(self) -> None:
-        """clean up the training thread"""
+        """clean up the classification thread"""
         if self._classify_thread:
             self._classify_thread.deleteLater()
             self._classify_thread = None
