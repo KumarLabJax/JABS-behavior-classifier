@@ -188,3 +188,24 @@ def test_inspect_prefers_parquet_when_both_formats_present(tmp_path):
 
     assert info is not None
     assert info.cache_format == CacheFormat.PARQUET
+
+
+def test_inspect_survives_an_unreadable_cache_directory(tmp_path, monkeypatch):
+    """A directory listing failure while sizing the cache does not fail inspection.
+
+    Size is one field of many; a cache directory that becomes unreadable (or is
+    removed) mid-scan must not abort a project-wide scan.
+    """
+    identity_dir = tmp_path / "0"
+    _write_cache(identity_dir, CacheFormat.HDF5, window_sizes=(5,), identity=0)
+
+    def _deny_listing(_self):
+        raise PermissionError("cache directory is not readable")
+
+    monkeypatch.setattr(Path, "iterdir", _deny_listing)
+
+    info = inspect_identity_cache(identity_dir)
+
+    assert info is not None
+    assert info.window_sizes == frozenset({5})
+    assert info.size_bytes == 0

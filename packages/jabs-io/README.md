@@ -28,8 +28,8 @@ save(data_instance, 'frames.parquet')
 | `nwb`     | `pynwb`, `ndx-pose` | NWB pose file read/write  |
 | `parquet` | `pyarrow`           | Parquet feature cache I/O |
 
-`jabs-io` depends on `jabs-core`, which requires `h5py` directly, so HDF5 support is
-always available with no extra needed. `pyarrow` is also a direct dependency of
+HDF5 is not an extra: `h5py` is a required dependency, since pose files, prediction
+files and the default feature cache are all HDF5. `pyarrow` is a direct dependency of
 `jabs-behavior-classifier`, so the `parquet` backend is available automatically when
 `jabs-io` is installed as part of the full JABS application. The `nwb` extra must
 always be installed explicitly:
