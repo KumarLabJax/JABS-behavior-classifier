@@ -1,6 +1,11 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+from jabs.core.enums import CacheFormat
+from jabs.io.feature_cache import IdentityCacheInfo
+from jabs.project import VideoFeatureCacheStatus
 
 try:
     from PySide6 import QtWidgets
@@ -154,3 +159,56 @@ def test_choosing_classify_action_emits_request(monkeypatch):
     widget._show_context_menu(QPoint(0, 0))
 
     assert requested == ["a.avi"]
+
+
+def _cache_status(video, window_sizes=frozenset({5})) -> VideoFeatureCacheStatus:
+    """Build a feature cache status with one cached identity."""
+    return VideoFeatureCacheStatus(
+        video=video,
+        cache_dir=Path("/features") / Path(video).stem,
+        identity_caches=(
+            IdentityCacheInfo(
+                directory=Path("/features") / Path(video).stem / "0",
+                identity=0,
+                cache_format=CacheFormat.PARQUET,
+                feature_version=17,
+                pose_hash="hash",
+                num_frames=100,
+                distance_scale_factor=None,
+                window_sizes=window_sizes,
+                per_frame_present=True,
+                size_bytes=10,
+            ),
+        ),
+        current_feature_version=17,
+        expected_identity_count=1,
+    )
+
+
+def test_feature_cache_status_rescans_the_video():
+    """Get Info re-scans the video so the status it shows is current."""
+    project = _mock_project(["a.avi"], excluded=set())
+    refreshed = _cache_status("a.avi")
+    project.refresh_feature_cache_status.return_value = refreshed
+    widget = VideoListDockWidget()
+    widget.set_project(project)
+
+    assert widget._feature_cache_status("a.avi") is refreshed
+    project.refresh_feature_cache_status.assert_called_once_with("a.avi")
+
+
+def test_feature_cache_status_falls_back_to_stored_status_on_error():
+    """A failed re-scan falls back to the status already stored on the project."""
+    project = _mock_project(["a.avi"], excluded=set())
+    stored = _cache_status("a.avi")
+    project.refresh_feature_cache_status.side_effect = OSError("unreadable")
+    project.feature_cache_status = {"a.avi": stored}
+    widget = VideoListDockWidget()
+    widget.set_project(project)
+
+    assert widget._feature_cache_status("a.avi") is stored
+
+
+def test_feature_cache_status_without_project():
+    """With no project loaded there is no status to report."""
+    assert VideoListDockWidget()._feature_cache_status("a.avi") is None

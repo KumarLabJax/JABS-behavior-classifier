@@ -5,6 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from jabs.classifier import MultiClassClassifier
+from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+
 try:
     from jabs.core.enums import ClassifierMode
     from jabs.ui.main_window.central_widget import CentralWidget
@@ -215,3 +218,163 @@ def test_classify_complete_autoswitches_to_other_video():
     assert stub._predictions == {"original": 1}
     stub._set_prediction_vis.assert_not_called()
     stub.request_video_selection.emit.assert_called_once_with("other.avi")
+
+
+def _feature_check_stub(
+    *,
+    mode=None,
+    window_size=5,
+    current_behavior="Walking",
+    behaviors=("Walking", "Grooming"),
+    classifier=None,
+    project_defaults=None,
+) -> SimpleNamespace:
+    """Build a stub self for the feature cache warning helpers."""
+    if mode is None:
+        mode = ClassifierMode.BINARY
+    return SimpleNamespace(
+        _window_size=window_size,
+        _classifier=classifier,
+        _controls=SimpleNamespace(current_behavior=current_behavior, behaviors=list(behaviors)),
+        _project=SimpleNamespace(
+            settings_manager=SimpleNamespace(classifier_mode=mode),
+            get_project_defaults=lambda: project_defaults or {"window_size": 11},
+            video_manager=SimpleNamespace(num_videos=4),
+        ),
+    )
+
+
+def test_training_behaviors_binary_uses_current_behavior():
+    """Binary training only reads labels for the behavior being trained."""
+    stub = _feature_check_stub(current_behavior="Walking")
+    assert CentralWidget._training_behaviors(stub) == ["Walking"]
+
+
+def test_training_behaviors_multiclass_includes_none_class():
+    """Multi-class training reads labels for every behavior plus the None class."""
+    stub = _feature_check_stub(mode=ClassifierMode.MULTICLASS)
+    assert CentralWidget._training_behaviors(stub) == [
+        MULTICLASS_NONE_BEHAVIOR,
+        "Walking",
+        "Grooming",
+    ]
+
+
+def test_feature_window_size_binary_uses_control_value():
+    """Binary mode uses the window size shown in the controls."""
+    stub = _feature_check_stub(window_size=7)
+    assert CentralWidget._feature_window_size(stub) == 7
+
+
+def test_feature_window_size_multiclass_uses_classifier_settings():
+    """Multi-class mode prefers the window size the classifier was configured with."""
+    classifier = MagicMock(spec=MultiClassClassifier)
+    classifier.project_settings = {"window_size": 30}
+    stub = _feature_check_stub(mode=ClassifierMode.MULTICLASS, classifier=classifier)
+
+    assert CentralWidget._feature_window_size(stub) == 30
+
+
+def test_feature_window_size_multiclass_falls_back_to_project_defaults():
+    """Without classifier settings, multi-class mode uses the project defaults."""
+    classifier = MagicMock(spec=MultiClassClassifier)
+    classifier.project_settings = None
+    stub = _feature_check_stub(
+        mode=ClassifierMode.MULTICLASS, classifier=classifier, project_defaults={"window_size": 11}
+    )
+
+    assert CentralWidget._feature_window_size(stub) == 11
+
+
+def test_confirm_on_demand_features_skips_dialog_when_all_cached(monkeypatch):
+    """Nothing is asked when every needed video already has cached features."""
+    confirm = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
+    )
+
+    assert CentralWidget._confirm_on_demand_features(_feature_check_stub(), [], 5, "training")
+    confirm.assert_not_called()
+
+
+@pytest.mark.parametrize("answer", [True, False], ids=["continue", "cancel"])
+def test_confirm_on_demand_features_returns_user_choice(monkeypatch, answer):
+    """The user's answer to the warning decides whether the run proceeds."""
+    confirm = MagicMock(return_value=answer)
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
+    )
+
+    result = CentralWidget._confirm_on_demand_features(
+        _feature_check_stub(), ["a.avi", "b.avi"], 5, "classification"
+    )
+
+    assert result is answer
+    message = confirm.call_args.kwargs["message"]
+    assert "<b>5</b>" in message
+    assert "<b>2 videos</b>" in message
+    assert "classification" in message
+    assert "a.avi" in confirm.call_args.kwargs["details"]
+
+
+def test_confirm_on_demand_features_uses_singular_for_one_video(monkeypatch):
+    """A single uncached video reads as "1 video", not "1 videos"."""
+    confirm = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
+    )
+
+    CentralWidget._confirm_on_demand_features(_feature_check_stub(), ["a.avi"], 5, "training")
+
+    assert "<b>1 video</b>" in confirm.call_args.kwargs["message"]
+
+
+def _gating_stub(confirmed: bool, missing=("a.avi",)) -> SimpleNamespace:
+    """Build a stub self for the train/classify feature cache gate."""
+    project = SimpleNamespace(
+        videos_missing_window_features=MagicMock(return_value=list(missing)),
+        labeled_identities=MagicMock(return_value={"a.avi": {0}}),
+        settings_manager=SimpleNamespace(classifier_mode=ClassifierMode.BINARY),
+    )
+    return SimpleNamespace(
+        _player_widget=MagicMock(),
+        _ensure_classifier_for_mode=MagicMock(),
+        _feature_window_size=MagicMock(return_value=5),
+        _training_behaviors=MagicMock(return_value=["Walking"]),
+        _confirm_on_demand_features=MagicMock(return_value=confirmed),
+        _project=project,
+        _classify_thread=None,
+        _training_report_markdown="stale report",
+        _classification_targets=None,
+    )
+
+
+def test_train_aborted_when_user_declines_feature_computation(monkeypatch):
+    """Declining the uncached-features warning stops training before it starts."""
+    training_thread = MagicMock()
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.TrainingThread", training_thread, raising=True
+    )
+    stub = _gating_stub(confirmed=False)
+
+    CentralWidget._train_button_clicked(stub)
+
+    training_thread.assert_not_called()
+    stub._project.videos_missing_window_features.assert_called_once()
+    # the training report from a previous run is left alone since nothing ran
+    assert stub._training_report_markdown == "stale report"
+
+
+def test_classify_aborted_when_user_declines_feature_computation(monkeypatch):
+    """Declining the uncached-features warning stops classification before it starts."""
+    classify_thread = MagicMock()
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.ClassifyThread", classify_thread, raising=True
+    )
+    stub = _gating_stub(confirmed=False)
+
+    CentralWidget._start_classification(stub, ["a.avi"])
+
+    classify_thread.assert_not_called()
+    stub._project.videos_missing_window_features.assert_called_once_with(5, videos=["a.avi"])
+    assert stub._classification_targets is None

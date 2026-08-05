@@ -1001,6 +1001,19 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._ensure_classifier_for_mode()
 
+        # training only reads features for labeled identities, so only those need
+        # to be cached to avoid computing features during the run
+        window_size = self._feature_window_size()
+        if not self._confirm_on_demand_features(
+            self._project.videos_missing_window_features(
+                window_size,
+                identities=self._project.labeled_identities(self._training_behaviors()),
+            ),
+            window_size,
+            "training",
+        ):
+            return
+
         # reset training report
         self._training_report_markdown = None
 
@@ -1049,6 +1062,67 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
+
+    def _training_behaviors(self) -> list[str]:
+        """Behaviors whose labels the next training run will use.
+
+        Multi-class training trains on every behavior plus the reserved "None"
+        class; binary training uses only the current behavior.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+        return [self._controls.current_behavior]
+
+    def _feature_window_size(self) -> int:
+        """Window size that feature extraction will use for the current mode.
+
+        Binary mode uses the current behavior's window size, which the window size
+        control keeps in sync. Multi-class mode shares one settings bundle across
+        behaviors, taken from the classifier when it has one and from the project
+        defaults otherwise, mirroring what the training and classify strategies do.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            settings = None
+            if isinstance(self._classifier, MultiClassClassifier):
+                settings = self._classifier.project_settings
+            if not settings:
+                settings = self._project.get_project_defaults()
+            return int(settings.get("window_size", jabs.feature_extraction.DEFAULT_WINDOW_SIZE))
+        return self._window_size
+
+    def _confirm_on_demand_features(
+        self, videos_missing_features: list[str], window_size: int, action: str
+    ) -> bool:
+        """Warn that features are not cached and let the user cancel.
+
+        Args:
+            videos_missing_features: Videos whose features for ``window_size``
+                are not cached and would be computed during the run.
+            window_size: Window size the features are needed for.
+            action: What is about to run, used in the prompt ("training" or
+                "classification").
+
+        Returns:
+            True to go ahead: either everything needed is already cached, or the
+            user chose to continue anyway.
+        """
+        if not videos_missing_features:
+            return True
+
+        count = len(videos_missing_features)
+        videos = "video" if count == 1 else "videos"
+        return MessageDialog.confirm(
+            self,
+            title="Features Not Cached",
+            message=(
+                f"Cached features for window size <b>{window_size}</b> were not found for "
+                f"<b>{count} {videos}</b>. JABS will compute them during {action}, which "
+                "can take several minutes per video.<br><br>"
+                "Features can be computed ahead of time with the <b>jabs-features</b> "
+                f"command line tool.<br><br>Continue with {action}?"
+            ),
+            details="Videos needing feature computation:\n" + "\n".join(videos_missing_features),
+        )
 
     def _ensure_classifier_for_mode(self) -> None:
         """Ensure the active classifier instance matches the current classifier mode."""
@@ -1210,12 +1284,18 @@ class CentralWidget(QtWidgets.QWidget):
         if self._training_thread:
             self._training_thread.deleteLater()
             self._training_thread = None
+        # training caches any features it had to compute, including on a canceled
+        # or failed run, so the project's cache status is now out of date
+        self._project.invalidate_feature_cache_status()
 
     def _cleanup_classify_thread(self) -> None:
         """clean up the training thread"""
         if self._classify_thread:
             self._classify_thread.deleteLater()
             self._classify_thread = None
+        # classification caches any features it had to compute, including on a
+        # canceled or failed run, so the project's cache status is now out of date
+        self._project.invalidate_feature_cache_status()
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
@@ -1261,6 +1341,16 @@ class CentralWidget(QtWidgets.QWidget):
         # make sure video playback is stopped
         self._player_widget.stop()
         self._ensure_classifier_for_mode()
+
+        # every identity of every target video is classified, so all of them need
+        # cached features to avoid computing features during the run
+        window_size = self._feature_window_size()
+        if not self._confirm_on_demand_features(
+            self._project.videos_missing_window_features(window_size, videos=videos),
+            window_size,
+            "classification",
+        ):
+            return
 
         self._classification_targets = videos
         current_video = self._loaded_video.name if self._loaded_video else ""
