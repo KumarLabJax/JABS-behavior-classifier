@@ -109,6 +109,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._menu_refs.export_training.setEnabled
         )
         self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
+        # a training or classification run may have computed features; rebuild the
+        # project's cache status in the background rather than on the next click
+        self._central_widget.feature_cache_changed.connect(self.refresh_feature_cache_status)
         self._central_widget.bbox_overlay_supported.connect(
             self.menu_handlers.on_bbox_overlay_support_changed
         )
@@ -387,6 +390,12 @@ class MainWindow(QtWidgets.QMainWindow):
     ) -> None:
         """Store feature cache scan results on the project.
 
+        Results replace the project's whole status, so only the most recent scan
+        may be applied: an earlier scan still finishing (for example one started
+        at project open, now superseded by one started after a training run) would
+        otherwise write back what the cache looked like before those features were
+        computed.
+
         Args:
             project: The project that was scanned. Results for a project that is
                 no longer open are discarded.
@@ -394,6 +403,9 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         if project is not self._project:
             logger.debug("Discarding feature cache scan results for a closed project")
+            return
+        if self.sender() is not self._feature_cache_scan_thread:
+            logger.debug("Discarding feature cache scan results from a superseded scan")
             return
         project.set_feature_cache_status(statuses)
 
