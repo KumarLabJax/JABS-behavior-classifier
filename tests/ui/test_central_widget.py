@@ -342,14 +342,16 @@ def _gating_stub(confirmed: bool, missing=("a.avi",)) -> SimpleNamespace:
         _feature_window_size=MagicMock(return_value=5),
         _training_behaviors=MagicMock(return_value=["Walking"]),
         _confirm_on_demand_features=MagicMock(return_value=confirmed),
+        _confirm_training_features=MagicMock(return_value=confirmed),
         _project=project,
         _classify_thread=None,
         _training_report_markdown="stale report",
         _classification_targets=None,
+        _training_cache_targets=None,
     )
 
 
-def test_train_aborted_when_user_declines_feature_computation(monkeypatch):
+def test_train_aborted_when_the_feature_check_is_declined(monkeypatch):
     """Declining the uncached-features warning stops training before it starts."""
     training_thread = MagicMock()
     monkeypatch.setattr(
@@ -360,9 +362,49 @@ def test_train_aborted_when_user_declines_feature_computation(monkeypatch):
     CentralWidget._train_button_clicked(stub)
 
     training_thread.assert_not_called()
-    stub._project.videos_missing_window_features.assert_called_once()
+    stub._confirm_training_features.assert_called_once_with(5)
     # the training report from a previous run is left alone since nothing ran
     assert stub._training_report_markdown == "stale report"
+
+
+def test_training_feature_check_skips_annotation_reads_when_all_cached():
+    """A fully cached project costs no annotation I/O to check.
+
+    Working out the labeled identities means reading every annotation file, which
+    is pointless when no video is missing features for the window size: a subset of
+    those identities cannot be missing either.
+    """
+    stub = _gating_stub(confirmed=True, missing=())
+
+    assert CentralWidget._confirm_training_features(stub, 5) is True
+
+    stub._project.videos_missing_window_features.assert_called_once_with(5)
+    stub._project.labeled_identities.assert_not_called()
+    stub._confirm_on_demand_features.assert_not_called()
+    assert stub._training_cache_targets == []
+
+
+def test_training_feature_check_narrows_to_labeled_identities():
+    """When something is missing, the check narrows to the labeled identities."""
+    stub = _gating_stub(confirmed=True)
+
+    assert CentralWidget._confirm_training_features(stub, 5) is True
+
+    stub._project.labeled_identities.assert_called_once_with(["Walking"])
+    assert stub._project.videos_missing_window_features.call_args_list[-1].kwargs == {
+        "identities": {"a.avi": {0}}
+    }
+    stub._confirm_on_demand_features.assert_called_once_with(["a.avi"], 5, "training")
+    assert stub._training_cache_targets == ["a.avi"]
+
+
+def test_training_feature_check_records_nothing_when_declined():
+    """Declining the warning leaves no videos recorded, since no run starts."""
+    stub = _gating_stub(confirmed=False)
+
+    assert CentralWidget._confirm_training_features(stub, 5) is False
+
+    assert stub._training_cache_targets is None
 
 
 def test_classify_aborted_when_user_declines_feature_computation(monkeypatch):
@@ -436,15 +478,13 @@ class _StopBeforeThreadStart(Exception):
     """Raised by the patched TrainingThread to end the handler under test early."""
 
 
-def _train_stub(confirmed: bool) -> SimpleNamespace:
+def _train_stub() -> SimpleNamespace:
     """Build a gating stub that can reach the TrainingThread construction.
 
     Carries the attributes _train_button_clicked reads while building the thread's
     arguments, so the patched TrainingThread is what stops the handler.
     """
-    stub = _gating_stub(confirmed=confirmed)
-    stub._project.labeled_identities.return_value = {"a.avi": {0}, "b.avi": {1}}
-    stub._training_cache_targets = None
+    stub = _gating_stub(confirmed=True)
     stub._classifier = MagicMock()
     stub._controls = SimpleNamespace(
         current_behavior="Walking", behaviors=["Walking"], all_kfold=False, kfold_value=1
@@ -453,32 +493,19 @@ def _train_stub(confirmed: bool) -> SimpleNamespace:
     return stub
 
 
-def test_train_records_the_videos_whose_features_may_be_computed(monkeypatch):
-    """Starting training records the labeled videos for the later invalidation."""
+def test_train_proceeds_once_the_feature_check_passes(monkeypatch):
+    """An accepted feature check lets training start."""
     monkeypatch.setattr(
         "jabs.ui.main_window.central_widget.TrainingThread",
         MagicMock(side_effect=_StopBeforeThreadStart),
         raising=True,
     )
-    stub = _train_stub(confirmed=True)
+    stub = _train_stub()
 
-    # the patched thread stops the handler right after the targets are recorded,
-    # before the progress dialog setup this stub does not provide
+    # the patched thread stops the handler at the progress dialog setup this stub
+    # does not provide, which is past the point of interest
     with pytest.raises(_StopBeforeThreadStart):
         CentralWidget._train_button_clicked(stub)
 
-    assert stub._training_cache_targets == ["a.avi", "b.avi"]
-
-
-def test_declined_training_records_no_videos(monkeypatch):
-    """Declining the warning starts no run, so nothing is recorded to invalidate."""
-    monkeypatch.setattr(
-        "jabs.ui.main_window.central_widget.TrainingThread",
-        MagicMock(side_effect=_StopBeforeThreadStart),
-        raising=True,
-    )
-    stub = _train_stub(confirmed=False)
-
-    CentralWidget._train_button_clicked(stub)
-
-    assert stub._training_cache_targets is None
+    stub._confirm_training_features.assert_called_once_with(5)
+    assert stub._training_report_markdown is None

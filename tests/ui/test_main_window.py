@@ -4,6 +4,7 @@ The methods under test are called unbound with lightweight stand-ins for ``self`
 so a full MainWindow (and its child widgets) never has to be constructed.
 """
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
@@ -225,3 +226,55 @@ def test_queued_rescan_dropped_when_no_project_is_open():
     MainWindow._feature_cache_scan_finished(stub, thread)
 
     stub._start_feature_cache_scan.assert_not_called()
+
+
+def test_stop_feature_cache_scan_without_a_scan_is_a_noop():
+    """Nothing to stop when no scan is running."""
+    stub = _refresh_stub()
+
+    MainWindow._stop_feature_cache_scan(stub)  # must not raise
+
+
+def test_stop_feature_cache_scan_asks_the_thread_to_stop():
+    """A responsive scan is asked to stop and is not forced."""
+    thread = MagicMock()
+    thread.wait.return_value = True
+    stub = _refresh_stub(scan_thread=thread)
+
+    MainWindow._stop_feature_cache_scan(stub)
+
+    thread.request_termination.assert_called_once()
+    thread.wait.assert_called_once()
+    thread.terminate.assert_not_called()
+
+
+def test_stop_feature_cache_scan_forces_an_unresponsive_thread():
+    """A scan stuck in a filesystem call is terminated rather than waited on forever.
+
+    Leaving it running would let the window be destroyed with a live child thread,
+    which aborts the process; blocking indefinitely would make JABS unquittable on
+    a wedged mount.
+    """
+    thread = MagicMock()
+    # the cooperative stop times out, the forced stop works
+    thread.wait.side_effect = [False, True]
+    stub = _refresh_stub(scan_thread=thread)
+
+    MainWindow._stop_feature_cache_scan(stub)
+
+    thread.request_termination.assert_called_once()
+    thread.terminate.assert_called_once()
+    assert thread.wait.call_count == 2
+
+
+def test_stop_feature_cache_scan_logs_when_it_cannot_stop_the_thread(caplog):
+    """A thread that survives even termination is reported rather than hidden."""
+    thread = MagicMock()
+    thread.wait.return_value = False
+    stub = _refresh_stub(scan_thread=thread)
+
+    with caplog.at_level(logging.ERROR, logger=main_window_module.__name__):
+        MainWindow._stop_feature_cache_scan(stub)
+
+    thread.terminate.assert_called_once()
+    assert "could not be stopped" in caplog.text

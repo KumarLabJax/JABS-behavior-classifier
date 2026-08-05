@@ -31,9 +31,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# How long to wait at shutdown for a running feature cache scan, so the thread is
-# not destroyed mid-run. The scan is short; this is only a safety margin.
+# How long to wait at shutdown for a running feature cache scan to stop on its own,
+# so the thread is not destroyed mid-run. The scan is short; this is only a safety
+# margin.
 _FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS = 2000
+
+# How long to wait after forcing a scan thread that ignored the cooperative stop.
+_FEATURE_CACHE_SCAN_TERMINATE_WAIT_MS = 1000
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -392,6 +396,38 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._start_feature_cache_scan()
 
+    def _stop_feature_cache_scan(self) -> None:
+        """Make sure no feature cache scan is running before the window is destroyed.
+
+        A QThread destroyed while still running aborts the process, and the scan
+        thread is a child of this window, so it has to be finished by the time the
+        window goes away.
+
+        The cooperative stop is checked between videos, which cannot interrupt a
+        filesystem call that is not responding. Rather than block the quit
+        indefinitely on a wedged mount, an unresponsive scan is forced: it only
+        reads cache metadata, so terminating it cannot corrupt project data, and a
+        failed cache scan costs nothing but the status it would have produced.
+        """
+        thread = self._feature_cache_scan_thread
+        if thread is None:
+            return
+
+        thread.request_termination()
+        if thread.wait(_FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS):
+            return
+
+        logger.warning(
+            "Feature cache scan did not stop within %d ms (unresponsive storage?); "
+            "terminating the thread",
+            _FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS,
+        )
+        thread.terminate()
+        if not thread.wait(_FEATURE_CACHE_SCAN_TERMINATE_WAIT_MS):
+            # Nothing further can be done from here; log it so the cause of a
+            # noisy exit is on the record.
+            logger.error("Feature cache scan thread could not be stopped before shutdown")
+
     def _start_feature_cache_scan(self) -> None:
         """Start a feature cache scan thread for the current project."""
         # parented to this window so it stays alive while running, and deleted
@@ -546,14 +582,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Ensures proper cleanup of the process pool before the application exits.
         The pre-initialized process pool is shut down in a non-blocking manner. A
-        feature cache scan still in flight is asked to stop and briefly waited on,
-        so its thread is not destroyed mid-run.
+        feature cache scan still in flight is stopped first, so its thread is not
+        destroyed mid-run (see :meth:`_stop_feature_cache_scan`).
         """
         # drop any queued rescan first so the finished thread does not start one
         self._feature_cache_scan_pending = False
-        if self._feature_cache_scan_thread is not None:
-            self._feature_cache_scan_thread.request_termination()
-            self._feature_cache_scan_thread.wait(_FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS)
+        self._stop_feature_cache_scan()
         logger.debug("[MainWindow] closeEvent: shutting down process pool")
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
