@@ -99,14 +99,25 @@ def inspect_identity_cache(identity_dir: Path) -> IdentityCacheInfo | None:
 
 
 def _directory_size(directory: Path) -> int:
-    """Return the total size in bytes of the files directly inside a directory."""
+    """Return the total size in bytes of the files directly inside a directory.
+
+    Best effort: a directory or file that cannot be read (unreadable, or removed
+    while the scan is walking it) contributes nothing rather than failing the
+    inspection, which reports far more than just the size.
+    """
+    try:
+        paths = list(directory.iterdir())
+    except OSError:
+        logger.debug("Could not list cache directory %s", directory, exc_info=True)
+        return 0
+
     total = 0
-    for path in directory.iterdir():
-        if path.is_file():
-            try:
+    for path in paths:
+        try:
+            if path.is_file():
                 total += path.stat().st_size
-            except OSError:
-                logger.debug("Could not stat cache file %s", path, exc_info=True)
+        except OSError:
+            logger.debug("Could not stat cache file %s", path, exc_info=True)
     return total
 
 

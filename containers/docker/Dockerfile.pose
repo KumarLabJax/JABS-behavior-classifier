@@ -25,10 +25,11 @@ COPY packages/jabs-core ./packages/jabs-core
 COPY packages/jabs-io ./packages/jabs-io
 COPY packages/jabs-vision ./packages/jabs-vision
 
-# Install jabs-vision (with the HRNet extra) and its workspace deps, incl. h5py.
+# Install jabs-vision (with the HRNet extra) and its workspace deps. h5py comes in
+# as a required dependency of jabs-io.
 RUN uv pip install --system \
       "./packages/jabs-core" \
-      "./packages/jabs-io[h5py]" \
+      "./packages/jabs-io" \
       "./packages/jabs-vision[hrnet_msfork]"
 
 ENTRYPOINT ["jabs-pose"]
