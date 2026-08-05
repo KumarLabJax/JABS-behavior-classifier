@@ -368,3 +368,42 @@ def test_scan_project_tolerates_unknown_identity_count(tmp_path):
 
     assert status.expected_identity_count is None
     assert status.has_cached_features is True
+
+
+def test_per_frame_features_merged_across_pose_hash_directories():
+    """An identity cached under several pose hashes only needs per-frame features once.
+
+    Matches how window sizes merge: a partially written cache under one pose hash
+    must not make the identity (or the video) look incomplete.
+    """
+    status = _status(
+        _identity_cache(identity=0, per_frame_present=False, directory=Path("/f/v/hash_a/0")),
+        _identity_cache(identity=0, per_frame_present=True, directory=Path("/f/v/hash_b/0")),
+        expected_identity_count=1,
+    )
+
+    assert status.identities_missing_per_frame == ()
+    assert status.is_complete is True
+
+
+def test_identity_with_no_per_frame_features_anywhere_is_reported():
+    """An identity whose only cache lacks per-frame features is named."""
+    status = _status(
+        _identity_cache(identity=0),
+        _identity_cache(identity=1, per_frame_present=False),
+        expected_identity_count=2,
+    )
+
+    assert status.identities_missing_per_frame == (1,)
+    assert status.is_complete is False
+
+
+def test_cache_formats_sorted_by_enum_value():
+    """Formats are ordered by their on-disk value, not by the enum's repr."""
+    status = _status(
+        _identity_cache(identity=0, cache_format=CacheFormat.PARQUET),
+        _identity_cache(identity=1, cache_format=CacheFormat.HDF5),
+    )
+
+    assert status.cache_formats == (CacheFormat.HDF5, CacheFormat.PARQUET)
+    assert [fmt.value for fmt in status.cache_formats] == ["hdf5", "parquet"]

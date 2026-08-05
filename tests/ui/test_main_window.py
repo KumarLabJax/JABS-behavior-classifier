@@ -80,10 +80,26 @@ def test_feature_cache_scan_results_discarded_when_superseded():
     project.set_feature_cache_status.assert_not_called()
 
 
+def _refresh_stub(scan_thread=None, pending=False, has_project=True) -> SimpleNamespace:
+    """Build a stub self for the scan start/finish bookkeeping.
+
+    Args:
+        scan_thread: The scan thread the window is tracking, if any.
+        pending: Whether a rescan is already queued.
+        has_project: Whether a project is open.
+    """
+    return SimpleNamespace(
+        _project=MagicMock() if has_project else None,
+        _feature_cache_scan_thread=scan_thread,
+        _feature_cache_scan_pending=pending,
+        _start_feature_cache_scan=MagicMock(),
+    )
+
+
 def test_feature_cache_scan_thread_released_when_finished():
     """A finished scan thread is dropped and scheduled for deletion."""
     thread = MagicMock()
-    stub = SimpleNamespace(_feature_cache_scan_thread=thread)
+    stub = _refresh_stub(scan_thread=thread)
 
     MainWindow._feature_cache_scan_finished(stub, thread)
 
@@ -95,7 +111,7 @@ def test_finished_scan_thread_does_not_clear_a_newer_one():
     """An older thread finishing must not drop the reference to a running scan."""
     older = MagicMock()
     newer = MagicMock()
-    stub = SimpleNamespace(_feature_cache_scan_thread=newer)
+    stub = _refresh_stub(scan_thread=newer)
 
     MainWindow._feature_cache_scan_finished(stub, older)
 
@@ -104,12 +120,89 @@ def test_finished_scan_thread_does_not_clear_a_newer_one():
     newer.deleteLater.assert_not_called()
 
 
-def test_refresh_feature_cache_status_without_project_does_nothing(monkeypatch):
+def test_refresh_feature_cache_status_without_project_does_nothing():
     """With no project open there is nothing to scan."""
-    scan_thread = MagicMock()
-    monkeypatch.setattr(main_window_module, "FeatureCacheScanThread", scan_thread)
-    stub = SimpleNamespace(_project=None, _feature_cache_scan_thread=None)
+    stub = _refresh_stub(has_project=False)
 
     MainWindow.refresh_feature_cache_status(stub)
 
-    scan_thread.assert_not_called()
+    stub._start_feature_cache_scan.assert_not_called()
+
+
+def test_start_feature_cache_scan_tracks_and_starts_the_thread(monkeypatch):
+    """The scan thread is built for the open project, tracked, and started."""
+    scan_thread_class = MagicMock()
+    monkeypatch.setattr(main_window_module, "FeatureCacheScanThread", scan_thread_class)
+    project = MagicMock()
+    stub = SimpleNamespace(
+        _project=project,
+        _feature_cache_scan_thread=None,
+        _feature_cache_scan_complete=MagicMock(),
+        _feature_cache_scan_finished=MagicMock(),
+    )
+
+    MainWindow._start_feature_cache_scan(stub)
+
+    scan_thread_class.assert_called_once_with(project, parent=stub)
+    thread = scan_thread_class.return_value
+    thread.start.assert_called_once()
+    assert stub._feature_cache_scan_thread is thread
+
+
+def test_refresh_starts_a_scan_when_none_is_running():
+    """With no scan in flight, a refresh starts one immediately."""
+    stub = _refresh_stub()
+
+    MainWindow.refresh_feature_cache_status(stub)
+
+    stub._start_feature_cache_scan.assert_called_once()
+    assert stub._feature_cache_scan_pending is False
+
+
+def test_refresh_during_a_scan_queues_instead_of_starting_a_second():
+    """A refresh while scanning stops that scan and queues a replacement.
+
+    Keeps a single scan in flight, so repeated refreshes cannot pile up concurrent
+    passes over the feature directory or leave untracked threads at shutdown.
+    """
+    running = MagicMock()
+    stub = _refresh_stub(scan_thread=running)
+
+    MainWindow.refresh_feature_cache_status(stub)
+
+    stub._start_feature_cache_scan.assert_not_called()
+    running.request_termination.assert_called_once()
+    assert stub._feature_cache_scan_pending is True
+
+
+def test_queued_rescan_starts_when_the_running_scan_finishes():
+    """The queued refresh runs once the scan it superseded has finished."""
+    thread = MagicMock()
+    stub = _refresh_stub(scan_thread=thread, pending=True)
+
+    MainWindow._feature_cache_scan_finished(stub, thread)
+
+    assert stub._feature_cache_scan_thread is None
+    thread.deleteLater.assert_called_once()
+    stub._start_feature_cache_scan.assert_called_once()
+    assert stub._feature_cache_scan_pending is False
+
+
+def test_no_rescan_started_when_none_was_queued():
+    """A scan finishing with nothing queued does not start another."""
+    thread = MagicMock()
+    stub = _refresh_stub(scan_thread=thread, pending=False)
+
+    MainWindow._feature_cache_scan_finished(stub, thread)
+
+    stub._start_feature_cache_scan.assert_not_called()
+
+
+def test_queued_rescan_dropped_when_no_project_is_open():
+    """A queued refresh is abandoned if the project was closed meanwhile."""
+    thread = MagicMock()
+    stub = _refresh_stub(scan_thread=thread, pending=True, has_project=False)
+
+    MainWindow._feature_cache_scan_finished(stub, thread)
+
+    stub._start_feature_cache_scan.assert_not_called()
