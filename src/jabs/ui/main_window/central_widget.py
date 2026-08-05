@@ -56,6 +56,10 @@ class CentralWidget(QtWidgets.QWidget):
     # auto-switch to a single video after it is classified from the context menu.
     request_video_selection = QtCore.Signal(str)
 
+    # Emitted when a run may have written to the feature cache, so the project's
+    # cache status can be rebuilt off the main thread.
+    feature_cache_changed = QtCore.Signal()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -103,6 +107,9 @@ class CentralWidget(QtWidgets.QWidget):
         # videos targeted by the in-flight classification run (None == all videos),
         # used to decide how the completion handler updates the display
         self._classification_targets: list[str] | None = None
+        # videos the in-flight training run may compute features for (None == not
+        # known, so every video's cache status is invalidated when it finishes)
+        self._training_cache_targets: list[str] | None = None
         self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
 
@@ -1004,15 +1011,19 @@ class CentralWidget(QtWidgets.QWidget):
         # training only reads features for labeled identities, so only those need
         # to be cached to avoid computing features during the run
         window_size = self._feature_window_size()
+        labeled_identities = self._project.labeled_identities(self._training_behaviors())
         if not self._confirm_on_demand_features(
             self._project.videos_missing_window_features(
-                window_size,
-                identities=self._project.labeled_identities(self._training_behaviors()),
+                window_size, identities=labeled_identities
             ),
             window_size,
             "training",
         ):
             return
+
+        # these are the only videos whose features this run can compute, so they
+        # are the only ones whose cache status goes stale
+        self._training_cache_targets = list(labeled_identities)
 
         # reset training report
         self._training_report_markdown = None
@@ -1284,18 +1295,23 @@ class CentralWidget(QtWidgets.QWidget):
         if self._training_thread:
             self._training_thread.deleteLater()
             self._training_thread = None
-        # training caches any features it had to compute, including on a canceled
-        # or failed run, so the project's cache status is now out of date
-        self._project.invalidate_feature_cache_status()
+        # Training caches any features it had to compute, including on a canceled
+        # or failed run, so the status of the videos it read is out of date. Only
+        # those are dropped; the signal then rebuilds the whole status in the
+        # background, so the next train/classify check does not scan on this thread.
+        self._project.invalidate_feature_cache_status(self._training_cache_targets)
+        self._training_cache_targets = None
+        self.feature_cache_changed.emit()
 
     def _cleanup_classify_thread(self) -> None:
         """clean up the training thread"""
         if self._classify_thread:
             self._classify_thread.deleteLater()
             self._classify_thread = None
-        # classification caches any features it had to compute, including on a
-        # canceled or failed run, so the project's cache status is now out of date
-        self._project.invalidate_feature_cache_status()
+        # Same as _cleanup_training_thread, for the videos this run classified
+        # (``None`` means every video was targeted, so every status is dropped).
+        self._project.invalidate_feature_cache_status(self._classification_targets)
+        self.feature_cache_changed.emit()
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""

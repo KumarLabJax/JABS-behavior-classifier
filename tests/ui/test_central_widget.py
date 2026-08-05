@@ -378,3 +378,107 @@ def test_classify_aborted_when_user_declines_feature_computation(monkeypatch):
     classify_thread.assert_not_called()
     stub._project.videos_missing_window_features.assert_called_once_with(5, videos=["a.avi"])
     assert stub._classification_targets is None
+
+
+def _cleanup_stub(*, classification_targets=None, training_cache_targets=None):
+    """Build a stub self for the thread cleanup handlers."""
+    return SimpleNamespace(
+        _training_thread=None,
+        _classify_thread=None,
+        _classification_targets=classification_targets,
+        _training_cache_targets=training_cache_targets,
+        _project=MagicMock(),
+        feature_cache_changed=SimpleNamespace(emit=MagicMock()),
+    )
+
+
+def test_training_cleanup_invalidates_only_the_videos_it_read():
+    """Training reads features only for labeled videos, so only those go stale."""
+    stub = _cleanup_stub(training_cache_targets=["a.avi", "b.avi"])
+
+    CentralWidget._cleanup_training_thread(stub)
+
+    stub._project.invalidate_feature_cache_status.assert_called_once_with(["a.avi", "b.avi"])
+    stub.feature_cache_changed.emit.assert_called_once()
+    # the targets are consumed so a later cleanup cannot act on a stale list
+    assert stub._training_cache_targets is None
+
+
+def test_training_cleanup_without_known_targets_invalidates_everything():
+    """With no recorded targets (no run started), nothing is assumed to be current."""
+    stub = _cleanup_stub()
+
+    CentralWidget._cleanup_training_thread(stub)
+
+    stub._project.invalidate_feature_cache_status.assert_called_once_with(None)
+
+
+def test_classify_cleanup_invalidates_only_classified_videos():
+    """A single-video classification only invalidates that video."""
+    stub = _cleanup_stub(classification_targets=["a.avi"])
+
+    CentralWidget._cleanup_classify_thread(stub)
+
+    stub._project.invalidate_feature_cache_status.assert_called_once_with(["a.avi"])
+    stub.feature_cache_changed.emit.assert_called_once()
+
+
+def test_classify_all_cleanup_invalidates_everything():
+    """Classifying every video (targets None) invalidates every status."""
+    stub = _cleanup_stub(classification_targets=None)
+
+    CentralWidget._cleanup_classify_thread(stub)
+
+    stub._project.invalidate_feature_cache_status.assert_called_once_with(None)
+
+
+class _StopBeforeThreadStart(Exception):
+    """Raised by the patched TrainingThread to end the handler under test early."""
+
+
+def _train_stub(confirmed: bool) -> SimpleNamespace:
+    """Build a gating stub that can reach the TrainingThread construction.
+
+    Carries the attributes _train_button_clicked reads while building the thread's
+    arguments, so the patched TrainingThread is what stops the handler.
+    """
+    stub = _gating_stub(confirmed=confirmed)
+    stub._project.labeled_identities.return_value = {"a.avi": {0}, "b.avi": {1}}
+    stub._training_cache_targets = None
+    stub._classifier = MagicMock()
+    stub._controls = SimpleNamespace(
+        current_behavior="Walking", behaviors=["Walking"], all_kfold=False, kfold_value=1
+    )
+    stub._included_project_bout_totals = MagicMock(return_value=(5, 5))
+    return stub
+
+
+def test_train_records_the_videos_whose_features_may_be_computed(monkeypatch):
+    """Starting training records the labeled videos for the later invalidation."""
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.TrainingThread",
+        MagicMock(side_effect=_StopBeforeThreadStart),
+        raising=True,
+    )
+    stub = _train_stub(confirmed=True)
+
+    # the patched thread stops the handler right after the targets are recorded,
+    # before the progress dialog setup this stub does not provide
+    with pytest.raises(_StopBeforeThreadStart):
+        CentralWidget._train_button_clicked(stub)
+
+    assert stub._training_cache_targets == ["a.avi", "b.avi"]
+
+
+def test_declined_training_records_no_videos(monkeypatch):
+    """Declining the warning starts no run, so nothing is recorded to invalidate."""
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.TrainingThread",
+        MagicMock(side_effect=_StopBeforeThreadStart),
+        raising=True,
+    )
+    stub = _train_stub(confirmed=False)
+
+    CentralWidget._train_button_clicked(stub)
+
+    assert stub._training_cache_targets is None

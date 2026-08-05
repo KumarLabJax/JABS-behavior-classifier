@@ -25,10 +25,26 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _scan_complete_stub(project, scan_thread, sender=None) -> SimpleNamespace:
+    """Build a stub self for _feature_cache_scan_complete.
+
+    Args:
+        project: The project the window currently has open.
+        scan_thread: The scan thread the window is tracking.
+        sender: The thread whose signal is being delivered; defaults to
+            ``scan_thread`` (the current scan).
+    """
+    return SimpleNamespace(
+        _project=project,
+        _feature_cache_scan_thread=scan_thread,
+        sender=lambda: scan_thread if sender is None else sender,
+    )
+
+
 def test_feature_cache_scan_results_stored_on_project():
     """Scan results are handed to the project that was scanned."""
     project = MagicMock()
-    stub = SimpleNamespace(_project=project)
+    stub = _scan_complete_stub(project, MagicMock())
     statuses = {"a.avi": MagicMock()}
 
     MainWindow._feature_cache_scan_complete(stub, project, statuses)
@@ -40,12 +56,28 @@ def test_feature_cache_scan_results_discarded_for_closed_project():
     """Results arriving after another project was opened are dropped."""
     scanned_project = MagicMock()
     current_project = MagicMock()
-    stub = SimpleNamespace(_project=current_project)
+    stub = _scan_complete_stub(current_project, MagicMock())
 
     MainWindow._feature_cache_scan_complete(stub, scanned_project, {"a.avi": MagicMock()})
 
     scanned_project.set_feature_cache_status.assert_not_called()
     current_project.set_feature_cache_status.assert_not_called()
+
+
+def test_feature_cache_scan_results_discarded_when_superseded():
+    """An older scan finishing after a newer one started must not write back.
+
+    Its results describe the cache before the newer scan's starting point (for
+    example before a training run computed features).
+    """
+    project = MagicMock()
+    current_scan = MagicMock()
+    older_scan = MagicMock()
+    stub = _scan_complete_stub(project, current_scan, sender=older_scan)
+
+    MainWindow._feature_cache_scan_complete(stub, project, {"a.avi": MagicMock()})
+
+    project.set_feature_cache_status.assert_not_called()
 
 
 def test_feature_cache_scan_thread_released_when_finished():
