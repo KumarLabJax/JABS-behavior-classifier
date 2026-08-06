@@ -1,6 +1,10 @@
-"""JABS utilities"""
+"""JABS utilities.
 
-from .update_checker import check_for_update, is_pypi_install
+The update-check helpers live in ``jabs-core`` and are re-exported here so that
+``from jabs.utils import check_for_update`` keeps working for the GUI.
+"""
+
+from jabs.core.utils import check_for_update, is_pypi_install
 
 # a hard coded random seed used for the final training done with all
 # training data before saving the classifier
