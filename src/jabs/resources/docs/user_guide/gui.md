@@ -51,7 +51,7 @@ Right-click a video name to open a context menu:
 
 ### Feature Computation
 
-Training and classification both need extracted features for the selected window size. When a project is opened, JABS scans the project's feature cache in the background to find out which videos already have them. If features are missing when you click **Train** or **Classify**, JABS warns you first: the run will still work, but the features are computed as it goes, which can take several minutes per video. You can continue anyway or cancel and precompute features for the whole project with the `jabs-features` command line tool.
+Training and classification both need extracted features for the selected window size. When a project is opened, JABS scans the project's feature cache in the background to find out which videos already have them. If features are missing when you click **Train** or **Classify**, JABS warns you first: the run will still work, but the features are computed as it goes, which can take several minutes per video. You can continue anyway, or cancel and precompute features for the whole project with the `jabs-init` command line tool (`jabs-init -w <window size> <project directory>`).
 
 Training needs features only for the subjects you have labeled, while classification needs them for every subject in every video it processes, so **Classify** may warn when **Train** does not. Computed features are cached, so the warning goes away once a run has computed them. Use **Get Info** in the video list's right-click menu to see exactly what is cached for a video.
 

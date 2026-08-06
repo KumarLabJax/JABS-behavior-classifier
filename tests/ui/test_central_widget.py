@@ -317,6 +317,21 @@ def test_confirm_on_demand_features_returns_user_choice(monkeypatch, answer):
     assert "a.avi" in confirm.call_args.kwargs["details"]
 
 
+def test_confirm_on_demand_features_suggests_jabs_init(monkeypatch):
+    """The warning points at jabs-init, with the window size that is missing."""
+    confirm = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "jabs.ui.main_window.central_widget.MessageDialog.confirm", confirm, raising=True
+    )
+
+    CentralWidget._confirm_on_demand_features(_feature_check_stub(), ["a.avi"], 30, "training")
+
+    message = confirm.call_args.kwargs["message"]
+    assert "jabs-init" in message
+    assert "jabs-init -w 30" in message
+    assert "jabs-features" not in message
+
+
 def test_confirm_on_demand_features_uses_singular_for_one_video(monkeypatch):
     """A single uncached video reads as "1 video", not "1 videos"."""
     confirm = MagicMock(return_value=True)

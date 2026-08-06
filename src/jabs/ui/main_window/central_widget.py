@@ -1148,8 +1148,9 @@ class CentralWidget(QtWidgets.QWidget):
                 f"Cached features for window size <b>{window_size}</b> were not found for "
                 f"<b>{count} {videos}</b>. JABS will compute them during {action}, which "
                 "can take several minutes per video.<br><br>"
-                "Features can be computed ahead of time with the <b>jabs-features</b> "
-                f"command line tool.<br><br>Continue with {action}?"
+                "Features can be computed ahead of time with the <b>jabs-init</b> command "
+                f"line tool: <tt>jabs-init -w {window_size} &lt;project directory&gt;</tt>"
+                f"<br><br>Continue with {action}?"
             ),
             details="Videos needing feature computation:\n" + "\n".join(videos_missing_features),
         )
