@@ -407,3 +407,71 @@ def test_cache_formats_sorted_by_enum_value():
 
     assert status.cache_formats == (CacheFormat.HDF5, CacheFormat.PARQUET)
     assert [fmt.value for fmt in status.cache_formats] == ["hdf5", "parquet"]
+
+
+def test_stale_cache_is_not_coverage():
+    """A cache from another feature version will be recomputed, so it is not coverage.
+
+    This is the routine case after a JABS upgrade that bumps FEATURE_VERSION: the
+    window features are on disk, but the run rebuilds them.
+    """
+    status = _status(
+        _identity_cache(
+            identity=0, window_sizes=frozenset({5}), feature_version=_CURRENT_VERSION - 1
+        ),
+        expected_identity_count=1,
+    )
+
+    # still reported as present on disk, and flagged stale, for display purposes
+    assert status.window_sizes == (5,)
+    assert status.is_stale is True
+    # but not counted as cached for the train/classify warning
+    assert status.has_window_features(5) is False
+    assert status.has_window_features(5, [0]) is False
+
+
+def test_cache_without_per_frame_features_is_not_coverage():
+    """Window features are recomputed along with the per-frame features they need."""
+    status = _status(
+        _identity_cache(identity=0, window_sizes=frozenset({5}), per_frame_present=False),
+        expected_identity_count=1,
+    )
+
+    assert status.has_window_features(5) is False
+
+
+def test_coverage_is_not_stitched_together_from_different_pose_hashes():
+    """A window size only counts when one cache directory is loadable and has it.
+
+    Here the size exists only in a stale directory and the current directory lacks
+    it, so neither could serve the run even though merging the fields separately
+    would suggest otherwise.
+    """
+    status = _status(
+        _identity_cache(
+            identity=0,
+            window_sizes=frozenset({5}),
+            feature_version=_CURRENT_VERSION - 1,
+            directory=Path("/f/v/stale_hash/0"),
+        ),
+        _identity_cache(
+            identity=0,
+            window_sizes=frozenset({10}),
+            directory=Path("/f/v/current_hash/0"),
+        ),
+        expected_identity_count=1,
+    )
+
+    assert status.has_window_features(5) is False
+    # the current directory's own window size is still coverage
+    assert status.has_window_features(10) is True
+
+
+def test_current_cache_is_coverage():
+    """A current cache with per-frame features covers its window sizes."""
+    status = _status(
+        _identity_cache(identity=0, window_sizes=frozenset({5})),
+        expected_identity_count=1,
+    )
+
+    assert status.has_window_features(5) is True

@@ -1324,13 +1324,19 @@ class CentralWidget(QtWidgets.QWidget):
         self.feature_cache_changed.emit()
 
     def _cleanup_classify_thread(self) -> None:
-        """clean up the classification thread"""
+        """clean up the classification thread
+
+        Owns the end of the run's lifecycle, including clearing the target list:
+        this runs on the completion, cancel and failure paths, so leaving the
+        targets set would keep stale state on the widget after a canceled run.
+        """
         if self._classify_thread:
             self._classify_thread.deleteLater()
             self._classify_thread = None
         # Same as _cleanup_training_thread, for the videos this run classified
         # (``None`` means every video was targeted, so every status is dropped).
         self._project.invalidate_feature_cache_status(self._classification_targets)
+        self._classification_targets = None
         self.feature_cache_changed.emit()
 
     def _update_training_progress(self, step: int) -> None:
@@ -1416,12 +1422,12 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
+        # read before the cleanup below, which clears the targets
         targets = self._classification_targets
         loaded_video = self._loaded_video.name if self._loaded_video else None
 
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self._classification_targets = None
         self.status_message.emit(
             f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )

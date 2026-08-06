@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from jabs.core.types import FeatureCacheMetadata, PerFrameCacheData
+from jabs.feature_extraction import FEATURE_VERSION
 from jabs.io.feature_cache.hdf5 import HDF5FeatureCacheWriter
 from jabs.project import Project, VideoLabels
 
@@ -55,12 +56,22 @@ def project(tmp_path) -> Project:
     return Project(tmp_path, enable_video_check=False, enable_session_tracker=False)
 
 
-def _cache_window_features(project: Project, video: str, identity: int, window_size: int) -> None:
-    """Write a per-frame plus window feature cache for one identity."""
+def _cache_window_features(
+    project: Project,
+    video: str,
+    identity: int,
+    window_size: int,
+    feature_version: int = FEATURE_VERSION,
+) -> None:
+    """Write a per-frame plus window feature cache for one identity.
+
+    Defaults to the running feature version so the cache reads as current; pass an
+    older one to write a cache that JABS would discard and recompute.
+    """
     identity_dir = project.feature_dir / Path(video).stem / str(identity)
     writer = HDF5FeatureCacheWriter()
     metadata = FeatureCacheMetadata(
-        feature_version=17,
+        feature_version=feature_version,
         identity=identity,
         num_frames=_NUM_FRAMES,
         pose_hash="posehash",
@@ -184,3 +195,29 @@ def test_labeled_identities_missing_when_its_cache_is_absent(project):
     identities = project.labeled_identities(["Walking"])
 
     assert project.videos_missing_window_features(5, identities=identities) == ["video1.avi"]
+
+
+def test_stale_cache_on_disk_counts_as_needing_computation(project):
+    """A cache from an older feature version is reported as missing.
+
+    JABS discards it and recomputes during the run, which is exactly what the
+    train/classify warning exists to announce.
+    """
+    for identity in range(_NUM_IDENTITIES):
+        _cache_window_features(
+            project,
+            "video1.avi",
+            identity=identity,
+            window_size=5,
+            feature_version=FEATURE_VERSION - 1,
+        )
+
+    status = project.refresh_feature_cache_status("video1.avi")
+    # the window features are on disk and reported for display
+    assert status.window_sizes == (5,)
+    assert status.is_stale is True
+    # but the run would rebuild them, so they are not coverage
+    assert "video1.avi" in project.videos_missing_window_features(5)
+    assert project.videos_missing_window_features(5, identities={"video1.avi": {0}}) == [
+        "video1.avi"
+    ]

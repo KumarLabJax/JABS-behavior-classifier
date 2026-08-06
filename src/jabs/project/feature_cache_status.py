@@ -60,6 +60,10 @@ class VideoFeatureCacheStatus:
     def _window_sizes_by_identity(self) -> dict[int, frozenset[int]]:
         """Group the cached window sizes by identity.
 
+        Reports what is on disk, whether or not it could still be loaded; see
+        :meth:`_loadable_window_sizes_by_identity` for the stricter view used to
+        answer coverage questions.
+
         Caches for the same identity under different pose-hash subdirectories
         are merged, so an identity counts as having a window size if any of its
         caches provides it.
@@ -67,6 +71,28 @@ class VideoFeatureCacheStatus:
         grouped: dict[int, set[int]] = {}
         for info in self.identity_caches:
             grouped.setdefault(info.identity, set()).update(info.window_sizes)
+        return {identity: frozenset(sizes) for identity, sizes in grouped.items()}
+
+    def _loadable_window_sizes_by_identity(self) -> dict[int, frozenset[int]]:
+        """Group by identity the window sizes that would actually load.
+
+        A cache only counts when it was written by the current feature version and
+        holds per-frame features: ``IdentityFeatures`` discards a cache whose
+        version differs and recomputes it, and window features are recomputed
+        along with the per-frame features they accompany.
+
+        Sizes are only merged across an identity's pose-hash subdirectories from
+        caches that pass those checks, so a window size present only in a stale
+        directory does not count because a sibling directory happens to be current.
+        """
+        grouped: dict[int, set[int]] = {}
+        for info in self.identity_caches:
+            loadable = (
+                info.per_frame_present and info.feature_version == self.current_feature_version
+            )
+            grouped.setdefault(info.identity, set()).update(
+                info.window_sizes if loadable else frozenset()
+            )
         return {identity: frozenset(sizes) for identity, sizes in grouped.items()}
 
     @property
@@ -124,7 +150,15 @@ class VideoFeatureCacheStatus:
     ) -> bool:
         """Whether cached features cover a window size for the given identities.
 
-        Used to decide whether features would have to be computed on demand.
+        Used to decide whether features would have to be computed on demand, so
+        only caches that would actually load count: a stale one, or one missing its
+        per-frame features, is recomputed on use and is therefore not coverage.
+
+        Two causes of recomputation cannot be detected from a status scan, so this
+        can still answer ``True`` for a cache that will be rebuilt: a pose file that
+        changed since the cache was written (detecting it would mean hashing every
+        pose file), and a distance-unit setting that no longer matches the cache
+        (compare :attr:`cm_units` against the run's settings to catch that).
 
         Args:
             window_size: Window size the features are needed for.
@@ -134,9 +168,10 @@ class VideoFeatureCacheStatus:
                 means nothing is needed, so the answer is ``True``.
 
         Returns:
-            True when every required identity has this window size cached.
+            True when every required identity has this window size cached in a
+            form that can be loaded.
         """
-        cached = self._window_sizes_by_identity()
+        cached = self._loadable_window_sizes_by_identity()
         if identities is None:
             if self.expected_identity_count is None:
                 return False
