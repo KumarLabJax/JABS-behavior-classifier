@@ -478,6 +478,8 @@ def test_classify_cleanup_invalidates_only_classified_videos():
 
     stub._project.invalidate_feature_cache_status.assert_called_once_with(["a.avi"])
     stub.feature_cache_changed.emit.assert_called_once()
+    # consumed, so a canceled or failed run cannot leave stale targets behind
+    assert stub._classification_targets is None
 
 
 def test_classify_all_cleanup_invalidates_everything():
