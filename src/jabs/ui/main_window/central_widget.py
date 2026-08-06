@@ -1173,6 +1173,7 @@ class CentralWidget(QtWidgets.QWidget):
                 "can take several minutes per video.<br><br>"
                 "Features can be computed ahead of time with the <b>jabs-init</b> command "
                 f"line tool: <tt>jabs-init -w {window_size} &lt;project directory&gt;</tt>"
+                f"<br>See <tt>jabs-init --help</tt> for more options."
                 f"<br><br>Continue with {action}?"
             ),
             details="Videos needing feature computation:\n" + "\n".join(videos_missing_features),
