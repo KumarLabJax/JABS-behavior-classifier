@@ -33,7 +33,7 @@ def check_for_update() -> tuple[bool, str | None, str]:
         has_update = parse_version(latest_version) > parse_version(current_version)
         return has_update, latest_version, current_version
     except Exception as e:
-        logger.warning(f"Failed to check for updates: {e}")
+        logger.warning("Failed to check for updates: %s", e)
         return False, None, version_str()
 
 
@@ -49,5 +49,5 @@ def is_pypi_install() -> bool:
         installer = dist.read_text("INSTALLER")
         return installer is not None and installer.strip() in ("pip", "uv")
     except Exception as e:
-        logger.debug(f"Could not determine installation method: {e}")
+        logger.debug("Could not determine installation method: %s", e)
         return False

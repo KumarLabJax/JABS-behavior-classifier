@@ -1,10 +1,10 @@
-"""Unit tests for jabs.utils.update_checker module."""
+"""Unit tests for jabs.core.utils.update_checker module."""
 
 import json
 from importlib import metadata
 from unittest.mock import MagicMock, Mock, patch
 
-from jabs.utils.update_checker import check_for_update, is_pypi_install
+from jabs.core.utils.update_checker import check_for_update, is_pypi_install
 
 
 class TestCheckForUpdate:
@@ -18,7 +18,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="0.9.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="0.9.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -35,7 +35,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -52,7 +52,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="2.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="2.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -64,7 +64,7 @@ class TestCheckForUpdate:
     def test_network_error(self):
         """Test handling of network errors when checking for updates."""
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch(
                 "urllib.request.urlopen",
                 side_effect=Exception("Network error"),
@@ -84,7 +84,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -101,7 +101,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -118,7 +118,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen,
         ):
             check_for_update()
@@ -136,7 +136,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="0.9.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="0.9.0"),
             patch("urllib.request.urlopen", return_value=mock_response),
         ):
             has_update, latest, current = check_for_update()
@@ -153,7 +153,7 @@ class TestCheckForUpdate:
         mock_response.__exit__ = Mock(return_value=False)
 
         with (
-            patch("jabs.utils.update_checker.version_str", return_value="1.0.0"),
+            patch("jabs.core.utils.update_checker.version_str", return_value="1.0.0"),
             patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen,
         ):
             check_for_update()
