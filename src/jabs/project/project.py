@@ -567,6 +567,7 @@ class Project:
         *,
         videos: Iterable[str] | None = None,
         identities: Mapping[str, Collection[int]] | None = None,
+        cm_units: bool | None = None,
     ) -> list[str]:
         """Return videos whose cached features do not cover a window size.
 
@@ -583,6 +584,9 @@ class Project:
                 matter (training only reads features for labeled identities).
                 When omitted, every identity of each video must have the window
                 size cached.
+            cm_units: Whether the run will request cm units. A cache built in the
+                other unit is discarded and recomputed, so it does not count as
+                cached. ``None`` skips the unit check.
 
         Returns:
             The subset of checked videos needing feature computation, in the
@@ -601,7 +605,15 @@ class Project:
             if status is None:
                 status = self.refresh_feature_cache_status(video)
             required = identities.get(video) if identities is not None else None
-            if not status.has_window_features(window_size, required):
+            # cm units are only used for a video whose pose file provides the
+            # scale factor; without one, features are computed in pixels whatever
+            # the setting says
+            expects_cm = (
+                cm_units and self._video_manager.video_has_cm_per_pixel(video)
+                if cm_units is not None
+                else None
+            )
+            if not status.has_window_features(window_size, required, expects_cm=expects_cm):
                 missing.append(video)
         return missing
 

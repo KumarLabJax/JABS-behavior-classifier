@@ -73,7 +73,9 @@ class VideoFeatureCacheStatus:
             grouped.setdefault(info.identity, set()).update(info.window_sizes)
         return {identity: frozenset(sizes) for identity, sizes in grouped.items()}
 
-    def _loadable_window_sizes_by_identity(self) -> dict[int, frozenset[int]]:
+    def _loadable_window_sizes_by_identity(
+        self, expects_cm: bool | None = None
+    ) -> dict[int, frozenset[int]]:
         """Group by identity the window sizes that would actually load.
 
         A cache only counts when it was written by the current feature version and
@@ -84,12 +86,20 @@ class VideoFeatureCacheStatus:
         Sizes are only merged across an identity's pose-hash subdirectories from
         caches that pass those checks, so a window size present only in a stale
         directory does not count because a sibling directory happens to be current.
+
+        Args:
+            expects_cm: Whether the run will compute features in cm units. A cache
+                built in the other unit is discarded and recomputed, so it does not
+                count. ``None`` skips the check, for callers that do not know which
+                units will be used.
         """
         grouped: dict[int, set[int]] = {}
         for info in self.identity_caches:
             loadable = (
                 info.per_frame_present and info.feature_version == self.current_feature_version
             )
+            if loadable and expects_cm is not None:
+                loadable = (info.distance_scale_factor is not None) == expects_cm
             grouped.setdefault(info.identity, set()).update(
                 info.window_sizes if loadable else frozenset()
             )
@@ -146,19 +156,23 @@ class VideoFeatureCacheStatus:
         return tuple(sorted(frozenset.intersection(*sets)))
 
     def has_window_features(
-        self, window_size: int, identities: Collection[int] | None = None
+        self,
+        window_size: int,
+        identities: Collection[int] | None = None,
+        *,
+        expects_cm: bool | None = None,
     ) -> bool:
         """Whether cached features cover a window size for the given identities.
 
         Used to decide whether features would have to be computed on demand, so
-        only caches that would actually load count: a stale one, or one missing its
-        per-frame features, is recomputed on use and is therefore not coverage.
+        only caches that would actually load count: one that is stale, missing its
+        per-frame features, or built in the other distance unit is recomputed on
+        use and is therefore not coverage.
 
-        Two causes of recomputation cannot be detected from a status scan, so this
+        One cause of recomputation cannot be detected from a status scan, so this
         can still answer ``True`` for a cache that will be rebuilt: a pose file that
-        changed since the cache was written (detecting it would mean hashing every
-        pose file), and a distance-unit setting that no longer matches the cache
-        (compare :attr:`cm_units` against the run's settings to catch that).
+        changed since the cache was written, since detecting that would mean hashing
+        every pose file.
 
         Args:
             window_size: Window size the features are needed for.
@@ -166,12 +180,14 @@ class VideoFeatureCacheStatus:
                 identity in the video is required, which means ``False`` is
                 returned if the identity count is unknown. An empty collection
                 means nothing is needed, so the answer is ``True``.
+            expects_cm: Whether the run will compute features in cm units for this
+                video. ``None`` (the default) skips the unit check.
 
         Returns:
             True when every required identity has this window size cached in a
             form that can be loaded.
         """
-        cached = self._loadable_window_sizes_by_identity()
+        cached = self._loadable_window_sizes_by_identity(expects_cm)
         if identities is None:
             if self.expected_identity_count is None:
                 return False

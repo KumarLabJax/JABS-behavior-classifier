@@ -62,11 +62,13 @@ def _cache_window_features(
     identity: int,
     window_size: int,
     feature_version: int = FEATURE_VERSION,
+    distance_scale_factor: float | None = None,
 ) -> None:
     """Write a per-frame plus window feature cache for one identity.
 
     Defaults to the running feature version so the cache reads as current; pass an
-    older one to write a cache that JABS would discard and recompute.
+    older one to write a cache that JABS would discard and recompute. Pass a
+    distance scale factor to write a cache built in cm units.
     """
     identity_dir = project.feature_dir / Path(video).stem / str(identity)
     writer = HDF5FeatureCacheWriter()
@@ -75,6 +77,7 @@ def _cache_window_features(
         identity=identity,
         num_frames=_NUM_FRAMES,
         pose_hash="posehash",
+        distance_scale_factor=distance_scale_factor,
     )
     writer.write_per_frame(
         identity_dir,
@@ -221,3 +224,64 @@ def test_stale_cache_on_disk_counts_as_needing_computation(project):
     assert project.videos_missing_window_features(5, identities={"video1.avi": {0}}) == [
         "video1.avi"
     ]
+
+
+# ---------------------------------------------------------------------------
+# Distance units
+# ---------------------------------------------------------------------------
+
+_CM_POSE_FILE = "sample_pose_est_v5.h5"
+_CM_NUM_IDENTITIES = 3
+_CM_SCALE = 0.073341824
+
+
+@pytest.fixture
+def cm_project(tmp_path) -> Project:
+    """A project whose pose file provides a cm_per_pixel scale factor."""
+    (tmp_path / "cm_video.avi").touch()
+    shutil.copy(_DATA_DIR / _CM_POSE_FILE, tmp_path / "cm_video_pose_est_v5.h5")
+    return Project(tmp_path, enable_video_check=False, enable_session_tracker=False)
+
+
+def test_video_cm_availability_read_from_the_pose_file(project, cm_project):
+    """Whether a video can use cm units comes from its pose file."""
+    assert project.video_manager.video_has_cm_per_pixel("video1.avi") is False
+    assert cm_project.video_manager.video_has_cm_per_pixel("cm_video.avi") is True
+    # unknown videos report False rather than raising
+    assert project.video_manager.video_has_cm_per_pixel("nope.avi") is False
+
+
+def test_pixel_cache_is_not_coverage_for_a_cm_run(cm_project):
+    """Asking for cm units discards a cache built in pixels."""
+    for identity in range(_CM_NUM_IDENTITIES):
+        _cache_window_features(cm_project, "cm_video.avi", identity=identity, window_size=5)
+
+    assert cm_project.videos_missing_window_features(5, cm_units=False) == []
+    assert cm_project.videos_missing_window_features(5, cm_units=True) == ["cm_video.avi"]
+
+
+def test_cm_cache_is_coverage_only_for_a_cm_run(cm_project):
+    """A cache built in cm units covers a cm run, and not a pixel one."""
+    for identity in range(_CM_NUM_IDENTITIES):
+        _cache_window_features(
+            cm_project,
+            "cm_video.avi",
+            identity=identity,
+            window_size=5,
+            distance_scale_factor=_CM_SCALE,
+        )
+
+    assert cm_project.videos_missing_window_features(5, cm_units=True) == []
+    assert cm_project.videos_missing_window_features(5, cm_units=False) == ["cm_video.avi"]
+
+
+def test_cm_setting_ignored_for_a_video_that_cannot_use_cm(project):
+    """A video whose pose file has no scale factor is always computed in pixels.
+
+    Its pixel cache therefore still counts even when the project asks for cm units,
+    which is what keeps the warning from firing about work that will not happen.
+    """
+    for identity in range(_NUM_IDENTITIES):
+        _cache_window_features(project, "video1.avi", identity=identity, window_size=5)
+
+    assert project.videos_missing_window_features(5, videos=["video1.avi"], cm_units=True) == []

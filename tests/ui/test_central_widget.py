@@ -7,6 +7,7 @@ import pytest
 
 from jabs.classifier import MultiClassClassifier
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.core.enums import ProjectDistanceUnit
 
 try:
     from jabs.core.enums import ClassifierMode
@@ -228,20 +229,31 @@ def _feature_check_stub(
     behaviors=("Walking", "Grooming"),
     classifier=None,
     project_defaults=None,
+    behavior_settings=None,
 ) -> SimpleNamespace:
-    """Build a stub self for the feature cache warning helpers."""
+    """Build a stub self for the feature cache warning helpers.
+
+    The settings resolvers are wired to their real implementations so the tests
+    exercise the actual resolution chain rather than a mocked shortcut.
+    """
     if mode is None:
         mode = ClassifierMode.BINARY
-    return SimpleNamespace(
+    stub = SimpleNamespace(
         _window_size=window_size,
         _classifier=classifier,
         _controls=SimpleNamespace(current_behavior=current_behavior, behaviors=list(behaviors)),
         _project=SimpleNamespace(
-            settings_manager=SimpleNamespace(classifier_mode=mode),
+            settings_manager=SimpleNamespace(
+                classifier_mode=mode,
+                get_behavior=lambda _behavior: behavior_settings or {"window_size": window_size},
+            ),
             get_project_defaults=lambda: project_defaults or {"window_size": 11},
             video_manager=SimpleNamespace(num_videos=4),
         ),
     )
+    stub._feature_op_settings = lambda: CentralWidget._feature_op_settings(stub)
+    stub._feature_cm_units = lambda: CentralWidget._feature_cm_units(stub)
+    return stub
 
 
 def test_training_behaviors_binary_uses_current_behavior():
@@ -344,7 +356,7 @@ def test_confirm_on_demand_features_uses_singular_for_one_video(monkeypatch):
     assert "<b>1 video</b>" in confirm.call_args.kwargs["message"]
 
 
-def _gating_stub(confirmed: bool, missing=("a.avi",)) -> SimpleNamespace:
+def _gating_stub(confirmed: bool, missing=("a.avi",), cm_units=False) -> SimpleNamespace:
     """Build a stub self for the train/classify feature cache gate."""
     project = SimpleNamespace(
         videos_missing_window_features=MagicMock(return_value=list(missing)),
@@ -355,6 +367,7 @@ def _gating_stub(confirmed: bool, missing=("a.avi",)) -> SimpleNamespace:
         _player_widget=MagicMock(),
         _ensure_classifier_for_mode=MagicMock(),
         _feature_window_size=MagicMock(return_value=5),
+        _feature_cm_units=MagicMock(return_value=cm_units),
         _training_behaviors=MagicMock(return_value=["Walking"]),
         _confirm_on_demand_features=MagicMock(return_value=confirmed),
         _confirm_training_features=MagicMock(return_value=confirmed),
@@ -393,7 +406,7 @@ def test_training_feature_check_skips_annotation_reads_when_all_cached():
 
     assert CentralWidget._confirm_training_features(stub, 5) is True
 
-    stub._project.videos_missing_window_features.assert_called_once_with(5)
+    stub._project.videos_missing_window_features.assert_called_once_with(5, cm_units=False)
     stub._project.labeled_identities.assert_not_called()
     stub._confirm_on_demand_features.assert_not_called()
     assert stub._training_cache_targets == []
@@ -407,7 +420,8 @@ def test_training_feature_check_narrows_to_labeled_identities():
 
     stub._project.labeled_identities.assert_called_once_with(["Walking"])
     assert stub._project.videos_missing_window_features.call_args_list[-1].kwargs == {
-        "identities": {"a.avi": {0}}
+        "identities": {"a.avi": {0}},
+        "cm_units": False,
     }
     stub._confirm_on_demand_features.assert_called_once_with(["a.avi"], 5, "training")
     assert stub._training_cache_targets == ["a.avi"]
@@ -433,7 +447,9 @@ def test_classify_aborted_when_user_declines_feature_computation(monkeypatch):
     CentralWidget._start_classification(stub, ["a.avi"])
 
     classify_thread.assert_not_called()
-    stub._project.videos_missing_window_features.assert_called_once_with(5, videos=["a.avi"])
+    stub._project.videos_missing_window_features.assert_called_once_with(
+        5, videos=["a.avi"], cm_units=False
+    )
     assert stub._classification_targets is None
 
 
@@ -526,3 +542,67 @@ def test_train_proceeds_once_the_feature_check_passes(monkeypatch):
 
     stub._confirm_training_features.assert_called_once_with(5)
     assert stub._training_report_markdown is None
+
+
+def test_feature_op_settings_binary_uses_behavior_settings():
+    """Binary mode reads the settings of the behavior being trained."""
+    stub = _feature_check_stub(behavior_settings={"window_size": 7, "cm_units": True})
+
+    assert CentralWidget._feature_op_settings(stub) == {"window_size": 7, "cm_units": True}
+
+
+def test_feature_op_settings_multiclass_prefers_classifier_settings():
+    """Multi-class mode uses the bundle the classifier was configured with."""
+    classifier = MagicMock(spec=MultiClassClassifier)
+    classifier.project_settings = {"window_size": 30, "cm_units": True}
+    stub = _feature_check_stub(mode=ClassifierMode.MULTICLASS, classifier=classifier)
+
+    assert CentralWidget._feature_op_settings(stub) == {"window_size": 30, "cm_units": True}
+
+
+def test_feature_op_settings_multiclass_falls_back_to_defaults():
+    """Without classifier settings, multi-class mode uses the project defaults."""
+    classifier = MagicMock(spec=MultiClassClassifier)
+    classifier.project_settings = None
+    stub = _feature_check_stub(
+        mode=ClassifierMode.MULTICLASS,
+        classifier=classifier,
+        project_defaults={"window_size": 11, "cm_units": False},
+    )
+
+    assert CentralWidget._feature_op_settings(stub) == {"window_size": 11, "cm_units": False}
+
+
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [
+        (ProjectDistanceUnit.CM, True),
+        (ProjectDistanceUnit.PIXEL, False),
+        (True, True),
+        (False, False),
+        (None, False),
+    ],
+    ids=["enum-cm", "enum-pixel", "bool-true", "bool-false", "missing"],
+)
+def test_feature_cm_units_matches_the_extractor_truthiness(setting, expected):
+    """The unit flag is read the way IdentityFeatures reads it.
+
+    The stored value is a ProjectDistanceUnit (PIXEL is 0), and the extractor tests
+    it for truthiness, so this must agree for both enum and bool values.
+    """
+    behavior_settings = {"window_size": 5}
+    if setting is not None:
+        behavior_settings["cm_units"] = setting
+    stub = _feature_check_stub(behavior_settings=behavior_settings)
+
+    assert CentralWidget._feature_cm_units(stub) is expected
+
+
+def test_training_feature_check_passes_the_unit_setting(monkeypatch):
+    """The gate tells the project which units the run will use."""
+    stub = _gating_stub(confirmed=True, cm_units=True)
+
+    CentralWidget._confirm_training_features(stub, 5)
+
+    for call in stub._project.videos_missing_window_features.call_args_list:
+        assert call.kwargs["cm_units"] is True

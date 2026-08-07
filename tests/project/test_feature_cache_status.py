@@ -475,3 +475,43 @@ def test_current_cache_is_coverage():
     )
 
     assert status.has_window_features(5) is True
+
+
+@pytest.mark.parametrize(
+    ("cached_scale", "expects_cm", "covered"),
+    [
+        (0.12, True, True),
+        (None, False, True),
+        (0.12, False, False),
+        (None, True, False),
+        (0.12, None, True),
+        (None, None, True),
+    ],
+    ids=["cm-cm", "px-px", "cm-cache-px-run", "px-cache-cm-run", "cm-unknown", "px-unknown"],
+)
+def test_coverage_requires_matching_distance_units(cached_scale, expects_cm, covered):
+    """A cache built in the other distance unit is recomputed, so it is not coverage.
+
+    ``expects_cm=None`` means the caller does not know which units the run will use,
+    which skips the check.
+    """
+    status = _status(
+        _identity_cache(
+            identity=0, window_sizes=frozenset({5}), distance_scale_factor=cached_scale
+        ),
+        expected_identity_count=1,
+    )
+
+    assert status.has_window_features(5, expects_cm=expects_cm) is covered
+
+
+def test_unit_mismatch_does_not_hide_the_cache_from_display():
+    """The cache is still described on disk; only coverage changes."""
+    status = _status(
+        _identity_cache(identity=0, window_sizes=frozenset({5}), distance_scale_factor=0.12),
+        expected_identity_count=1,
+    )
+
+    assert status.window_sizes == (5,)
+    assert status.cm_units is True
+    assert status.has_window_features(5, expects_cm=False) is False
