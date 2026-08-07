@@ -94,34 +94,59 @@ def test_default_disabled_text_is_grey() -> None:
     assert "color: grey" in widget._label_behavior_button.styleSheet()
 
 
-def test_first_label_quit_closes_windows_before_exiting(monkeypatch) -> None:
+class _RejectedDialog:
+    """Stands in for the QInputDialog the user cancels with "Quit JABS"."""
+
+    def __getattr__(self, _name):
+        return lambda *args, **kwargs: None
+
+    def windowFlags(self):
+        return Qt.WindowType.Dialog
+
+    def exec(self):
+        return 0  # rejected
+
+
+def _quit_prompt_stub(monkeypatch, close_accepted: bool) -> SimpleNamespace:
+    """Patch the dialog and return a stub self whose window closes as requested."""
+    monkeypatch.setattr(
+        main_control_widget_module,
+        "QtWidgets",
+        SimpleNamespace(QInputDialog=_RejectedDialog),
+    )
+    closed = []
+
+    def close() -> bool:
+        closed.append(True)
+        return close_accepted
+
+    window = SimpleNamespace(close=close)
+    return SimpleNamespace(window=lambda: window, closed=closed)
+
+
+def test_first_label_quit_closes_the_main_window_before_exiting(monkeypatch) -> None:
     """Choosing "Quit JABS" at the first-behavior prompt runs window cleanup first.
 
-    Closing the windows delivers MainWindow.closeEvent (stopping background threads
-    and shutting down the process pool) before the interpreter exits.
+    Closing the main window delivers MainWindow.closeEvent (stopping background
+    threads and shutting down the process pool) before the interpreter exits.
     """
-    calls = []
-
-    class _RejectedDialog:
-        """Stands in for the QInputDialog the user cancels."""
-
-        def __getattr__(self, _name):
-            return lambda *args, **kwargs: None
-
-        def windowFlags(self):
-            return Qt.WindowType.Dialog
-
-        def exec(self):
-            return 0  # rejected: the "Quit JABS" button
-
-    fake_qtwidgets = SimpleNamespace(
-        QInputDialog=_RejectedDialog,
-        QApplication=SimpleNamespace(closeAllWindows=lambda: calls.append("closeAllWindows")),
-    )
-    monkeypatch.setattr(main_control_widget_module, "QtWidgets", fake_qtwidgets)
+    stub = _quit_prompt_stub(monkeypatch, close_accepted=True)
 
     with pytest.raises(SystemExit) as exit_info:
-        MainControlWidget._get_first_label(SimpleNamespace())
+        MainControlWidget._get_first_label(stub)
 
     assert exit_info.value.code == 0
-    assert calls == ["closeAllWindows"]
+    assert stub.closed == [True]
+
+
+def test_first_label_quit_does_not_exit_when_the_close_is_declined(monkeypatch) -> None:
+    """A declined close means the application is not quitting, so it must not exit.
+
+    Exiting anyway would skip the cleanup that closing the window performs.
+    """
+    stub = _quit_prompt_stub(monkeypatch, close_accepted=False)
+
+    # returns normally instead of raising SystemExit
+    MainControlWidget._get_first_label(stub)
+
+    assert stub.closed == [True]

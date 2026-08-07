@@ -42,23 +42,44 @@ def _scan_complete_stub(project, scan_thread, sender=None) -> SimpleNamespace:
     )
 
 
-def test_quit_application_closes_window_before_quitting(monkeypatch):
-    """Quit closes the window first so closeEvent's cleanup runs, then quits.
-
-    Closing delivers the close event synchronously; the explicit quit is what
-    ends the application even when another top-level window is still open.
-    """
+def _quit_stub(monkeypatch, close_accepted: bool) -> tuple[SimpleNamespace, MagicMock]:
+    """Return a stub self whose close() reports the given result, and a call recorder."""
     calls = MagicMock()
+    calls.close.return_value = close_accepted
     stub = SimpleNamespace(close=calls.close)
     monkeypatch.setattr(
         main_window_module,
         "QtWidgets",
         SimpleNamespace(QApplication=SimpleNamespace(quit=calls.quit)),
     )
+    return stub, calls
+
+
+def test_quit_application_closes_window_before_quitting(monkeypatch):
+    """Quit closes the window first so closeEvent's cleanup runs, then quits.
+
+    Closing delivers the close event synchronously; the explicit quit is what
+    ends the application even when another top-level window is still open.
+    """
+    stub, calls = _quit_stub(monkeypatch, close_accepted=True)
 
     MainWindow.quit_application(stub)
 
     assert calls.mock_calls == [call.close(), call.quit()]
+
+
+def test_quit_application_does_not_quit_when_the_close_is_declined(monkeypatch):
+    """A declined close means the app is not quitting, so the event loop stays up.
+
+    Quitting anyway would leave the loop without the cleanup closeEvent performs,
+    which is the failure this method exists to prevent.
+    """
+    stub, calls = _quit_stub(monkeypatch, close_accepted=False)
+
+    MainWindow.quit_application(stub)
+
+    assert calls.mock_calls == [call.close()]
+    calls.quit.assert_not_called()
 
 
 def test_feature_cache_scan_results_stored_on_project():

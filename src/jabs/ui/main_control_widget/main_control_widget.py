@@ -670,11 +670,15 @@ class MainControlWidget(QtWidgets.QWidget):
                 self.new_behavior_label.emit(self._behaviors)
                 self._behavior_changed()
         else:
-            # Close the main window first so its closeEvent runs (stopping
-            # background threads and shutting down the process pool) before the
-            # interpreter exits. close() delivers the event synchronously, so the
-            # cleanup completes before sys.exit below.
-            QtWidgets.QApplication.closeAllWindows()
+            # Close the window holding this widget (the main window) first, so its
+            # closeEvent runs -- stopping background threads and shutting down the
+            # process pool -- before the interpreter exits. close() delivers the
+            # event synchronously and reports whether it was accepted; a declined
+            # close means the application is not quitting, so exiting anyway would
+            # skip that cleanup.
+            window = self.window()
+            if window is not None and not window.close():
+                return
             sys.exit(0)
 
     def _new_window_size(self):
