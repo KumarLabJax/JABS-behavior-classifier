@@ -1,8 +1,13 @@
+import logging
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from jabs.behavior_search import SearchHit
+from jabs.project import VideoFeatureCacheStatus
 from jabs.ui.dialogs.message_dialog import MessageDialog
 from jabs.ui.dialogs.video_info_dialog import VideoInfoDialog
+
+logger = logging.getLogger(__name__)
 
 # Item data role storing whether a video is excluded from training (bool).
 # Kept separate from the displayed text so it survives text changes (e.g. search
@@ -277,8 +282,37 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
         except ValueError:
             MessageDialog.error(self, "No pose file found for this video.")
             return
-        dialog = VideoInfoDialog(video_path, pose_path, identity_count=identity_count, parent=self)
+        dialog = VideoInfoDialog(
+            video_path,
+            pose_path,
+            identity_count=identity_count,
+            feature_cache_status=self._feature_cache_status(video_name),
+            parent=self,
+        )
         dialog.exec()
+
+    def _feature_cache_status(self, video_name: str) -> VideoFeatureCacheStatus | None:
+        """Return up-to-date feature cache status for one video.
+
+        The project keeps the results of the background scan performed when it was
+        opened, but those can be out of date by the time the user asks for a
+        video's info (features may have been computed, or the cache cleared,
+        since then). Re-scanning a single video only reads a few small metadata
+        files, so it is done on demand to keep the displayed information accurate.
+
+        Args:
+            video_name: The video filename key used in the project.
+
+        Returns:
+            The video's cache status, or ``None`` if it could not be determined.
+        """
+        if self._project is None:
+            return None
+        try:
+            return self._project.refresh_feature_cache_status(video_name)
+        except OSError:
+            logger.warning("Could not scan feature cache for %s", video_name, exc_info=True)
+            return self._project.feature_cache_status.get(video_name)
 
     def set_classify_available(self, available: bool) -> None:
         """Set whether the "Classify Video" context-menu action is available.

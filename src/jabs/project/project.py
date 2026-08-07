@@ -5,7 +5,7 @@ import json
 import logging
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +34,10 @@ from jabs.pose_estimation import (
 )
 
 from . import pose_attribute_cache
+from .feature_cache_status import (
+    VideoFeatureCacheStatus,
+    scan_project_video_feature_cache,
+)
 from .feature_manager import FeatureManager
 from .parallel_workers import (
     BinaryFeatureLoadJobSpec,
@@ -198,6 +202,12 @@ class Project:
         self._paths.create_directories(validate=validate_project_dir)
         self._total_project_identities = 0
         self._enabled_extended_features = {}
+
+        # In-memory feature cache status, keyed by video filename. Populated by
+        # whoever scans the cache (the GUI does so in the background when a
+        # project is opened) and refreshed per video on demand. Not persisted:
+        # the on-disk cache can change outside JABS.
+        self._feature_cache_status: dict[str, VideoFeatureCacheStatus] = {}
 
         # Capture whether project.json exists before SettingsManager loads it.
         # Used below to choose the cache_format default: Parquet for brand-new projects,
@@ -498,6 +508,144 @@ class Project:
                     for identity_dir in sub.iterdir():
                         if identity_dir.is_dir():
                             clear_cache(identity_dir)
+
+        self.invalidate_feature_cache_status()
+
+    @property
+    def feature_cache_status(self) -> Mapping[str, VideoFeatureCacheStatus]:
+        """Feature cache status per video, as far as it is currently known.
+
+        Videos that have not been scanned are absent. Use
+        :meth:`refresh_feature_cache_status` to scan one video, or
+        :func:`~jabs.project.scan_project_feature_cache` (off the main thread in
+        the GUI) followed by :meth:`set_feature_cache_status` for the whole
+        project.
+        """
+        return self._feature_cache_status
+
+    def set_feature_cache_status(self, statuses: Mapping[str, VideoFeatureCacheStatus]) -> None:
+        """Replace the stored feature cache status.
+
+        Args:
+            statuses: Per-video status, keyed by video filename, as returned by
+                :func:`~jabs.project.scan_project_feature_cache`.
+        """
+        self._feature_cache_status = dict(statuses)
+
+    def refresh_feature_cache_status(self, video: str) -> VideoFeatureCacheStatus:
+        """Re-scan one video's feature cache and store the result.
+
+        Args:
+            video: Video filename.
+
+        Returns:
+            The video's current cache status.
+        """
+        status = scan_project_video_feature_cache(self, video)
+        self._feature_cache_status[video] = status
+        return status
+
+    def invalidate_feature_cache_status(self, videos: Iterable[str] | None = None) -> None:
+        """Discard stored cache status so it is re-scanned when next needed.
+
+        Call this after anything writes to or removes from the feature cache
+        (feature extraction during training or classification, clearing the
+        cache) so later queries do not act on stale information.
+
+        Args:
+            videos: Videos to forget, or ``None`` to forget every video.
+        """
+        if videos is None:
+            self._feature_cache_status.clear()
+            return
+        for video in videos:
+            self._feature_cache_status.pop(video, None)
+
+    def videos_missing_window_features(
+        self,
+        window_size: int,
+        *,
+        videos: Iterable[str] | None = None,
+        identities: Mapping[str, Collection[int]] | None = None,
+        cm_units: bool | None = None,
+    ) -> list[str]:
+        """Return videos whose cached features do not cover a window size.
+
+        Features for these videos would be computed on demand (and cached) the
+        next time they are needed. Videos with no stored status are scanned
+        here, so the answer does not depend on a project-wide scan having run.
+
+        Args:
+            window_size: Window size the features are needed for.
+            videos: Videos to check; defaults to every video in the project.
+                Ignored when ``identities`` is given.
+            identities: Per-video identities that need features, which also
+                selects the videos to check. Use this when only some identities
+                matter (training only reads features for labeled identities).
+                When omitted, every identity of each video must have the window
+                size cached.
+            cm_units: Whether the run will request cm units. A cache built in the
+                other unit is discarded and recomputed, so it does not count as
+                cached. ``None`` skips the unit check.
+
+        Returns:
+            The subset of checked videos needing feature computation, in the
+            order they were checked.
+        """
+        if identities is not None:
+            to_check: list[str] = list(identities)
+        elif videos is not None:
+            to_check = list(videos)
+        else:
+            to_check = list(self._video_manager.videos)
+
+        missing: list[str] = []
+        for video in to_check:
+            status = self._feature_cache_status.get(video)
+            if status is None:
+                status = self.refresh_feature_cache_status(video)
+            required = identities.get(video) if identities is not None else None
+            # cm units are only used for a video whose pose file provides the
+            # scale factor; without one, features are computed in pixels whatever
+            # the setting says
+            expects_cm = (
+                cm_units and self._video_manager.video_has_cm_per_pixel(video)
+                if cm_units is not None
+                else None
+            )
+            if not status.has_window_features(window_size, required, expects_cm=expects_cm):
+                missing.append(video)
+        return missing
+
+    def labeled_identities(self, behaviors: Collection[str]) -> dict[str, set[int]]:
+        """Map each annotated video to the identities labeled for any behavior.
+
+        Mirrors what the training feature collectors actually read: an identity
+        with no labels for the requested behaviors contributes no training rows,
+        so its features are never extracted.
+
+        Args:
+            behaviors: Behavior names to consider.
+
+        Returns:
+            Mapping of video filename to labeled identity indexes. Videos with no
+            labels for any of ``behaviors`` are omitted.
+        """
+        labeled: dict[str, set[int]] = {}
+        for video in self._video_manager.videos:
+            annotations = self._video_manager.load_annotations(video)
+            if annotations is None:
+                continue
+            identities: set[int] = set()
+            # both fragmented and unfragmented blocks are consulted: either one
+            # being present means the identity carries labels for the behavior
+            for key in ("labels", "unfragmented_labels"):
+                for identity, behavior_labels in (annotations.get(key) or {}).items():
+                    if any(behavior_labels.get(behavior) for behavior in behaviors):
+                        identities.add(int(identity))
+            if identities:
+                labeled[video] = identities
+        return labeled
 
     def get_derived_file_paths(self, video_name: str) -> list[Path]:
         """Return a list of paths for files derived from a given video.

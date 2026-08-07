@@ -16,10 +16,7 @@ except ImportError:
     pa = None
     pq = None
 
-try:
-    import h5py
-except ImportError:
-    h5py = None
+import h5py
 
 StorageType = TypeVar("StorageType")
 DomainType = TypeVar("DomainType")
@@ -186,12 +183,6 @@ class HDF5Adapter(Adapter):
 
     Concrete adapters must implement ``_write_one`` and ``_read_one``.
     """
-
-    def __init__(self):
-        if h5py is None:
-            raise ImportError(
-                "h5py is required to use HDF5. Install jabs-io with the 'h5py' extra."
-            )
 
     @abstractmethod
     def _write_one(self, data, group) -> None:

@@ -56,6 +56,10 @@ class CentralWidget(QtWidgets.QWidget):
     # auto-switch to a single video after it is classified from the context menu.
     request_video_selection = QtCore.Signal(str)
 
+    # Emitted when a run may have written to the feature cache, so the project's
+    # cache status can be rebuilt off the main thread.
+    feature_cache_changed = QtCore.Signal()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -103,6 +107,9 @@ class CentralWidget(QtWidgets.QWidget):
         # videos targeted by the in-flight classification run (None == all videos),
         # used to decide how the completion handler updates the display
         self._classification_targets: list[str] | None = None
+        # videos the in-flight training run may compute features for (None == not
+        # known, so every video's cache status is invalidated when it finishes)
+        self._training_cache_targets: list[str] | None = None
         self._training_report_markdown: str | None = None
         self._training_report_dialog: TrainingReportDialog | None = None
 
@@ -1001,6 +1008,10 @@ class CentralWidget(QtWidgets.QWidget):
 
         self._ensure_classifier_for_mode()
 
+        window_size = self._feature_window_size()
+        if not self._confirm_training_features(window_size):
+            return
+
         # reset training report
         self._training_report_markdown = None
 
@@ -1049,6 +1060,124 @@ class CentralWidget(QtWidgets.QWidget):
 
         # start training thread
         self._training_thread.start()
+
+    def _confirm_training_features(self, window_size: int) -> bool:
+        """Check the feature cache for the videos training will read, and warn if needed.
+
+        Training only reads features for labeled identities, so only those need to
+        be cached to avoid computing features mid-run. Working out which identities
+        those are means reading every annotation file, so it is only done when the
+        cheaper whole-video check finds something missing: when every identity of
+        every video is cached, no subset of them can be missing.
+
+        Records the videos this run may compute features for, so only their cache
+        status is invalidated when it finishes.
+
+        Args:
+            window_size: Window size the run will extract features for.
+
+        Returns:
+            True if training should go ahead.
+        """
+        cm_units = self._feature_cm_units()
+        if not self._project.videos_missing_window_features(window_size, cm_units=cm_units):
+            self._training_cache_targets = []
+            return True
+
+        labeled_identities = self._project.labeled_identities(self._training_behaviors())
+        missing = self._project.videos_missing_window_features(
+            window_size, identities=labeled_identities, cm_units=cm_units
+        )
+        if not self._confirm_on_demand_features(missing, window_size, "training"):
+            return False
+
+        self._training_cache_targets = list(labeled_identities)
+        return True
+
+    def _training_behaviors(self) -> list[str]:
+        """Behaviors whose labels the next training run will use.
+
+        Multi-class training trains on every behavior plus the reserved "None"
+        class; binary training uses only the current behavior.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+        return [self._controls.current_behavior]
+
+    def _feature_op_settings(self) -> dict:
+        """Feature-extraction settings the next run will use.
+
+        Binary mode uses the current behavior's settings. Multi-class mode shares
+        one bundle across behaviors, taken from the classifier when it has one and
+        from the project defaults otherwise, mirroring what the training and
+        classify strategies do.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            settings = None
+            if isinstance(self._classifier, MultiClassClassifier):
+                settings = self._classifier.project_settings
+            return settings or self._project.get_project_defaults()
+        return self._project.settings_manager.get_behavior(self._controls.current_behavior)
+
+    def _feature_window_size(self) -> int:
+        """Window size that feature extraction will use for the current mode.
+
+        Read from the window size control in binary mode, which is kept in sync
+        with the behavior's setting; multi-class mode takes it from the shared
+        settings bundle.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return int(
+                self._feature_op_settings().get(
+                    "window_size", jabs.feature_extraction.DEFAULT_WINDOW_SIZE
+                )
+            )
+        return self._window_size
+
+    def _feature_cm_units(self) -> bool:
+        """Whether the next run will ask for features in cm units.
+
+        ``IdentityFeatures`` treats the setting as a plain flag (the stored value is
+        a ``ProjectDistanceUnit``, whose ``PIXEL`` member is 0), so the same
+        truthiness test is used here.
+        """
+        return bool(self._feature_op_settings().get("cm_units", False))
+
+    def _confirm_on_demand_features(
+        self, videos_missing_features: list[str], window_size: int, action: str
+    ) -> bool:
+        """Warn that features are not cached and let the user cancel.
+
+        Args:
+            videos_missing_features: Videos whose features for ``window_size``
+                are not cached and would be computed during the run.
+            window_size: Window size the features are needed for.
+            action: What is about to run, used in the prompt ("training" or
+                "classification").
+
+        Returns:
+            True to go ahead: either everything needed is already cached, or the
+            user chose to continue anyway.
+        """
+        if not videos_missing_features:
+            return True
+
+        count = len(videos_missing_features)
+        videos = "video" if count == 1 else "videos"
+        return MessageDialog.confirm(
+            self,
+            title="Features Not Cached",
+            message=(
+                f"Cached features for window size <b>{window_size}</b> were not found for "
+                f"<b>{count} {videos}</b>. JABS will compute them during {action}, which "
+                "can take several minutes per video.<br><br>"
+                "Features can be computed ahead of time with the <b>jabs-init</b> command "
+                f"line tool: <tt>jabs-init -w {window_size} &lt;project directory&gt;</tt>"
+                f"<br>See <tt>jabs-init --help</tt> for more options."
+                f"<br><br>Continue with {action}?"
+            ),
+            details="Videos needing feature computation:\n" + "\n".join(videos_missing_features),
+        )
 
     def _ensure_classifier_for_mode(self) -> None:
         """Ensure the active classifier instance matches the current classifier mode."""
@@ -1210,12 +1339,29 @@ class CentralWidget(QtWidgets.QWidget):
         if self._training_thread:
             self._training_thread.deleteLater()
             self._training_thread = None
+        # Training caches any features it had to compute, including on a canceled
+        # or failed run, so the status of the videos it read is out of date. Only
+        # those are dropped; the signal then rebuilds the whole status in the
+        # background, so the next train/classify check does not scan on this thread.
+        self._project.invalidate_feature_cache_status(self._training_cache_targets)
+        self._training_cache_targets = None
+        self.feature_cache_changed.emit()
 
     def _cleanup_classify_thread(self) -> None:
-        """clean up the training thread"""
+        """clean up the classification thread
+
+        Owns the end of the run's lifecycle, including clearing the target list:
+        this runs on the completion, cancel and failure paths, so leaving the
+        targets set would keep stale state on the widget after a canceled run.
+        """
         if self._classify_thread:
             self._classify_thread.deleteLater()
             self._classify_thread = None
+        # Same as _cleanup_training_thread, for the videos this run classified
+        # (``None`` means every video was targeted, so every status is dropped).
+        self._project.invalidate_feature_cache_status(self._classification_targets)
+        self._classification_targets = None
+        self.feature_cache_changed.emit()
 
     def _update_training_progress(self, step: int) -> None:
         """update progress bar with the number of completed tasks"""
@@ -1262,6 +1408,18 @@ class CentralWidget(QtWidgets.QWidget):
         self._player_widget.stop()
         self._ensure_classifier_for_mode()
 
+        # every identity of every target video is classified, so all of them need
+        # cached features to avoid computing features during the run
+        window_size = self._feature_window_size()
+        if not self._confirm_on_demand_features(
+            self._project.videos_missing_window_features(
+                window_size, videos=videos, cm_units=self._feature_cm_units()
+            ),
+            window_size,
+            "classification",
+        ):
+            return
+
         self._classification_targets = videos
         current_video = self._loaded_video.name if self._loaded_video else ""
         total_videos = (
@@ -1290,12 +1448,12 @@ class CentralWidget(QtWidgets.QWidget):
 
     def _classify_thread_complete(self, output: dict, elapsed_ms: int) -> None:
         """update the gui when the classification is complete"""
+        # read before the cleanup below, which clears the targets
         targets = self._classification_targets
         loaded_video = self._loaded_video.name if self._loaded_video else None
 
         self._cleanup_progress_dialog()
         self._cleanup_classify_thread()
-        self._classification_targets = None
         self.status_message.emit(
             f"Classification Complete. Elapsed time: {elapsed_ms / 1000:.1f}s", 20000
         )

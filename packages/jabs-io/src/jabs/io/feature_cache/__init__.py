@@ -7,7 +7,16 @@ from pathlib import Path
 
 from jabs.core.enums import CacheFormat
 
+from .inspection import IdentityCacheInfo, inspect_identity_cache
+
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "IdentityCacheInfo",
+    "clear_cache",
+    "detect_cache_format",
+    "inspect_identity_cache",
+]
 
 
 def detect_cache_format(identity_dir: Path) -> CacheFormat | None:

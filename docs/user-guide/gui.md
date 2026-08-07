@@ -26,7 +26,7 @@ Right-click a video name to open a context menu:
 
 <img src="imgs/video-context-menu.png" alt="Video list context menu" width=300 />
 
-- **Get Info:** Open a dialog showing details about the video and its associated pose file.
+- **Get Info:** Open a dialog showing details about the video, its associated pose file, and its cached features (the cache directory, cached window sizes, storage format, size on disk, and whether the cache is out of date).
 - **Copy Video Name:** Copy the video's filename to the clipboard.
 - **Classify Video:** Run the trained classifier for the current behavior on just this video, rather than every video the way the **Classify** button does. This item is only available once a classifier has been trained for the current behavior (if none is ready, JABS prompts you to train one first). When classification finishes, JABS displays the new predictions, switching to the video if it is not already the active one.
 - **Exclude from Training:** Toggle whether the video is held out of classifier training (unchecked by default). When a video is excluded:
@@ -48,6 +48,12 @@ Right-click a video name to open a context menu:
 - **Symmetric Behavior Toggle:** Tells the classifier that the behavior is symmetric. A symmetric behavior is when left and right features are interchangeable.
 - **All k-fold Toggle:** Uses the maximum number of cross validation folds. Useful when you wish to compare classifier performance and may have an outlier that can be held-out.
 - **Cross Validation Slider:** Number of "Leave One Out" cross validation iterations to run while training.
+
+### Feature Computation
+
+Training and classification both need extracted features for the selected window size. When a project is opened, JABS scans the project's feature cache in the background to find out which videos already have them. If features are missing when you click **Train** or **Classify**, JABS warns you first: the run will still work, but the features are computed as it goes, which can take several minutes per video. You can continue anyway, or cancel and precompute features for the whole project with the `jabs-init` command line tool (`jabs-init -w <window size> <project directory>`).
+
+Training needs features only for the subjects you have labeled, while classification needs them for every subject in every video it processes, so **Classify** may warn when **Train** does not. Computed features are cached, so the warning goes away once a run has computed them. Use **Get Info** in the video list's right-click menu to see exactly what is cached for a video.
 
 ### Choosing a Classifier Type
 

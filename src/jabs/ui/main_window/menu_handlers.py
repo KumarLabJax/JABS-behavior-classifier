@@ -335,7 +335,10 @@ class MenuHandlers:
             message=f"Are you sure you want to delete all cached feature files?{hint}",
         )
         if result:
+            # clear_feature_cache() discards the project's stored cache status;
+            # rescan so it reflects the now-empty cache
             project.clear_feature_cache()
+            self.window.refresh_feature_cache_status()
             self.window.display_status_message("Feature cache cleared", duration=3000)
 
     # ========== App Menu Handlers ==========

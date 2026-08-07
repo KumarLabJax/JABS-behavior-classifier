@@ -1,6 +1,7 @@
 import logging
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QEvent, Qt
@@ -16,6 +17,7 @@ from ..constants import (
 )
 from ..dialogs import MessageDialog
 from ..dialogs.progress_dialog import create_progress_dialog
+from ..feature_cache_scan_thread import FeatureCacheScanThread
 from ..player_widget import PlayerWidget
 from ..project_loader_thread import ProjectLoaderThread
 from .central_widget import CentralWidget
@@ -24,7 +26,18 @@ from .menu_builder import MenuBuilder
 from .menu_handlers import MenuHandlers
 from .video_list_widget import VideoListDockWidget
 
+if TYPE_CHECKING:
+    from jabs.project import Project, VideoFeatureCacheStatus
+
 logger = logging.getLogger(__name__)
+
+# How long to wait at shutdown for a running feature cache scan to stop on its own,
+# so the thread is not destroyed mid-run. The scan is short; this is only a safety
+# margin.
+_FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS = 2000
+
+# How long to wait after forcing a scan thread that ignored the cooperative stop.
+_FEATURE_CACHE_SCAN_TERMINATE_WAIT_MS = 1000
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -64,6 +77,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._app_name_long = app_name_long
         self._project = None
         self._project_loader_thread = None
+        self._feature_cache_scan_thread: FeatureCacheScanThread | None = None
+        # a refresh was requested while a scan was running; it starts when that
+        # scan finishes, keeping at most one scan in flight
+        self._feature_cache_scan_pending = False
         self._progress_dialog = None
         self._user_guide_window = None
         self._previous_identity_overlay_mode = PlayerWidget.IdentityOverlayMode.FLOATING
@@ -99,6 +116,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._menu_refs.export_training.setEnabled
         )
         self._central_widget.search_results_changed.connect(self.video_list.show_search_results)
+        # a training or classification run may have computed features; rebuild the
+        # project's cache status in the background rather than on the next click
+        self._central_widget.feature_cache_changed.connect(self.refresh_feature_cache_status)
         self._central_widget.bbox_overlay_supported.connect(
             self.menu_handlers.on_bbox_overlay_support_changed
         )
@@ -347,9 +367,118 @@ class MainWindow(QtWidgets.QMainWindow):
         # update the recent project menu
         self._add_recent_project(self._project.project_paths.project_dir)
 
+        # find out which videos already have cached features, without blocking
+        self.refresh_feature_cache_status()
+
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
+
+    def refresh_feature_cache_status(self) -> None:
+        """Scan the current project's feature cache in a background thread.
+
+        The results are stored on the project, where the video info dialog and
+        the train/classify warnings read them. Safe to call whenever the cache may
+        have changed; results for a project that is no longer open are discarded.
+
+        Only one scan is ever in flight. When one is already running, it is asked
+        to stop and a replacement is queued for when it does, so repeated calls
+        (project open, clearing the cache, each finished training or
+        classification run) never pile up concurrent passes over the feature
+        directory, and shutdown always has a single thread to wait on.
+        """
+        if self._project is None:
+            return
+        if self._feature_cache_scan_thread is not None:
+            logger.debug("Feature cache scan already running; queueing a rescan")
+            self._feature_cache_scan_pending = True
+            self._feature_cache_scan_thread.request_termination()
+            return
+        self._start_feature_cache_scan()
+
+    def _stop_feature_cache_scan(self) -> None:
+        """Make sure no feature cache scan is running before the window is destroyed.
+
+        A QThread destroyed while still running aborts the process, and the scan
+        thread is a child of this window, so it has to be finished by the time the
+        window goes away.
+
+        The cooperative stop is checked between videos, which cannot interrupt a
+        filesystem call that is not responding. Rather than block the quit
+        indefinitely on a wedged mount, an unresponsive scan is forced: it only
+        reads cache metadata, so terminating it cannot corrupt project data, and a
+        failed cache scan costs nothing but the status it would have produced.
+        """
+        thread = self._feature_cache_scan_thread
+        if thread is None:
+            return
+
+        thread.request_termination()
+        if thread.wait(_FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS):
+            return
+
+        logger.warning(
+            "Feature cache scan did not stop within %d ms (unresponsive storage?); "
+            "terminating the thread",
+            _FEATURE_CACHE_SCAN_SHUTDOWN_WAIT_MS,
+        )
+        thread.terminate()
+        if not thread.wait(_FEATURE_CACHE_SCAN_TERMINATE_WAIT_MS):
+            # Nothing further can be done from here; log it so the cause of a
+            # noisy exit is on the record.
+            logger.error("Feature cache scan thread could not be stopped before shutdown")
+
+    def _start_feature_cache_scan(self) -> None:
+        """Start a feature cache scan thread for the current project."""
+        # parented to this window so it stays alive while running, and deleted
+        # once it finishes
+        thread = FeatureCacheScanThread(self._project, parent=self)
+        thread.scan_complete.connect(self._feature_cache_scan_complete)
+        thread.finished.connect(lambda t=thread: self._feature_cache_scan_finished(t))
+        self._feature_cache_scan_thread = thread
+        thread.start()
+
+    def _feature_cache_scan_complete(
+        self, project: "Project", statuses: "dict[str, VideoFeatureCacheStatus]"
+    ) -> None:
+        """Store feature cache scan results on the project.
+
+        Results replace the project's whole status, so only the most recent scan
+        may be applied: an earlier scan still finishing (for example one started
+        at project open, now superseded by one started after a training run) would
+        otherwise write back what the cache looked like before those features were
+        computed.
+
+        Args:
+            project: The project that was scanned. Results for a project that is
+                no longer open are discarded.
+            statuses: Per-video feature cache status keyed by video filename.
+        """
+        if project is not self._project:
+            logger.debug("Discarding feature cache scan results for a closed project")
+            return
+        if self.sender() is not self._feature_cache_scan_thread:
+            logger.debug("Discarding feature cache scan results from a superseded scan")
+            return
+        project.set_feature_cache_status(statuses)
+
+    def _feature_cache_scan_finished(self, thread: FeatureCacheScanThread) -> None:
+        """Release a finished feature cache scan thread, starting any queued rescan.
+
+        Args:
+            thread: The thread that finished. Only clears the tracked reference
+                if it is still the current scan, since a newer scan may have
+                started in the meantime.
+        """
+        if self._feature_cache_scan_thread is thread:
+            self._feature_cache_scan_thread = None
+        thread.deleteLater()
+
+        # a refresh requested while this scan was running (its results are stale
+        # or were discarded when it was asked to stop) runs now
+        if self._feature_cache_scan_pending and self._project is not None:
+            self._feature_cache_scan_pending = False
+            self._start_feature_cache_scan()
 
     def _project_load_error_callback(self, error: Exception) -> None:
         """Callback function to be called when the project fails to load."""
@@ -435,8 +564,13 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle the close event for the main window.
 
         Ensures proper cleanup of the process pool before the application exits.
-        The pre-initialized process pool is shut down in a non-blocking manner.
+        The pre-initialized process pool is shut down in a non-blocking manner. A
+        feature cache scan still in flight is stopped first, so its thread is not
+        destroyed mid-run (see :meth:`_stop_feature_cache_scan`).
         """
+        # drop any queued rescan first so the finished thread does not start one
+        self._feature_cache_scan_pending = False
+        self._stop_feature_cache_scan()
         logger.debug("[MainWindow] closeEvent: shutting down process pool")
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
