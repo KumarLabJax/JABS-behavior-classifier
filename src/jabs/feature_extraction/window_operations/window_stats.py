@@ -14,7 +14,7 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
     Returns:
         an unmodifiable 2d view of the input array where the first axis is time and the second axis is the window. Note that typical usage will use summary stats with axis=1.
     """
-    if pad_const:
+    if pad_const is not None:
         arr_ext = np.concatenate([np.full(window, pad_const), arr, np.full(window, pad_const)])
     else:
         arr_ext = np.concatenate([np.full(window, arr[0]), arr, np.full(window, arr[-1])])
@@ -22,21 +22,25 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
 
 
 def get_window_masks(sliding_window_view: np.ndarray, const: float) -> np.ndarray:
-    """Creates a mask for invalid values in a sliding window matrix.
+    """Creates a mask identifying the usable values in a sliding window matrix.
 
     Args:
         sliding_window_view: sliding window matrix from `pad_sliding_window`
         const: constant pad value
 
     Returns:
-        matrix describing valid (0) and invalid (1) window values
+        boolean matrix that is True for valid window values and False for values
+        equal to the pad constant. Rows where every value is the pad constant are
+        returned as all True, since masking them entirely would leave the
+        downstream reduction with no data to operate on.
     """
     if np.isnan(const):
         window_masks = ~np.isnan(sliding_window_view)
     else:
         window_masks = sliding_window_view != const
-    for no_data_row in np.where(np.all(~window_masks, axis=1)):
-        window_masks[no_data_row] = True
+
+    no_data_rows = np.all(~window_masks, axis=1)
+    window_masks[no_data_rows] = True
 
     return window_masks
 
@@ -165,14 +169,14 @@ def window_skew(values: np.ndarray, window: int) -> np.ndarray:
 
 
 def window_min(values: np.ndarray, window: int) -> np.ndarray:
-    """Calculates a masked maximum of a window
+    """Calculates a masked minimum of a window
 
     Args:
         values: 1d np.ndarray of values
         window: window size
 
     Returns:
-        sliding window maximum values
+        sliding window minimum values
     """
     window_values = pad_sliding_window(values, window, pad_const=np.nan)
     window_masks = get_window_masks(window_values, np.nan)
