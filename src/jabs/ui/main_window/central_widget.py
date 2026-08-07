@@ -1079,13 +1079,14 @@ class CentralWidget(QtWidgets.QWidget):
         Returns:
             True if training should go ahead.
         """
-        if not self._project.videos_missing_window_features(window_size):
+        cm_units = self._feature_cm_units()
+        if not self._project.videos_missing_window_features(window_size, cm_units=cm_units):
             self._training_cache_targets = []
             return True
 
         labeled_identities = self._project.labeled_identities(self._training_behaviors())
         missing = self._project.videos_missing_window_features(
-            window_size, identities=labeled_identities
+            window_size, identities=labeled_identities, cm_units=cm_units
         )
         if not self._confirm_on_demand_features(missing, window_size, "training"):
             return False
@@ -1103,22 +1104,44 @@ class CentralWidget(QtWidgets.QWidget):
             return [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
         return [self._controls.current_behavior]
 
-    def _feature_window_size(self) -> int:
-        """Window size that feature extraction will use for the current mode.
+    def _feature_op_settings(self) -> dict:
+        """Feature-extraction settings the next run will use.
 
-        Binary mode uses the current behavior's window size, which the window size
-        control keeps in sync. Multi-class mode shares one settings bundle across
-        behaviors, taken from the classifier when it has one and from the project
-        defaults otherwise, mirroring what the training and classify strategies do.
+        Binary mode uses the current behavior's settings. Multi-class mode shares
+        one bundle across behaviors, taken from the classifier when it has one and
+        from the project defaults otherwise, mirroring what the training and
+        classify strategies do.
         """
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             settings = None
             if isinstance(self._classifier, MultiClassClassifier):
                 settings = self._classifier.project_settings
-            if not settings:
-                settings = self._project.get_project_defaults()
-            return int(settings.get("window_size", jabs.feature_extraction.DEFAULT_WINDOW_SIZE))
+            return settings or self._project.get_project_defaults()
+        return self._project.settings_manager.get_behavior(self._controls.current_behavior)
+
+    def _feature_window_size(self) -> int:
+        """Window size that feature extraction will use for the current mode.
+
+        Read from the window size control in binary mode, which is kept in sync
+        with the behavior's setting; multi-class mode takes it from the shared
+        settings bundle.
+        """
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            return int(
+                self._feature_op_settings().get(
+                    "window_size", jabs.feature_extraction.DEFAULT_WINDOW_SIZE
+                )
+            )
         return self._window_size
+
+    def _feature_cm_units(self) -> bool:
+        """Whether the next run will ask for features in cm units.
+
+        ``IdentityFeatures`` treats the setting as a plain flag (the stored value is
+        a ``ProjectDistanceUnit``, whose ``PIXEL`` member is 0), so the same
+        truthiness test is used here.
+        """
+        return bool(self._feature_op_settings().get("cm_units", False))
 
     def _confirm_on_demand_features(
         self, videos_missing_features: list[str], window_size: int, action: str
@@ -1389,7 +1412,9 @@ class CentralWidget(QtWidgets.QWidget):
         # cached features to avoid computing features during the run
         window_size = self._feature_window_size()
         if not self._confirm_on_demand_features(
-            self._project.videos_missing_window_features(window_size, videos=videos),
+            self._project.videos_missing_window_features(
+                window_size, videos=videos, cm_units=self._feature_cm_units()
+            ),
             window_size,
             "classification",
         ):

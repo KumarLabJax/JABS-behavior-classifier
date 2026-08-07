@@ -56,6 +56,9 @@ class VideoManager:
         self._settings_manager = settings_manager
         self._videos = []
         self._video_identity_count = {}
+        # whether each video's pose file carries a cm_per_pixel scale, which decides
+        # whether features for it can actually be computed in cm units
+        self._video_has_cm_per_pixel: dict[str, bool] = {}
         self._total_project_identities = 0
         self._pose_path_cache = {}  # Cache mapping video names to their pose file paths to avoid repeated lookups
 
@@ -178,6 +181,21 @@ class VideoManager:
         """
         return self._video_identity_count.get(video_name, 0)
 
+    def video_has_cm_per_pixel(self, video_name: str) -> bool:
+        """Whether a video's pose file carries a cm_per_pixel scale factor.
+
+        Features for a video without one are always computed in pixels, whatever
+        the project's distance unit setting says.
+
+        Args:
+            video_name: Name of the video file
+
+        Returns:
+            True if the pose file provides a cm_per_pixel scale. Unknown videos
+            report False.
+        """
+        return self._video_has_cm_per_pixel.get(video_name, False)
+
     def get_cached_pose_path(self, video_name: str) -> Path:
         """Get pose path for a video, using cache to avoid repeated lookups.
 
@@ -196,7 +214,7 @@ class VideoManager:
         return self._pose_path_cache[video_name]
 
     def _load_video_metadata(self, scan_results: "dict[str, VideoScanResult]") -> None:
-        """Load identity counts from pre-scanned metadata.
+        """Load identity counts and cm scale availability from pre-scanned metadata.
 
         Args:
             scan_results: Per-video metadata from the project scan, keyed by
@@ -206,6 +224,7 @@ class VideoManager:
             nidentities = scan_results[video]["identity_count"]
             self._video_identity_count[video] = nidentities
             self._total_project_identities += nidentities
+            self._video_has_cm_per_pixel[video] = scan_results[video]["has_cm_per_pixel"]
 
     def _validate_video_frame_counts(self, scan_results: "dict[str, VideoScanResult]") -> None:
         """Ensure video and pose file frame counts match.
