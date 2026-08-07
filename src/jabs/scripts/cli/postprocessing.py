@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -287,6 +287,35 @@ def _list_behaviors(prediction_path: Path) -> list[str]:
         raise click.ClickException(f"Cannot open prediction file: {exc}") from exc
 
 
+def _multiclass_behaviors(prediction_path: Path, behaviors: Iterable[str]) -> list[str]:
+    """Return which of the given behaviors hold multi-class predictions.
+
+    A behavior group carries a ``class_names`` dataset only for multi-class
+    predictions, so its presence is what distinguishes them from binary ones.
+
+    Args:
+        prediction_path: Path to the JABS prediction HDF5 file.
+        behaviors: Behavior names (safe-name HDF5 group keys) to check.
+
+    Returns:
+        The subset of ``behaviors`` whose predictions are multi-class, in the
+        order given.
+
+    Raises:
+        click.ClickException: If the file cannot be opened.
+    """
+    try:
+        with h5py.File(prediction_path, "r") as h5:
+            prediction_group = h5["predictions"]
+            return [
+                behavior
+                for behavior in behaviors
+                if behavior in prediction_group and "class_names" in prediction_group[behavior]
+            ]
+    except OSError as exc:
+        raise click.ClickException(f"Cannot open prediction file: {exc}") from exc
+
+
 def run_apply_postprocessing(
     prediction_file: Path,
     config: list[dict[str, Any]] | _BehaviorConfigMap,
@@ -351,6 +380,19 @@ def run_apply_postprocessing(
             f"Available behaviors: {', '.join(repr(b) for b in available_in_file)}"
         )
 
+    # The stages classify each frame as behavior or not behavior (see
+    # ClassLabels), so they have no meaning for multi-class predictions. The GUI
+    # gates on this too: MultiClassClassifyStrategy.postprocess_identity returns
+    # None. Refuse here, before the output file is created, rather than writing
+    # results that treat one class as "the behavior" and the rest as background.
+    multiclass = _multiclass_behaviors(prediction_file, behavior_configs)
+    if multiclass:
+        raise click.ClickException(
+            f"Post-processing supports binary predictions only, but the following "
+            f"behavior(s) hold multi-class predictions: "
+            f"{', '.join(repr(b) for b in multiclass)}."
+        )
+
     # --- Prepare output file -------------------------------------------------
     if output_path != prediction_file:
         try:
@@ -397,6 +439,9 @@ def run_apply_postprocessing(
             predicted_class_postprocessed=postprocessed,
             identity_to_track=pred.identity_to_track,
             external_identity_mapping=pred.external_identity_mapping,
+            # carried through so writing the result cannot drop it: the HDF5
+            # adapter deletes an existing class_names dataset when this is None
+            class_names=pred.class_names,
         )
         try:
             io.save(updated_pred, output_path)

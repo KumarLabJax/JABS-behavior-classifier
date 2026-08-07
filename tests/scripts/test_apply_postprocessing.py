@@ -379,3 +379,105 @@ def test_run_preserves_raw_predictions(tmp_path: Path) -> None:
     updated: BehaviorPrediction = io.load(pred_file, BehaviorPrediction, behavior="grooming")
     np.testing.assert_array_equal(updated.predicted_class, original.predicted_class)
     np.testing.assert_array_equal(updated.probabilities, original.probabilities)
+
+
+# ---------------------------------------------------------------------------
+# multi-class predictions
+# ---------------------------------------------------------------------------
+
+
+def _make_multiclass_prediction(
+    behavior: str,
+    class_names: list[str],
+    n_identities: int = _N_IDENTITIES,
+    n_frames: int = _N_FRAMES,
+) -> BehaviorPrediction:
+    """Build a multi-class BehaviorPrediction (3-D probabilities, class names set)."""
+    rng = np.random.default_rng(seed=7)
+    return BehaviorPrediction(
+        behavior=behavior,
+        predicted_class=rng.integers(
+            0, len(class_names), size=(n_identities, n_frames), dtype=np.int8
+        ),
+        probabilities=rng.random((n_identities, n_frames, len(class_names))).astype(np.float32),
+        classifier=_CLASSIFIER,
+        pose_file="pose.h5",
+        pose_hash="deadbeef",
+        class_names=class_names,
+    )
+
+
+def test_run_multiclass_predictions_raises(tmp_path: Path) -> None:
+    """A multi-class prediction file is refused with an explanatory message.
+
+    The stages label frames behavior/not-behavior, so they have no meaning for
+    multi-class predictions. Previously this reached the write step and died with an
+    opaque "probabilities shape ... does not match expected shape" ValueError.
+    """
+    import click
+
+    pred_file = tmp_path / "predictions.h5"
+    io.save(_make_multiclass_prediction("multiclass", ["None", "walking", "grooming"]), pred_file)
+
+    config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
+
+    with pytest.raises(click.ClickException, match="binary predictions only"):
+        run_apply_postprocessing(pred_file, config, "multiclass", pred_file)
+
+
+def test_run_multiclass_refusal_leaves_the_file_untouched(tmp_path: Path) -> None:
+    """The refusal happens before any output is written."""
+    import click
+
+    pred_file = tmp_path / "predictions.h5"
+    out_file = tmp_path / "out.h5"
+    io.save(_make_multiclass_prediction("multiclass", ["None", "walking"]), pred_file)
+    before = pred_file.read_bytes()
+
+    config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
+
+    with pytest.raises(click.ClickException, match="binary predictions only"):
+        run_apply_postprocessing(pred_file, config, "multiclass", out_file)
+
+    assert not out_file.exists()
+    assert pred_file.read_bytes() == before
+
+
+def test_run_multiclass_behavior_named_alongside_binary_ones_raises(tmp_path: Path) -> None:
+    """A multi-class behavior in a multi-behavior config stops the whole run.
+
+    Failing before the output file is created keeps a partially processed result
+    from being written.
+    """
+    import click
+
+    pred_file = tmp_path / "predictions.h5"
+    out_file = tmp_path / "out.h5"
+    _write_prediction_file(pred_file, "grooming")
+    io.save(_make_multiclass_prediction("multiclass", ["None", "walking"]), pred_file)
+
+    stages = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
+    config = {"grooming": stages, "multiclass": stages}
+
+    with pytest.raises(click.ClickException, match="multiclass"):
+        run_apply_postprocessing(pred_file, config, None, out_file)
+
+    assert not out_file.exists()
+
+
+def test_run_binary_behavior_in_a_file_that_also_has_multiclass(tmp_path: Path) -> None:
+    """Only the named behaviors are checked, so a binary one still processes."""
+    pred_file = tmp_path / "predictions.h5"
+    out_file = tmp_path / "out.h5"
+    _write_prediction_file(pred_file, "grooming")
+    io.save(_make_multiclass_prediction("multiclass", ["None", "walking"]), pred_file)
+
+    config = [{"stage_name": "BoutDurationFilterStage", "parameters": {"min_duration": 3}}]
+    processed = run_apply_postprocessing(pred_file, config, "grooming", out_file)
+
+    assert processed == ["grooming"]
+    updated: BehaviorPrediction = io.load(out_file, BehaviorPrediction, behavior="grooming")
+    assert updated.predicted_class_postprocessed is not None
+    # the untouched multi-class group keeps its class names
+    multiclass: BehaviorPrediction = io.load(out_file, BehaviorPrediction, behavior="multiclass")
+    assert multiclass.class_names == ["None", "walking"]
