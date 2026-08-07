@@ -57,14 +57,19 @@ class BehaviorEvents:
     def delete_bouts(self, indices_to_remove) -> None:
         """Helper function to delete events from bout data.
 
+        The deleted bout's frames are absorbed by its neighboring bouts, so the
+        total number of encoded frames is preserved. This object is modified in
+        place.
+
         Args:
             indices_to_remove: event indices to delete
 
-        Returns:
-            Bouts object that has been modified to interpolate within deleted events
-
         Notes:
-            Interpolation on an odd number will result with the "previous" state getting 1 more frame compared to "next" state
+            Interpolation on an odd number of frames will result with the "next" state getting 1
+            more frame compared to the "previous" state.
+
+            A bout with no neighbor to absorb its frames (i.e. the only remaining bout) is left
+            in place, since removing it would shorten the encoded vector.
         """
         new_durations = np.copy(self.durations)
         new_starts = np.copy(self.starts)
@@ -72,7 +77,11 @@ class BehaviorEvents:
         if len(indices_to_remove) > 0:
             # Delete backwards so that we don't need to shift indices
             for cur_gap in np.sort(indices_to_remove)[::-1]:
-                if cur_gap == 0:
+                if len(new_durations) < 2:
+                    # Nothing left to merge this bout into. Deleting it anyway would drop its
+                    # frames from the encoded vector, so leave it as-is.
+                    continue
+                elif cur_gap == 0:
                     # Remove the first bout, merge with the next (use next bout's class)
                     new_durations[1] += new_durations[0]
                     new_starts[1] = new_starts[0]

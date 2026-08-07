@@ -215,6 +215,19 @@ class TestDurationFilter:
         expected = np.array([ClassLabels.NOT_BEHAVIOR] * len(classes))
         np.testing.assert_array_equal(result, expected)
 
+    def test_apply_uniform_short_behavior_vector(self):
+        """Test apply on a vector that is a single short BEHAVIOR bout.
+
+        There is no neighboring bout to absorb the removed frames, so the predictions are
+        returned unchanged rather than raising.
+        """
+        filter_obj = BoutDurationFilterStage(min_duration=5)
+        classes = np.full(3, ClassLabels.BEHAVIOR, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(3, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, classes)
+
     def test_help_method(self):
         """Test that help method returns valid FilterHelp."""
         filter_obj = BoutDurationFilterStage(min_duration=5)
