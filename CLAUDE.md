@@ -56,12 +56,13 @@ uv run jabs-cli --help                     # Unified CLI utilities
 
 # Standalone CLI scripts
 uv run jabs-init /path/to/project          # Initialize a JABS project
-uv run jabs-features /path/to/project      # Generate features (batch, no GUI)
 uv run jabs-classify --classifier model.pkl /path/to/pose.h5  # Batch classification
 uv run jabs-stats /path/to/project         # View project statistics
 
 # jabs-cli subcommands (preferred for new utilities)
+uv run jabs-cli compute-features           # Generate features for a pose file (batch, no GUI)
 uv run jabs-cli export-training            # Export training data from a project
+uv run jabs-cli merge                      # Merge one JABS project into another
 uv run jabs-cli rename-behavior            # Rename a behavior across a project
 uv run jabs-cli prune                      # Remove videos from a project
 ```

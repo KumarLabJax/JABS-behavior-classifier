@@ -26,6 +26,7 @@ from .compute_features import compute_features_command
 from .convert_parquet import convert_parquet_command
 from .convert_to_nwb import run_conversion
 from .cross_validation import run_cross_validation
+from .merge_projects import merge_projects_command
 from .postprocessing import apply_postprocessing_command
 from .sample_frames import sample_frames_command
 from .sample_pose_intervals import sample_pose_intervals_command
@@ -53,6 +54,7 @@ def cli(ctx: click.Context, verbose):
 cli.add_command(apply_postprocessing_command)
 cli.add_command(compute_features_command)
 cli.add_command(convert_parquet_command)
+cli.add_command(merge_projects_command)
 cli.add_command(update_pose_command)
 cli.add_command(update_labels_command)
 cli.add_command(sample_pose_intervals_command)

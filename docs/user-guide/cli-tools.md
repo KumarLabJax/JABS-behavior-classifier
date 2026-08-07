@@ -80,32 +80,19 @@ optionally override the classifier specified in the training file:
 
 ## jabs-features
 
-JABS includes a script called `jabs-features`, which can be used to generate a feature file for a single video from the command line.
+**Deprecated.** `jabs-features` has been replaced by [`jabs-cli compute-features`](#jabs-cli-compute-features). The command still works, but it prints a deprecation warning, translates its arguments, and runs `jabs-cli compute-features` for you. Update existing pipelines to call the new command directly.
 
-```text
-usage: jabs-features [-h] --pose-file POSE_FILE --pose-version POSE_VERSION
-                            --feature-dir FEATURE_DIR [--use-cm-distances]
-                            [--window-size WINDOW_SIZE] [--fps FPS]
-                            [--use-pose-hash]
+The legacy options map onto the new command as follows:
 
-options:
-  -h, --help            show this help message and exit
-  --pose-file POSE_FILE
-                        pose file to compute features for
-  --pose-version POSE_VERSION
-                        pose version to calculate features
-  --feature-dir FEATURE_DIR
-                        directory to write output features
-  --use-cm-distances    use cm distance units instead of pixel
-  --window-size WINDOW_SIZE
-                        window size for features (default none)
-  --fps FPS             frames per second to use for feature calculation
-  --use-pose-hash       Include the pose file hash as a subdirectory level in the feature cache
-                        path (e.g. <feature-dir>/<video>/<pose-hash>/<identity>). Prevents
-                        collisions when a shared cache directory is used across multiple pipelines.
-```
-
-Features are always written in Parquet format. Use `--use-pose-hash` when building a shared feature cache for multiple pipelines where video filenames may collide.
+| `jabs-features` | `jabs-cli compute-features` |
+| --- | --- |
+| `--pose-file` | `--pose-file` (unchanged) |
+| `--pose-version` | Ignored. The pose version is inferred from the pose filename (e.g. `*_pose_est_v6.h5`). |
+| `--feature-dir` | `--feature-dir` (unchanged) |
+| `--use-cm-distances` | Not needed. Distances default to cm when the pose file provides a pixel-to-cm scale. Omitting `--use-cm-distances` maps to `--use-pixel-distances`, preserving the legacy pixel default. |
+| `--window-size N` | `-w N` (repeatable for multiple window sizes) |
+| `--fps` | `--fps` (unchanged) |
+| `--use-pose-hash` | `--use-pose-hash` (unchanged) |
 
 ## jabs-cli
 
@@ -125,11 +112,13 @@ Options:
   --help     Show this message and exit.
 
 Commands:
+  compute-features      Compute and cache JABS features for a pose file.
   convert-parquet       Convert a parquet pose file to JABS HDF5 pose format.
   postprocess           Apply a postprocessing pipeline to a JABS prediction HDF5 file.
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
   export-training       Export training data for a specified behavior and JABS project directory.
+  merge                 Merge one JABS project into another.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
   sample-frames         Sample PNG frames from a JABS project filtered by a behavior label.
@@ -180,6 +169,42 @@ jabs-init /path/to/project --cache-format parquet --force
 ```
 
 See the [Project Setup Guide](project-setup.md#initialization--jabs-init) for a brief overview and [Feature Cache Format](project-setup.md#feature-cache-format) for migration guidance.
+
+## jabs-cli compute-features
+
+The `jabs-cli compute-features` command computes and caches JABS features for a single pose file, without requiring a JABS project. This is intended for batch and HPC pipelines that process pose files individually. It replaces the deprecated [`jabs-features`](#jabs-features) script.
+
+**Usage:**
+
+```bash
+jabs-cli compute-features --pose-file <POSE_FILE> --feature-dir <FEATURE_DIR> [--use-pixel-distances]
+                          [-w WINDOW_SIZE] [--fps FPS] [--use-pose-hash]
+                          [--cache-format {hdf5,parquet}] [--force]
+```
+
+- `--pose-file <POSE_FILE>`: Pose file to compute features for. The pose version is inferred from the filename (e.g. `*_pose_est_v6.h5`).
+- `--feature-dir <FEATURE_DIR>`: Directory to write output features.
+- `--use-pixel-distances`: Force pixel distance units. By default, cm units are used when the pose file provides a pixel-to-cm scale, and pixel units otherwise.
+- `-w`, `--window-size <N>`: Window size for window features. Repeat to compute multiple window sizes (e.g. `-w 5 -w 10`). Omit to compute per-frame features only.
+- `--fps <FPS>`: Frames per second used to scale time-based features from "per frame" to "per second". Default: `30`.
+- `--use-pose-hash`: Include the pose file hash as a subdirectory level in the feature cache path (e.g. `<feature-dir>/<video>/<pose-hash>/<identity>`). Use this when building a shared feature cache for multiple pipelines where video filenames may collide.
+- `--cache-format {hdf5,parquet}`: Storage format for the feature cache. Default: `parquet`.
+- `--force`: Recompute features and overwrite the cache even when a valid cache exists.
+
+**Examples:**
+
+```bash
+# Per-frame features only
+jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /path/to/features
+
+# Per-frame plus two window sizes, at 60 fps
+jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /path/to/features \
+    -w 5 -w 10 --fps 60
+
+# Shared cache across pipelines, forcing recomputation
+jabs-cli compute-features --pose-file session_pose_est_v6.h5 --feature-dir /shared/features \
+    --use-pose-hash --force
+```
 
 ## jabs-cli update-pose
 
@@ -249,6 +274,35 @@ jabs-cli update-labels /path/to/target_project /path/to/source_project --min-iou
 ```
 
 If instead you want to replace the target's pose while keeping its labels, see [`jabs-cli update-pose`](#jabs-cli-update-pose).
+
+## jabs-cli merge
+
+The `jabs-cli merge` command merges a source JABS project into a destination JABS project. Videos, pose files, behaviors, and labels from the source project are imported into the destination project, which is modified in place. The source project is left unchanged.
+
+Note: this command was previously the standalone `jabs-project-merge` script, which has been removed.
+
+**Usage:**
+
+```bash
+jabs-cli merge <destination_project> <source_project> --merge-strategy <STRATEGY>
+```
+
+- `<destination_project>`: Path to the destination JABS project. This project is modified by importing videos and labels from the source project.
+- `<source_project>`: Path to the source JABS project. Not modified.
+- `--merge-strategy <STRATEGY>`: Required. How to resolve conflicting labels, i.e. frames labeled differently in both projects for the same video, identity, and behavior:
+    - `behavior-wins`: Keep the label with the behavior annotation.
+    - `not-behavior-wins`: Keep the label without the behavior annotation.
+    - `destination-wins`: Keep the label from the destination project.
+
+Videos present only in the source project are copied into the destination project along with their pose files, and behaviors defined only in the source project are added to the destination project's `project.json`. Labels for videos already in the destination project are merged annotation by annotation using the selected strategy.
+
+Both paths must already be valid JABS project directories, and they must be different directories.
+
+**Example:**
+
+```bash
+jabs-cli merge /path/to/destination_project /path/to/source_project --merge-strategy destination-wins
+```
 
 ## jabs-cli sample-frames
 
