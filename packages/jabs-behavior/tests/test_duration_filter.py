@@ -215,6 +215,57 @@ class TestDurationFilter:
         expected = np.array([ClassLabels.NOT_BEHAVIOR] * len(classes))
         np.testing.assert_array_equal(result, expected)
 
+    def test_apply_uniform_short_behavior_vector(self):
+        """Test apply on a vector that is a single short BEHAVIOR bout.
+
+        There is no neighboring bout to absorb the removed frames, so the frames become
+        NOT_BEHAVIOR directly: the same outcome a neighboring NOT_BEHAVIOR bout would have
+        produced, rather than keeping a bout the filter rejected.
+        """
+        filter_obj = BoutDurationFilterStage(min_duration=5)
+        classes = np.full(3, ClassLabels.BEHAVIOR, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(3, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, np.full(3, ClassLabels.NOT_BEHAVIOR))
+        assert result.dtype == classes.dtype
+
+    def test_apply_short_behavior_bout_matches_with_and_without_a_neighbor(self):
+        """A short BEHAVIOR bout is suppressed whether or not other frames surround it.
+
+        Guards the inconsistency of the same bout being kept when it is alone in the vector
+        and dropped when a NOT_BEHAVIOR bout happens to follow it.
+        """
+        filter_obj = BoutDurationFilterStage(min_duration=5)
+        alone = np.full(3, ClassLabels.BEHAVIOR, dtype=np.int8)
+        with_neighbor = np.array(
+            [ClassLabels.BEHAVIOR] * 3 + [ClassLabels.NOT_BEHAVIOR] * 3, dtype=np.int8
+        )
+
+        result_alone = filter_obj.apply(alone, np.zeros(3, dtype=np.float32))
+        result_with_neighbor = filter_obj.apply(with_neighbor, np.zeros(6, dtype=np.float32))
+
+        assert set(np.unique(result_alone)) == {ClassLabels.NOT_BEHAVIOR}
+        assert set(np.unique(result_with_neighbor)) == {ClassLabels.NOT_BEHAVIOR}
+
+    def test_apply_uniform_behavior_vector_at_min_duration_is_kept(self):
+        """A lone bout that meets the minimum duration is not filtered."""
+        filter_obj = BoutDurationFilterStage(min_duration=5)
+        classes = np.full(5, ClassLabels.BEHAVIOR, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(5, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, classes)
+
+    def test_apply_uniform_short_none_vector_is_untouched(self):
+        """A lone short bout of NONE is not a BEHAVIOR bout, so the filter ignores it."""
+        filter_obj = BoutDurationFilterStage(min_duration=5)
+        classes = np.full(3, ClassLabels.NONE, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(3, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, classes)
+
     def test_help_method(self):
         """Test that help method returns valid FilterHelp."""
         filter_obj = BoutDurationFilterStage(min_duration=5)

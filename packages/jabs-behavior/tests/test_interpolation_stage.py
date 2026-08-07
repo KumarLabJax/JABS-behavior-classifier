@@ -313,3 +313,16 @@ class TestInterpolationFilter:
         filter_obj = GapInterpolationStage(max_interpolation_gap=7)
         assert "max_interpolation_gap" in filter_obj.config
         assert filter_obj.config["max_interpolation_gap"] == 7
+
+    def test_apply_uniform_short_none_vector_is_unchanged(self):
+        """A vector that is entirely NONE has no neighboring state to interpolate from.
+
+        Unlike the duration filter, which suppresses a lone rejected bout, there is no
+        prediction here to spread into the gap, so the frames stay NONE.
+        """
+        filter_obj = GapInterpolationStage(max_interpolation_gap=5)
+        classes = np.full(3, ClassLabels.NONE, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(3, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, classes)

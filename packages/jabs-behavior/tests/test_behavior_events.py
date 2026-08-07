@@ -232,6 +232,37 @@ class TestBehaviorEvents:
         np.testing.assert_array_equal(events.durations, [2, 2, 2])
         np.testing.assert_array_equal(events.states, [0, 1, 0])
 
+    def test_delete_bouts_only_bout_is_kept(self):
+        """Test delete_bouts on a single-bout encoding leaves the bout in place.
+
+        There is no neighboring bout to absorb the frames, so removing it would shorten the
+        encoded vector.
+        """
+        events = BehaviorEvents.from_vector(np.array([1, 1, 1]))
+        events.delete_bouts([0])
+
+        np.testing.assert_array_equal(events.starts, [0])
+        np.testing.assert_array_equal(events.durations, [3])
+        np.testing.assert_array_equal(events.states, [1])
+        np.testing.assert_array_equal(events.to_vector(), [1, 1, 1])
+
+    def test_delete_bouts_all_bouts_keeps_last_remaining(self):
+        """Test delete_bouts when every bout is marked for removal.
+
+        The bouts merge until a single bout is left, which is then kept so the encoded vector
+        keeps its original length. Which state survives follows from the merge order rather
+        than from any rule, so callers that care (such as the postprocessing stages) decide
+        the outcome themselves instead of relying on this.
+        """
+        events = BehaviorEvents.from_vector(np.array([0, 0, 1, 1]))
+        events.delete_bouts([0, 1])
+
+        # index 1 (the last bout) merges into index 0, leaving a single bout that is kept
+        np.testing.assert_array_equal(events.starts, [0])
+        np.testing.assert_array_equal(events.durations, [4])
+        np.testing.assert_array_equal(events.states, [0])
+        assert len(events.to_vector()) == 4
+
     def test_rle_simple(self):
         """Test _rle with simple input."""
         vector = np.array([1, 1, 2, 2, 2, 1])

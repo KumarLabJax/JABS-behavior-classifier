@@ -277,3 +277,16 @@ class TestStitchingStage:
         filter_obj = BoutStitchingStage(max_stitch_gap=5)
         assert "max_stitch_gap" in filter_obj.config
         assert filter_obj.config["max_stitch_gap"] == 5
+
+    def test_apply_uniform_short_not_behavior_vector_is_unchanged(self):
+        """A vector with no BEHAVIOR bouts has no bouts to stitch together.
+
+        Unlike the duration filter, which suppresses a lone rejected bout, stitching only
+        joins behavior across a gap, so with nothing to join the frames stay NOT_BEHAVIOR.
+        """
+        filter_obj = BoutStitchingStage(max_stitch_gap=3)
+        classes = np.full(2, ClassLabels.NOT_BEHAVIOR, dtype=np.int8)
+
+        result = filter_obj.apply(classes, np.zeros(2, dtype=np.float32))
+
+        np.testing.assert_array_equal(result, classes)
