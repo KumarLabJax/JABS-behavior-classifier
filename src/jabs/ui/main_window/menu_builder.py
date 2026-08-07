@@ -10,7 +10,7 @@ as it serves as a helper/companion class for menu handling.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 from jabs.feature_extraction.landmark_features import LandmarkFeatureGroup
 
@@ -191,11 +191,14 @@ class MenuBuilder:
         license_action.triggered.connect(self.handlers.show_license_dialog)
         menu.addAction(license_action)
 
-        # Quit action
+        # Quit action. Routed through MainWindow.quit_application() rather than
+        # QCoreApplication.quit(): quit() leaves the event loop without delivering
+        # a close event, so the shutdown cleanup in MainWindow.closeEvent would be
+        # skipped (see that method).
         exit_action = QtGui.QAction(f" &Quit {self.app_name}", self.main_window)
         exit_action.setShortcut(QtGui.QKeySequence("Ctrl+Q"))
         exit_action.setStatusTip("Exit application")
-        exit_action.triggered.connect(QtCore.QCoreApplication.quit)
+        exit_action.triggered.connect(self.main_window.quit_application)
         menu.addAction(exit_action)
 
         return {

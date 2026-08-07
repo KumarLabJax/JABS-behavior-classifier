@@ -560,6 +560,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self._central_widget.id_overlay_mode = PlayerWidget.IdentityOverlayMode.MINIMAL
             self._identity_overlay_minimal.setChecked(True)
 
+    def quit_application(self) -> None:
+        """Quit JABS, running the shutdown cleanup first.
+
+        Wired to the Quit menu action. ``QCoreApplication.quit()`` on its own
+        leaves the event loop without delivering a close event, which skips
+        :meth:`closeEvent` and therefore the background-thread and process-pool
+        shutdown it performs; a worker thread still running when the interpreter
+        tears down aborts the process. ``close()`` delivers the event
+        synchronously, so the cleanup has finished by the time we quit.
+
+        The explicit quit matters: closing this window is only enough to end the
+        application when no other top-level window is open, and JABS creates some
+        without a parent (for example the training report).
+
+        A declined close means the application is not quitting after all, so the
+        quit is conditional on it: quitting anyway would leave the event loop
+        without the cleanup, which is the failure this method exists to avoid.
+        Nothing declines the close today, but the guard keeps that true if a
+        confirmation prompt is ever added to :meth:`closeEvent`.
+        """
+        if not self.close():
+            logger.debug("Quit cancelled: the main window declined to close")
+            return
+        QtWidgets.QApplication.quit()
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Handle the close event for the main window.
 
@@ -567,13 +592,21 @@ class MainWindow(QtWidgets.QMainWindow):
         The pre-initialized process pool is shut down in a non-blocking manner. A
         feature cache scan still in flight is stopped first, so its thread is not
         destroyed mid-run (see :meth:`_stop_feature_cache_scan`).
+
+        The cleanup only runs once the close is actually accepted: tearing down the
+        pool and the scan thread for a window that stays open would leave the
+        application running without them.
         """
+        super().closeEvent(event)
+        if not event.isAccepted():
+            logger.debug("[MainWindow] closeEvent declined; leaving background work running")
+            return
+
         # drop any queued rescan first so the finished thread does not start one
         self._feature_cache_scan_pending = False
         self._stop_feature_cache_scan()
         logger.debug("[MainWindow] closeEvent: shutting down process pool")
         self._process_pool.shutdown(wait=False, cancel_futures=True)
-        super().closeEvent(event)
 
     def on_project_settings_changed(self) -> None:
         """Slot called when project settings are changed via ProjectSettingsDialog.
