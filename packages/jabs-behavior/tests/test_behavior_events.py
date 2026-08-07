@@ -250,7 +250,9 @@ class TestBehaviorEvents:
         """Test delete_bouts when every bout is marked for removal.
 
         The bouts merge until a single bout is left, which is then kept so the encoded vector
-        keeps its original length.
+        keeps its original length. Which state survives follows from the merge order rather
+        than from any rule, so callers that care (such as the postprocessing stages) decide
+        the outcome themselves instead of relying on this.
         """
         events = BehaviorEvents.from_vector(np.array([0, 0, 1, 1]))
         events.delete_bouts([0, 1])

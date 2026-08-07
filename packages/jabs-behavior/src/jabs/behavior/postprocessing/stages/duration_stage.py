@@ -25,6 +25,14 @@ class BoutDurationFilterStage(PostprocessingStage):
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply the duration filter to the predictions.
 
+        A too-short bout is normally removed by absorbing its frames into the
+        neighboring bouts, which for a lone short BEHAVIOR bout means the
+        surrounding NOT_BEHAVIOR state takes them over. When the whole vector is
+        one too-short BEHAVIOR bout there is no neighbor to absorb it, so the
+        frames are set to NOT_BEHAVIOR directly: leaving them as BEHAVIOR would
+        keep a bout this filter rejected, and would make the result depend on
+        whether other frames happened to be present.
+
         Args:
             classes (np.ndarray): The predicted classes.
             probabilities (np.ndarray): The predicted probabilities. (Not used in this stage.)
@@ -39,9 +47,13 @@ class BoutDurationFilterStage(PostprocessingStage):
             rle_data.states == ClassLabels.BEHAVIOR,
         )
 
-        if np.any(bouts_to_remove):
-            rle_data.delete_bouts(np.where(bouts_to_remove)[0])
+        if not np.any(bouts_to_remove):
+            return rle_data.to_vector()
 
+        if len(rle_data.states) == 1:
+            return np.full_like(classes, ClassLabels.NOT_BEHAVIOR)
+
+        rle_data.delete_bouts(np.where(bouts_to_remove)[0])
         return rle_data.to_vector()
 
     @classmethod
