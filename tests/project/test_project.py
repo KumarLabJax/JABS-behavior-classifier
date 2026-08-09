@@ -912,3 +912,65 @@ def test_get_multiclass_labeled_features_fills_missing_behavior_keys(
         features["labels_by_behavior"]["Run"],
         np.full(2, TrackLabels.Label.NONE, dtype=np.int8),
     )
+
+
+# ---------------------------------------------------------------------------
+# load_counts
+# ---------------------------------------------------------------------------
+
+
+def _write_annotations(project: Project, video: str, data: dict) -> None:
+    """Write a raw annotation dict to the project's annotation directory."""
+    path = project.project_paths.annotations_dir / Path(video).with_suffix(".json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        json.dump(data, f)
+
+
+def test_load_counts_keys_identities_by_int(tmp_path: Path) -> None:
+    """Identities are returned as ints, with fragmented and unfragmented counts."""
+    project = _bare_project(tmp_path)
+    _write_annotations(
+        project,
+        "video_a.avi",
+        {
+            "file": "video_a.avi",
+            "num_frames": 100,
+            "labels": {"0": {"Walk": [{"start": 0, "end": 4, "present": True}]}},
+            "unfragmented_labels": {"0": {"Walk": [{"start": 0, "end": 9, "present": True}]}},
+        },
+    )
+
+    counts = project.load_counts("video_a.avi", "Walk")
+
+    assert counts[0]["fragmented_frame_counts"] == (5, 0)
+    assert counts[0]["fragmented_bout_counts"] == (1, 0)
+    assert counts[0]["unfragmented_frame_counts"] == (10, 0)
+    assert counts[0]["unfragmented_bout_counts"] == (1, 0)
+
+
+def test_load_counts_identity_missing_from_one_section(tmp_path: Path) -> None:
+    """An identity present in only one label section counts as zero in the other."""
+    project = _bare_project(tmp_path)
+    _write_annotations(
+        project,
+        "video_a.avi",
+        {
+            "file": "video_a.avi",
+            "num_frames": 100,
+            # identity "1" has unfragmented labels only (all of its labeled frames
+            # fall on frames where the identity is not tracked)
+            "labels": {"0": {"Walk": [{"start": 0, "end": 4, "present": True}]}},
+            "unfragmented_labels": {
+                "0": {"Walk": [{"start": 0, "end": 4, "present": True}]},
+                "1": {"Walk": [{"start": 20, "end": 24, "present": True}]},
+            },
+        },
+    )
+
+    counts = project.load_counts("video_a.avi", "Walk")
+
+    assert counts[1]["fragmented_frame_counts"] == (0, 0)
+    assert counts[1]["fragmented_bout_counts"] == (0, 0)
+    assert counts[1]["unfragmented_frame_counts"] == (5, 0)
+    assert counts[1]["unfragmented_bout_counts"] == (1, 0)

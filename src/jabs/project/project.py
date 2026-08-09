@@ -1099,18 +1099,15 @@ class Project:
         # save project file
         self._settings_manager.remove_behavior(behavior)
 
-    def counts(self, behavior):
+    def counts(self, behavior: str) -> dict[str, dict[int, dict[str, tuple[int, int]]]]:
         """get the labeled frame counts and bout counts for each video in the project
 
+        Args:
+            behavior: behavior to get label counts for
+
         Returns:
-            dict where keys are video names and values are lists of
-                (
-                    identity,
-                    (behavior frame count - fragmented, not behavior frame count - fragmented),
-                    (behavior bout count - fragmented, not behavior bout count - fragmented),
-                    (behavior frame count - unfragmented, not behavior frame count - unfragmented),
-                    (behavior bout count - unfragmented, not behavior bout count - unfragmented)
-                )
+            dict keyed by video name, where each value is the per-identity count
+            mapping returned by :meth:`load_counts` for that video.
         """
         counts = {}
         for video in self._video_manager.videos:
@@ -1606,8 +1603,12 @@ class Project:
             return False
         return True
 
-    def load_counts(self, video, behavior) -> dict[str, tuple[int, int]]:
+    def load_counts(self, video: str, behavior: str) -> dict[int, dict[str, tuple[int, int]]]:
         """load labeled frame and bout counts from json file
+
+        Args:
+            video: name of the video to load counts for
+            behavior: behavior to get label counts for
 
         Returns:
             dict of labeled frame and bout counts for each identity for
@@ -1669,12 +1670,13 @@ class Project:
                 labels = data.get("labels", {})
 
                 for identity in set(unfragmented_labels.keys()).union(labels.keys()):
-                    fragmented_counts = (
-                        count_labels(labels.get(identity, [])) if labels else ((0, 0), (0, 0))
-                    )
+                    # an identity may be present in one of the two label sections but not
+                    # the other, so default to an empty behavior mapping (which counts as
+                    # zero frames and zero bouts) rather than assuming it is present
+                    fragmented_counts = count_labels(labels.get(identity, {}))
 
                     if "unfragmented_labels" in data:
-                        unfragmented_counts = count_labels(unfragmented_labels.get(identity, []))
+                        unfragmented_counts = count_labels(unfragmented_labels.get(identity, {}))
                     else:
                         # if the file doesn't have unfragmented labels, use the fragmented counts -- they're the same
                         # unless the user creates some new labels over frames without identity
