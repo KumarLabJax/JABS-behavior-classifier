@@ -154,27 +154,6 @@ class VideoLabels:
         """
         yield from self._identity_labels.get(identity, {}).items()
 
-    def counts(self, behavior):
-        """get the count of labeled frames and bouts for each identity in this video for a specified behavior
-
-        Args:
-            behavior: behavior to get label counts for
-
-        Returns:
-            list of tuples with the following form
-            (
-                identity,
-                (behavior frame count, not behavior frame count),
-                (behavior bout count, not behavior bout count)
-            )
-        """
-        counts = []
-        for identity in self._identity_labels:
-            if behavior in self._identity_labels[identity]:
-                c = self._identity_labels[identity][behavior].counts
-                counts.append((identity, c[0], c[1]))
-        return counts
-
     def as_dict(
         self,
         pose: PoseEstimation,

@@ -21,7 +21,7 @@ def get_videos_to_prune(project: Project, behavior: str | None = None) -> list[V
         behavior (str | None): The behavior to check for labels. If None, checks all behaviors.
     """
 
-    def check_label_counts(label_counts: dict[str, dict[str, tuple[int, int]]]) -> bool:
+    def check_label_counts(label_counts: dict[int, dict[str, tuple[int, int]]]) -> bool:
         """Return True if any count in label_counts is greater than zero."""
         for identity_counts in label_counts.values():
             for counts in identity_counts.values():
