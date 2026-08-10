@@ -137,6 +137,70 @@ def test_load_skips_invalid_entries():
     assert rebuilt2.annotation_exists(start=0, end=1, tag="good_tag-1", identity_index=None)
 
 
+def test_load_stores_same_payload_as_add_annotation():
+    """load() and add_annotation() must produce identical interval payloads."""
+    loaded = TimelineAnnotations.load(
+        [
+            {
+                "start": 5,
+                "end": 9,
+                "tag": "tag1",
+                "color": "#abcdef",
+                "description": "desc",
+                "identity": 3,
+            }
+        ],
+        id_index_to_display=identity_index_to_display,
+    )
+    added = TimelineAnnotations()
+    added.add_annotation(
+        TimelineAnnotations.Annotation(
+            start=5,
+            end=9,
+            tag="tag1",
+            color="#abcdef",
+            description="desc",
+            identity_index=3,
+            display_identity="ID-3",
+        )
+    )
+
+    assert sorted(loaded._tree) == sorted(added._tree)
+
+
+def test_load_continues_after_skipping_invalid_entry():
+    """A skipped entry must not stop the remaining entries from loading."""
+    data = [
+        {"start": 0, "end": 1, "color": "#fff"},  # missing tag, skipped
+        {"start": 2, "end": 3, "tag": "ok_one", "color": "#fff"},
+        {"start": 4, "end": 5, "tag": "bad tag!", "color": "#fff"},  # invalid tag, skipped
+        {"start": 6, "end": 7, "tag": "ok_two", "color": "#fff"},
+    ]
+    rebuilt = TimelineAnnotations.load(data)
+
+    assert len(rebuilt) == 2
+    assert rebuilt.annotation_exists(start=2, end=3, tag="ok_one", identity_index=None)
+    assert rebuilt.annotation_exists(start=6, end=7, tag="ok_two", identity_index=None)
+
+
+def test_load_without_display_mapping_stringifies_identity():
+    """Without a mapping function the identity index is stored as a string."""
+    rebuilt = TimelineAnnotations.load(
+        [{"start": 0, "end": 1, "tag": "tag1", "color": "#fff", "identity": 7}]
+    )
+    (interval,) = list(rebuilt._tree)
+    assert interval.data["identity"] == 7
+    assert interval.data["display_identity"] == "7"
+
+
+def test_load_warns_on_skipped_entry(caplog):
+    """Skipped entries are reported through the module logger, not stdout/stderr."""
+    with caplog.at_level("WARNING", logger="jabs.project.timeline_annotations"):
+        TimelineAnnotations.load([{"start": 0, "end": 1, "tag": "bad tag!", "color": "#fff"}])
+
+    assert any("Skipping annotation" in record.getMessage() for record in caplog.records)
+
+
 @pytest.mark.parametrize(
     "tag, ok",
     [
