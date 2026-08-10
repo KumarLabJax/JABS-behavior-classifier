@@ -1,9 +1,11 @@
-import sys
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from intervaltree import Interval, IntervalTree
+
+logger = logging.getLogger(__name__)
 
 MAX_TAG_LEN = 32
 
@@ -40,7 +42,8 @@ class TimelineAnnotations:
         """Add a new timeline annotation to the interval tree.
 
         Args:
-            annotation (Annotation): The annotation to add.
+            annotation (Annotation): The annotation to add. Its ``start`` and ``end``
+                frames are inclusive, so the stored interval ends at ``end + 1``.
         """
         self._tree[annotation.start : annotation.end + 1] = {
             "tag": annotation.tag,
@@ -54,52 +57,53 @@ class TimelineAnnotations:
     def load(
         cls, data: list[dict[str, Any]], id_index_to_display: Callable[[int], str] | None = None
     ) -> "TimelineAnnotations":
-        """Load a TimelineAnnotations instance from a JSON-compatible dictionary.
+        """Load a TimelineAnnotations instance from a list of serialized annotations.
 
         Args:
-            data (dict): The dictionary containing serialized timeline annotations.
+            data (list[dict[str, Any]]): Serialized timeline annotations, as produced by
+                :meth:`serialize`. The ``start`` and ``end`` frames are inclusive.
             id_index_to_display (Callable[[int], str] | None): Optional function to map identity index to a display string.
 
         Returns:
             TimelineAnnotations: An instance loaded with the provided data.
 
-        Note: loading currently skips invalid entries with a warning printed to stderr. Consider
+        Note: loading currently skips invalid entries with a logged warning. Consider
         raising an exception for stricter handling in the future.
         """
         annotations = cls()
 
-        for annotation in data:
+        for entry in data:
             try:
-                start = annotation["start"]
-                end = annotation["end"]
-                tag = annotation["tag"]
-                color = annotation["color"]
+                start = entry["start"]
+                end = entry["end"]
+                tag = entry["tag"]
+                color = entry["color"]
             except KeyError:
-                print(
-                    "Missing required annotation fields, loading skipped for annotation:",
-                    annotation,
-                    file=sys.stderr,
+                logger.warning(
+                    "Missing required annotation fields, loading skipped for annotation: %s", entry
                 )
                 continue
 
             # validate the tag format:
             if len(tag) < 1 or len(tag) > MAX_TAG_LEN:
-                print(
-                    f"Annotation tag must be 1 to {MAX_TAG_LEN} characters in length, skipping annotation: \n\t{annotation}",
-                    file=sys.stderr,
+                logger.warning(
+                    "Annotation tag must be 1 to %d characters in length, "
+                    "skipping annotation: \n\t%s",
+                    MAX_TAG_LEN,
+                    entry,
                 )
                 continue
             # only allow alphanumeric characters, underscores, and hyphens
             if not all(c.isalnum() or c in "_-" for c in tag):
-                print(
-                    f"Annotation tag can only contain alphanumeric characters, underscores, and hyphens. Skipping annotation: \n\t{annotation}",
-                    file=sys.stderr,
+                logger.warning(
+                    "Annotation tag can only contain alphanumeric characters, underscores, "
+                    "and hyphens. Skipping annotation: \n\t%s",
+                    entry,
                 )
                 continue
 
-            # Create a data dict for the interval.
             # Note: description and identity are optional fields
-            identity_index = annotation.get("identity")
+            identity_index = entry.get("identity")
             if identity_index is not None:
                 if id_index_to_display:
                     display_identity = id_index_to_display(identity_index)
@@ -107,17 +111,18 @@ class TimelineAnnotations:
                     display_identity = str(identity_index)
             else:
                 display_identity = None
-            data = {
-                "tag": tag,
-                "color": color,
-                "description": annotation.get("description"),
-                "identity": identity_index,
-                "display_identity": display_identity,
-            }
 
-            # Add the annotation to the IntervalTree.
-            # The start and end contained in the JSON file are inclusive, so we add 1 to end.
-            annotations._tree[start : end + 1] = data
+            annotations.add_annotation(
+                cls.Annotation(
+                    start=start,
+                    end=end,
+                    tag=tag,
+                    color=color,
+                    description=entry.get("description"),
+                    identity_index=identity_index,
+                    display_identity=display_identity,
+                )
+            )
         return annotations
 
     def serialize(self) -> list[dict]:
@@ -137,7 +142,7 @@ class TimelineAnnotations:
                     "color": element.data["color"],
                 }
             except KeyError as e:
-                print(f"Missing required annotation data: {e}")
+                logger.warning("Missing required annotation data: %s", e)
                 continue
 
             # optional fields
