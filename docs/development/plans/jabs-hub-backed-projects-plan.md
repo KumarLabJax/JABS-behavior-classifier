@@ -97,9 +97,10 @@ warned.
   expensive one) and a classifier registry for predictions/classifiers are post-MVP (§10).
 - Real-time collaborative cursors / live presence (post-MVP).
 - True frame streaming of remote video (playback is download-to-cache + prefetch; §4.6).
-- **Fine-grained permissions** (roles, per-video/per-behavior rights, group- or lab-level access).
-  The MVP is authenticated access + per-project membership, enforced by Hub — see §2.5 for the full
-  in-scope / out-of-scope breakdown, and D24.
+- **Fine-grained permissions** — client-side handling of Hub's `VIEWER`/`EDITOR`/`ADMIN` roles,
+  per-video/per-behavior rights, group- or lab-level access. The MVP is authenticated access +
+  per-project membership, enforced by Hub — see §2.5 for the full in-scope / out-of-scope breakdown,
+  and D24.
 
 ### 2.3 Motivating use cases
 
@@ -141,29 +142,45 @@ imports or network calls (§7).
 ### 2.5 Permissions and authorization — what is in and out of scope
 
 Authorization is **enforced by Hub**, not by the client (Hub doc D5, recorded in the `jabs-hub`
-repo as **ADR-0014**), but the *goals* it has to meet belong in scope here so they are not left
-implicit. Users are **not** assumed to be uniformly trustworthy with write access to everything.
+repo as **ADR-0014 — *Identity, Access, and Attribution***, amended 2026-08-09; its filename still
+reads `0014-project-membership-authorization.md`, which predates that widened scope), but the *goals*
+it has to meet belong in scope here so they are not left implicit. Users are **not** assumed to be
+uniformly trustworthy with write access to everything.
 
 **In scope (MVP)**
 
 - **Authenticated access only.** Every Hub request carries an OIDC access token (§4.5); there is no
   anonymous, shared-secret, or unauthenticated read path. Without a token the client sees no projects.
-- **Per-project membership, enforced server-side on every request.** A project has an owner and a
-  membership set (`project_members`); Hub authorizes each call against the caller's membership. Per
-  D19 projects are **personal (owner-only)** in the first cut, so the MVP membership set is normally
-  one user — but the check is a membership check from day one, so sharing is an added row, not a
-  redesign.
-- **Membership gates projects, not the video library.** A library video exists before and
-  independently of any project (ADR-0012), so project membership is not a well-defined question for
-  library media: **ADR-0014 Decision 3 makes the library readable *and writable* by any authenticated
-  Hub caller.** For a JABS user that means any colleague with Hub access can list, download, and add
-  to the library — including the videos a project pins — while **projects and annotations**, the
-  scientific work product, are what membership actually protects. This deliberately narrows ADR-0001
-  §4 ("the API checks project membership before generating any URL") to *project* media. Do not
-  present library media in the GUI as though it were private to the project that references it. This
-  is the MVP posture, **not the end state** — group-scoped library visibility is a known future
-  requirement (below), so treat the open catalogue as temporary and keep browse paths behind a
-  filtered query.
+- **Per-project membership, enforced server-side on every request.** A project has a membership set
+  (`project_members`); Hub authorizes each call against the caller's membership (`requireProjectRole`).
+  Per D19 projects are **personal** in the first cut, so the MVP membership set is normally one user —
+  but the check is a membership check from day one, so sharing is an added row, not a redesign. Each
+  row already carries a **role** (`VIEWER` / `EDITOR` / `ADMIN`, ADR-0014 Decision 2) and FKs a `users`
+  registry, so a member Hub has never seen is *unrepresentable* rather than rejected by a handler. The
+  client does not yet vary its behavior by role (below).
+- **Membership gates projects; the library has its own visibility predicate.** A library video exists
+  before and independently of any project (ADR-0012), so "who is a member" is not by itself a
+  well-defined question for library media. **ADR-0014 Decision 6** answers it with a real predicate,
+  evaluated on every library read *and* every signed-URL mint: access is the **union** of the video's
+  own `visibility` and membership in any containing **study or project**. Three consequences the client
+  has to hold at once:
+  - **Project membership *does* grant read access to that project's videos**, through the union's
+    `project_videos ⋈ project_members` clause — not as a side effect of an open catalogue.
+  - **Reads are nonetheless effectively lab-wide today**, because `videos.visibility` defaults to
+    `'LAB'` (the only other value is `'PRIVATE'`). The *data* is permissive; the *policy* is live
+    production code on every request. So any colleague with Hub access can currently list and download
+    library media, including the videos a project pins.
+  - **Writes to an existing library video are narrower:** its `owner_subject`, or a study/project
+    member with write access. **Creating** a video is unaffected, and `POST /videos/{id}/pose-runs` —
+    which spends GPU — is gated at write level (ADR-0014 Decision 7).
+
+  This **narrows** ADR-0001 §4 ("the API checks project membership before generating any URL") rather
+  than abandoning it: Hub does check before minting, the check simply defaults to lab-wide. Client
+  guidance: do not present library media as though it were private to the project that references it,
+  and equally do not build UI that assumes an open catalogue — every browse path stays behind a
+  filtered query, which `GET /videos` now is by construction. **Projects and annotations**, the
+  scientific work product, remain what project membership most directly protects; the lab-wide library
+  *default* is the MVP posture, **not the end state** (below).
 - **The client is not a trust boundary.** The GUI only *reflects* permissions (e.g. greying out
   labeling for a project it may not write); it never grants them. A patched client, a hand-edited
   `hub.json`, or a guessed project ID gains nothing — every read and write is re-authorized by Hub.
@@ -174,22 +191,32 @@ implicit. Users are **not** assumed to be uniformly trustworthy with write acces
   machine does not carry Hub access with it.
 - **Attribution comes from the token.** Annotation history records the identity Hub derives from the
   access token, not the client-supplied `labeler` field (Appendix A.1), which stays a display value.
+  ADR-0014 Decision 3 makes attribution a first-class concept that carries **no access**, so a name on
+  a record is never something the client can infer a permission from.
 
 **Out of scope (MVP) — named so they are deliberate omissions, not oversights**
 
-- **Roles and fine-grained permissions.** No viewer/labeler/owner distinction, no per-behavior or
-  per-video permissions: a project member reads and writes everything in that project. A role model
-  is post-MVP (§10); when it lands, the client's only job is to honor a `permissions` field on the
-  project manifest and disable the corresponding UI.
+- **Client-side handling of roles, and fine-grained permissions.** Hub's roles are
+  **`VIEWER` / `EDITOR` / `ADMIN`** and exist in `project_members` from day one (ADR-0014 Decision 2);
+  what is out of scope is the **client** distinguishing them — the MVP GUI treats any project it can
+  open as read-write and lets Hub's `403` be the answer. Also out of scope: per-behavior and per-video
+  permissions. Honoring roles is post-MVP (§10); when it lands, the client's only job is to read a
+  `permissions`/role field off the project manifest and disable the corresponding UI. Note the rename:
+  ADR-0014 dropped `OWNER` because the lab means *point of contact* by the word, which its Decision 3
+  splits out as **attribution carrying no access** — so do not surface "owner" as a permission level.
 - **Lab-, group-, or organization-level access control**, including any mapping from JAX directory
   groups. Membership is per project and explicit.
 - **Group-scoped library visibility — out of scope for the MVP, but a known future requirement, not a
   hypothetical.** Library videos will eventually need to be readable only to specified groups
-  (collaborator data, embargoed studies), so the lab-wide catalogue above is a starting posture rather
-  than the end state. Enforcement is Hub-side (ADR-0014 Decision 3 today, its OQ2 for the ACL model);
-  the client's job when it lands is to **honor** a visibility/permissions field on the manifest and
-  the library listing, not to enforce one — which is why the client must not build UI that assumes an
-  open catalogue (e.g. "browse everything" affordances with no filtered-query path behind them).
+  (collaborator data, embargoed studies), so the lab-wide *default* above is a starting posture rather
+  than the end state. Enforcement is Hub-side, and the ACL model is no longer a blank: `videos` carries
+  `visibility` + `owner_subject` and the union predicate ships from day one (ADR-0014 Decision 6), with
+  `'GROUP'` joining the `visibility` CHECK and one clause joining the predicate once **ADR-0014 OQ3** —
+  *where group membership lives*, Hub-side `groups` tables vs. mirrored Auth0 claims — resolves.
+  Nothing else in the model moves. The client's job when it lands is to **honor** a
+  visibility/permissions field on the manifest and the library listing, not to enforce one — which is
+  why the client must not build UI that assumes an open catalogue (e.g. "browse everything" affordances
+  with no filtered-query path behind them).
   **Revocation cannot be retroactive for a cached project:** the cache holds video and pose bytes on
   disk (§4.2), so withdrawing a group's access later does not reach bytes already pulled. That is
   inherent to offline-first, and it means group scoping has to be applied at upload/link time rather
@@ -465,8 +492,19 @@ See D4.
   `GET /projects/{id}/annotations?includeDocuments=false`). Offline: use the cache.
 - **Conflict:** optimistic version + last-write-wins (matching today's `tmp.replace` semantics) +
   the cache so nothing is lost; `VideoLabels.merge` available for a later 3-way merge. Hub enforces
-  the check-and-set atomically and returns `409` with the current version (Hub doc —
-  Optimistic-Concurrency Contract).
+  the check-and-set atomically and returns `409 annotation_conflict` (Hub doc —
+  Optimistic-Concurrency Contract). **A `409` has two distinct causes**, discriminated by
+  `details.currentVersion`:
+  - **A concurrent write** — `currentVersion` is the version Hub actually holds (`M`). The classic
+    conflict.
+  - **The annotation lineage is gone** — `currentVersion` is **null**: no annotation row exists for
+    that association. Hub used to accept such a push silently as `version 1`; ADR-0015 makes it a
+    `409`, on the principle that *a write carrying a base version must never win against a state it was
+    not derived from*. The reachable path is an **unlink + relink in the web UI**: deleting a
+    `project_videos` row removes the association **and its annotations**, and a new, empty association
+    replaces it (Hub spec 0006 §7.3). A client holding queued offline edits follows the new association
+    — sync state is keyed by video *name* and resolved to a `projectVideoId` through the manifest — so
+    it pushes a stale `baseVersion` against an empty lineage.
 - **Conflict UX (D23).** Conflicts are rare in the first cut — personal, single-user projects (D19) —
   but the user-visible behavior is specified now, because "last-write-wins" silently losing a labeling
   session would be worse than today's manual zip hand-off:
@@ -475,8 +513,19 @@ See D4.
     `jabs/hub-conflicts/<video>-<version>-<timestamp>.json` in the cache, so a discarded edit is
     always recoverable from disk (and re-importable via `VideoLabels.load`).
   - **Notify, don't interrupt.** Resolution surfaces as a non-modal status-bar / sync-indicator
-    message — "Labels for `<video>` were also changed by `<user>`; your version was kept, theirs saved
-    to …" — with a link that reveals the conflict file. No modal dialog appears mid-labeling.
+    message with a link that reveals the conflict file; no modal dialog appears mid-labeling. One
+    message per `409` cause:
+    - *concurrent write* — "Labels for `<video>` were also changed by `<user>`; your version was kept,
+      theirs saved to …"
+    - *vanished lineage* (`currentVersion: null`) — "Labels for `<video>` no longer exist on JABS Hub
+      (the video was re-linked); your version was saved to …"
+
+    **The mechanics need no second code path.** The rejected edit is already written to
+    `jabs/hub-conflicts/` and reported without interrupting the user; only the message differs. The
+    client deliberately does **not** auto-repush the queued edit as a fresh `version 1`: a relink may
+    have re-pinned a different pose file or clip range, so silently restoring labels keyed to the old
+    pose would reintroduce exactly the identity-misalignment footgun this plan exists to remove (§1).
+    Recovery is an explicit user action from the conflict file.
   - **Sync state is always legible.** A per-project indicator shows `synced` / `syncing` /
     `offline (N queued)` / `conflict`, with per-video detail on hover, so "did my labels reach Hub?"
     is answerable at a glance instead of inferred.
@@ -506,11 +555,14 @@ sequenceDiagram
     alt version matches
         Hub-->>Sync: 200 {version: N+1}
         Sync->>Cache: update sync-state
-    else conflict
+    else conflict, concurrent write
         Hub-->>Sync: 409 {currentVersion: M}
         Sync->>Hub: GET annotations (M)
         Sync->>Sync: resolve (LWW, merge optional)
         Sync->>Hub: PUT (If-Match: M)
+    else conflict, lineage gone after re-link
+        Hub-->>Sync: 409 {currentVersion: null}
+        Sync->>Cache: write jabs/hub-conflicts/, notify, no repush
     end
 ```
 
@@ -537,7 +589,13 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 
 - **Library + media:** `GET /videos` (list/search), `POST /videos` + `.../video-upload-url` /
   `.../pose-upload-url` / `.../upload-complete` (upload), `GET /videos/{id}/video-url` /
-  `.../pose-url` (signed download). Media is content-addressed; **exact pose bytes preserved**.
+  `.../pose-url` (signed download). **Exact pose bytes preserved — no re-encode** (the hard
+  requirement behind §4.6/§4.9). Content-addressed storage (`cas/{blake2b}`) covers the **upload path
+  only**: a *pipeline-produced* pose is catalogued **in place** at its write-once, run-keyed derived
+  prefix (`{pipeline}/{version}/{run_id}/…`, ADR-0010 DAG-8, so a re-run never overwrites a prior
+  result) and is never copied into `cas/`. **This costs the client nothing, and the client must not
+  depend on the layout:** identity comes from the manifest's `contentHash`/`poseHash`, the client
+  follows signed URLs and verifies blake2b, and it never constructs a storage key.
 - **Projects & the join manifest:** `GET /projects`, `POST /projects`, `GET /projects/{id}`; `GET
   /projects/{id}/videos` returns the manifest — per association: `projectVideoId`, `videoId`,
   `nameInProject`, `contentHash`, `poseFileId`, `poseHash`, `poseVersion`, `numFrames` (= clip
@@ -557,7 +615,9 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   (Wording from the Hub spec 0006 *Amendments* section, ADR-0012 Decision 3; §4.6 relies on it.)
 - **Annotations:** `GET/PUT /projects/{id}/videos/{projectVideoId}/annotations` with the
   `If-Match`/`version`/`409` optimistic-concurrency contract; `GET /projects/{id}/annotations`
-  bulk. On write the client also sends a compact **behavior summary** (per behavior/identity:
+  bulk. A `409` carries `details.currentVersion`, which is **null** when no annotation row exists for
+  the association — the client handles both causes (§4.8).
+  On write the client also sends a compact **behavior summary** (per behavior/identity:
   labeled-frame + bout counts, which it already computes) that Hub folds into its
   `project_video_behaviors` search index — keeping the annotation document itself opaque (D9).
 - **Auth:** OIDC access token (Auth Code + PKCE) sent as `Bearer` JWT.
@@ -574,7 +634,9 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   debounce/outbox/409-retry; `ensure_local` hydration keeps the training path local; full-project
   hydration is resumable and idempotent — re-running after a simulated cancel re-fetches only the
   missing files and skips hash-verified ones (D22); a 409 resolution always leaves a loadable document
-  in `jabs/hub-conflicts/` (D23); a manifest entry with **no** `numFrames` opens via the probe
+  in `jabs/hub-conflicts/` (D23) — **both** causes covered: `currentVersion: M` resolves by re-pull +
+  LWW, while `currentVersion: null` (a re-linked association) reports the vanished-lineage message and
+  never auto-repushes as `version 1`; a manifest entry with **no** `numFrames` opens via the probe
   fallback instead of raising (§5).
 - **Integration (opt-in):** against a locally-run Hub in `AUTH_DEV_MODE`.
 - **Backward-compat guard:** a project with no `hub.json` behaves byte-for-byte as today.
@@ -617,8 +679,8 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 | D20 | **A project pins a specific pose file per video** (`project_videos.pose_file_id`); a library video may have **multiple** `pose_files` (one per pose run). The project keeps its pinned pose even when newer runs are added; changing it is an **explicit pose upgrade** that re-pins and migrates labels by bbox-IoU. Pinning is what guarantees label/identity alignment. **Where the migration runs (server-side batch job vs GUI client) is undecided** — not committed to the client. *(shared)* | **Confirmed (migration location open)** |
 | D21 | **A project reference is a clip** — an optional `[clip_start, clip_end]` frame range on `project_videos` (null = whole video); one source video may appear as **multiple clips** in a project. Clips are **materialized server-side** as concrete clip video + clip pose objects in a **regenerable, content-addressed cache** keyed by (video, pinned pose, range) (Hub §10), so the client downloads only the clip (not the whole source) and needs no offset/pose-slicing; the canonical library stays single-copy. Annotations are **clip-relative** (0-based within the clip). *(shared)* | **Confirmed** |
 | D22 | **Hydration is lazy by default, plus an explicit full-project "make available offline" action** (GUI + a `jabs-cli` equivalent) that downloads every video/pose/annotation, pins the project against LRU eviction, and is resumable, idempotent, and budget-aware; per-video pin/hydrate is also available (§2.3 use case 4, §4.6). | **Recommended (pending confirm)** |
-| D23 | **Conflict resolution is user-visible, not silent** (§4.8): the losing document is always written to `jabs/hub-conflicts/`, resolution is reported non-modally with a persistent sync-state indicator, and the currently open video is never reloaded without an explicit user action. A merge-review dialog waits for 3-way merge (post-MVP). | **Recommended (pending confirm)** |
-| D24 | **Permission scope is explicit** (§2.5): authenticated-only access with per-project membership enforced server-side on every request, one access level per project for the MVP, client is not a trust boundary, project links confer nothing. Roles, group/org-level access, locking-as-permission, cache encryption at rest, and audit logging are **out of scope**. Authorization itself is Hub-owned (Hub doc D5). | **Recommended (pending confirm)** |
+| D23 | **Conflict resolution is user-visible, not silent** (§4.8): the losing document is always written to `jabs/hub-conflicts/` — for **both** `409` causes, a concurrent write *and* a vanished annotation lineage after an unlink/relink — resolution is reported non-modally with a persistent sync-state indicator, a vanished lineage is never silently re-pushed as a new `version 1`, and the currently open video is never reloaded without an explicit user action. A merge-review dialog waits for 3-way merge (post-MVP). | **Recommended (pending confirm)** |
+| D24 | **Permission scope is explicit** (§2.5): authenticated-only access with per-project membership enforced server-side on every request, **one client-side access level** for the MVP (the GUI does not distinguish Hub's `VIEWER`/`EDITOR`/`ADMIN` roles and lets `403` be the answer), client is not a trust boundary, project links confer nothing. Library access is Hub's **union of video `visibility` and study/project membership** (ADR-0014 Decision 6) — lab-wide by default *data*, not an ungoverned catalogue. Client-side handling of roles, group/org-level access, locking-as-permission, cache encryption at rest, and audit logging are **out of scope**. Authorization itself is Hub-owned (Hub doc D5 / ADR-0014). | **Recommended (pending confirm)** |
 
 Hub-owned decisions (D5 authz, D6 name uniqueness, D7 pagination, D9 opaque document, D16 decoupled
 library upload) are in the Hub doc.
@@ -657,16 +719,20 @@ Roughly **3.5-4.5 developer-months** of client work. (Hub estimates in the Hub d
   (§3.1/§4.9), so another machine's features are valid for a byte-identical Hub pose. Client lookup
   order: local cache → Hub feature cache → compute (optionally upload). Does not change the MVP
   "recompute locally" default.
-- **Project sharing + role-based permissions** — membership beyond the owner (D19), then a role model
-  (viewer / labeler / owner, potentially per-video or per-behavior) that the client honors via a
-  `permissions` field on the project manifest; group- and lab-level access control. Explicitly out of
-  scope for the MVP (§2.5, D24).
+- **Project sharing + honoring roles** — membership beyond a single user (D19), then client support for
+  Hub's **`VIEWER` / `EDITOR` / `ADMIN`** roles (ADR-0014 Decision 2; potentially extended per-video or
+  per-behavior), read off a `permissions`/role field on the project manifest; group- and lab-level
+  access control. Explicitly out of scope for the MVP (§2.5, D24). **Sharing is no longer blocked on a
+  Hub design question:** what gated it was subject discovery — a sharer having to paste an opaque OIDC
+  `sub` — and ADR-0014's `users` registry plus `GET /users?q=` resolves that, so the remaining work is a
+  web-UI member picker plus the client honoring what it is told.
 - **Group-scoped library visibility (a committed requirement, not a maybe).** Library videos readable
   only to specified groups — see §2.5. Client-side work when it lands: honor a visibility field on the
   library listing and the project manifest, present "no longer accessible" states for cached media
   whose access was withdrawn, and keep every library browse path behind a filtered query rather than a
-  full scan. Sequenced after Hub decides where group membership lives (ADR-0014 OQ1/OQ2), which is the
-  same decision that gates project sharing.
+  full scan. Sequenced after Hub decides where group membership lives (**ADR-0014 OQ3**) — which is *no
+  longer* the decision that gates project sharing (above); the two were coupled only while subject
+  discovery was unresolved.
 - **Behavior/video-level locking**, **real-time collaboration**.
 
 ### 10.1 Fine-grained label storage (future)
@@ -730,7 +796,7 @@ The exact payload `VideoLabels.as_dict` produces / `VideoLabels.load` consumes
 | `jabs/project.json` (local/GUI keys) | — | local only |
 | `jabs/features/`, `jabs/predictions/`, `jabs/classifiers/` | — | **local, derived** (recomputed from cached pose; D14) |
 | `jabs/hub-sync.json` (versions, dirty flags, outbox) | — | local only (§4.8) |
-| `jabs/hub-conflicts/<video>-<version>-<timestamp>.json` | superseded `annotations` version | local only, recovery copy (D23) |
+| `jabs/hub-conflicts/<video>-<version>-<timestamp>.json` | superseded — or deleted — `annotations` version | local only, recovery copy (D23) |
 | `jabs/hub.json` (`{baseUrl, projectId}`) | client-only link marker | local |
 
 ### A.3 Client source references
