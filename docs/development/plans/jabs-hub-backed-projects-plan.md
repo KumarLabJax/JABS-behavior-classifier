@@ -49,7 +49,7 @@ media. Local-only (non-Hub) projects are unchanged.
 | Phase | Title | Delivers |
 |------|-------|----------|
 | **0** | Foundations | OIDC auth in the client + `HubClient`; the client cache/abstraction seams (annotation store + media resolver) landed as a pure refactor with local-only behavior unchanged. (Hub: auth on new routes, base scaffolding.) |
-| **1** | Video library + media | Client: a Hub-aware media resolver + local media cache + lazy hydration + playback prefetch — download/cache to **open and play** a Hub project's videos. (Uploading into the library is a web-UI / `jabs-cli` concern.) (Hub: `videos` table, decoupled upload, list/search, content-addressed storage, signed download.) Deliverable: the GUI opens a Hub project and plays its videos. |
+| **1** | Video library + media | Client: a Hub-aware media resolver + local media cache + lazy hydration + playback prefetch — download/cache to **open and play** a Hub project's videos. (Uploading into the library is a web-UI / `jabs-cli` concern.) (Hub: `videos` table, decoupled upload, list/search, content-addressed storage, signed download.) Deliverable: the GUI opens a Hub project and plays its videos. **Hub prerequisite: a signed download URL for a library video's *video* bytes — only `pose-url` exists today (§5.1).** |
 | **2** | Hub-backed projects | Client: **open** a cloud project (created in the web UI) referencing library videos; the local project dir is a cache; project-settings sync. (Hub: `projects` + `project_members` + `project_videos` join + metadata.) |
 | **3** | Annotations (label sharing) | Client: annotation cache + sync engine + offline outbox + conflict handling; pose consistency guaranteed. (Hub: `annotations` + history + optimistic-concurrency contract + behavior index.) Delivers the label-sharing payoff. |
 | **Post-MVP** | Collaboration + ML | Web preview playback + prediction-track overlay (library browse itself is part of the initial web UI), classifier registry/model cards, real-time collaboration, normalized fine-grained labels. |
@@ -147,17 +147,25 @@ reads `0014-project-membership-authorization.md`, which predates that widened sc
 it has to meet belong in scope here so they are not left implicit. Users are **not** assumed to be
 uniformly trustworthy with write access to everything.
 
+> **Status: this section describes ADR-0014's design, which is not built yet.** The ADR is
+> **Proposed**, and none of its mechanisms exist in Hub today — no `users`, no `visibility` /
+> `owner_subject`, no `project_members`, no role enforcement (§5.1). What ships now is
+> authenticated-only access to a library with no visibility predicate. Everything below is therefore
+> the target the client is built *against*, not behavior the client may rely on during Phases 1-2;
+> the client-side rules it implies (do not present library media as project-private, do not build
+> open-catalogue UI) hold regardless and are the reason to record it here.
+
 **In scope (MVP)**
 
 - **Authenticated access only.** Every Hub request carries an OIDC access token (§4.5); there is no
   anonymous, shared-secret, or unauthenticated read path. Without a token the client sees no projects.
-- **Per-project membership, enforced server-side on every request.** A project has a membership set
-  (`project_members`); Hub authorizes each call against the caller's membership (`requireProjectRole`).
-  Per D19 projects are **personal** in the first cut, so the MVP membership set is normally one user —
-  but the check is a membership check from day one, so sharing is an added row, not a redesign. Each
-  row already carries a **role** (`VIEWER` / `EDITOR` / `ADMIN`, ADR-0014 Decision 2) and FKs a `users`
-  registry, so a member Hub has never seen is *unrepresentable* rather than rejected by a handler. The
-  client does not yet vary its behavior by role (below).
+- **Per-project membership, enforced server-side on every request.** A project is to have a membership
+  set (`project_members`) that Hub authorizes each call against. Per D19 projects are **personal** in
+  the first cut, so the MVP membership set is normally one user — but the check is a membership check
+  from day one, so sharing is an added row, not a redesign. Each row is specified to carry a **role**
+  (`VIEWER` / `EDITOR` / `ADMIN`, ADR-0014 Decision 2) and to FK a `users` registry, so a member Hub
+  has never seen becomes *unrepresentable* rather than rejected by a handler. The client does not vary
+  its behavior by role (below).
 - **Membership gates projects; the library has its own visibility predicate.** A library video exists
   before and independently of any project (ADR-0012), so "who is a member" is not by itself a
   well-defined question for library media. **ADR-0014 Decision 6** answers it with a real predicate,
@@ -166,21 +174,24 @@ uniformly trustworthy with write access to everything.
   has to hold at once:
   - **Project membership *does* grant read access to that project's videos**, through the union's
     `project_videos ⋈ project_members` clause — not as a side effect of an open catalogue.
-  - **Reads are nonetheless effectively lab-wide today**, because `videos.visibility` defaults to
-    `'LAB'` (the only other value is `'PRIVATE'`). The *data* is permissive; the *policy* is live
-    production code on every request. So any colleague with Hub access can currently list and download
-    library media, including the videos a project pins.
+  - **Reads will nonetheless be effectively lab-wide**, because `videos.visibility` is specified to
+    default to `'LAB'` (the only other value is `'PRIVATE'`). The *data* is permissive by design, with
+    the *policy* live on every request. Any colleague with Hub access can list and download library
+    media, including the videos a project pins. **Today this is true for a stronger reason** — the
+    predicate is not built at all, so the library is readable by any authenticated caller (§5.1).
   - **Writes to an existing library video are narrower:** its `owner_subject`, or a study/project
     member with write access. **Creating** a video is unaffected, and `POST /videos/{id}/pose-runs` —
-    which spends GPU — is gated at write level (ADR-0014 Decision 7).
+    which spends GPU — is gated at write level (ADR-0014 Decision 7). None of this constrains the
+    desktop client, which neither creates library videos nor starts pose runs (§5).
 
   This **narrows** ADR-0001 §4 ("the API checks project membership before generating any URL") rather
-  than abandoning it: Hub does check before minting, the check simply defaults to lab-wide. Client
-  guidance: do not present library media as though it were private to the project that references it,
-  and equally do not build UI that assumes an open catalogue — every browse path stays behind a
-  filtered query, which `GET /videos` now is by construction. **Projects and annotations**, the
-  scientific work product, remain what project membership most directly protects; the lab-wide library
-  *default* is the MVP posture, **not the end state** (below).
+  than abandoning it: Hub is to check before minting, with the check defaulting to lab-wide. Client
+  guidance, and the reason this matters before the predicate exists: do not present library media as
+  though it were private to the project that references it, and equally do not build UI that assumes an
+  open catalogue — keep every browse path behind a filtered query so that narrowing what Hub returns
+  changes a query parameter rather than a screen. **Projects and annotations**, the scientific work
+  product, remain what project membership most directly protects; the lab-wide library *default* is the
+  MVP posture, **not the end state** (below).
 - **The client is not a trust boundary.** The GUI only *reflects* permissions (e.g. greying out
   labeling for a project it may not write); it never grants them. A patched client, a hand-edited
   `hub.json`, or a guessed project ID gains nothing — every read and write is re-authorized by Hub.
@@ -209,11 +220,11 @@ uniformly trustworthy with write access to everything.
 - **Group-scoped library visibility — out of scope for the MVP, but a known future requirement, not a
   hypothetical.** Library videos will eventually need to be readable only to specified groups
   (collaborator data, embargoed studies), so the lab-wide *default* above is a starting posture rather
-  than the end state. Enforcement is Hub-side, and the ACL model is no longer a blank: `videos` carries
-  `visibility` + `owner_subject` and the union predicate ships from day one (ADR-0014 Decision 6), with
-  `'GROUP'` joining the `visibility` CHECK and one clause joining the predicate once **ADR-0014 OQ3** —
-  *where group membership lives*, Hub-side `groups` tables vs. mirrored Auth0 claims — resolves.
-  Nothing else in the model moves. The client's job when it lands is to **honor** a
+  than the end state. Enforcement is Hub-side, and the ACL model is no longer a blank: ADR-0014
+  Decision 6 specifies `visibility` + `owner_subject` on `videos` and the union predicate from the
+  moment it lands (not yet built — §5.1), with `'GROUP'` joining the `visibility` CHECK and one clause
+  joining the predicate once **ADR-0014 OQ3** — *where group membership lives*, Hub-side `groups` tables
+  vs. mirrored Auth0 claims — resolves. Nothing else in the model moves. The client's job when it lands is to **honor** a
   visibility/permissions field on the manifest and the library listing, not to enforce one — which is
   why the client must not build UI that assumes an open catalogue (e.g. "browse everything" affordances
   with no filtered-query path behind them).
@@ -358,7 +369,8 @@ Hub-backed implementations:
 
 **(a) Media resolver** — front the single video/pose path resolvers (§3.1) with a resolver that,
 for a cloud project, downloads-on-demand into the cache and returns the cached path (verifying the
-blake2b hash against the manifest). For a local project it returns the existing path (no-op).
+blake2b hash against the manifest **when the manifest carries one** — see §5 on `contentHash` being
+absent for device recordings). For a local project it returns the existing path (no-op).
 
 **(b) `AnnotationStore`** — a protocol over the serialized document dict + version:
 
@@ -400,7 +412,8 @@ directory name disambiguates from the Go `jabs-hub` repo while the import stays 
   (`GET /projects/{id}/videos`) instead of the local glob; (2) `video_path()` and
   `get_cached_pose_path()` **download-on-demand** into the cache and return the cached path — for
   pose it fetches the project's **pinned** pose file (by its `poseHash`, §4.3/D20), not the
-  library's latest, and verifies the blake2b hash; (3) **defers per-video probing** so open is
+  library's latest, and verifies the blake2b hash where the manifest supplies one (§5); (3) **defers
+  per-video probing** so open is
   metadata-driven (manifest `numFrames`/`poseVersion`) and hydrates lazily — never a full-project
   download at open. **`numFrames` is optional** (§5): when the manifest omits it, the client probes
   that video on first open instead of treating the gap as an error, so metadata-driven open must
@@ -596,6 +609,16 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   result) and is never copied into `cas/`. **This costs the client nothing, and the client must not
   depend on the layout:** identity comes from the manifest's `contentHash`/`poseHash`, the client
   follows signed URLs and verifies blake2b, and it never constructs a storage key.
+
+  > **Hash verification is conditional, because a video hash may not exist.** `videos.content_hash` is
+  > populated for `EXTERNAL_UPLOAD` (by the uploading client) but is **permanently NULL for
+  > `HUB_RECORDING`**: blake2b appears nowhere in the device capture path, whose integrity proof is the
+  > crc32c + size verified at `upload-complete` (ADR-0012 D2, migration `0016`). Device recordings are
+  > the platform's own primary source, so a resolver that treats verification as mandatory fails on
+  > exactly those videos. Rule: **verify when the manifest carries a hash, and treat its absence as
+  > "integrity was established at upload" rather than as an error.** Pose hashes are not affected —
+  > `pose_files.content_hash` comes from `artifacts.json` for pipeline poses and from the uploader for
+  > external ones — so the pose-alignment guarantee this plan rests on (§1) keeps its check.
 - **Projects & the join manifest:** `GET /projects`, `POST /projects`, `GET /projects/{id}`; `GET
   /projects/{id}/videos` returns the manifest — per association: `projectVideoId`, `videoId`,
   `nameInProject`, `contentHash`, `poseFileId`, `poseHash`, `poseVersion`, `numFrames` (= clip
@@ -605,6 +628,14 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
   source-or-materialized-clip video — never the library "latest". (Linking videos,
   `register-recording`, and per-video `pose-files` are web-UI / `jabs-cli` operations, not
   desktop-client calls.)
+
+  > **`poseState` is not decoration: a pose can be catalogued and still unusable.** `pose_files.state`
+  > includes `REJECTED` — the pipeline wrote a pose but QC failed it, so it is kept for provenance and
+  > is **never pinnable**, and pose resolution runs over `READY` only (ADR-0012, migration `0016`;
+  > `GET /videos/{id}/pose-url` returns `404` for a video whose only pose is `REJECTED`). The client
+  > must therefore treat a non-`READY` `poseState`, or a `404`/absent pose URL, as **"this video cannot
+  > be opened yet", surfaced with its reason** — and must **not** fall back to the library's latest
+  > pose, which would silently break the identity alignment that pinning exists to guarantee (§4.3).
 
   > `numFrames` is **optional**. It is populated for videos processed by the pipeline (which emits it
   > in its artifact manifest) and for external uploads whose client supplied it, but is NULL for a
@@ -624,12 +655,44 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 - **Opaque annotation document:** the client owns the schema (Appendix A.1) and evolves it via
   `SERIALIZED_VERSION` without Hub redeploys.
 
+### 5.1 Where Hub is today, and what this plan assumes that does not exist yet
+
+The contract above is what the client is written *against*; most of it is designed and not yet built.
+This section records the delta so a phase is not started against an endpoint that is absent.
+
+**Snapshot: `jabs-hub` branch `adr-0012-implementation`, verified 2026-08-13.** Point-in-time — re-check
+before starting a phase rather than trusting this table. ADR-0012's own *Scope Boundary* is the
+authoritative statement of what shipped; it lists Decisions 1-4 (migration `0016`: `videos` +
+`pose_files`, the `artifacts.json` contract, registration on the `→ READY` edge, both reconcilers), the
+derived-bucket IAM, and a read surface of exactly three endpoints.
+
+| What this plan needs | Hub today | Consequence for the client |
+|---|---|---|
+| `GET /videos/{id}/video-url` (§4.6 playback, Phase 1) | **Absent.** The read surface is `GET /videos`, `/videos/{id}`, `/videos/{id}/pose-url`. The only `video-url` is session-scoped (`/recording-sessions/{sessionId}/targets/{clientId}/{arenaId}/video-url`), which an `EXTERNAL_UPLOAD` video cannot use — its origin columns are all-NULL by constraint. | **Phase 1's deliverable is blocked on Hub.** Pose bytes are reachable, video bytes are not. Sequence the Hub endpoint before, or with, the media resolver; the session-scoped URL is not a substitute. |
+| Library visibility + membership enforcement (§2.5, ADR-0014 Decisions 2/4/6/7) | **Not built, ADR still Proposed.** No `users`, `visibility`, `owner_subject`, `project_members`; no role check. `GET /videos` is authenticated-only, filtered by `source`/`state` with `limit`/`offset`. | The client may not rely on Hub narrowing library results during Phases 1-2. Keep the browse path a filtered query so tightening later is a parameter change (§2.5). Nothing to grey out by role yet, which matches D24. |
+| Cursor pagination on list endpoints (Hub spec 0006 §7, D7) | **Offset pagination shipped** (`limit`/`offset`). | Do not code the library browse to cursors. Treat pagination as a Hub-owned shape not yet settled, and keep it behind the `HubClient` (§4.5) so either style is one adapter change. |
+| `POST /videos`, `.../video-upload-url`, `.../pose-upload-url`, `.../upload-complete` | **Absent** on this branch; external-upload intake is a separate branch. | No client impact by design — uploading is a web-UI / `jabs-cli` concern (§5) — but the `jabs-cli` upload path (§4.6) inherits the same dependency. |
+| `POST /videos/{id}/pose-runs` (ADR-0012 D5) | **Accepted but not built** (KLAUS-573). Processing for `EXTERNAL_UPLOAD` videos additionally waits on re-keying the run tables (ADR-0013). | Informational: no desktop-client flow starts a pose run. It does mean an externally uploaded video cannot yet acquire a pose through Hub, so a project pinning one has nothing to pin. |
+| `projects`, `project_videos`, the manifest, `annotations` + history + the `409` contract (Phases 2-3) | **Not built.** No tables, no routes; ADR-0015 is Proposed. | Expected — these are Phase 2/3 Hub deliverables. The client-side contract they must satisfy (manifest fields, `If-Match`, `details.currentVersion`) is specified above and in §4.8 so both sides can be built against it. |
+
+**What is already load-bearing and verified against the implementation** — worth stating because these
+are the assumptions that would be expensive to discover wrong: `numFrames` is nullable in both schema
+and DTO (§5); `content_hash` is separate from `object_uri` and consumers resolve bytes via a signed URL
+and validate against the hash, never constructing a key (migration `0016`, ADR-0012 D2 — the client rule
+in §5 is Hub's own consumer contract); pipeline poses are catalogued in place at their write-once
+run-keyed URI; pose resolution is `READY`-only with `REJECTED` poses kept for provenance (§5); and
+ADR-0015's upsert makes `details.currentVersion` **null** exactly when no annotation row exists, which
+is the discriminator §4.8 relies on.
+
 ---
 
 ## 6. Testing (client)
 
 - **Unit** (pytest + `monkeypatch`/`unittest.mock`, no network; `pytest-mock` is not available):
-  media-resolver download/cache/hash-verify with a faked `HubClient`; `AnnotationStore` contract
+  media-resolver download/cache/hash-verify with a faked `HubClient` — including a manifest entry with
+  **no** `contentHash` (a device recording), which must cache and open rather than raise (§5); a pinned
+  pose that is not `READY`, which must report why instead of falling back to the library latest (§5);
+  `AnnotationStore` contract
   tests for both implementations; `VideoLabels.as_dict → store → load` round-trip; sync engine
   debounce/outbox/409-retry; `ensure_local` hydration keeps the training path local; full-project
   hydration is resumable and idempotent — re-running after a simulated cancel re-fetches only the
@@ -653,7 +716,9 @@ The full API/DTOs/data model are in the Hub doc. The client depends on:
 | Multiprocess workers can't use a network client | `ensure_local` (media + annotations) hydrates the cache before job dispatch; workers read `Path`s. |
 | Scattered annotation reads (4 sites) drift from the store | Land the Phase-0 seam refactor first, local-only, with contract tests; flag direct `open()` of `annotations/`. |
 | Chatty per-edit network writes / GUI stalls | Cache is the synchronous path; Hub PUTs debounced on a background thread. |
-| Pose re-encode on upload invalidates derived caches | Require Hub to store exact pose bytes; verify blake2b on download. |
+| Pose re-encode on upload invalidates derived caches | Require Hub to store exact pose bytes; verify blake2b on download (pose hashes are always present — §5). |
+| Client built against endpoints Hub has not shipped (playback needs a library `video-url`; §5.1) | Track the delta in §5.1 and re-check it when starting a phase; keep Hub calls behind `HubClient` (§4.5) so an absent or reshaped endpoint is one adapter change; sequence the Hub prerequisite into the phase that needs it rather than discovering it mid-phase. |
+| Mandatory hash verification rejects device recordings, whose `contentHash` is permanently NULL | Verify when the manifest carries a hash; treat absence as "integrity established at upload" (§5), and cover both cases in the resolver tests (§6). |
 | Offline edits lost / double-applied | Outbox with idempotent, versioned replay; sync-state file is the source of truth. |
 | Hub integration degrades the experience for non-Hub users | §2.4: lazy-imported Hub client, no startup network/auth, local paths never touch Hub; a regression test asserts app startup + local-project open make zero Hub imports/calls. |
 
