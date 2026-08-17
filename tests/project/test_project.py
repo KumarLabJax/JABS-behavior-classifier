@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import json
 import shutil
 from pathlib import Path
@@ -974,3 +975,117 @@ def test_load_counts_identity_missing_from_one_section(tmp_path: Path) -> None:
     assert counts[1]["fragmented_bout_counts"] == (0, 0)
     assert counts[1]["unfragmented_frame_counts"] == (5, 0)
     assert counts[1]["unfragmented_bout_counts"] == (1, 0)
+
+
+# ---------------------------------------------------------------------------
+# archive_behavior
+# ---------------------------------------------------------------------------
+
+
+def _pose_mock_with_mask(num_frames: int, untracked: slice | None = None) -> MagicMock:
+    """Return a pose stub whose identity mask hides ``untracked`` frames.
+
+    Hiding frames makes the ``labels`` and ``unfragmented_labels`` sections of a
+    serialized VideoLabels differ, so tests can tell them apart.
+    """
+    mask = np.ones(num_frames, dtype=np.uint8)
+    if untracked is not None:
+        mask[untracked] = 0
+    pose = MagicMock()
+    pose.identity_mask.return_value = mask
+    pose.external_identities = None
+    return pose
+
+
+def _project_for_archive(tmp_path: Path, video: str, labels: VideoLabels, pose: MagicMock):
+    """Return a project whose single video resolves to ``labels`` and ``pose``."""
+    project = _bare_project(tmp_path)
+    mock_vm = MagicMock()
+    mock_vm.videos = [video]
+    mock_vm.video_path.side_effect = lambda v: tmp_path / v
+    mock_vm.load_video_labels.side_effect = lambda v, pose=None: labels
+    project._video_manager = mock_vm
+    project.load_pose_est = MagicMock(return_value=pose)
+    project.save_annotations = MagicMock()
+    return project
+
+
+def _read_archive(project: Project, safe_behavior: str) -> dict:
+    """Return the contents of the single archive file written for a behavior."""
+    archives = list(project.project_paths.archive_dir.glob(f"{safe_behavior}_*.json.gz"))
+    assert len(archives) == 1
+    with gzip.open(archives[0], "rt") as f:
+        return json.load(f)
+
+
+def test_archive_behavior_keys_archive_by_behavior_name(tmp_path: Path) -> None:
+    """The archive is keyed by the behavior name as given, not by its safe name.
+
+    A behavior whose safe name differs from its name (spaces become underscores)
+    is the case where a mismatch between the key written and the key looked up
+    would go unnoticed.
+    """
+    behavior = "Walking Fast"
+    labels = VideoLabels("video1.avi", 100)
+    labels.get_track_labels("0", behavior).label_behavior(10, 20)
+    pose = _pose_mock_with_mask(100)
+    project = _project_for_archive(tmp_path, "video1.avi", labels, pose)
+
+    project.archive_behavior(behavior)
+
+    archive = _read_archive(project, "Walking_Fast")
+    assert list(archive) == ["video1.avi"]
+    assert archive["video1.avi"]["num_frames"] == 100
+    for section in ("labels", "unfragmented_labels"):
+        assert list(archive["video1.avi"][section]) == [behavior]
+        assert archive["video1.avi"][section][behavior] == {
+            "0": [{"start": 10, "end": 20, "present": True}]
+        }
+
+
+def test_archive_behavior_archives_both_label_sections(tmp_path: Path) -> None:
+    """Masked (``labels``) and unmasked (``unfragmented_labels``) blocks are both archived."""
+    labels = VideoLabels("video1.avi", 100)
+    labels.get_track_labels("0", "Walk").label_behavior(10, 20)
+    # frames 15-20 have no pose data for this identity, so the masked section
+    # only keeps frames 10-14
+    pose = _pose_mock_with_mask(100, untracked=slice(15, 21))
+    project = _project_for_archive(tmp_path, "video1.avi", labels, pose)
+
+    project.archive_behavior("Walk")
+
+    archive = _read_archive(project, "Walk")["video1.avi"]
+    assert archive["labels"]["Walk"] == {"0": [{"start": 10, "end": 14, "present": True}]}
+    assert archive["unfragmented_labels"]["Walk"] == {
+        "0": [{"start": 10, "end": 20, "present": True}]
+    }
+
+
+def test_archive_behavior_records_video_with_no_labels_for_behavior(tmp_path: Path) -> None:
+    """A video with labels for other behaviors gets an empty entry for the archived one."""
+    labels = VideoLabels("video1.avi", 100)
+    labels.get_track_labels("0", "Grooming").label_behavior(30, 40)
+    pose = _pose_mock_with_mask(100)
+    project = _project_for_archive(tmp_path, "video1.avi", labels, pose)
+
+    project.archive_behavior("Walk")
+
+    archive = _read_archive(project, "Walk")["video1.avi"]
+    assert archive["labels"] == {"Walk": {}}
+    assert archive["unfragmented_labels"] == {"Walk": {}}
+
+
+def test_archive_behavior_removes_only_archived_behavior_from_annotations(tmp_path: Path) -> None:
+    """The re-saved annotations drop the archived behavior and keep the others."""
+    labels = VideoLabels("video1.avi", 100)
+    labels.get_track_labels("0", "Walk").label_behavior(10, 20)
+    labels.get_track_labels("0", "Grooming").label_behavior(30, 40)
+    pose = _pose_mock_with_mask(100)
+    project = _project_for_archive(tmp_path, "video1.avi", labels, pose)
+
+    project.archive_behavior("Walk")
+
+    project.save_annotations.assert_called_once()
+    saved_labels = project.save_annotations.call_args.args[0]
+    remaining = dict(saved_labels.iter_behavior_labels("0"))
+    assert list(remaining) == ["Grooming"]

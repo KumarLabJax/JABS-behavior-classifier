@@ -1043,13 +1043,13 @@ class Project:
             path.unlink()
 
         # archive labels and unfragmented_labels
-        archived_labels = {}
+        archived_labels: dict[str, dict] = {}
         for video in self._video_manager.videos:
-            if (labels := self._video_manager.load_video_labels(video)) is None:
+            if (video_labels := self._video_manager.load_video_labels(video)) is None:
                 continue
 
             pose = self.load_pose_est(self._video_manager.video_path(video))
-            annotations = labels.as_dict(pose)
+            annotations = video_labels.as_dict(pose)
 
             # ensure archive structure exists for this video:
             # {
@@ -1057,36 +1057,28 @@ class Project:
             #   "labels": {"<behavior>": {}},
             #   "unfragmented_labels": {"<behavior>": {}}
             # }
-            if video not in archived_labels:
-                archived_labels[video] = {
+            # the behavior is keyed by its name as provided (not to_safe_name()) in the
+            # archive per requested schema
+            video_archive = archived_labels.setdefault(
+                video,
+                {
                     "num_frames": annotations["num_frames"],
                     "labels": {},
                     "unfragmented_labels": {},
-                }
-            if to_safe_name(behavior) not in archived_labels[video]["labels"]:
-                # keep the behavior key as provided (not safe_name) in the archive per requested schema
-                archived_labels[video]["labels"][behavior] = {}
-            if to_safe_name(behavior) not in archived_labels[video]["unfragmented_labels"]:
-                archived_labels[video]["unfragmented_labels"][behavior] = {}
+                },
+            )
 
-            # Move per-identity blocks for the behavior from live annotations into archive
-            # Identities are stored as string keys in annotations
-            # 1) Fragmented labels
-            if "labels" in annotations:
-                for ident in list(annotations["labels"].keys()):
-                    labels = annotations["labels"].get(ident, {})
-                    if behavior in labels:
-                        # copy to archive
-                        archived_labels[video]["labels"][behavior][ident] = labels.pop(behavior)
-
-            # 2) Unfragmented labels
-            if "unfragmented_labels" in annotations:
-                for ident in list(annotations["unfragmented_labels"].keys()):
-                    labels = annotations["unfragmented_labels"].get(ident, {})
-                    if behavior in labels:
-                        archived_labels[video]["unfragmented_labels"][behavior][ident] = (
-                            labels.pop(behavior)
-                        )
+            # Move per-identity blocks for the behavior from the live annotations into the
+            # archive. Identities are stored as string keys in annotations. Both label
+            # sections are archived: "labels" holds the blocks masked to frames where the
+            # identity has pose data, "unfragmented_labels" holds them unmasked.
+            for section in ("labels", "unfragmented_labels"):
+                archived_section = video_archive[section].setdefault(behavior, {})
+                # values are per-identity dicts of {behavior: blocks}; popping from them
+                # removes the behavior from the annotations saved back to disk below
+                for identity, identity_behaviors in annotations.get(section, {}).items():
+                    if behavior in identity_behaviors:
+                        archived_section[identity] = identity_behaviors.pop(behavior)
 
             # persist the modified annotations back to disk (with the behavior removed)
             self.save_annotations(VideoLabels.load(annotations, pose), pose)
