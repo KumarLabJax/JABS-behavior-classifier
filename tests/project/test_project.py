@@ -997,7 +997,9 @@ def _pose_mock_with_mask(num_frames: int, untracked: slice | None = None) -> Mag
     return pose
 
 
-def _project_for_archive(tmp_path: Path, video: str, labels: VideoLabels, pose: MagicMock):
+def _project_for_archive(
+    tmp_path: Path, video: str, labels: VideoLabels, pose: MagicMock
+) -> Project:
     """Return a project whose single video resolves to ``labels`` and ``pose``."""
     project = _bare_project(tmp_path)
     mock_vm = MagicMock()
