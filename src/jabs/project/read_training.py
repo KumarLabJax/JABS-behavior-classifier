@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -6,6 +7,28 @@ import numpy as np
 import pandas as pd
 
 from jabs.core.enums import ClassifierType, ProjectDistanceUnit
+
+from .export_training import JSON_ENCODED_SETTING_ATTR
+
+
+def _read_setting_value(node: h5py.Dataset) -> Any:
+    """Read the value of a single project settings dataset.
+
+    Values that have no direct HDF5 equivalent (currently lists, such as the
+    postprocessing stage configs) are written as JSON strings tagged with the
+    ``JSON_ENCODED_SETTING_ATTR`` attribute, so decode those back into the original
+    object. Settings written before that attribute existed are returned as stored.
+
+    Args:
+        node: settings dataset to read.
+
+    Returns:
+        The setting value, JSON-decoded when the dataset is tagged as JSON-encoded.
+    """
+    value = node[...].item()
+    if node.attrs.get(JSON_ENCODED_SETTING_ATTR, False):
+        return json.loads(value)
+    return value
 
 
 def read_project_settings(h5_file: h5py.Group) -> dict:
@@ -39,10 +62,10 @@ def read_project_settings(h5_file: h5py.Group) -> dict:
             if "/" in fullname:
                 level_name, key = fullname.split("/")
                 level_settings = all_settings.get(level_name, {})
-                level_settings.update({key: node[...].item()})
+                level_settings.update({key: _read_setting_value(node)})
                 all_settings.update({level_name: level_settings})
             else:
-                all_settings.update({fullname: node[...].item()})
+                all_settings.update({fullname: _read_setting_value(node)})
 
     h5_file.visititems(_walk_project_settings)
     return all_settings
