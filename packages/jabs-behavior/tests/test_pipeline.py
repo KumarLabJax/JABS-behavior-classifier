@@ -183,14 +183,16 @@ class TestPostprocessingPipeline:
         # After removal, NOT_BEHAVIOR sections merge
         expected1 = np.array([ClassLabels.NOT_BEHAVIOR] * 9)
 
-        # Pipeline 2: Stitching removes ALL NOT_BEHAVIOR bouts <= 2 (including boundaries!)
-        # Removes indices [0, 2, 4]:
-        #   - Index 4 (last): merges with previous BEHAVIOR
-        #   - Index 2 (middle): merges surrounding BEHAVIORs
-        #   - Index 0 (first): merges with next BEHAVIOR (takes BEHAVIOR state)
-        # Result after stitching: BEHAVIOR(9)
-        # Duration filter: BEHAVIOR(9) >= 4, so nothing removed
-        expected2 = np.array([ClassLabels.BEHAVIOR] * 9)
+        # Pipeline 2: Stitching only removes NOT_BEHAVIOR bouts <= 2 that separate two
+        # BEHAVIOR bouts, so only index 2 is removed. The leading (index 0) and trailing
+        # (index 4) NOT_BEHAVIOR bouts are not gaps between bouts and are left alone.
+        # Result after stitching: NOT_BEHAVIOR(2), BEHAVIOR(5), NOT_BEHAVIOR(2)
+        # Duration filter: BEHAVIOR(5) >= 4, so nothing removed
+        expected2 = np.array(
+            [ClassLabels.NOT_BEHAVIOR] * 2
+            + [ClassLabels.BEHAVIOR] * 5
+            + [ClassLabels.NOT_BEHAVIOR] * 2
+        )
 
         np.testing.assert_array_equal(result1, expected1)
         np.testing.assert_array_equal(result2, expected2)
@@ -260,36 +262,20 @@ class TestPostprocessingPipeline:
         probabilities = np.full_like(classes, 0.5, dtype=float)
         result = pipeline.run(classes, probabilities)
 
-        # After stitching (removes ALL NOT_BEHAVIOR bouts <= 2, including boundaries):
-        # Removes indices [0, 2, 6, 8]:
-        #   - Index 8 (last, NOT_BEHAVIOR(2)): merges with previous BEHAVIOR(2) → BEHAVIOR(4)
-        #   - Index 6 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(9)
+        # After stitching (removes NOT_BEHAVIOR bouts <= 2 that separate two BEHAVIOR bouts):
+        # Removes indices [2, 6]:
+        #   - Index 6 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(6)
         #   - Index 2 (NOT_BEHAVIOR(1)): merges surrounding BEHAVIORs → BEHAVIOR(6)
-        #   - Index 0 (first, NOT_BEHAVIOR(2)): merges with next BEHAVIOR → BEHAVIOR(8)
-        # Result: BEHAVIOR(8), NOT_BEHAVIOR(3), BEHAVIOR(9)
-        # After duration filter (min 4): All bouts >= 4, so nothing removed
+        # Index 0 (first) and index 8 (last) are not gaps between two BEHAVIOR bouts and
+        # index 4 (NOT_BEHAVIOR(3)) is longer than max_stitch_gap, so all three are kept.
+        # Result: NOT_BEHAVIOR(2), BEHAVIOR(6), NOT_BEHAVIOR(3), BEHAVIOR(6), NOT_BEHAVIOR(2)
+        # After duration filter (min 4): All BEHAVIOR bouts >= 4, so nothing removed
         expected = np.array(
-            [
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.NOT_BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-                ClassLabels.BEHAVIOR,
-            ]
+            [ClassLabels.NOT_BEHAVIOR] * 2
+            + [ClassLabels.BEHAVIOR] * 6
+            + [ClassLabels.NOT_BEHAVIOR] * 3
+            + [ClassLabels.BEHAVIOR] * 6
+            + [ClassLabels.NOT_BEHAVIOR] * 2
         )
         np.testing.assert_array_equal(result, expected)
 

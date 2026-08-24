@@ -27,6 +27,12 @@ class BoutStitchingStage(PostprocessingStage):
     def apply(self, classes: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
         """Apply stitching to the predictions.
 
+        Only a NOT_BEHAVIOR run that actually separates two BEHAVIOR bouts is
+        stitched across. A short NOT_BEHAVIOR run at the very start or end of
+        the vector, or one bordering frames with no prediction, has a BEHAVIOR
+        bout on at most one side, so removing it would relabel not-behavior
+        frames instead of joining two bouts.
+
         Args:
             classes (np.ndarray): The predicted classes.
             probabilities (np.ndarray): The predicted probabilities. (Not used in this stage.)
@@ -35,12 +41,22 @@ class BoutStitchingStage(PostprocessingStage):
             np.ndarray: Classes after applying the stitching.
         """
         rle_data = BehaviorEvents.from_vector(classes)
+        states = rle_data.states
+
+        # a bout is a stitchable gap only if the bouts on both sides are BEHAVIOR;
+        # the first and last bouts have no neighbor on one side, so they never are
+        flanked_by_behavior = np.zeros(len(states), dtype=bool)
+        if len(states) > 2:
+            flanked_by_behavior[1:-1] = np.logical_and(
+                states[:-2] == ClassLabels.BEHAVIOR, states[2:] == ClassLabels.BEHAVIOR
+            )
 
         # find short bouts of NOT_BEHAVIOR -- we can stitch across these gaps
-        bouts_to_remove = np.logical_and(
+        short_not_behavior = np.logical_and(
             rle_data.durations <= self._config["max_stitch_gap"],
-            rle_data.states == ClassLabels.NOT_BEHAVIOR,
+            states == ClassLabels.NOT_BEHAVIOR,
         )
+        bouts_to_remove = np.logical_and(short_not_behavior, flanked_by_behavior)
 
         if np.any(bouts_to_remove):
             rle_data.delete_bouts(np.where(bouts_to_remove)[0])
@@ -58,6 +74,8 @@ class BoutStitchingStage(PostprocessingStage):
             description="Combines predictions that are separated by short gaps.",
             description_long=textwrap.dedent("""
             The Stitching Stage connects behavior bouts that are separated by short gaps of not-behavior prediction.
+            A short run of not-behavior prediction that does not separate two behavior bouts -- one at the start or
+            end of the video, or one bordering frames with no prediction -- is left unchanged.
             """),
             kwargs={
                 "max_stitch_gap": KwargHelp(

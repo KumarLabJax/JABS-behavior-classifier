@@ -174,6 +174,83 @@ class TestStitchingStage:
         # NONE labels should not be treated as NOT_BEHAVIOR for stitching
         np.testing.assert_array_equal(result, classes)
 
+    def test_apply_keeps_leading_not_behavior_run(self):
+        """Test that a short NOT_BEHAVIOR run at the start of the vector is kept.
+
+        It has no BEHAVIOR bout before it, so it is not a gap between two bouts.
+        """
+        classes = np.array(
+            [
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+            ]
+        )
+
+        filter_obj = BoutStitchingStage(max_stitch_gap=3)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
+
+        np.testing.assert_array_equal(result, classes)
+
+    def test_apply_keeps_trailing_not_behavior_run(self):
+        """Test that a short NOT_BEHAVIOR run at the end of the vector is kept.
+
+        It has no BEHAVIOR bout after it, so it is not a gap between two bouts.
+        """
+        classes = np.array(
+            [
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+            ]
+        )
+
+        filter_obj = BoutStitchingStage(max_stitch_gap=3)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
+
+        np.testing.assert_array_equal(result, classes)
+
+    def test_apply_keeps_not_behavior_run_bordering_none(self):
+        """Test that a NOT_BEHAVIOR run bordering NONE frames is kept.
+
+        Only one side is a BEHAVIOR bout, so there is nothing to stitch to on the
+        other side.
+        """
+        classes = np.array(
+            [
+                ClassLabels.NONE,
+                ClassLabels.NONE,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.BEHAVIOR,
+                ClassLabels.NOT_BEHAVIOR,
+                ClassLabels.NONE,
+                ClassLabels.NONE,
+            ]
+        )
+
+        filter_obj = BoutStitchingStage(max_stitch_gap=3)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
+
+        np.testing.assert_array_equal(result, classes)
+
+    def test_apply_keeps_all_not_behavior(self):
+        """Test that a vector that is entirely a short NOT_BEHAVIOR bout is kept."""
+        classes = np.array([ClassLabels.NOT_BEHAVIOR] * 2)
+
+        filter_obj = BoutStitchingStage(max_stitch_gap=3)
+        probabilities = np.full_like(classes, 0.5, dtype=float)
+        result = filter_obj.apply(classes, probabilities)
+
+        np.testing.assert_array_equal(result, classes)
+
     def test_apply_empty_array(self):
         """Test apply with empty array."""
         classes = np.array([])
