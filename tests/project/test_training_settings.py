@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import h5py
 import pytest
@@ -10,7 +11,7 @@ from jabs.project.export_training import JSON_ENCODED_SETTING_ATTR, write_projec
 from jabs.project.read_training import read_project_settings
 
 
-def _round_trip(tmp_path: Path, settings: dict) -> dict:
+def _round_trip(tmp_path: Path, settings: dict[str, Any]) -> dict[str, Any]:
     """Write settings to a training file and read them back."""
     path = tmp_path / "training.h5"
     with h5py.File(path, "w") as out_h5:
@@ -83,11 +84,23 @@ def test_untagged_string_setting_is_not_decoded(tmp_path: Path) -> None:
     assert settings["postprocessing"] == b'[{"name": "duration"}]'
 
 
+def test_tagged_setting_with_invalid_json_names_the_dataset(tmp_path: Path) -> None:
+    """A tagged dataset holding invalid JSON raises an error naming the setting."""
+    path = tmp_path / "training.h5"
+    with h5py.File(path, "w") as out_h5:
+        group = out_h5.require_group("settings")
+        dataset = group.create_dataset("postprocessing", data="not json")
+        dataset.attrs[JSON_ENCODED_SETTING_ATTR] = True
+
+    with h5py.File(path, "r") as in_h5, pytest.raises(ValueError, match="settings/postprocessing"):
+        read_project_settings(in_h5["settings"])
+
+
 @pytest.mark.parametrize(
     "value",
     [["a", "b"], [1, 2, 3], [[1, 2], [3, 4]], [{"a": 1}]],
     ids=["strings", "ints", "nested_lists", "dicts"],
 )
-def test_list_element_types_round_trip(tmp_path: Path, value: list) -> None:
+def test_list_element_types_round_trip(tmp_path: Path, value: list[Any]) -> None:
     """Lists of assorted JSON-compatible element types round-trip."""
     assert _round_trip(tmp_path, {"setting": value})["setting"] == value

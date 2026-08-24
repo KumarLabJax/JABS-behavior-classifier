@@ -24,10 +24,18 @@ def _read_setting_value(node: h5py.Dataset) -> Any:
 
     Returns:
         The setting value, JSON-decoded when the dataset is tagged as JSON-encoded.
+
+    Raises:
+        ValueError: If a dataset tagged as JSON-encoded does not hold valid JSON.
     """
     value = node[...].item()
     if node.attrs.get(JSON_ENCODED_SETTING_ATTR, False):
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"setting '{node.name}' is tagged as JSON-encoded but could not be decoded: {e}"
+            ) from e
     return value
 
 
