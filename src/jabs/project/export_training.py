@@ -20,6 +20,12 @@ if TYPE_CHECKING:
     from jabs.project import Project
 
 
+# HDF5 attribute set on a settings dataset whose value was JSON-encoded because
+# it has no direct HDF5 equivalent. jabs.project.read_training reads this
+# attribute to decode the value back into the original Python object.
+JSON_ENCODED_SETTING_ATTR = "json_encoded"
+
+
 def _write_group_mapping(
     out_h5: h5py.File, group_mapping: dict[int, dict], string_type: np.dtype
 ) -> None:
@@ -189,6 +195,11 @@ def write_project_settings(
 ):
     """write project settings to a training h5 file recursively
 
+    Lists (e.g. postprocessing stage configs) have no direct HDF5 equivalent, so they
+    are stored as a JSON string tagged with the ``JSON_ENCODED_SETTING_ATTR`` attribute.
+    :func:`jabs.project.read_training.read_project_settings` uses that tag to decode the
+    value back into a list.
+
     Args:
         h5_file: open h5 file to write to
         settings: dict of project settings
@@ -199,8 +210,7 @@ def write_project_settings(
         if type(val) is dict:
             write_project_settings(current_group, val, key)
         elif isinstance(val, list):
-            # Lists (e.g. postprocessing stage configs) have no direct HDF5 equivalent;
-            # store as a JSON string so the data round-trips without loss.
-            current_group.create_dataset(key, data=json.dumps(val))
+            dataset = current_group.create_dataset(key, data=json.dumps(val))
+            dataset.attrs[JSON_ENCODED_SETTING_ATTR] = True
         else:
             current_group.create_dataset(key, data=val)
