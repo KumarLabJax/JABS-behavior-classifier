@@ -92,6 +92,11 @@ class PoseEstimationV4(PoseEstimation):
                     if instance_embed_id.shape[1] > 0
                     else 0
                 )
+                min_instance_id = (
+                    np.min(np.ma.array(instance_embed_id[...], mask=id_mask[...]))
+                    if instance_embed_id.shape[1] > 0
+                    else 1
+                )
 
                 if "instance_id_center" in pose_grp:
                     self._num_identities = pose_grp["instance_id_center"].shape[0]
@@ -105,6 +110,14 @@ class PoseEstimationV4(PoseEstimation):
             if max_instance_id > self._num_identities:
                 raise PoseIdEmbeddingException(
                     f"Invalid instance_embed_id, values out of range: {file_path.name}"
+                )
+
+            # instance_embed_id values are 1-based; a value of 0 on unmasked
+            # (id_mask == 0) data would wrap around to a large positive index
+            # when we subtract 1 to build a 0-based identity index below.
+            if min_instance_id < 1:
+                raise PoseIdEmbeddingException(
+                    f"Invalid instance_embed_id, unmasked values must be >= 1: {file_path.name}"
                 )
 
             # generate list of identities based on the max number of instances
