@@ -123,7 +123,7 @@ def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
         id_mask = f["poseest/id_mask"][:]
         instance_embed_id = f["poseest/instance_embed_id"][:]
         # find an unmasked entry and corrupt it to 0
-        frame, instance = np.argwhere(~id_mask)[0]
+        frame, instance = np.argwhere(id_mask == 0)[0]
         instance_embed_id[frame, instance] = 0
         f["poseest/instance_embed_id"][:] = instance_embed_id
 
