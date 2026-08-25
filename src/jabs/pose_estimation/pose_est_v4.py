@@ -87,10 +87,16 @@ class PoseEstimationV4(PoseEstimation):
 
                 self._num_frames = len(all_points)
 
-                max_instance_id = (
-                    np.max(np.ma.array(instance_embed_id[...], mask=id_mask[...]))
+                valid_instance_embed_id = (
+                    instance_embed_id[id_mask == 0]
                     if instance_embed_id.shape[1] > 0
-                    else 0
+                    else np.array([], dtype=instance_embed_id.dtype)
+                )
+                max_instance_id = (
+                    valid_instance_embed_id.max() if valid_instance_embed_id.size > 0 else 0
+                )
+                min_instance_id = (
+                    valid_instance_embed_id.min() if valid_instance_embed_id.size > 0 else 1
                 )
 
                 if "instance_id_center" in pose_grp:
@@ -101,10 +107,19 @@ class PoseEstimationV4(PoseEstimation):
                     print(f"Warning: No identities found in pose file: {file_path}")
                     self._num_identities = 0
 
-            # Validate instance_embed_id range: must be in [0, self._num_identities]
+            # Validate instance_embed_id range for unmasked (id_mask == 0) data:
+            # must be in [1, self._num_identities].
             if max_instance_id > self._num_identities:
                 raise PoseIdEmbeddingException(
                     f"Invalid instance_embed_id, values out of range: {file_path.name}"
+                )
+
+            # instance_embed_id values are 1-based; a value of 0 on unmasked
+            # data would wrap around to a large positive index when we
+            # subtract 1 to build a 0-based identity index below.
+            if min_instance_id < 1:
+                raise PoseIdEmbeddingException(
+                    f"Invalid instance_embed_id, unmasked values must be >= 1: {file_path.name}"
                 )
 
             # generate list of identities based on the max number of instances

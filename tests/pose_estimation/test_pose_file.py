@@ -2,10 +2,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 
 import jabs.pose_estimation
+from jabs.core.exceptions import PoseIdEmbeddingException
 
 _TEST_FILES = [
     "sample_pose_est_v3.h5",
@@ -105,6 +107,28 @@ def test_scaling_points(pose_est_v4):
     points, _ = pose_est_v4.get_points(10, 0)
     scaled_points, _ = pose_est_v4.get_points(10, 0, 0.03)
     np.testing.assert_equal(points * 0.03, scaled_points)
+
+
+def test_v4_zero_instance_embed_id_raises(tmpdir_with_pose_files):
+    """test that an unmasked instance_embed_id value of 0 raises PoseIdEmbeddingException
+
+    instance_embed_id values are 1-based. A value of 0 on unmasked (id_mask ==
+    False) data would wrap around when 1 is subtracted to build a 0-based
+    identity index.
+    """
+    corrupt_path = tmpdir_with_pose_files / "corrupt_pose_est_v4.h5"
+    shutil.copy(tmpdir_with_pose_files / "sample_pose_est_v4.h5", corrupt_path)
+
+    with h5py.File(corrupt_path, "r+") as f:
+        id_mask = f["poseest/id_mask"][:]
+        instance_embed_id = f["poseest/instance_embed_id"][:]
+        # find an unmasked entry and corrupt it to 0
+        frame, instance = np.argwhere(id_mask == 0)[0]
+        instance_embed_id[frame, instance] = 0
+        f["poseest/instance_embed_id"][:] = instance_embed_id
+
+    with pytest.raises(PoseIdEmbeddingException):
+        jabs.pose_estimation.open_pose_file(corrupt_path)
 
 
 def test_v4_read_from_cache(tmpdir_with_pose_files):
