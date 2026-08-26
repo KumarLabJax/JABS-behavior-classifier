@@ -8,7 +8,8 @@ def pad_sliding_window(arr: np.ndarray, window: int, pad_const: float | None = N
 
     Args:
         arr: 1d array to generate a sliding window
-        window: half size of sliding window
+        window: number of frames to include on each side of the center frame. The
+            resulting window spans ``2 * window + 1`` frames.
         pad_const: Constant to pad the array with. None will pad with value at the edge.
 
     Returns:
@@ -50,7 +51,8 @@ def window_mean(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window mean values
@@ -67,7 +69,8 @@ def window_median(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window median values
@@ -82,7 +85,8 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window standard deviation values
@@ -119,7 +123,8 @@ def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window kurtosis values
@@ -156,7 +161,8 @@ def window_skew(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window skew values
@@ -173,7 +179,8 @@ def window_min(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window minimum values
@@ -190,7 +197,8 @@ def window_max(values: np.ndarray, window: int) -> np.ndarray:
 
     Args:
         values: 1d np.ndarray of values
-        window: window size
+        window: number of frames to include on each side of the center frame. The
+            window used for each output value spans ``2 * window + 1`` frames.
 
     Returns:
         sliding window maximum values

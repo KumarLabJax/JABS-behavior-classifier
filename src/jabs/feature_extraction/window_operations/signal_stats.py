@@ -64,14 +64,18 @@ def psd_mean_band(
 ) -> np.ndarray:
     """Calculates the mean power spectral density in a band
 
+    Unlike the other functions in this module, this one uses ``freqs`` -- it is
+    what selects the rows of ``psd`` that fall inside the band.
+
     Args:
-        freqs: frequencies in the psd, ignored
+        freqs: frequencies in the psd, used to select the band
         psd: power spectral density matrix
-        band_low: lower bound of the frequency band
-        band_high: upper bound of the frequency band
+        band_low: inclusive lower bound of the frequency band
+        band_high: exclusive upper bound of the frequency band
 
     Returns:
-        mean of power
+        mean of power over the frequencies in the band, or an array of nan if no
+        frequency falls inside the band
     """
     idx = np.logical_and(freqs >= band_low, freqs < band_high)
 
