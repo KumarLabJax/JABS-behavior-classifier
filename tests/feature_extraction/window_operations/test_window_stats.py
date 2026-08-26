@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy import stats
 
 from jabs.feature_extraction.window_operations import window_stats
 
@@ -102,3 +103,26 @@ def test_np_kurtosis_matches_window_kurtosis() -> None:
     np.testing.assert_allclose(
         window_stats.window_kurtosis(values, window=2), window_stats.np_kurtosis(view)
     )
+
+
+def test_np_skew_matches_scipy_default() -> None:
+    """np_skew reproduces scipy's biased skew over the non-nan values of each window."""
+    view = np.array([[np.nan, 1.0, 2.0, 8.0], [1.0, 2.0, 8.0, 3.0], [2.0, 8.0, 3.0, np.nan]])
+    np.testing.assert_allclose(
+        window_stats.np_skew(view), stats.skew(view, axis=1, nan_policy="omit")
+    )
+
+
+def test_np_kurtosis_is_pearson_not_fisher() -> None:
+    """np_kurtosis reports Pearson kurtosis, i.e. scipy's ``fisher=False``.
+
+    Guards the documented convention: scipy's default subtracts 3.0, so swapping in
+    ``scipy.stats.kurtosis`` with default arguments would silently shift every
+    ``kurtosis`` window feature.
+    """
+    view = np.array([[np.nan, 1.0, 2.0, 8.0], [1.0, 2.0, 8.0, 3.0], [2.0, 8.0, 3.0, np.nan]])
+    result = window_stats.np_kurtosis(view)
+    np.testing.assert_allclose(
+        result, stats.kurtosis(view, axis=1, nan_policy="omit", fisher=False)
+    )
+    np.testing.assert_allclose(result - 3.0, stats.kurtosis(view, axis=1, nan_policy="omit"))
