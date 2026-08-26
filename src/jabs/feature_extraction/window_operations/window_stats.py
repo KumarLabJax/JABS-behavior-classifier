@@ -101,14 +101,26 @@ def window_std_dev(values: np.ndarray, window: int) -> np.ndarray:
 def np_kurtosis(values: np.ndarray) -> np.ndarray:
     """Calculates kurtosis in a rolling window faster than scipy
 
+    This computes Pearson (non-excess) kurtosis, equivalent to
+    ``scipy.stats.kurtosis(values, axis=1, nan_policy="omit", fisher=False)``. It is
+    *not* equivalent to scipy's default, which subtracts 3.0 to give Fisher (excess)
+    kurtosis: values returned here are 3.0 larger than
+    ``scipy.stats.kurtosis(values, axis=1, nan_policy="omit")``.
+
+    Note that ``signal_stats.psd_kurtosis`` calls scipy with its default arguments, so
+    the ``kurtosis`` window feature and the ``psd_kurtosis`` signal feature do not use
+    the same convention.
+
     Args:
-        values: 2d array of with time and a window
+        values: 2d array with time on the first axis and the window on the second
 
     Returns:
-        kurtosis values that match scipy.stats.kurtosis(values, axis, nan_policy='omit')
+        Pearson kurtosis of the non-nan values in each window. A window that is
+        entirely nan yields nan.
 
-    Raises:
-        RuntimeWarning when an entire window is nans
+    Note:
+        numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
+        Callers such as `window_kurtosis` suppress that warning.
     """
     mean = np.nanmean(values, axis=1)
     std = np.nanstd(values, axis=1)
@@ -139,14 +151,19 @@ def window_kurtosis(values: np.ndarray, window: int) -> np.ndarray:
 def np_skew(values: np.ndarray) -> np.ndarray:
     """Calculates skew in a rolling window faster than scipy
 
+    This computes the biased (population) skew, equivalent to
+    ``scipy.stats.skew(values, axis=1, nan_policy="omit")``, which is scipy's default.
+
     Args:
-        values: 2d array of with time and a window
+        values: 2d array with time on the first axis and the window on the second
 
     Returns:
-        skew values that match scipy.stats.skew(values, axis, nan_policy='omit')
+        skew of the non-nan values in each window. A window that is entirely nan
+        yields nan.
 
-    Raises:
-        RuntimeWarning when an entire window is nans
+    Note:
+        numpy emits (does not raise) a RuntimeWarning when an entire window is nan.
+        Callers such as `window_skew` suppress that warning.
     """
     mean = np.nanmean(values, axis=1)
     std = np.nanstd(values, axis=1)

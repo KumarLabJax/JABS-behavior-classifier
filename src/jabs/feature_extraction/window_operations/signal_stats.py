@@ -113,12 +113,16 @@ def psd_std_dev(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
 def psd_kurtosis(freqs: np.ndarray, psd: np.ndarray) -> np.ndarray:
     """Calculates the kurtosis power spectral density
 
+    This uses scipy's default, which is Fisher (excess) kurtosis. The ``kurtosis``
+    window operation in ``window_operations.window_stats`` reports Pearson
+    (non-excess) kurtosis instead, so the two are offset by 3.0.
+
     Args:
         freqs: frequencies in the psd, ignored
         psd: power spectral density matrix
 
     Returns:
-        kurtosis of power
+        excess kurtosis of power
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
