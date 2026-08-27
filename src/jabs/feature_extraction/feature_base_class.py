@@ -197,7 +197,7 @@ class Feature(abc.ABC):
             non_circular = per_frame_features
 
         # standard method for computing window features on non-circular values
-        non_circular_features = self._window_standard(identity, window_size, non_circular)
+        non_circular_features = self._window_standard(window_size, non_circular)
 
         # non_circular_features and circular_features are both dicts of dicts, but they may have overlapping *top level* keys.
         merged = dict(non_circular_features)  # start with dict1's keys/values
@@ -209,30 +209,45 @@ class Feature(abc.ABC):
 
         return merged
 
-    def _window_standard(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+    def _window_standard(self, window_size: int, per_frame_values: dict) -> dict:
         """standard method for computing standard window feature values
+
+        This path does not take an identity mask: per-frame values are nan for frames
+        where the identity is not present, and the operations in
+        `window_operations.window_stats` already ignore nan values. Frames are only
+        masked explicitly on the circular path, which builds each window itself
+        (see `_compute_window_features_circular`).
 
         NOTE: some features may need to override this (for example, those with
         circular values such as angles)
+
+        Args:
+            window_size: number of frames (in each direction) to include in the
+                window. The actual number of frames is 2 * window_size + 1
+            per_frame_values: dict of per-frame values for this identity
+
+        Returns:
+            dict of window and signal processing feature values
         """
         values = {}
         for op in self._window_operations:
             values[op] = self._compute_window_feature(
                 per_frame_values,
-                self._poses.identity_mask(identity),
                 window_size,
                 self._window_operations[op],
             )
         # Also include signal features
-        signal_features = self._window_signal(identity, window_size, per_frame_values)
+        signal_features = self._window_signal(window_size, per_frame_values)
         values.update(signal_features)
         return values
 
-    def _window_signal(self, identity: int, window_size: int, per_frame_values: dict) -> dict:
+    def _window_signal(self, window_size: int, per_frame_values: dict) -> dict:
         """The standard method for computing signal processing window features.
 
+        As with `_window_standard`, this path does not take an identity mask: nan
+        per-frame values are zero-filled before the short-time Fourier transform.
+
         Args:
-            identity: The identity of the mouse.
             window_size: The window size used for signal formation.
             per_frame_values: The values for a particular feature.
 
@@ -277,15 +292,12 @@ class Feature(abc.ABC):
                         self._compute_signal_features(
                             freqs,
                             psd_data,
-                            self._poses.identity_mask(identity),
                             op,
                             **band,
                         )
                     )
             else:
-                values[op_name] = self._compute_signal_features(
-                    freqs, psd_data, self._poses.identity_mask(identity), op
-                )
+                values[op_name] = self._compute_signal_features(freqs, psd_data, op)
 
         return values
 
@@ -310,7 +322,6 @@ class Feature(abc.ABC):
     def _compute_window_feature(
         self,
         feature_values: dict,
-        frame_mask: np.ndarray,
         window_size: int,
         op: typing.Callable,
     ) -> dict:
@@ -318,16 +329,15 @@ class Feature(abc.ABC):
 
         Args:
             feature_values: dict of per frame feature values
-            frame_mask: array indicating which frames are valid for the current identity
             window_size: number of frames (in each direction) to include in the window. The actual number of frames is 2 * window_size + 1
             op: function to perform the actual computation
 
         Returns:
-            dict containing feature values
+            dict mapping each per-frame feature name to its window feature values
         """
         values = {}
         for key, val in feature_values.items():
-            values[f"{key}"] = op(val, window=window_size)
+            values[key] = op(val, window=window_size)
 
         return values
 
@@ -335,7 +345,6 @@ class Feature(abc.ABC):
         self,
         freqs: np.ndarray,
         psd: dict,
-        frame_mask: np.ndarray,
         op: typing.Callable,
         **kwargs,
     ) -> dict:
@@ -344,18 +353,15 @@ class Feature(abc.ABC):
         Args:
             freqs: frequency values for psd matrices
             psd: dict of power spectral density
-            frame_mask: array indicating which frames are valid for the current identity
             op: function to perform the actual computation. Operation must accept frequencies and psd as input
             **kwargs: additional keyword args used by op
 
-
-
         Returns:
-            numpy nd array containing feature values
+            dict mapping each per-frame feature name to its signal feature values
         """
         values = {}
         for key, value in psd.items():
-            values[f"{key}"] = op(freqs, value, **kwargs)
+            values[key] = op(freqs, value, **kwargs)
 
         return values
 
