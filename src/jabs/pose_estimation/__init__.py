@@ -63,20 +63,32 @@ def get_pose_path(video_path: Path, pose_dir: Path | None = None):
     raise ValueError("Video does not have pose file")
 
 
-def get_pose_file_major_version(path: Path):
+# matches the version suffix of a pose file name, e.g. "_v6.h5" in
+# "video_pose_est_v6.h5". Anchored at the end so only the filename's suffix can
+# supply the version.
+_POSE_VERSION_RE = re.compile(r"_v(\d+)\.h5$")
+
+
+def get_pose_file_major_version(path: Path) -> int:
     """get the major version of a pose file from the _filename_
 
-    Note: does not inspect contents of file, assumes file name matches
-    video_name_v[version number].h5
+    Note: does not inspect contents of file, assumes the file name follows the
+    JABS convention ``<video name>_pose_est_v<major version>.h5``.
 
     Args:
         path: path of pose file
 
     Returns:
         integer major version number
+
+    Raises:
+        ValueError: if the file name does not end with a ``_v<major version>.h5``
+            suffix
     """
-    v = re.search(r"_v([0-9])+\.h5", str(path)).group(1)
-    return int(v)
+    match = _POSE_VERSION_RE.search(path.name)
+    if match is None:
+        raise ValueError(f"'{path.name}' is not a valid pose file name")
+    return int(match.group(1))
 
 
 def get_frames_from_file(path: Path):
