@@ -1,11 +1,11 @@
 import time
 
 import numpy as np
-import pandas as pd
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
 from jabs.classifier import Classifier, MultiClassClassifier
+from jabs.classifier.inference import predict_identity
 from jabs.core.enums import ClassifierMode
 from jabs.feature_extraction import DEFAULT_WINDOW_SIZE, IdentityFeatures
 from jabs.project import Project
@@ -151,25 +151,16 @@ class ClassifyThread(QThread):
                         op_settings=project_settings,
                         cache_format=self._project.cache_format,
                     )
-                    feature_values = features.get_features(
-                        project_settings.get("window_size", DEFAULT_WINDOW_SIZE)
+                    prediction = predict_identity(
+                        self._classifier,
+                        features,
+                        project_settings.get("window_size", DEFAULT_WINDOW_SIZE),
                     )
-
-                    # reformat the data in a single 2D numpy array to pass to the classifier
-                    per_frame_features = pd.DataFrame(feature_values["per_frame"])
-                    window_features = pd.DataFrame(feature_values["window"])
-                    data = self._classifier.combine_data(per_frame_features, window_features)
-
                     check_termination_requested()
-                    if data.shape[0] > 0:
-                        prob = self._classifier.predict_proba(
-                            data, feature_values["frame_indexes"]
-                        )
-                        predictions[identity], confidence = self._classifier.derive_predictions(
-                            prob
-                        )
+                    if prediction is not None:
+                        predictions[identity] = prediction.predictions
                         probabilities[identity] = strategy.probabilities_for_storage(
-                            prob, confidence
+                            prediction.probabilities, prediction.confidence
                         )
                     else:
                         predictions[identity] = np.full(pose_est.num_frames, -1, dtype=np.int8)
