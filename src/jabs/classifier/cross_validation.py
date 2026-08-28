@@ -1,21 +1,40 @@
 """Cross-validation utilities for JABS classifier training."""
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 from sklearn.metrics import precision_recall_fscore_support
 
+from jabs.behavior.postprocessing import PostprocessingPipeline
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
+from jabs.project.track_labels import TrackLabels
 
 from . import classifier_utils
-from .training_report import BinaryCVResult, CrossValidationResult, MultiClassCVResult
+from .cv_postprocessing import (
+    FoldPostprocessingEvaluation,
+    enabled_stage_configs,
+    evaluate_group_with_postprocessing,
+)
+from .training_report import (
+    BinaryCVResult,
+    CrossValidationResult,
+    MultiClassCVResult,
+    PostprocessedMetrics,
+)
 
 if TYPE_CHECKING:
     from jabs.classifier import Classifier, MultiClassClassifier
     from jabs.project import Project
+
+logger = logging.getLogger(__name__)
+
+# Binary class labels, in the order the report's metric fields expect.
+_BINARY_LABELS = [int(TrackLabels.Label.NOT_BEHAVIOR), int(TrackLabels.Label.BEHAVIOR)]
 
 
 class CVFeatures(TypedDict):
@@ -215,6 +234,143 @@ def _build_multiclass_cv_result(
     )
 
 
+class _PostprocessingEvaluationContext(TypedDict):
+    """Everything needed to evaluate the postprocessing pipeline for a fold."""
+
+    pipeline: PostprocessingPipeline
+    behavior_settings: dict
+    window_size: int
+
+
+def _postprocessing_context(
+    project: "Project",
+    behavior: str,
+    is_multiclass: bool,
+    emit_status: Callable[[str], None],
+) -> _PostprocessingEvaluationContext | None:
+    """Build the postprocessing evaluation context, or ``None`` to skip it.
+
+    Evaluation is skipped when the project is in multi-class mode (the
+    postprocessing pipeline is binary-only) or when the behavior has no enabled
+    stages, in which case the pipeline would be a no-op and not worth the cost
+    of re-predicting every held-out track.
+    """
+    if is_multiclass:
+        logger.warning(
+            "Postprocessing evaluation was requested but is not supported in "
+            "multi-class mode; skipping"
+        )
+        emit_status("Postprocessing evaluation is not supported in multi-class mode; skipping")
+        return None
+
+    config = project.settings_manager.postprocessing_config(behavior)
+    if not enabled_stage_configs(config):
+        logger.info(
+            "Postprocessing evaluation was requested for %s but no stages are enabled; skipping",
+            behavior,
+        )
+        emit_status("No postprocessing stages are enabled; skipping postprocessing evaluation")
+        return None
+
+    behavior_settings = project.settings_manager.get_behavior(behavior)
+    return _PostprocessingEvaluationContext(
+        pipeline=PostprocessingPipeline(config),
+        behavior_settings=behavior_settings,
+        window_size=behavior_settings["window_size"],
+    )
+
+
+def _build_postprocessed_metrics(
+    evaluation: FoldPostprocessingEvaluation,
+    raw_accuracy: float,
+) -> PostprocessedMetrics:
+    """Score one fold's postprocessed predictions against its ground truth.
+
+    Metrics are computed with an explicit binary label set: postprocessing can
+    in principle leave a frame with no prediction (``-1``), and letting sklearn
+    infer the label set from the data would silently shift which array element
+    belongs to which class.
+
+    Args:
+        evaluation: Ground truth and predictions for the fold's labeled frames.
+        raw_accuracy: Accuracy the fold's raw metrics reported, used only for a
+            consistency check.
+
+    Returns:
+        The postprocessed metrics for the fold.
+    """
+    # The full-sequence pass predicts the same rows the fold's raw metrics used,
+    # so its raw accuracy should match. A mismatch means the two paths disagree
+    # about features or settings, which is worth surfacing.
+    full_sequence_raw_accuracy = classifier_utils.accuracy_score(evaluation.truth, evaluation.raw)
+    if not np.isclose(full_sequence_raw_accuracy, raw_accuracy, atol=1e-6):
+        logger.warning(
+            "Raw accuracy from the full-sequence postprocessing pass (%.6f) does not match "
+            "the fold's raw accuracy (%.6f); postprocessed metrics may not be comparable",
+            full_sequence_raw_accuracy,
+            raw_accuracy,
+        )
+
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        evaluation.truth,
+        evaluation.postprocessed,
+        labels=_BINARY_LABELS,
+        zero_division=0,
+    )
+    return PostprocessedMetrics(
+        accuracy=classifier_utils.accuracy_score(evaluation.truth, evaluation.postprocessed),
+        confusion_matrix=sk_confusion_matrix(
+            evaluation.truth, evaluation.postprocessed, labels=_BINARY_LABELS
+        ),
+        precision_not_behavior=float(precision[0]),
+        precision_behavior=float(precision[1]),
+        recall_not_behavior=float(recall[0]),
+        recall_behavior=float(recall[1]),
+        f1_behavior=float(f1[1]),
+    )
+
+
+def _evaluate_fold_postprocessing(
+    classifier: "Classifier | MultiClassClassifier",
+    project: "Project",
+    behavior: str,
+    group_info: dict,
+    context: _PostprocessingEvaluationContext,
+    raw_accuracy: float,
+    emit_status: Callable[[str], None],
+    terminate_callback: Callable[[], None] | None,
+) -> PostprocessedMetrics | None:
+    """Evaluate the postprocessing pipeline for one fold's held-out group.
+
+    Returns:
+        The postprocessed metrics, or ``None`` when the group has no members
+        recorded or produced no scorable frames.
+    """
+    members = group_info.get("members") or []
+    if not members:
+        logger.warning(
+            "Cross-validation group %r has no members recorded; "
+            "skipping postprocessing evaluation for this fold",
+            group_info,
+        )
+        return None
+
+    evaluation = evaluate_group_with_postprocessing(
+        classifier=classifier,
+        project=project,
+        behavior=behavior,
+        members=members,
+        pipeline=context["pipeline"],
+        behavior_settings=context["behavior_settings"],
+        window_size=context["window_size"],
+        status_callback=emit_status,
+        terminate_callback=terminate_callback,
+    )
+    if evaluation is None:
+        return None
+    return _build_postprocessed_metrics(evaluation, raw_accuracy)
+
+
 def run_leave_one_group_out_cv(
     classifier: "Classifier | MultiClassClassifier",
     project: "Project",
@@ -225,6 +381,7 @@ def run_leave_one_group_out_cv(
     status_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[], None] | None = None,
     terminate_callback: Callable[[], None] | None = None,
+    evaluate_postprocessing: bool = False,
 ) -> list[CrossValidationResult]:
     """Run leave-one-group-out cross-validation for a classifier.
 
@@ -239,6 +396,11 @@ def run_leave_one_group_out_cv(
         progress_callback: Optional callback for progress updates (no arguments).
         terminate_callback: Optional callback to check for early termination
             (no arguments, should raise if termination is requested).
+        evaluate_postprocessing: When True, also report metrics with the
+            behavior's prediction postprocessing pipeline applied. This
+            re-predicts each held-out group's full tracks (see
+            :mod:`jabs.classifier.cv_postprocessing`), so it costs roughly one
+            classification pass over the labeled identities. Binary mode only.
 
     Returns:
         List of cross-validation iteration results.
@@ -265,6 +427,14 @@ def run_leave_one_group_out_cv(
     k = _resolve_k(classifier, labels, features["groups"], k, emit_status, excluded_groups)
     if k == 0:
         return cv_results
+
+    # Built after the k check so a skipped CV run neither reads postprocessing
+    # settings nor reports on a pipeline it will never apply.
+    postprocessing_context = (
+        _postprocessing_context(project, behavior, is_multiclass, emit_status)
+        if evaluate_postprocessing
+        else None
+    )
 
     emit_status("Generating train/test splits")
     data_generator = classifier.leave_one_group_out(
@@ -309,16 +479,26 @@ def run_leave_one_group_out_cv(
                 )
             )
         else:
-            cv_results.append(
-                _build_binary_cv_result(
-                    i + 1,
-                    test_label,
-                    accuracy,
-                    confusion,
-                    top_features,
-                    data,
-                    predictions,
-                )
+            binary_result = _build_binary_cv_result(
+                i + 1,
+                test_label,
+                accuracy,
+                confusion,
+                top_features,
+                data,
+                predictions,
             )
+            if postprocessing_context is not None:
+                binary_result.postprocessed = _evaluate_fold_postprocessing(
+                    classifier=classifier,
+                    project=project,
+                    behavior=behavior,
+                    group_info=group_mapping[data["test_group"]],
+                    context=postprocessing_context,
+                    raw_accuracy=accuracy,
+                    emit_status=emit_status,
+                    terminate_callback=terminate_callback,
+                )
+            cv_results.append(binary_result)
         emit_progress()
     return cv_results

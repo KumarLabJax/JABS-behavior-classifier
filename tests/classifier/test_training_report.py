@@ -8,6 +8,7 @@ import pytest
 from jabs.classifier.training_report import (
     BinaryCVResult,
     MultiClassCVResult,
+    PostprocessedMetrics,
     TrainingReportData,
     generate_json_report,
     generate_markdown_report,
@@ -478,3 +479,103 @@ class TestMulticlassReport:
         report = generate_markdown_report(data)
         assert "**Behavior frames:**" not in report
         assert "**Not-behavior frames:**" not in report
+
+
+class TestPostprocessedReporting:
+    """Tests for reporting cross-validation metrics with postprocessing applied."""
+
+    @staticmethod
+    def _postprocessed_data(sample_training_data, stages: list[dict] | None = None):
+        """Attach postprocessed metrics to every CV iteration of a report."""
+        for offset, result in enumerate(sample_training_data.cv_results):
+            result.postprocessed = PostprocessedMetrics(
+                accuracy=0.95 + offset * 0.01,
+                confusion_matrix=np.array([[190, 10], [8, 142]]),
+                precision_not_behavior=0.9601,
+                precision_behavior=0.9702,
+                recall_not_behavior=0.9803,
+                recall_behavior=0.9504,
+                f1_behavior=0.9605,
+            )
+        sample_training_data.postprocessing_stages = (
+            stages
+            if stages is not None
+            else [
+                {
+                    "stage_name": "BoutStitchingStage",
+                    "enabled": True,
+                    "parameters": {"max_stitch_gap": 3},
+                }
+            ]
+        )
+        return sample_training_data
+
+    def test_markdown_contains_postprocessed_table(self, sample_training_data):
+        """A postprocessed iteration table appears alongside the raw one."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_markdown_report(data)
+
+        assert "### Iteration Details" in report
+        assert "### Iteration Details (Postprocessed)" in report
+        # the postprocessed table carries its own metrics, distinct from the raw ones
+        assert "0.9605" in report
+        assert "0.9803" in report
+        # raw metrics survive alongside them
+        assert "0.9163" in report
+
+    def test_markdown_contains_postprocessed_summary(self, sample_training_data):
+        """The performance summary reports postprocessed means next to raw means."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_markdown_report(data)
+
+        assert "Mean Accuracy (Postprocessed):" in report
+        assert "Mean F1 Score (Behavior, Postprocessed):" in report
+        # raw means are still present, so the two can be compared
+        assert "**Mean Accuracy:**" in report
+
+    def test_markdown_lists_evaluated_stages(self, sample_training_data):
+        """The summary records which stages were evaluated, so the report is self-describing."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_markdown_report(data)
+
+        assert "**Postprocessing Evaluated in Cross-Validation:** Yes" in report
+        assert "BoutStitchingStage" in report
+        assert "max\\_stitch\\_gap=3" in report  # underscores escaped for markdown
+
+    def test_markdown_notes_when_no_stages_enabled(self, sample_training_data):
+        """Requesting evaluation with no enabled stages is stated rather than silent."""
+        sample_training_data.postprocessing_stages = []
+
+        report = generate_markdown_report(sample_training_data)
+
+        assert "**Postprocessing Evaluated in Cross-Validation:** Yes" in report
+        assert "*No stages enabled*" in report
+
+    def test_markdown_omits_postprocessing_when_not_evaluated(self, sample_training_data):
+        """A report for a run without postprocessing evaluation says nothing about it."""
+        report = generate_markdown_report(sample_training_data)
+
+        assert "Postprocessing" not in report
+        assert "(Postprocessed)" not in report
+
+    def test_json_contains_postprocessed_metrics(self, sample_training_data):
+        """Postprocessed metrics are serialized per iteration plus the stage list."""
+        data = self._postprocessed_data(sample_training_data)
+
+        report = generate_json_report(data)
+
+        assert report["postprocessing_stages"][0]["stage_name"] == "BoutStitchingStage"
+        postprocessed = report["cv_results"][0]["postprocessed"]
+        assert postprocessed["accuracy"] == pytest.approx(0.95)
+        assert postprocessed["f1_behavior"] == pytest.approx(0.9605)
+        assert postprocessed["confusion_matrix"] == [[190, 10], [8, 142]]
+
+    def test_json_omits_postprocessed_when_not_evaluated(self, sample_training_data):
+        """Iterations without postprocessed metrics carry no postprocessed key."""
+        report = generate_json_report(sample_training_data)
+
+        assert report["postprocessing_stages"] is None
+        assert "postprocessed" not in report["cv_results"][0]

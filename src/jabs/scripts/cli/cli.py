@@ -359,6 +359,16 @@ def prune(ctx: click.Context, directory: Path, behavior: str | None):
     "If not provided, a default filename will be used.",
 )
 @click.option(
+    "--postprocessing/--no-postprocessing",
+    "evaluate_postprocessing",
+    default=None,
+    help="Also report cross-validation metrics with the behavior's prediction "
+    "postprocessing pipeline applied, so raw and postprocessed performance can be "
+    "compared. This re-predicts each held-out group's full tracks, costing roughly "
+    "one classification pass over the labeled identities. Binary mode only. "
+    "Defaults to the behavior's saved project setting.",
+)
+@click.option(
     "--mlflow",
     "mlflow_env",
     is_flag=False,
@@ -414,6 +424,7 @@ def cross_validation(
     grouping_pattern: str | None,
     classifier: str,
     report_file: Path | None,
+    evaluate_postprocessing: bool | None,
     mlflow_env: str | None,
     mlflow_experiment: str | None,
     mlflow_tags: tuple[str, ...],
@@ -476,6 +487,7 @@ def cross_validation(
             k,
             report_file,
             grouping_regex=grouping_pattern,
+            evaluate_postprocessing=evaluate_postprocessing,
             mlflow_enabled=mlflow_enabled,
             mlflow_env_file=mlflow_env_file,
             mlflow_experiment=mlflow_experiment,

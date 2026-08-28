@@ -3,7 +3,13 @@ import logging
 import typing
 
 import jabs.feature_extraction as feature_extraction
-from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY, CV_GROUPING_REGEX_KEY
+from jabs.core.constants import (
+    CLASSIFIER_MODE_KEY,
+    CV_GROUPING_KEY,
+    CV_GROUPING_REGEX_KEY,
+    EVALUATE_POSTPROCESSING_IN_CV_KEY,
+    POSTPROCESSING_KEY,
+)
 from jabs.core.enums.classifier_mode import DEFAULT_CLASSIFIER_MODE, ClassifierMode
 from jabs.core.enums.cv_grouping import (
     DEFAULT_CV_GROUPING_STRATEGY,
@@ -259,7 +265,12 @@ class SettingsManager:
         defaults = self._project_info.get("defaults", {})
 
         all_behavior_data = self._project_info.get("behavior", {})
-        merged_data = all_behavior_data.get(behavior, defaults)
+        # A behavior with no entry yet starts from a *copy* of the project defaults;
+        # without the copy, merged_data.update() below would write the behavior's
+        # settings straight into the shared defaults dict.
+        merged_data = all_behavior_data.get(behavior)
+        if merged_data is None:
+            merged_data = dict(defaults)
         merged_data.update(data)
 
         all_behavior_data[behavior] = merged_data
@@ -275,6 +286,31 @@ class SettingsManager:
             Dictionary of behavior metadata.
         """
         return self._project_info.get("behavior", {}).get(behavior, {})
+
+    def postprocessing_config(self, behavior: str) -> list[dict]:
+        """Get the prediction postprocessing stage configuration for a behavior.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            Ordered list of stage configuration dicts, suitable for
+            :class:`~jabs.behavior.postprocessing.PostprocessingPipeline`. Empty
+            when the behavior has no postprocessing configured.
+        """
+        return self.get_behavior(behavior).get(POSTPROCESSING_KEY, [])
+
+    def evaluate_postprocessing_in_cv(self, behavior: str) -> bool:
+        """Return whether cross-validation should also report postprocessed metrics.
+
+        Args:
+            behavior: Behavior key to read.
+
+        Returns:
+            True if the behavior is configured to evaluate its postprocessing
+            pipeline during cross-validation. Defaults to False.
+        """
+        return bool(self.get_behavior(behavior).get(EVALUATE_POSTPROCESSING_IN_CV_KEY, False))
 
     def remove_behavior(self, behavior: str) -> None:
         """remove behavior from project settings"""

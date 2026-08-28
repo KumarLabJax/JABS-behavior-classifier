@@ -1197,7 +1197,11 @@ class Project:
             each group id back to its source. ``INDIVIDUAL``/``VIDEO`` entries are
             ``{"video": ..., "identity": ...}``; ``FILENAME_PATTERN`` entries are
             ``{"video": None, "identity": None, "label": <key>, "videos": [...]}``
-            where ``videos`` lists the labeled videos in the group.
+            where ``videos`` lists the labeled videos in the group. Every entry
+            also carries ``"members"``: the ``(video, identity)`` pairs with
+            labeled data in that group, which callers need to re-predict a
+            held-out group's full tracks. A ``VIDEO`` group for a video with no
+            labeled identities has an empty ``members`` list.
 
         Raises:
             ValueError: If ``grouping_strategy`` is ``FILENAME_PATTERN`` and
@@ -1217,18 +1221,23 @@ class Project:
                     key = (v, ident)
                     if key not in key_to_gid:
                         key_to_gid[key] = gid
-                        group_mapping[gid] = {"video": v, "identity": ident}
+                        group_mapping[gid] = {
+                            "video": v,
+                            "identity": ident,
+                            "members": [(v, ident)],
+                        }
                         gid += 1
         elif grouping_strategy == CrossValidationGroupingStrategy.VIDEO:
             video_to_gid: dict[str, int] = {}
             for v in videos:
                 if v not in video_to_gid:
                     video_to_gid[v] = gid
-                    group_mapping[gid] = {"video": v, "identity": None}
+                    group_mapping[gid] = {"video": v, "identity": None, "members": []}
                     gid += 1
                 for video_name, ident in all_group_keys:
                     if video_name == v:
                         key_to_gid[(v, ident)] = video_to_gid[v]
+                        group_mapping[video_to_gid[v]]["members"].append((v, ident))
         elif grouping_strategy == CrossValidationGroupingStrategy.FILENAME_PATTERN:
             pattern = compile_grouping_regex(regex or "")
             label_to_gid: dict[str, int] = {}
@@ -1245,10 +1254,12 @@ class Project:
                         "identity": None,
                         "label": label,
                         "videos": [],
+                        "members": [],
                     }
                     gid += 1
                 group_gid = label_to_gid[label]
                 key_to_gid[(video_name, ident)] = group_gid
+                group_mapping[group_gid]["members"].append((video_name, ident))
                 videos_in_group = group_mapping[group_gid]["videos"]
                 if video_name not in videos_in_group:
                     videos_in_group.append(video_name)
