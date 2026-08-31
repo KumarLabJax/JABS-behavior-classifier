@@ -72,6 +72,38 @@ def test_open_pose_est_v5(pose_est_v5):
     assert static_objs["corners"].shape == (4, 2)
 
 
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("sample_pose_est_v2.h5", 2),
+        ("sample_pose_est_v6.h5", 6),
+        ("sample_pose_est_v10.h5", 10),
+        ("sample_pose_est_v123.h5", 123),
+    ],
+    ids=["v2", "v6", "two-digit", "three-digit"],
+)
+def test_get_pose_file_major_version(filename: str, expected: int) -> None:
+    """multi-digit major versions are parsed in full, not just the last digit"""
+    assert jabs.pose_estimation.get_pose_file_major_version(Path(filename)) == expected
+
+
+def test_get_pose_file_major_version_ignores_directories() -> None:
+    """only the file name supplies the version, never a parent directory name"""
+    path = Path("/projects/archive_v3.h5_backup/sample_pose_est_v6.h5")
+    assert jabs.pose_estimation.get_pose_file_major_version(path) == 6
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["sample.h5", "sample_pose_est.h5", "sample_pose_est_v6.h5.bak", "sample_pose_est_vN.h5"],
+    ids=["no-suffix", "no-version", "trailing-extension", "non-numeric"],
+)
+def test_get_pose_file_major_version_invalid(filename: str) -> None:
+    """a name without a version suffix raises ValueError, not AttributeError"""
+    with pytest.raises(ValueError, match="not a valid pose file name"):
+        jabs.pose_estimation.get_pose_file_major_version(Path(filename))
+
+
 def test_get_points(pose_est_v4):
     """test getting pose points from PoseEstimation instance"""
     points, point_mask = pose_est_v4.get_identity_poses(0)

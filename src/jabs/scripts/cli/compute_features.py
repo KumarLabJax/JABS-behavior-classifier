@@ -92,7 +92,7 @@ def compute_features_command(
     """
     try:
         pose_version = get_pose_file_major_version(pose_file)
-    except (AttributeError, ValueError) as e:
+    except ValueError as e:
         raise click.ClickException(
             f"Unable to determine pose version from filename '{pose_file.name}'; "
             "expected a name like '*_pose_est_v<N>.h5'."
