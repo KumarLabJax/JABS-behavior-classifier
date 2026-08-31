@@ -644,9 +644,12 @@ You must increment `FEATURE_VERSION` whenever you make changes that would make c
    - Example: Adding new statistical operations, changing FFT bands
    - Why: Window features would be incomplete
 
-5. **Changing how features are stored in the cache**
-   - Example: Modifying either cache format, adding/removing metadata
-   - Why: Loading/saving logic wouldn't match
+5. **Changing how features are stored in the HDF5 cache**
+   - Example: Modifying the HDF5 layout, adding/removing HDF5 metadata
+   - Why: Loading/saving logic wouldn't match. HDF5 has no separate format version, so its
+     layout changes ride on `FEATURE_VERSION`. A Parquet schema or encoding change bumps
+     `PARQUET_FORMAT_VERSION` in `jabs-io` instead — see the constant ownership table in
+     `docs/development/adr/0001-parquet-feature-cache.md`.
 
 **How to bump:**
 
@@ -686,9 +689,10 @@ Beyond version checking, `FeatureCacheReader._validate()` also invalidates the c
   `distance_scale_factor` and raises `DistanceScaleException`
 
 The Parquet reader adds one more check: `metadata.json` also stores a `format_version`
-(`PARQUET_FORMAT_VERSION`), and a mismatch there raises `FeatureVersionException` as well. That
-version tracks the Parquet cache *layout* and is independent of `FEATURE_VERSION`, which tracks the
-feature *values*.
+(`PARQUET_FORMAT_VERSION`, owned by `jabs-io`), and a mismatch there raises
+`FeatureVersionException` as well. That version tracks the Parquet cache *layout* and is bumped
+independently of `FEATURE_VERSION`, which tracks the feature *values*. See the constant ownership
+table in `docs/development/adr/0001-parquet-feature-cache.md` for which change bumps which.
 
 **Best practices:**
 
