@@ -292,7 +292,7 @@ We are in the process of refactoring the original monolithic codebase by migrati
 logic into independent, headless-capable packages in the `packages/` directory.
 
 - **`jabs-core`**: Minimal shared infrastructure (Registries, Constants).
-- **`jabs-io`**: Defines the canonical data models (`PoseData`, `FeatureData`) and handles all HDF5/JSON reading/writing.
+- **`jabs-io`**: Defines the canonical data models (`PoseData`, `FeatureData`) and handles all HDF5/Parquet/JSON reading/writing.
 - **`jabs-vision`**: Handles heavy ML tasks (Pose estimation inference, Tracking).
 
 **Developers should prefer adding new reusable logic to the appropriate sub-package rather than the root `src/` tree.** 
@@ -384,7 +384,7 @@ IdentityFeatures (per identity/video)
 1. **`IdentityFeatures`** (in `features.py`) is the top-level class that manages all features for a single identity in a video.
    - Instantiated with pose data, identity, and project directory
    - Automatically loads/creates all relevant `FeatureGroup` instances based on pose version
-   - Handles caching of computed features to HDF5 files
+   - Handles caching of computed features (HDF5 or Parquet, see [Feature Version Management and Cache Invalidation](#feature-version-management-and-cache-invalidation))
    - Provides methods like `get_per_frame()` and `get_window_features()`
 
 2. **`FeatureGroup`** subclasses organize related features:
@@ -496,7 +496,7 @@ Understanding when and how features are initialized is key to extending the feat
    - Per-frame features are **eagerly loaded or computed** during initialization
 
 2. **Two paths for per-frame features:**
-   - **Cache hit**: `__load_from_file()` reads numpy arrays from HDF5 - no Feature instances created
+   - **Cache hit**: `__load_from_file()` reads numpy arrays from the cache - no Feature instances created
    - **Cache miss**: `__initialize_from_pose_estimation()` creates Feature instances, computes values, then discards instances
 
 3. **Feature instances are transient:**
@@ -531,7 +531,7 @@ Project opened
             │
             └── Load or compute per-frame features (EAGERLY, during __init__)
                 ├── PATH 1: Cache hit → __load_from_file()
-                │   ├── Read numpy arrays from HDF5
+                │   ├── Read numpy arrays from the feature cache
                 │   ├── Populate self._per_frame with loaded arrays
                 │   └── NO Feature instances created!
                 │
@@ -566,49 +566,62 @@ Project opened
 
 - **Eager per-frame loading**: Per-frame features are loaded/computed during `__init__` so they're immediately available
 - **Transient Feature instances**: Feature instances are only created during computation (cache miss), then immediately discarded after values are extracted
-- **Cache bypasses Feature creation**: When loading from cache, Feature instances are never created - just numpy arrays loaded from HDF5
+- **Cache bypasses Feature creation**: When loading from cache, Feature instances are never created - just numpy arrays loaded from the cache
 - **Memory efficiency**: Feature instances don't persist; only the computed numpy arrays are kept in memory
-- **Caching**: Expensive computations are cached to disk (HDF5 files) and loaded once
+- **Caching**: Expensive computations are cached to disk (HDF5 or Parquet files) and loaded once
 - **Flexibility**: Feature groups can be enabled/disabled based on pose version
 - **Stateless features**: Each time Features are instantiated, they compute fresh values without carrying state
 
 ##### Feature Version Management and Cache Invalidation
 
-The `FEATURE_VERSION` constant in `src/jabs/feature_extraction/features.py` is critical for managing cached feature files:
+The `FEATURE_VERSION` constant in `src/jabs/feature_extraction/features.py` is critical for managing
+the feature cache. `IdentityFeatures._version` is set from it, and it is recorded in every cache
+JABS writes.
 
-```python
-# In features.py
-FEATURE_VERSION = 16  # Current version
+**Cache formats:**
 
-class IdentityFeatures:
-    _version = FEATURE_VERSION
-```
+JABS supports two on-disk feature cache formats, selected per project by the `cache_format` setting
+in `project.json` (see `CacheFormat` in `jabs-core`). New projects default to Parquet; projects
+created before the setting existed keep HDF5 for backward compatibility. The rationale and
+migration details are in `docs/development/adr/0001-parquet-feature-cache.md`.
+
+Reading and writing is handled by the backends in `packages/jabs-io/src/jabs/io/feature_cache/`
+(`FeatureCacheReader` / `FeatureCacheWriter` in `base.py`, with `hdf5.py` and `parquet.py`
+implementations). `IdentityFeatures` never touches h5py or pyarrow directly — it calls
+`detect_cache_format()` on the identity's cache directory so that reader and writer always agree on
+the format of an existing cache, and only falls back to the requested `cache_format` when no cache
+is present.
 
 **What it does:**
 
-When features are computed, they're cached to HDF5 files in the project's feature directory:
+When features are computed, they're cached in a per-identity directory under the project's
+feature directory:
 ```
 project/jabs/features/
-    video1/
-        0/  # identity 0
-            features.h5  # Contains FEATURE_VERSION in metadata
-        1/  # identity 1
-            features.h5
+    video1/     # video name, with any _pose_est_vN suffix stripped
+        0/      # identity 0: one cache, in whichever format the project uses
+        1/      # identity 1
 ```
 
-Each cached `features.h5` file stores the `FEATURE_VERSION` that was used to compute it:
+Each identity directory holds one cache, in one format, never both:
+
+| Format  | Files in the identity directory                                        |
+|---------|------------------------------------------------------------------------|
+| Parquet | `metadata.json` (sentinel + metadata), `per_frame.parquet`, `window_<size>.parquet` (one per cached window size) |
+| HDF5    | `features.h5` (all features plus metadata in file attributes)          |
+
+`jabs-classify` and `jabs-cli compute-features` can optionally insert a pose-hash directory level
+(`features/<video>/<pose hash>/<identity>/`); both layouts are handled by
+`Project.clear_feature_cache()`.
+
+Each cache records the `FEATURE_VERSION` it was computed with (an HDF5 file attribute, or the
+`feature_version` key in `metadata.json`). Every read validates that value, along with the pose
+hash and distance scale factor, in `FeatureCacheReader._validate()`:
 
 ```python
-# When saving features
-with h5py.File(file_path, "w") as features_h5:
-    features_h5.attrs["version"] = self._version  # Store FEATURE_VERSION
-    features_h5.attrs["pose_hash"] = self._pose_hash
-    # ... save feature data
-
-# When loading features
-with h5py.File(path, "r") as features_h5:
-    if features_h5.attrs["version"] != FEATURE_VERSION:
-        raise FeatureVersionException  # Forces recomputation!
+# packages/jabs-io/src/jabs/io/feature_cache/base.py
+if metadata.feature_version != self._expected_feature_version:
+    raise FeatureVersionException  # Forces recomputation!
 ```
 
 **When to bump FEATURE_VERSION:**
@@ -631,53 +644,55 @@ You must increment `FEATURE_VERSION` whenever you make changes that would make c
    - Example: Adding new statistical operations, changing FFT bands
    - Why: Window features would be incomplete
 
-5. **Changing how features are stored in HDF5**
-   - Example: Modifying the file format, adding/removing metadata
-   - Why: Loading/saving logic wouldn't match
+5. **Changing how features are stored in the HDF5 cache**
+   - Example: Modifying the HDF5 layout, adding/removing HDF5 metadata
+   - Why: Loading/saving logic wouldn't match. HDF5 has no separate format version, so its
+     layout changes ride on `FEATURE_VERSION`. A Parquet schema or encoding change bumps
+     `PARQUET_FORMAT_VERSION` in `jabs-io` instead — see the constant ownership table in
+     `docs/development/adr/0001-parquet-feature-cache.md`.
 
 **How to bump:**
 
-Simply increment the version number in `features.py`:
+Simply increment the version number in `features.py` (both cache formats read the same constant,
+so one bump invalidates every cache):
 
 ```python
 # Before
-FEATURE_VERSION = 16
+FEATURE_VERSION = N
 
 # After
-FEATURE_VERSION = 17
+FEATURE_VERSION = N + 1
 ```
 
 **What happens after bumping:**
 
 1. Next time `IdentityFeatures` is instantiated, it tries to load cached features
-2. Sees version mismatch: `cached_version (16) != FEATURE_VERSION (17)`
+2. The reader sees a version mismatch between the cached metadata and `FEATURE_VERSION`
 3. Raises `FeatureVersionException`
 4. Exception is caught, triggers recomputation:
    ```python
    try:
        self.__load_from_file()
-   except (OSError, FeatureVersionException, ...):
+   except (OSError, FeatureVersionException, DistanceScaleException, PoseHashException):
        # Recompute features with new version
        self.__initialize_from_pose_estimation(pose_est)
    ```
-5. New features are computed and cached with version 17
+5. New features are computed and cached with the new version
 6. Users see one-time delay as all features are recomputed
 
 **Additional cache invalidation mechanisms:**
 
-Beyond version checking, the cache is also invalidated when:
+Beyond version checking, `FeatureCacheReader._validate()` also invalidates the cache when:
 
-- **Pose file changes**: `pose_hash` mismatch triggers recomputation
-  ```python
-  if features_h5.attrs["pose_hash"] != self._pose_hash:
-      raise PoseHashException
-  ```
+- **Pose file changes**: `pose_hash` mismatch raises `PoseHashException`
+- **Distance scale changes**: switching between pixel/cm units changes
+  `distance_scale_factor` and raises `DistanceScaleException`
 
-- **Distance scale changes**: Switching between pixel/cm units
-  ```python
-  if self._distance_scale_factor != features_h5.attrs.get("distance_scale_factor", None):
-      raise DistanceScaleException
-  ```
+The Parquet reader adds one more check: `metadata.json` also stores a `format_version`
+(`PARQUET_FORMAT_VERSION`, owned by `jabs-io`), and a mismatch there raises
+`FeatureVersionException` as well. That version tracks the Parquet cache *layout* and is bumped
+independently of `FEATURE_VERSION`, which tracks the feature *values*. See the constant ownership
+table in `docs/development/adr/0001-parquet-feature-cache.md` for which change bumps which.
 
 **Best practices:**
 
@@ -715,24 +730,27 @@ absent from both the cache and the nested dict.
 **Column ordering**
 
 There is no explicit sorting of feature columns in the feature extraction or training code.
-Column ordering in the DataFrames used for training is determined implicitly by **h5py's
-alphabetical iteration** of HDF5 group keys — iterating `features_h5["features/per_frame"]`
-yields dataset names in alphabetical order, so the nested dict and resulting DataFrame columns
-end up alphabetical. This is an implementation detail of h5py, not an intentional JABS design
-decision.
+Column ordering in the DataFrames used for training comes from the cache backend, and both
+backends end up alphabetical:
 
-At classification time, `Classifier.get_features_to_classify()` explicitly reorders the input
+- **HDF5**: implicitly, via **h5py's alphabetical iteration** of group keys — iterating
+  `features_h5["features/per_frame"]` yields dataset names in alphabetical order. This is an
+  implementation detail of h5py, not an intentional JABS design decision.
+- **Parquet**: explicitly — `ParquetFeatureCacheWriter` sorts feature columns before writing, and
+  the reader preserves the file's column order, deliberately matching the HDF5 backend.
+
+At classification time, `BaseClassifier._get_features_to_classify()` explicitly reorders the input
 DataFrame to match the column names the classifier was trained on (`feature_names_in_` for
 scikit-learn models, `get_booster().feature_names` for XGBoost). This means the column order
 in the cache does not need to match the training order for correctness — the classifier is the
 authoritative source of column ordering during inference.
 
-**Implication for alternative cache formats**
+**Implication for additional cache formats**
 
-Any future cache format that does not naturally yield keys in alphabetical order would produce
-different column orderings in training DataFrames than the current HDF5 implementation. This
-would not affect correctness (due to `get_features_to_classify`), but may be worth considering
-for consistency and debuggability.
+Any new cache backend that does not yield feature columns in alphabetical order would produce
+different column orderings in training DataFrames than the existing backends. This would not
+affect correctness (due to `_get_features_to_classify`), but sorting on write — as the Parquet
+backend does — keeps caches consistent and easier to debug.
 
 ##### Testing New Features
 
