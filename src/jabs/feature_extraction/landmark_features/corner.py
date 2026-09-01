@@ -205,8 +205,10 @@ class CornerDistanceInfo:
         """gets the average wall length
 
         The average wall length is a property of the arena rather than of an
-        individual mouse, so it is computed once for whichever identity happens
-        to populate the cache first and shared by all of them.
+        individual mouse, so a single instance-wide value is shared by every
+        identity. ``cache_features()`` derives it from the same static corners
+        every time it runs for a new identity, overwriting the stored value
+        with an identical one.
 
         Args:
             identity: identity to cache if not yet calculated

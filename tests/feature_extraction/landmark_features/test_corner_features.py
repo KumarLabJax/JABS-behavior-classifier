@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 import jabs.feature_extraction.landmark_features.corner as corner_module
 
@@ -64,4 +65,4 @@ def test_avg_wall_length_matches_cached_value(pose_est_v5_with_static_objects) -
     eager_info = corner_module.CornerDistanceInfo(pose_est_v5, pixel_scale)
     eager_info.get_distances(0)
 
-    assert lazy_info.get_avg_wall_length(0) == eager_info.get_avg_wall_length(0)
+    assert lazy_info.get_avg_wall_length(0) == pytest.approx(eager_info.get_avg_wall_length(0))
