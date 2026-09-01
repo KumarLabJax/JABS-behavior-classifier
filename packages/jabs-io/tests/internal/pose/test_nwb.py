@@ -7,6 +7,17 @@ import logging
 import h5py
 import numpy as np
 import pytest
+
+# PoseNWBAdapter's dependencies live in the optional `nwb` extra, and the adapter
+# itself already degrades gracefully without them (see _NWB_AVAILABLE in
+# jabs.io.internal.pose.nwb). Skip this module when they are missing - a plain
+# `uv sync` does not install the extra, and an unguarded import here fails
+# collection, which aborts every other test in this package rather than just
+# these.
+pytest.importorskip("pynwb")
+pytest.importorskip("ndx_pose")
+pytest.importorskip("ndx_multisubjects")
+
 from ndx_multisubjects import NdxMultiSubjectsNWBFile
 from ndx_pose import PoseEstimation
 from pynwb import NWBHDF5IO
