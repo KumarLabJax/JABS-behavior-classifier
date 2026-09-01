@@ -25,6 +25,7 @@ assignment, PR process).
 ```bash
 # Setup
 uv sync                                    # Install all deps from lockfile (creates .venv)
+uv sync --all-packages --all-extras --all-groups  # Full env, matching CI (see below)
 uv run pre-commit install                  # Install git hooks (ruff check + ruff format)
 
 # Testing
@@ -66,6 +67,33 @@ uv run jabs-cli merge                      # Merge one JABS project into another
 uv run jabs-cli rename-behavior            # Rename a behavior across a project
 uv run jabs-cli prune                      # Remove videos from a project
 ```
+
+### Optional dependencies and the test environment
+
+A plain `uv sync` installs neither the optional extras (`nwb`, `parquet`, `mlflow`,
+`yaml`) nor `jabs-vision` (not a root dependency). To run the suite the way CI does,
+use the same command CI uses (`.github/workflows/_run-tests-action.yml`):
+
+```bash
+uv sync --all-packages --all-extras --all-groups
+```
+
+Without it, some suites are partially or wholly unrunnable locally even though they
+pass in CI:
+
+| suite | plain `uv sync` | needs |
+|---|---|---|
+| `packages/jabs-io/tests` | 238 pass, 1 skipped | `--extra nwb` for the remaining 61 |
+| `packages/jabs-vision/tests` | 0 collected, 17 errors | `--all-packages` (installs `jabs.vision` + torch) |
+
+**Guard optional imports in tests.** A module-scope import of an optional dependency
+raises during collection, and a collection error aborts the *entire* directory run -
+one missing extra takes every other test in that package with it. Use
+`pytest.importorskip("<module>")` before the guarded imports (see
+`packages/jabs-io/tests/internal/pose/test_nwb.py`), and add an `E402` per-file ignore
+in `ruff.toml` for the imports that must follow it. Qt imports in UI tests use the
+existing `try/except ImportError` + `pytest.mark.skipif` pattern instead; keep non-Qt
+imports out of those blocks.
 
 ## Architecture
 

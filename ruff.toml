@@ -32,6 +32,11 @@ convention = "google"
 
 [lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Unused imports in __init__ files
+"packages/jabs-io/tests/internal/pose/test_nwb.py" = [
+    # pytest.importorskip() for the optional `nwb` extra has to run before the
+    # imports it guards, so those imports cannot sit at the top of the module
+    "E402",
+]
 "src/jabs/scripts/cli/cli.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click Examples sections look better with a blank line before \b blocks
