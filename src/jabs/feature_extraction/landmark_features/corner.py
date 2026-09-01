@@ -28,6 +28,11 @@ class CornerDistanceInfo:
         self._cached_bearings = {}
         self._all_wall_distances = {}
 
+        # None until cache_features() runs; it is then set to the arena's average
+        # wall length, or NaN when the pose file has no "corners" static object.
+        # get_avg_wall_length() relies on this None to know it must still compute.
+        self._avg_wall_length: float | None = None
+
     def cache_features(self, identity: int):
         """cache corner distances and bearings for a given identity
 
@@ -199,11 +204,15 @@ class CornerDistanceInfo:
     def get_avg_wall_length(self, identity: int = 0) -> float:
         """gets the average wall length
 
+        The average wall length is a property of the arena rather than of an
+        individual mouse, so it is computed once for whichever identity happens
+        to populate the cache first and shared by all of them.
+
         Args:
             identity: identity to cache if not yet calculated
 
         Returns:
-            average wall length
+            average wall length, or NaN if the pose file has no corners
         """
         if self._avg_wall_length is None:
             self.cache_features(identity)

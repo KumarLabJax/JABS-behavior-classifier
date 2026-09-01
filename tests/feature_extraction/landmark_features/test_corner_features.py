@@ -41,3 +41,27 @@ def test_compute_corner_distances(pose_est_v5_with_static_objects):
         values = dist_to_corner.per_frame(i)["distance to corner"]
         non_nan_indices = ~np.isnan(values)
         assert (values[non_nan_indices] >= 0).all()
+
+
+def test_avg_wall_length_computed_on_first_access(pose_est_v5_with_static_objects) -> None:
+    """get_avg_wall_length() populates the cache itself if nothing else has yet."""
+    pose_est_v5 = pose_est_v5_with_static_objects
+    distance_info = corner_module.CornerDistanceInfo(pose_est_v5, pose_est_v5.cm_per_pixel)
+
+    avg_wall_length = distance_info.get_avg_wall_length(0)
+
+    assert avg_wall_length > 0
+    # a second call returns the same value without recomputing
+    assert distance_info.get_avg_wall_length(0) == avg_wall_length
+
+
+def test_avg_wall_length_matches_cached_value(pose_est_v5_with_static_objects) -> None:
+    """Caching via another accessor first yields the same average wall length."""
+    pose_est_v5 = pose_est_v5_with_static_objects
+    pixel_scale = pose_est_v5.cm_per_pixel
+
+    lazy_info = corner_module.CornerDistanceInfo(pose_est_v5, pixel_scale)
+    eager_info = corner_module.CornerDistanceInfo(pose_est_v5, pixel_scale)
+    eager_info.get_distances(0)
+
+    assert lazy_info.get_avg_wall_length(0) == eager_info.get_avg_wall_length(0)
