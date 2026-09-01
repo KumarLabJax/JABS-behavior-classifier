@@ -50,8 +50,28 @@ mlflow = ["mlflow>=3.8.1"]
 # Security floors for transitive dependencies (Dependabot). These packages are
 # pulled indirectly (e.g. cryptography via the optional `mlflow` extra ->
 # google-auth); constraining them here bumps the locked version past known
-# vulnerabilities without adding them as direct dependencies.
-constraint-dependencies = ["cryptography>=48.0.1"]
+# vulnerabilities without adding them as direct dependencies. The floors make
+# the fix durable: a later `uv lock` cannot resolve back down to a vulnerable
+# version.
+#
+# Two known-vulnerable packages are deliberately not floored here, because both
+# are capped by a dependency we do not want this file to move:
+#
+#   - cryptography: mlflow 3.15.2 requires `cryptography<50,>=43.0.0`, so 49.x
+#     is the highest reachable version while the optional `mlflow` extra
+#     exists. Raise to >=50 once mlflow relaxes its cap.
+#   - setuptools: torch 2.11.0 requires `setuptools<82`, so a >=83 floor would
+#     force torch/torchvision to upgrade. That belongs with the jabs-vision
+#     torch bump, not here. setuptools is build-time only and is not installed
+#     in the runtime environment.
+constraint-dependencies = [
+  "aiohttp>=3.14.3",
+  "cryptography>=49.0.0",
+  "gitpython>=3.1.58",
+  "pillow>=12.3.0",
+  "pyasn1>=0.6.4",
+  "sqlparse>=0.6.0",
+]
 
 [tool.uv.sources]
 jabs-behavior = { workspace = true }
