@@ -212,3 +212,81 @@ def test_feature_cache_status_falls_back_to_stored_status_on_error():
 def test_feature_cache_status_without_project():
     """With no project loaded there is no status to report."""
     assert VideoListDockWidget()._feature_cache_status("a.avi") is None
+
+
+def _visible_videos(widget):
+    """Return the video names of the rows currently visible in the list."""
+    file_list = widget._file_list
+    return [
+        file_list.item(i).data(Qt.ItemDataRole.UserRole)
+        for i in range(file_list.count())
+        if not file_list.item(i).isHidden()
+    ]
+
+
+def test_filter_keeps_selection_when_current_video_still_matches():
+    """Filtering must not cost the user their place when the selection still matches.
+
+    Regression: the deselect guard checked only whether the item *was* the
+    current one, so every keystroke in the filter box cleared the selection even
+    when the selected video was still visible.
+    """
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["walk_01.avi", "walk_02.avi", "rear_01.avi"], set()))
+    widget.select_video("walk_01.avi", suppress_event=True)
+
+    widget._filter_list("walk")
+
+    assert _visible_videos(widget) == ["walk_01.avi", "walk_02.avi"]
+    current = widget._file_list.currentItem()
+    assert current is not None
+    assert current.data(Qt.ItemDataRole.UserRole) == "walk_01.avi"
+
+
+def test_filter_deselects_current_video_when_it_is_filtered_out():
+    """A current item that no longer matches is deselected, so no hidden row stays current."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["walk_01.avi", "rear_01.avi"], set()))
+    widget.select_video("rear_01.avi", suppress_event=True)
+
+    widget._filter_list("walk")
+
+    assert _visible_videos(widget) == ["walk_01.avi"]
+    assert widget._file_list.currentItem() is None
+
+
+def test_filter_does_not_emit_selection_change():
+    """Deselecting a filtered-out item must not be reported as a user selection."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["walk_01.avi", "rear_01.avi"], set()))
+    widget.select_video("rear_01.avi", suppress_event=True)
+
+    emitted = []
+    widget.selectionChanged.connect(emitted.append)
+    widget._filter_list("walk")
+
+    assert emitted == []
+
+
+def test_clearing_filter_restores_all_rows():
+    """Clearing the filter text un-hides every row."""
+    widget = VideoListDockWidget()
+    videos = ["walk_01.avi", "walk_02.avi", "rear_01.avi"]
+    widget.set_project(_mock_project(videos, set()))
+
+    widget._filter_list("walk")
+    widget._filter_list("")
+
+    assert _visible_videos(widget) == sorted(videos)
+
+
+def test_filter_with_no_current_item_is_safe():
+    """Filtering with nothing selected must not raise."""
+    widget = VideoListDockWidget()
+    widget.set_project(_mock_project(["walk_01.avi", "rear_01.avi"], set()))
+    widget._file_list.setCurrentItem(None)
+
+    widget._filter_list("walk")
+
+    assert _visible_videos(widget) == ["walk_01.avi"]
+    assert widget._file_list.currentItem() is None
