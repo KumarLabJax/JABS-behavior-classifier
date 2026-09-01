@@ -159,6 +159,8 @@ class FakeTrainingProject:
             cv_grouping_regex="",
             get_behavior=lambda _behavior: dict(self._DEFAULT_BEHAVIOR_SETTINGS),
             is_video_excluded=lambda _video: False,
+            postprocessing_config=lambda _behavior: [],
+            evaluate_postprocessing_in_cv=lambda _behavior: False,
         )
         self._binary_features = binary_features
         self._multiclass_features = multiclass_features
@@ -216,6 +218,8 @@ class FakeClassifyingProject:
         self.settings_manager = SimpleNamespace(
             classifier_mode=mode,
             get_behavior=lambda _behavior: {"window_size": 5, "postprocessing": []},
+            postprocessing_config=lambda _behavior: [],
+            evaluate_postprocessing_in_cv=lambda _behavior: False,
         )
         self.feature_manager = SimpleNamespace(distance_unit=ProjectDistanceUnit.PIXEL)
         self.video_manager = SimpleNamespace(

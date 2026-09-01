@@ -43,6 +43,15 @@ def test_assign_cv_group_ids_filename_pattern_groups_videos_by_key() -> None:
     assert group_mapping[loose_gid]["label"] == "loose.mp4"
     assert group_mapping[loose_gid]["videos"] == ["loose.mp4"]
 
+    # Members name the (video, identity) pairs, which "videos" alone cannot: a
+    # postprocessing evaluation has to re-predict each held-out identity.
+    assert group_mapping[cage1_gid]["members"] == [
+        ("cage_1_a.mp4", 0),
+        ("cage_1_a.mp4", 1),
+        ("cage_1_b.mp4", 0),
+    ]
+    assert group_mapping[loose_gid]["members"] == [("loose.mp4", 0)]
+
 
 def test_assign_cv_group_ids_filename_pattern_ids_are_contiguous() -> None:
     """Group ids are assigned contiguously from zero in row order."""
@@ -87,6 +96,7 @@ def test_assign_cv_group_ids_video_grouping_unchanged() -> None:
     assert group_mapping[key_to_gid[("video_a.mp4", 0)]] == {
         "video": "video_a.mp4",
         "identity": None,
+        "members": [("video_a.mp4", 0), ("video_a.mp4", 1)],
     }
 
 
@@ -103,4 +113,5 @@ def test_assign_cv_group_ids_individual_grouping_unchanged() -> None:
     assert group_mapping[key_to_gid[("video_a.mp4", 1)]] == {
         "video": "video_a.mp4",
         "identity": 1,
+        "members": [("video_a.mp4", 1)],
     }

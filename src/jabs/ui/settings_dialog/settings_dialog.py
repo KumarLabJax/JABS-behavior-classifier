@@ -15,7 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jabs.core.constants import APP_NAME, CLASSIFIER_MODE_KEY, ORG_NAME
+from jabs.core.constants import (
+    APP_NAME,
+    CLASSIFIER_MODE_KEY,
+    EVALUATE_POSTPROCESSING_IN_CV_KEY,
+    ORG_NAME,
+    POSTPROCESSING_KEY,
+)
 from jabs.core.enums import ClassifierMode
 from jabs.project import Project
 from jabs.project.settings_manager import SettingsManager
@@ -27,6 +33,7 @@ from .cross_validation_settings_group import CrossValidationSettingsGroup
 from .postprocessing_group import (
     DurationStageSettingsGroup,
     InterpolationStageSettingsGroup,
+    PostprocessingEvaluationSettingsGroup,
     StitchingStageSettingsGroup,
 )
 from .session_tracking_group import SessionTrackingSettingsGroup
@@ -415,10 +422,21 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
         )
 
     def _create_settings_groups(self, parent: QWidget) -> None:
-        """Create the settings groups for the dialog."""
-        self._settings_groups.append(InterpolationStageSettingsGroup(parent))
-        self._settings_groups.append(StitchingStageSettingsGroup(parent))
-        self._settings_groups.append(DurationStageSettingsGroup(parent))
+        """Create the settings groups for the dialog.
+
+        The stage groups are tracked separately from ``self._settings_groups``
+        because their order defines the order stages are applied, and they are
+        saved as an ordered list rather than merged into a flat settings dict.
+        """
+        self._stage_groups: list = [
+            InterpolationStageSettingsGroup(parent),
+            StitchingStageSettingsGroup(parent),
+            DurationStageSettingsGroup(parent),
+        ]
+        self._settings_groups.extend(self._stage_groups)
+
+        self._evaluation_group = PostprocessingEvaluationSettingsGroup(parent)
+        self._settings_groups.append(self._evaluation_group)
 
     def _create_header_widget(self, parent: QWidget) -> QWidget | None:
         """Create a header widget for the dialog."""
@@ -444,12 +462,16 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
         """Unlike the ProjectSettingsDialog, load postprocessing settings from the behavior-specific settings."""
         # load the settings for the currently selected behavior
         behavior_settings = self._settings_manager.get_behavior(self._behavior)
-        settings = behavior_settings.get("postprocessing", [])
+        settings = behavior_settings.get(POSTPROCESSING_KEY, [])
 
         all_settings = {}
 
         for stage in settings:
             all_settings[stage["stage_name"]] = stage
+
+        all_settings[EVALUATE_POSTPROCESSING_IN_CV_KEY] = behavior_settings.get(
+            EVALUATE_POSTPROCESSING_IN_CV_KEY, False
+        )
 
         # we pass all settings to each group and each will pick out the settings relevant
         # to it based on stage_name
@@ -458,15 +480,19 @@ class PostprocessingSettingsDialog(BaseSettingsDialog):
 
     def _on_save(self) -> None:
         """Save postprocessing settings"""
+        if not self._validate_all_groups():
+            return
+
         # Order matters, since it determines the order stages are applied.
         # To preserve order they are saved as a list of dicts, each dict representing a stage with its
         # config so that order will be maintained even though the project.json file is sorted by key.
-        ordered_stages = []
-        for group in self._settings_groups:
-            ordered_stages.append(group.get_values())
+        ordered_stages = [group.get_values() for group in self._stage_groups]
+
+        behavior_settings: dict = {POSTPROCESSING_KEY: ordered_stages}
+        behavior_settings.update(self._evaluation_group.get_values())
 
         # save the postprocessing settings for the current behavior
-        self._settings_manager.save_behavior(self._behavior, {"postprocessing": ordered_stages})
+        self._settings_manager.save_behavior(self._behavior, behavior_settings)
 
         self.accept()
 

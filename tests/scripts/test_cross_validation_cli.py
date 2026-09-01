@@ -97,6 +97,29 @@ def test_no_strategy_defaults_to_none(tmp_path: Path, run_cv_spy: mock.Mock) -> 
     assert run_cv_spy.call_args.kwargs["grouping_regex"] is None
 
 
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--postprocessing", True), ("--no-postprocessing", False)],
+    ids=["enabled", "disabled"],
+)
+def test_postprocessing_flag_forwarded(
+    tmp_path: Path, run_cv_spy: mock.Mock, flag: str, expected: bool
+) -> None:
+    """``--postprocessing``/``--no-postprocessing`` overrides the saved project setting."""
+    result = _invoke(tmp_path, flag)
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["evaluate_postprocessing"] is expected
+
+
+def test_postprocessing_defaults_to_project_setting(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
+    """Omitting the flag passes None so the behavior's saved setting is used."""
+    result = _invoke(tmp_path)
+
+    assert result.exit_code == 0, result.output
+    assert run_cv_spy.call_args.kwargs["evaluate_postprocessing"] is None
+
+
 def test_invalid_grouping_strategy_rejected(tmp_path: Path, run_cv_spy: mock.Mock) -> None:
     """An unknown strategy is rejected by Click before run_cross_validation is called."""
     result = _invoke(tmp_path, "--grouping-strategy", "bogus")

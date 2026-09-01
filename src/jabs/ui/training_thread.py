@@ -12,6 +12,7 @@ from jabs.classifier import (
     save_training_report,
 )
 from jabs.classifier.cross_validation import run_leave_one_group_out_cv
+from jabs.classifier.cv_postprocessing import enabled_stage_configs
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
 from jabs.project import Project
@@ -123,6 +124,19 @@ class TrainingThread(QThread):
         try:
             strategy = self._build_strategy()
             settings = strategy.effective_settings()
+            settings_manager = self._project.settings_manager
+
+            # Postprocessing evaluation is binary-only; the pipeline has no
+            # multi-class semantics yet.
+            evaluate_postprocessing = (
+                settings_manager.classifier_mode != ClassifierMode.MULTICLASS
+                and settings_manager.evaluate_postprocessing_in_cv(self._behavior)
+            )
+            postprocessing_stages = (
+                enabled_stage_configs(settings_manager.postprocessing_config(self._behavior))
+                if evaluate_postprocessing
+                else None
+            )
 
             self.current_status.emit("Extracting Features")
             features, group_mapping = strategy.collect_features(
@@ -141,6 +155,7 @@ class TrainingThread(QThread):
                 status_callback=self.current_status.emit,
                 progress_callback=id_processed,
                 terminate_callback=check_termination_requested,
+                evaluate_postprocessing=evaluate_postprocessing,
             )
 
             self.current_status.emit("Training Classifier")
@@ -165,10 +180,11 @@ class TrainingThread(QThread):
                 final_top_features=final_top_features,
                 elapsed_ms=elapsed_ms,
                 timestamp=datetime.now(),
-                cv_grouping_strategy=self._project.settings_manager.cv_grouping_strategy,
-                cv_grouping_regex=self._project.settings_manager.cv_grouping_regex,
+                cv_grouping_strategy=settings_manager.cv_grouping_strategy,
+                cv_grouping_regex=settings_manager.cv_grouping_regex,
                 distance_unit=unit,
                 settings=settings,
+                postprocessing_stages=postprocessing_stages,
             )
 
             timestamp_str = training_data.timestamp.strftime("%Y%m%d_%H%M%S")
