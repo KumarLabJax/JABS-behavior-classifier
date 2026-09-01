@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
+from jabs.pose_estimation import PoseEstimation
 from jabs.project import VideoLabels
-from jabs.video_reader import VideoReader, overlay_segmentation
+from jabs.video_export import render_overlay_frame
+from jabs.video_reader import VideoReader
 
 from .frame_with_overlays import FrameWithOverlaysWidget
 from .player_thread import PlayerThread
-from .pose_drawing import draw_identity_pose, native_pose_sizes
 
 _SPEED_VALUES = [0.5, 1, 2, 4]
 
@@ -186,6 +186,11 @@ class PlayerWidget(QtWidgets.QWidget):
         player_layout.addLayout(player_control_layout)
 
         self.setLayout(player_layout)
+
+    @property
+    def pose_est(self) -> PoseEstimation | None:
+        """Pose estimation for the loaded video, or None when no video is loaded."""
+        return self._pose_est
 
     @property
     def pose_overlay_mode(self) -> PoseOverlayMode:
@@ -436,7 +441,7 @@ class PlayerWidget(QtWidgets.QWidget):
         """
         if self._playing:
             raise RuntimeError("get_overlay_frame() must not be called while the video is playing")
-        if self._video_stream is None:
+        if self._video_stream is None or self._pose_est is None:
             return None
         target_frame = self.current_frame if frame_number is None else frame_number
         self._video_stream.seek(target_frame)
@@ -444,67 +449,23 @@ class PlayerWidget(QtWidgets.QWidget):
         if frame["data"] is None:
             return None
 
-        img = frame["data"]
-        if img.dtype != np.uint8:
-            img = img.astype(np.uint8)
+        # Shared with the video export and the CLI, so a still and a frame of an
+        # exported video are rendered by the same code.
+        rendered = render_overlay_frame(frame["data"], self._pose_est, target_frame)
 
-        # Bake segmentation contours into the BGR frame (a no-op when the pose file has
-        # no segmentation data for this identity/frame).
-        if isinstance(self._pose_est, PoseEstimationV6):
-            for identity in self._pose_est.identities:
-                # active=True for every identity: the export has no active identity, so
-                # all contours are drawn in the same (active) color rather than singling
-                # one out.
-                overlay_segmentation(
-                    img,
-                    self._pose_est,
-                    identity=identity,
-                    frame_index=target_frame,
-                    active=True,
-                )
-
-        img_rgb = np.ascontiguousarray(img[..., ::-1])  # BGR → RGB
-        height, width, channels = img_rgb.shape
-        # QPixmap.fromImage copies the buffer, so it is safe to paint on afterwards
-        # without aliasing the numpy array backing the source QImage.
-        pixmap = QtGui.QPixmap.fromImage(
+        rgb = np.ascontiguousarray(rendered[..., ::-1])  # BGR -> RGB
+        height, width, channels = rgb.shape
+        # QPixmap.fromImage copies the buffer, so the numpy array backing the
+        # source QImage can go out of scope safely.
+        return QtGui.QPixmap.fromImage(
             QtGui.QImage(
-                img_rgb.data,
+                rgb.data,
                 width,
                 height,
                 channels * width,
                 QtGui.QImage.Format.Format_RGB888,
             )
         )
-
-        # Draw the pose keypoints/skeleton on top, at native resolution, for every identity.
-        if self._pose_est is not None:
-            keypoint_size, line_width = native_pose_sizes(width, height)
-
-            def to_native(x: float, y: float) -> tuple[int, int]:
-                # Coords come from numpy; round to whole native pixels as Python ints.
-                return round(float(x)), round(float(y))
-
-            painter = QtGui.QPainter(pixmap)
-            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-            try:
-                for identity in self._pose_est.identities:
-                    # active=True for every identity: all skeletons are drawn at full
-                    # opacity, with no active-identity emphasis.
-                    draw_identity_pose(
-                        painter,
-                        self._pose_est,
-                        target_frame,
-                        identity,
-                        to_output=to_native,
-                        keypoint_size=keypoint_size,
-                        line_width=line_width,
-                        active=True,
-                    )
-            finally:
-                painter.end()
-
-        return pixmap
 
     def _set_overlay_attr(
         self, attr: str, signal: QtCore.Signal | None, enabled: bool | None

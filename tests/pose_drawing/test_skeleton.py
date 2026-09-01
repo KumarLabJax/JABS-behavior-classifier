@@ -8,8 +8,8 @@ import pytest
 try:
     from PySide6.QtWidgets import QApplication  # noqa: F401
 
+    from jabs.pose_drawing import draw_identity_pose, native_pose_sizes
     from jabs.pose_estimation import PoseEstimation
-    from jabs.ui.player_widget.pose_drawing import draw_identity_pose, native_pose_sizes
 
     SKIP_UI_TESTS = False
     SKIP_REASON = ""

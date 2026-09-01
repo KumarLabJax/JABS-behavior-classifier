@@ -318,17 +318,19 @@ class MainWindow(QtWidgets.QMainWindow):
         safe to enable the action whenever playing is False and a video is loaded.
         """
         # noinspection PyProtectedMember
-        self._menu_refs.export_frame.setEnabled(
-            not playing and self._central_widget._player_widget.num_frames > 0
-        )
+        can_export = not playing and self._central_widget._player_widget.num_frames > 0
+        self._menu_refs.export_frame.setEnabled(can_export)
+        self._menu_refs.export_overlay_video.setEnabled(can_export)
 
     def _video_list_selection(self, filename: str) -> None:
         """handle a click on a new video in the list loaded into the main window dock"""
         try:
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
             self._menu_refs.export_frame.setEnabled(True)
+            self._menu_refs.export_overlay_video.setEnabled(True)
         except OSError as e:
             self._menu_refs.export_frame.setEnabled(False)
+            self._menu_refs.export_overlay_video.setEnabled(False)
             self.display_status_message(f"Unable to load video: {e}")
             self._project_load_error_callback(e)
 
@@ -343,6 +345,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update which controls should be available
         self._menu_refs.export_frame.setEnabled(False)
+        self._menu_refs.export_overlay_video.setEnabled(False)
         self._menu_refs.archive_behavior.setEnabled(True)
         self._menu_refs.prune_action.setEnabled(True)
         self._menu_refs.settings_action.setEnabled(True)

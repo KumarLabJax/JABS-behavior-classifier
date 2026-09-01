@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QProgressDialog
 
 from jabs.core.constants import FINAL_TRAIN_SEED
 from jabs.core.enums import ClassifierMode, PredictionType
+from jabs.pose_estimation import PoseEstimationV6
 from jabs.utils import check_for_update
 
 from ..behavior_timeline import BehaviorTimelineWidget
@@ -38,6 +39,7 @@ from ..settings_dialog import (
     ProjectSettingsDialog,
 )
 from ..util import send_file_to_recycle_bin
+from ..video_export_thread import VideoExportThread
 from .constants import USE_NATIVE_FILE_DIALOG
 
 if TYPE_CHECKING:
@@ -47,6 +49,8 @@ if TYPE_CHECKING:
 _SETTINGS_EXPORT_FRAME_DIR = "ui/save_frame_last_dir"
 # Remembers whether the "also save overlay copy" checkbox was last checked.
 _SETTINGS_EXPORT_OVERLAY = "ui/save_frame_overlay_copy"
+_SETTINGS_EXPORT_VIDEO_DIR = "ui/export_overlay_video_last_dir"
+_SETTINGS_EXPORT_VIDEO_SEGMENTATION = "ui/export_overlay_video_segmentation"
 
 
 class UpdateCheckThread(QtCore.QThread):
@@ -82,6 +86,7 @@ class MenuHandlers:
         """
         self.window = main_window
         self._export_thread: ExportTrainingDataThread | None = None
+        self._video_export_thread: VideoExportThread | None = None
         self._export_progress_dialog: QProgressDialog | None = None
 
     # ========== File Menu Handlers ==========
@@ -183,6 +188,131 @@ class MenuHandlers:
         if overlay_saved:
             status += " (+ overlay copy)"
         self.window.display_status_message(status, 5000)
+
+    def export_overlay_video(self) -> None:
+        """Export a copy of the current video with the pose overlay drawn on every frame.
+
+        Opens a save dialog with a checkbox controlling whether segmentation contours
+        are included alongside the pose skeleton (pose is always drawn). The export
+        runs in a background thread with a cancelable progress dialog, since a
+        full-length video takes a while. The chosen directory and checkbox state are
+        remembered in QSettings.
+        """
+        # noinspection PyProtectedMember
+        player = self.window._central_widget._player_widget
+        video_path = player.current_video_path
+        pose_est = player.pose_est
+        if video_path is None or pose_est is None:
+            MessageDialog.warning(self.window, message="No video loaded to export.")
+            return
+
+        # A checkbox is added below, which native OS dialogs cannot host.
+        dialog = QtWidgets.QFileDialog(self.window, "Export Video with Pose Overlay")
+        dialog.setOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
+        dialog.setNameFilter("MP4 Video (*.mp4)")
+        dialog.setDefaultSuffix("mp4")
+        last_dir = self.window._settings.value(_SETTINGS_EXPORT_VIDEO_DIR, "", type=str)
+        if last_dir and Path(last_dir).is_dir():
+            dialog.setDirectory(last_dir)
+        dialog.selectFile(f"{video_path.stem}_overlay.mp4")
+
+        segmentation_checkbox = QtWidgets.QCheckBox("Include segmentation contours")
+        segmentation_checkbox.setChecked(
+            self.window._settings.value(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, True, type=bool)
+        )
+        # Segmentation needs a v6+ pose file *and* that file to actually contain
+        # segmentation data, which is optional even in v6+. Leave the box visible but
+        # inert otherwise, so its absence is explained rather than mysterious - and so
+        # nobody ticks it, waits out a full export, and gets no contours.
+        if not getattr(pose_est, "has_segmentation", False):
+            reason = (
+                "this pose file was generated without it"
+                if isinstance(pose_est, PoseEstimationV6)
+                else "requires pose version 6 or newer"
+            )
+            segmentation_checkbox.setChecked(False)
+            segmentation_checkbox.setEnabled(False)
+            segmentation_checkbox.setToolTip(f"No segmentation data available: {reason}")
+        layout = dialog.layout()
+        if isinstance(layout, QtWidgets.QGridLayout):
+            layout.addWidget(segmentation_checkbox, layout.rowCount(), 0, 1, layout.columnCount())
+
+        if dialog.exec() != QtWidgets.QFileDialog.DialogCode.Accepted:
+            return  # user cancelled
+        selected_files = dialog.selectedFiles()
+        if not selected_files:
+            return
+
+        output_path = Path(selected_files[0])
+        if output_path.suffix.lower() != ".mp4":
+            # Append rather than with_suffix(): with_suffix replaces whatever follows
+            # the last dot, so "session_2024.09.01" would silently become
+            # "session_2024.09.mp4". Never rewrite the name the user typed.
+            output_path = output_path.with_name(output_path.name + ".mp4")
+        draw_segmentation = segmentation_checkbox.isChecked()
+
+        self.window._settings.setValue(_SETTINGS_EXPORT_VIDEO_DIR, str(output_path.parent))
+        if segmentation_checkbox.isEnabled():
+            self.window._settings.setValue(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, draw_segmentation)
+
+        self._video_export_thread = VideoExportThread(
+            video_path, output_path, pose_est, draw_segmentation, parent=self.window
+        )
+        # A plain QProgressDialog rather than the cancelable dialog used for training
+        # and classification: those must not be dismissable because they mutate project
+        # state, whereas cancelling an export just stops writing one file. This one
+        # auto-closes at 100% and treats the window close button as cancel, which is
+        # what a user expects from an export.
+        progress = QtWidgets.QProgressDialog(
+            f"Exporting {output_path.name}", "Cancel", 0, player.num_frames, self.window
+        )
+        progress.setWindowTitle("Export Video")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)  # show immediately
+        progress.setValue(0)
+
+        def cleanup() -> None:
+            # Dialog and status only. The thread deletes itself from its own
+            # `finished` signal below: these callbacks run while `run()` is still
+            # on the stack, and destroying a QThread that has not finished aborts.
+            # close() rather than hide(): unlike CustomProgressDialog, QProgressDialog
+            # honours it. Harmless if the dialog already auto-closed at 100%.
+            progress.close()
+            progress.deleteLater()
+
+        def on_complete(frames_written: int) -> None:
+            cleanup()
+            self.window.display_status_message(
+                f"Exported {frames_written:,} frames to {output_path}", 5000
+            )
+
+        def on_cancelled() -> None:
+            cleanup()
+            self.window.display_status_message("Video export cancelled", 5000)
+
+        def on_error(error: Exception) -> None:
+            cleanup()
+            MessageDialog.error(
+                self.window,
+                title="Video Export Failed",
+                message=f"Unable to export the overlay video to:\n{output_path}",
+                details=f"{type(error).__name__}: {error}",
+            )
+
+        def release_thread() -> None:
+            """Drop our reference once the thread has actually finished."""
+            self._video_export_thread = None
+
+        self._video_export_thread.finished.connect(self._video_export_thread.deleteLater)
+        self._video_export_thread.finished.connect(release_thread)
+        self._video_export_thread.update_progress.connect(progress.setValue)
+        self._video_export_thread.export_complete.connect(on_complete)
+        self._video_export_thread.export_cancelled.connect(on_cancelled)
+        self._video_export_thread.error_callback.connect(on_error)
+        progress.canceled.connect(self._video_export_thread.request_termination)
+        progress.show()
+        self._video_export_thread.start()
 
     def export_training_data(self) -> None:
         """Export training data for the current classifier in a background thread."""

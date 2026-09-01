@@ -244,3 +244,154 @@ def test_handle_select_current_bout_delegates_to_central_widget():
     handler = MenuHandlers(window)
     handler.handle_select_current_bout()
     central.select_current_bout.assert_called_once_with()
+
+
+# --- export_overlay_video -------------------------------------------------------
+
+
+class _FakeV6Pose:
+    """Stands in for a v6+ pose object, with segmentation optionally present."""
+
+    def __init__(self, has_segmentation: bool) -> None:
+        self.has_segmentation = has_segmentation
+
+
+@pytest.fixture
+def video_export_setup(handler_setup, monkeypatch):
+    """Handler wired for export_overlay_video, with the thread class replaced.
+
+    Returns ``(handlers, window, player, thread_cls, thread)`` where ``thread`` is
+    the instance the handler constructed.
+    """
+    handlers, window, player = handler_setup
+    player.pose_est = _FakeV6Pose(has_segmentation=True)
+    player.num_frames = 100
+    player.current_video_path = Path("/videos/clip.avi")
+
+    thread = MagicMock()
+    thread_cls = MagicMock(return_value=thread)
+    monkeypatch.setattr(menu_handlers_module, "VideoExportThread", thread_cls)
+    monkeypatch.setattr(menu_handlers_module.QtWidgets, "QProgressDialog", MagicMock())
+    return handlers, window, player, thread_cls, thread
+
+
+def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup, monkeypatch):
+    """The selected path, pose object and segmentation choice reach the thread."""
+    handlers, _window, player, thread_cls, thread = video_export_setup
+    _patch_export_dialog(monkeypatch, selected=("/tmp/out.mp4",), overlay_checked=True)
+
+    handlers.export_overlay_video()
+
+    args = thread_cls.call_args.args
+    assert args[0] == player.current_video_path
+    assert args[1] == Path("/tmp/out.mp4")
+    assert args[2] is player.pose_est
+    assert args[3] is True  # draw_segmentation
+    thread.start.assert_called_once()
+
+
+def test_export_overlay_video_appends_extension(video_export_setup, monkeypatch):
+    """A filename without .mp4 still produces an mp4 path."""
+    handlers, _window, _player, thread_cls, _thread = video_export_setup
+    _patch_export_dialog(monkeypatch, selected=("/tmp/no_extension",))
+
+    handlers.export_overlay_video()
+
+    assert thread_cls.call_args.args[1] == Path("/tmp/no_extension.mp4")
+
+
+def test_export_overlay_video_cancelled_dialog_starts_nothing(video_export_setup, monkeypatch):
+    """Dismissing the save dialog must not start an export."""
+    handlers, _window, _player, thread_cls, _thread = video_export_setup
+    _patch_export_dialog(monkeypatch, accepted=False)
+
+    handlers.export_overlay_video()
+
+    thread_cls.assert_not_called()
+
+
+def test_export_overlay_video_without_video_warns(handler_setup, monkeypatch):
+    """No loaded video is a warning, not a crash."""
+    handlers, _window, player = handler_setup
+    player.pose_est = None
+    player.current_video_path = None
+    warning = MagicMock()
+    monkeypatch.setattr(menu_handlers_module.MessageDialog, "warning", warning)
+
+    handlers.export_overlay_video()
+
+    warning.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("has_segmentation", "expect_enabled"),
+    [(True, True), (False, False)],
+    ids=["v6-with-segmentation", "v6-without-segmentation"],
+)
+def test_export_overlay_video_checkbox_reflects_segmentation_availability(
+    video_export_setup, monkeypatch, has_segmentation: bool, expect_enabled: bool
+):
+    """Segmentation is optional even in v6+, so the box tracks the data, not the version."""
+    handlers, _window, player, _thread_cls, _thread = video_export_setup
+    player.pose_est = _FakeV6Pose(has_segmentation=has_segmentation)
+
+    fake_qfiledialog = MagicMock()
+    dialog = fake_qfiledialog.return_value
+    dialog.exec.return_value = fake_qfiledialog.DialogCode.Accepted
+    dialog.selectedFiles.return_value = ["/tmp/out.mp4"]
+    dialog.layout.return_value = None
+    monkeypatch.setattr(menu_handlers_module.QtWidgets, "QFileDialog", fake_qfiledialog)
+    checkbox = MagicMock()
+    checkbox.isChecked.return_value = has_segmentation
+    monkeypatch.setattr(
+        menu_handlers_module.QtWidgets, "QCheckBox", MagicMock(return_value=checkbox)
+    )
+
+    handlers.export_overlay_video()
+
+    if expect_enabled:
+        checkbox.setEnabled.assert_not_called()
+    else:
+        checkbox.setEnabled.assert_called_once_with(False)
+        assert "segmentation" in checkbox.setToolTip.call_args.args[0].lower()
+
+
+def test_export_overlay_video_thread_deletes_itself_on_finished(video_export_setup, monkeypatch):
+    """Deletion is driven by `finished`, not by the result callbacks.
+
+    The result callbacks run while ``run()`` is still on the stack; destroying a
+    QThread that has not finished aborts the process.
+    """
+    handlers, _window, _player, _thread_cls, thread = video_export_setup
+    _patch_export_dialog(monkeypatch, selected=("/tmp/out.mp4",))
+
+    handlers.export_overlay_video()
+
+    assert thread.finished.connect.call_count == 2
+    connected = [c.args[0] for c in thread.finished.connect.call_args_list]
+    assert thread.deleteLater in connected, "deleteLater must be driven by finished"
+
+
+def test_export_overlay_video_preserves_dots_in_filenames(video_export_setup, monkeypatch):
+    """A dotted filename must not be rewritten.
+
+    `Path.with_suffix()` replaces everything after the last dot, so a name like
+    `session_2024.09.01` would silently become `session_2024.09.mp4` - writing to a
+    different file than the user asked for.
+    """
+    handlers, _window, _player, thread_cls, _thread = video_export_setup
+    _patch_export_dialog(monkeypatch, selected=("/tmp/session_2024.09.01",))
+
+    handlers.export_overlay_video()
+
+    assert thread_cls.call_args.args[1] == Path("/tmp/session_2024.09.01.mp4")
+
+
+def test_export_overlay_video_leaves_an_mp4_name_alone(video_export_setup, monkeypatch):
+    """A name that already ends in .mp4 is used as-is, not doubled up."""
+    handlers, _window, _player, thread_cls, _thread = video_export_setup
+    _patch_export_dialog(monkeypatch, selected=("/tmp/already.mp4",))
+
+    handlers.export_overlay_video()
+
+    assert thread_cls.call_args.args[1] == Path("/tmp/already.mp4")
