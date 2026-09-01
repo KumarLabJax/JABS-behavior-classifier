@@ -214,7 +214,7 @@ def test_feature_cache_status_without_project():
     assert VideoListDockWidget()._feature_cache_status("a.avi") is None
 
 
-def _visible_videos(widget: VideoListDockWidget):
+def _visible_videos(widget: "VideoListDockWidget"):
     """Return the video names of the rows currently visible in the list."""
     file_list = widget._file_list
     return [
