@@ -206,8 +206,10 @@ class VideoListDockWidget(QtWidgets.QDockWidget):
             is_hidden = text not in item.text().lower()
 
             # if the current item is being filtered out, deselect it to
-            # avoid Qt accessibility error messages in the console
-            if current_item and item == current_item:
+            # avoid Qt accessibility error messages in the console. A current
+            # item that still matches the filter keeps its selection, so typing
+            # in the filter box does not cost the user their place in the list.
+            if is_hidden and item == current_item:
                 # suppress selection event to avoid updating the UI -- the current
                 # video will still be displayed in the player widget until the user selects a new one
                 self._suppress_selection_event = True
