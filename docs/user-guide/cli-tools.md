@@ -155,7 +155,7 @@ jabs-cli export-video [OPTIONS] <video_path>
 - `<video_path>`: Path to the video to render. Required.
 - `--output`, `-o`: Output video path. Defaults to `<video>_overlay.mp4` beside the source video.
 - `--pose-file`: Pose file to use. Defaults to the highest-version `_pose_est_v*.h5` file found beside the video.
-- `--segmentation` / `--no-segmentation`: Whether to include segmentation contours alongside the pose skeleton. Defaults to `--segmentation`. Segmentation requires a version 6 or newer pose file and is ignored otherwise, so `--no-segmentation` is how you get a pose-only video.
+- `--segmentation` / `--no-segmentation`: Whether to include segmentation contours alongside the pose skeleton. Defaults to `--segmentation`. Segmentation needs a pose file that actually contains it: version 6 or newer *and* generated with segmentation, which is optional even in v6+. When the pose file has none, the command reports that and exports the pose overlay only. Use `--no-segmentation` to get a pose-only video from a file that does have it.
 - `--codec`: FourCC codec for the output. Defaults to `mp4v`. `avc1` (H.264) produces smaller files but is absent from some OpenCV builds, in which case the export fails when the writer is opened.
 - `--force`, `-f`: Overwrite the output file if it already exists.
 
