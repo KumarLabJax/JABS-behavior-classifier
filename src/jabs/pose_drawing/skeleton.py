@@ -20,11 +20,32 @@ KEYPOINT_SIZE = 3
 _INACTIVE_KEYPOINT_ALPHA = 96
 
 
+# Frame size the base marker sizes below are calibrated against, taken from 800x800
+# open-field footage where a 3px radius reads well.
+_REFERENCE_FRAME = 800
+_BASE_KEYPOINT_SIZE = 3
+_BASE_LINE_WIDTH = 2
+
+
 def native_pose_sizes(width: int, height: int) -> tuple[int, int]:
     """Return ``(keypoint_size, line_width)`` for drawing pose at native video resolution.
 
-    The marker and line sizes scale with the frame's larger dimension so the overlay
-    stays legible across videos of different resolutions.
+    Markers grow with the frame so the overlay stays legible across resolutions, but
+    they grow *sub-linearly* - as the square root of the frame's larger dimension.
+
+    Scaling linearly (the previous behavior) keeps a marker at a constant fraction of
+    the frame, which sounds right but is not what the eye judges. Measured on real
+    footage: a mouse in 1080p home-cage video is about four times longer in pixels
+    than one in 800x800 open-field video, so linear scaling produced 16px dots that
+    covered the animal, while the same formula gave a well-judged 6px dot on the
+    smaller frame. What reads badly is a marker's absolute size, not its share of the
+    frame.
+
+    Sizing markers from the animal's own extent was considered and rejected: matching
+    the 800x800 proportions (dot diameter around 6% of body length) would make the
+    1080p dots *larger* still, at roughly 24px.
+
+    ``keypoint_size`` is a radius, so a dot's diameter is twice this value.
 
     Args:
         width: Frame width in pixels.
@@ -33,9 +54,9 @@ def native_pose_sizes(width: int, height: int) -> tuple[int, int]:
     Returns:
         Tuple of ``(keypoint_size, line_width)`` in pixels.
     """
-    reference = max(width, height, 1)
-    keypoint_size = max(3, round(reference / 250))
-    line_width = max(2, round(reference / 400))
+    scale = (max(width, height, 1) / _REFERENCE_FRAME) ** 0.5
+    keypoint_size = max(_BASE_KEYPOINT_SIZE, round(_BASE_KEYPOINT_SIZE * scale))
+    line_width = max(_BASE_LINE_WIDTH, round(_BASE_LINE_WIDTH * scale))
     return keypoint_size, line_width
 
 
