@@ -203,7 +203,7 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
   "$id": "https://jabs.jax.org/schema/pose-file/manifest/1",
   "title": "JABS pose file manifest",
   "type": "object",
-  "required": ["format", "schema_revision", "dimensions", "components"],
+  "required": ["format", "schema_revision", "dimensions", "video", "components"],
   "additionalProperties": false,
   "properties": {
     "format": { "const": "jabs.pose-file" },
@@ -298,22 +298,20 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
         },
         {
           "type": "object",
-          "required": ["kind", "values", "instance_offsets"],
+          "required": ["kind", "group_offsets", "instance_offsets"],
           "additionalProperties": false,
           "properties": {
             "kind": { "const": "ragged" },
-            "values": { "$ref": "#/$defs/hdf5Path" },
             "group_offsets": { "$ref": "#/$defs/hdf5Path" },
             "instance_offsets": { "$ref": "#/$defs/hdf5Path" }
           }
         },
         {
           "type": "object",
-          "required": ["kind", "counts", "instance_offsets"],
+          "required": ["kind", "instance_offsets"],
           "additionalProperties": false,
           "properties": {
             "kind": { "const": "rle" },
-            "counts": { "$ref": "#/$defs/hdf5Path" },
             "instance_offsets": { "$ref": "#/$defs/hdf5Path" },
             "order": { "enum": ["column-major", "row-major"] }
           }
@@ -336,18 +334,42 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
 
     "sparse": {
       "type": "object",
-      "required": ["axis", "index"],
+      "required": ["index"],
+      "additionalProperties": false,
+      "properties": { "index": { "$ref": "#/$defs/componentId" } }
+    },
+
+    "layout": {
+      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "axis": { "type": "string" },
-        "index": { "$ref": "#/$defs/componentId" }
+        "storage": { "enum": ["contiguous", "chunked"] },
+        "chunks": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "compression": { "enum": ["none", "gzip", "lzf", "szip"] },
+        "compression_opts": { "type": ["integer", "null"] }
       }
     },
 
     "component": {
       "type": "object",
-      "required": ["id", "path", "axes", "dtype", "shape", "encoding"],
+      "required": ["id", "path", "axes", "dtype", "shape", "encoding", "missing"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["axes"],
+            "properties": { "axes": { "contains": { "const": "coord" } } }
+          },
+          "then": { "required": ["units", "coord_order"] }
+        },
+        {
+          "if": {
+            "required": ["axes"],
+            "properties": { "axes": { "contains": { "const": "sample" } } }
+          },
+          "then": { "required": ["sparse"] }
+        }
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/componentId" },
         "path": { "$ref": "#/$defs/hdf5Path" },
@@ -359,6 +381,7 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
         "encoding": { "$ref": "#/$defs/encoding" },
         "missing": { "$ref": "#/$defs/missing" },
         "sparse": { "$ref": "#/$defs/sparse" },
+        "layout": { "$ref": "#/$defs/layout" },
         "skeleton": { "$ref": "#/$defs/componentId" },
         "provenance": { "type": "string" },
         "description": { "type": "string" },
@@ -390,7 +413,8 @@ point, and it is why `additionalProperties` can safely be `false` everywhere els
 
 | axis | meaning |
 |---|---|
-| `frame` | video frame index, or the sample index when the component is sparse along `frame` |
+| `frame` | video frame index; an axis named `frame` **always** has length `dimensions.frame` |
+| `sample` | index into a sparse component's own samples; its mapping to frames is `sparse.index` |
 | `slot` | instance slot; slot *k* is identity *k* for *k* < `dimensions.identity` |
 | `identity` | assigned identity, used by per-identity arrays that have no frame axis |
 | `keypoint` | index into the referenced skeleton's `body_parts` |
@@ -402,9 +426,14 @@ point, and it is why `additionalProperties` can safely be `false` everywhere els
 | `embedding` | identity-embedding dimension |
 | `run` | a run in an RLE encoding |
 
-A foreign component may introduce its own axis names. Tooling that subsets along `frame` operates
-on any component whose `axes` contains `frame`, regardless of namespace — which is what makes
-extensions survive clipping.
+A foreign component may introduce its own axis names. Tooling that subsets a frame range operates
+on any component whose `axes` contains `frame` (slice the axis) or `sample` (filter the samples
+whose `sparse.index` value falls in range, and rewrite the index), regardless of namespace — which
+is what makes extensions survive clipping.
+
+`frame` and `sample` are deliberately distinct. A sparse component's data axis is `sample`, and the
+index component that maps samples to frame numbers has axes `["sample"]` with `units: "frame"` — it
+holds frame *numbers*, not per-frame values, so slicing it by a frame range would be meaningless.
 
 ### Dimensions
 
@@ -418,7 +447,13 @@ Slots `[0, identity)` are the assigned identities, in identity order. Slots
 `[identity, slot)` hold **unassigned instances** — detections that pose inference produced but
 identity resolution could not assign. There is no sentinel and no separate "unassigned" marker: a
 slot's meaning is its index, and whether anything is in it on a given frame is
-`jabs.pose.identity_present`.
+`jabs.pose.slot_occupied`.
+
+The occupancy mask is named for the slot rather than the identity on purpose. A tail slot never
+holds an identity, so a mask called `identity_present` would be asserting something false about
+exactly the slots that motivated keeping them. **`slot_occupied` is defined as: pose inference
+placed an instance in this slot on this frame.** It is a statement about detection, not about
+quality — it says nothing about how many keypoints were localized or how confident they were.
 
 ### Skeletons
 
@@ -465,18 +500,32 @@ anyone using the reference library.
 | `ragged` | — | two-level CSR, see below |
 | `rle` | — | run-length masks; loses contour hierarchy |
 
-**Ragged.** `values` holds all leaf items concatenated. `group_offsets` is a CSR index into
-`values`; `instance_offsets` is a CSR index into `group_offsets`, in row-major `(frame, slot)`
-order. Group *g* spans `values[group_offsets[g] : group_offsets[g+1]]`; instance *(f, s)* owns
-groups `group_offsets[instance_offsets[f*S + s] : instance_offsets[f*S + s + 1]]`. Both offset
-arrays are `uint64` and have one trailing element. No cap on group count or group length exists.
+**The payload always lives at the component's `path`**, whatever the encoding. `dtype` and `shape`
+describe that dataset. An encoding object names only its *index* datasets, never the payload — so
+there is exactly one place a validator looks for a component's data.
 
-**RLE.** `counts` holds concatenated run lengths in the given `order` (default `column-major`, the
-COCO convention); `instance_offsets` is a `uint64` CSR index into `counts` in row-major
-`(frame, slot)` order. Mask dimensions come from `video.width` / `video.height`, which must
-therefore be non-null for a file using this encoding.
+**Ragged.** The payload at `path` holds all leaf items concatenated. `group_offsets` is a CSR index
+into the payload; `instance_offsets` is a CSR index into `group_offsets`, in row-major
+`(frame, slot)` order. Decoding, precisely:
 
-### Component catalogue
+```
+group g          spans payload[group_offsets[g] : group_offsets[g + 1]]
+instance (f, s)  owns groups g for g in [instance_offsets[f*S + s], instance_offsets[f*S + s + 1])
+```
+
+Note the index spaces: `instance_offsets` holds **group indices**, and `group_offsets` holds
+**payload indices**. Applying `group_offsets[...]` to an instance's group range would yield payload
+offsets, not the groups themselves — a formula that reads naturally and decodes wrongly, so it is
+spelled out here. Both offset arrays are `uint64` and carry one trailing element:
+`len(group_offsets) == num_groups + 1` and `len(instance_offsets) == F*S + 1`. No cap on group
+count or group length exists.
+
+**RLE.** The payload at `path` holds concatenated run lengths in the given `order` (default
+`column-major`, the COCO convention); `instance_offsets` is a `uint64` CSR index into it, in
+row-major `(frame, slot)` order, with `len(instance_offsets) == F*S + 1`. Mask dimensions come from
+`video.width` / `video.height`, which must therefore be non-null for a file using this encoding.
+
+### Component catalog
 
 Shapes use `F` = frames, `S` = slots, `I` = identities, `K` = keypoints, `E` = embedding
 dimension. Every component below is optional.
@@ -488,9 +537,10 @@ dimension. Every component below is optional.
 | `jabs.pose.points` | `/jabs/pose/points` | frame, slot, keypoint, coord | F×S×K×2 | float32 | pixel | `nan` |
 | `jabs.pose.confidence` | `/jabs/pose/confidence` | frame, slot, keypoint | F×S×K | float32 | unitless | `none` |
 | `jabs.pose.point_valid` | `/jabs/pose/point_valid` | frame, slot, keypoint | F×S×K | bool | — | `none` |
-| `jabs.pose.identity_present` | `/jabs/pose/identity_present` | frame, slot | F×S | bool | — | `none` |
-| `jabs.pose.bbox` | `/jabs/pose/bbox` | frame, slot, corner, coord | F×S×2×2 | float32 | pixel | mask → `identity_present` |
-| `jabs.pose.tracklet_id` | `/jabs/pose/tracklet_id` | frame, slot | F×S | uint32 | — | mask → `identity_present` |
+| `jabs.pose.slot_occupied` | `/jabs/pose/slot_occupied` | frame, slot | F×S | bool | — | `none` |
+| `jabs.pose.slot_usable` | `/jabs/pose/slot_usable` | frame, slot | F×S | bool | — | `none` |
+| `jabs.pose.bbox` | `/jabs/pose/bbox` | frame, slot, corner, coord | F×S×2×2 | float32 | pixel | mask → `slot_occupied` |
+| `jabs.pose.tracklet_id` | `/jabs/pose/tracklet_id` | frame, slot | F×S | uint32 | — | mask → `slot_occupied` |
 
 `points` uses `coord_order: "xy"` and carries a `skeleton` reference. `point_valid` is the
 producer's recommendation; the threshold that produced it is recorded in that component's
@@ -501,12 +551,35 @@ provenance as `parameters.confidence_threshold`. A consumer may ignore the mask 
 breaks. This invariant is **normative** here rather than a footnote in a producer document, because
 JABS depends on it.
 
+**`slot_usable` is a declared quality gate, and it is not `slot_occupied`.** JABS today computes
+`identity_mask` as `sum(point_mask[..., :-2]) >= 3` (`pose_est_v4.py:159-172`) — at least three
+keypoints above `MINIMUM_CONFIDENCE`, excluding `MID_TAIL` and `TIP_TAIL`, because the convex hull
+needs three points. That is a *consumer requirement*, not a property of the data: it becomes
+`_frame_valid` in `features.py:335`, gates centroid velocity, lixit and every window operation, and
+forces labels to `NONE` where false (`parallel_workers.py:352`), which decides what is trainable.
+
+Three frame states make the difference concrete — an instance is present, and JABS still treats the
+frame as unusable:
+
+| frame state | `slot_occupied` | `slot_usable` |
+|---|---|---|
+| 2 confident body keypoints | true | false |
+| 5 body keypoints, all confidence 0.2 | true | false |
+| tail keypoints only, high confidence | true | false |
+
+So the two masks are both present and neither substitutes for the other. `slot_usable` is optional;
+its rule is declared in provenance as `parameters` — `confidence_threshold`, `min_valid_keypoints`
+and `excluded_keypoints` — which is the same argument this ADR makes about `MINIMUM_CONFIDENCE`
+being silently re-derived by every consumer. A consumer that disagrees with the producer's rule can
+recompute from `confidence` and knows exactly what it is departing from. A consumer reading a file
+where it is absent derives it itself.
+
 #### `jabs.identity`
 
 | id | path | axes | shape | dtype | notes |
 |---|---|---|---|---|---|
 | `jabs.identity.embeddings` | `/jabs/identity/embeddings` | frame, slot, embedding | F×S×E | float32 | per-instance identity embedding |
-| `jabs.identity.centers` | `/jabs/identity/centers` | identity, embedding | I×E | float32 | cluster centre per identity; used for cross-video linking |
+| `jabs.identity.centers` | `/jabs/identity/centers` | identity, embedding | I×E | float32 | cluster center per identity; used for cross-video linking |
 | `jabs.identity.external_ids` | `/jabs/identity/external_ids` | identity | I | string | optional display names |
 
 `jabs.identity.centers` replaces `poseest/instance_id_center`. It is the component
@@ -528,11 +601,11 @@ Note what changed even in the dense case: validity comes from `contour_count` an
 `contour_length`, **not** from `-1` padding. Padding bytes become unspecified rather than
 meaningful, which is what brings the dense encoding into line with design goal 11.
 
-Under the ragged encoding, `jabs.segmentation.contours` has `axes: ["point", "coord"]` with
-`values` = `/jabs/segmentation/points`, `group_offsets` = `/jabs/segmentation/contour_offsets`,
-`instance_offsets` = `/jabs/segmentation/instance_offsets`, and `external_flag` becomes a flat
-`contour`-axis array. `contour_count` and `contour_length` are then derivable from the offsets and
-must be omitted.
+Under the ragged encoding, `jabs.segmentation.contours` has `axes: ["point", "coord"]` and its
+`path` holds the concatenated contour points; `group_offsets` is
+`/jabs/segmentation/contour_offsets` and `instance_offsets` is
+`/jabs/segmentation/instance_offsets`. `external_flag` becomes a flat `contour`-axis array.
+`contour_count` and `contour_length` are then derivable from the offsets and must be omitted.
 
 There is no `instance_seg_id` and no `longterm_seg_id`. Segmentation is indexed by the same
 `(frame, slot)` as pose, so the pose↔segmentation link **is** the slot, and the matching step those
@@ -554,14 +627,16 @@ form a valid polygon — both stated in the component's `description`.
 Objects predicted on a subset of frames. `jabs.dynamic_objects.<name>.*` at
 `/jabs/dynamic_objects/<name>/`:
 
-| id suffix | axes | shape | dtype | notes |
-|---|---|---|---|---|
-| `.frame_index` | frame | M | uint32 | the frames on which a prediction was made, strictly increasing |
-| `.points` | frame, object, point, coord | M×O×P×2 | float32 | `sparse.index` → `.frame_index` |
-| `.counts` | frame | M | uint32 | valid object count per sample |
+| id suffix | axes | shape | dtype | units | notes |
+|---|---|---|---|---|---|
+| `.frame_index` | sample | M | uint32 | frame | the frames on which a prediction was made, strictly increasing |
+| `.points` | sample, object, point, coord | M×O×P×2 | float32 | pixel | `sparse.index` → `.frame_index` |
+| `.counts` | sample | M | uint32 | unitless | valid object count per sample |
 
-`points` and `counts` declare `sparse: {"axis": "frame", "index": "<name>.frame_index"}`. Their
-`frame` axis has length M, the number of samples — not F. This generalizes
+All three use the `sample` axis, not `frame`, and `.points` / `.counts` declare
+`sparse: {"index": "<name>.frame_index"}`. `.frame_index` is itself a `sample`-axis component whose
+`units` are `frame` — it holds frame numbers. Keeping these axes distinct is what stops a generic
+clip tool from slicing an index array as though it were one value per video frame. This generalizes
 `dynamic_objects/*/sample_indices` into the mechanism any component may use, which is how the
 format expresses "not predicted" without padding.
 
@@ -614,6 +689,7 @@ so a producer that knows frames were dropped can say so, instead of every consum
       "units": "pixel", "coord_order": "xy",
       "encoding": { "kind": "dense" },
       "missing": { "policy": "nan" },
+      "layout": { "storage": "contiguous", "compression": "none" },
       "skeleton": "jabs.mouse12",
       "provenance": "jabs.pose" },
 
@@ -629,11 +705,17 @@ so a producer that knows frames were dropped can say so, instead of every consum
       "encoding": { "kind": "dense" }, "missing": { "policy": "none" },
       "provenance": "jabs.pose" },
 
-    { "id": "jabs.pose.identity_present", "path": "/jabs/pose/identity_present",
+    { "id": "jabs.pose.slot_occupied", "path": "/jabs/pose/slot_occupied",
       "axes": ["frame", "slot"],
       "dtype": "bool", "shape": [108150, 4],
       "encoding": { "kind": "dense" }, "missing": { "policy": "none" },
-      "provenance": "jabs.identity" },
+      "provenance": "jabs.pose" },
+
+    { "id": "jabs.pose.slot_usable", "path": "/jabs/pose/slot_usable",
+      "axes": ["frame", "slot"],
+      "dtype": "bool", "shape": [108150, 4],
+      "encoding": { "kind": "dense" }, "missing": { "policy": "none" },
+      "provenance": "jabs.pose.slot_usable" },
 
     { "id": "jabs.identity.centers", "path": "/jabs/identity/centers",
       "axes": ["identity", "embedding"],
@@ -671,6 +753,17 @@ identifier that components reference, and `history`, an ordered list.
       "created": "2026-03-07T02:31:02Z",
       "algorithm": { "name": "embedding-cluster", "tracklet_stitch": "greedy" },
       "parameters": { "recycle_instance_ids": true }
+    },
+    "jabs.pose.slot_usable": {
+      "producer": "jabs-io",
+      "version": "0.9.0",
+      "created": "2026-08-26T14:02:11Z",
+      "algorithm": { "name": "min-confident-keypoints" },
+      "parameters": {
+        "confidence_threshold": 0.3,
+        "min_valid_keypoints": 3,
+        "excluded_keypoints": ["MID_TAIL", "TIP_TAIL"]
+      }
     }
   },
   "history": [
@@ -685,7 +778,92 @@ identifier that components reference, and `history`, an ordered list.
 }
 ```
 
-`model.uri` should be resolvable — an MLflow run or registry reference — but is never required.
+#### JSON Schema
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jabs.jax.org/schema/pose-file/provenance/1",
+  "title": "JABS pose file provenance",
+  "type": "object",
+  "required": ["records", "history"],
+  "additionalProperties": false,
+  "properties": {
+    "records": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/record" }
+    },
+    "history": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/historyEntry" }
+    },
+    "extra": { "type": "object" }
+  },
+
+  "$defs": {
+    "reference": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string" },
+        "git_commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "record": {
+      "type": "object",
+      "required": ["producer", "version", "created"],
+      "additionalProperties": false,
+      "properties": {
+        "producer": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "created": { "type": "string", "format": "date-time" },
+        "model": { "$ref": "#/$defs/reference" },
+        "algorithm": { "$ref": "#/$defs/reference" },
+        "parameters": { "type": "object" },
+        "extra": { "type": "object" }
+      }
+    },
+    "historyEntry": {
+      "type": "object",
+      "required": ["operation", "tool", "version", "time"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": { "enum": ["infer", "convert", "clip", "merge", "annotate"] },
+        "tool": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "time": { "type": "string", "format": "date-time" },
+        "source": {
+          "type": "object",
+          "properties": {
+            "format": { "type": "string" },
+            "content_hash": { "type": ["string", "null"] },
+            "filename": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "synthesized": { "type": "array", "items": { "type": "string" } },
+        "dropped": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" },
+        "extra": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "convert" } },
+                  "required": ["operation"] },
+          "then": { "required": ["source", "synthesized"] }
+        }
+      ]
+    }
+  }
+}
+```
+
+`model.uri` should be resolvable — an MLflow run or registry reference — but is never required. The
+`convert` conditional is what makes design goal 5 enforceable rather than aspirational: a converted
+file cannot validate without saying where it came from and what was invented.
 
 `synthesized` is **required on any `convert` entry** and lists what the converter had to invent
 rather than read. This is what keeps design goal 5 honest: a converted file must be
@@ -716,27 +894,33 @@ Anything that needs to survive subsetting correctly should be a first-class comp
 |---|---|
 | root attributes present, `jabs_format` correct | error |
 | `/manifest` parses and validates against the JSON Schema | error |
-| `/provenance` parses and validates | error |
-| every component `path` exists in the file | error |
-| declared `dtype` and `shape` match the actual dataset | error |
+| `/provenance` parses and validates against the provenance JSON Schema | error |
+| every component `path` exists in the file and holds that component's payload | error |
+| declared `dtype` and `shape` match the dataset at `path` | error |
 | `len(axes) == len(shape)` | error |
 | a `mask` or `length` reference resolves to an existing component with a compatible shape | error |
-| `sparse.index` component exists, is 1-D, strictly increasing, and within `[0, frame_count)` | error |
-| ragged offsets are non-decreasing, start at 0, and end at the length of the array they index | error |
+| a component with a `sample` axis declares `sparse`, and vice versa | error |
+| `sparse.index` resolves to a 1-D `sample`-axis component, strictly increasing, within `[0, video.frame_count)` | error |
+| `sparse.index` length equals the `sample`-axis length of every component referencing it | error |
+| ragged `group_offsets` is non-decreasing, starts at 0, ends at `shape[0]` of the payload, length `num_groups + 1` | error |
+| ragged/RLE `instance_offsets` is non-decreasing, starts at 0, has length `frame*slot + 1`, and ends at `len(group_offsets) - 1` (ragged) or `shape[0]` of the payload (RLE) | error |
+| every component `provenance` id resolves to a record in `/provenance` | error |
+| a component whose `axes` contain `coord` declares `units` and `coord_order` | error |
+| an RLE component's file has non-null `video.width` and `video.height` | error |
 | `skeleton` references resolve; every edge index `< len(body_parts)` | error |
 | every keypoint component's `keypoint` axis length equals its skeleton's `body_parts` length | error |
 | `dimensions.identity <= dimensions.slot` | error |
 | component ids are unique and namespace-well-formed | error |
 | a non-`jabs` namespace has a reverse-DNS root of ≥2 segments | error |
 | `video.width` / `video.height` non-null | warning |
-| a `convert` history entry has a `synthesized` list | warning |
+| declared `layout` matches the dataset's actual HDF5 storage and filters | warning |
 | an `/attachments` member has no manifest entry | warning |
 
 **Conformance fixtures ship with the specification** in `packages/jabs-io/tests/data/pose-format/`:
 a minimal valid file, one file per defined encoding, one with a sparse component, one with a
 foreign component and an attachment, and a set of deliberately invalid files, one per error check
 above. Three repositories have independently reimplemented the identity scatter; fixtures are the
-cheapest available defence against a fourth.
+cheapest available defense against a fourth.
 
 ## Consequences
 
@@ -744,22 +928,43 @@ cheapest available defence against a fourth.
 
 | component scale | layout | rationale |
 |---|---|---|
-| keypoint-scale — points, confidence, masks, identity, bbox | chunked along `frame` in time-sized chunks (≈1,800 frames), **uncompressed** | a time window becomes one contiguous byte range; these arrays are ≤ ~48 MB at the worst realistic size, so compression buys little and costs the access pattern |
+| keypoint-scale — points, confidence, masks, identity, bbox | **contiguous, uncompressed** where the frame count is known at write time; otherwise chunked along `frame` in time-sized chunks (≈1,800 frames), uncompressed | contiguous storage is the only layout under which a frame range really is one byte range; these arrays are ≤ ~48 MB at the worst realistic size, so compression buys little and costs the access pattern |
 | segmentation-scale | chunked **and compressed** | the padding is what makes it enormous, and gzip is what removes it |
 
 This is the one place where the format is constrained by a decision made outside this repository.
-The JABS Hub's in-browser pose overlay reads a time window as a single contiguous range; that works
-today only because `points` and `confidence` happen to be contiguous and uncompressed. The policy
-turns an accident into a guarantee. It is a strong recommendation rather than a hard constraint,
-and the manifest records the actual layout, so a reader is never guessing.
+The JABS Hub's in-browser pose overlay reads a frame window as a byte range; that works today only
+because `points` and `confidence` happen to be stored contiguous and uncompressed. The policy turns
+that accident into a stated intent.
+
+**What chunking does and does not guarantee.** HDF5 chunks are individually located and need not be
+adjacent or in order on disk, so a frame window over a *chunked* dataset is **not** one byte range.
+It touches `ceil(w / c) + 1` chunks in the worst case for a window of `w` frames and a chunk of `c`,
+plus chunk-index metadata — bounded read amplification, not a single range. Only *contiguous*
+storage gives the single-range property, which is why it is the recommendation for keypoint-scale
+components whenever the frame count is known when the file is written, as it is for a completed
+inference run.
+
+A component's `layout` field records `storage`, `chunks`, `compression` and `compression_opts`, so a
+reader can tell which case it is in before deciding how to read. That field is advisory metadata
+about the HDF5 layout, and `validate()` warns when it disagrees with the file.
 
 ### What disappears
 
-- The per-video `*_cache.h5` file and `pose_attribute_cache.json` — both memoize transforms the
-  format now performs at write time, and the attributes the JSON cache holds are in the manifest.
+- `pose_attribute_cache.json` — every attribute it memoizes (frame count, identity count, static
+  object names, lixit keypoint count, the `cm_per_pixel` flag) is in the manifest, readable in one
+  small read without opening any array.
 - The identity scatter in `pose_est_v4.py`, the cache writer, and `clip_utils.py`.
+- The per-video `*_cache.h5` file, **with a caveat**. It holds three datasets: `points`,
+  `point_mask` and `identity_mask`. The first two become free. `identity_mask` is a JABS policy no
+  producer computes, so it is either declared as `jabs.pose.slot_usable` or derived at load — and
+  deriving it is cheap: `point_valid[..., :-2].sum(-1) >= 3` over a 108,150-frame 3-identity mask
+  measures **3.2 ms**, against **629 ms** for the current `np.vectorize` + `fromfunction`
+  implementation (199×, identical output). The cache existed for the scatter; this array never
+  needed it.
 - `poseest/instance_seg_id` and `poseest/longterm_seg_id`.
-- `poseest/instance_count`, now the row-sum of `identity_present`.
+- `poseest/instance_count`, now the row-sum of `slot_occupied` — matching that field's documented
+  meaning ("instances containing at least one non-zero keypoint confidence"). Note this is *not*
+  the count JABS uses anywhere; JABS counts usable identities, which is `slot_usable`.
 - `gen_line_fragments`, replaced by edges drawn when both endpoints are valid.
 - Filename version parsing, and the `*_pose_est_v*.h5` glob in `ProjectPaths`.
 - `poseest/instance_embedding`, which no consumer reads.
@@ -769,7 +974,7 @@ and the manifest records the actual layout, so a reader is never guessing.
 | source | conversion |
 |---|---|
 | v4–v8 | scatter to identity-aligned slots once; flip (y,x)→(x,y); derive `point_valid` at confidence > 0.3; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
-| v2 | single animal → one slot; `identity_present` derived from confidence |
+| v2 | single animal → one slot; `slot_occupied` derived from confidence > 0 |
 | v3 | tracklets only: `tracklet_id` populated, `dimensions.identity = 0`, no long-term identity. The file is valid and honest; JABS declines it for identity-requiring work |
 
 Every conversion writes a `convert` history entry naming what it synthesized.
@@ -859,7 +1064,15 @@ it makes one threshold permanent and destroys the ability to re-evaluate it.
 6. **Does identity re-resolution tooling exist, or is it planned?** Retaining unassigned instances
    in tail slots is justified by it. If nothing will ever re-run identity assignment, that is dead
    weight by the same standard this ADR applies to `instance_embedding`.
-7. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
+7. **Should producers be required to write `jabs.pose.slot_usable`, or is deriving it at load the
+   expected path?** It is optional here, which means two consumers can still disagree about which
+   frames are usable — the very problem the component exists to fix. Requiring it pushes a JABS
+   consumer policy onto every producer, including foreign ones.
+8. **Is `slot_usable` the right name?** The review proposed `identity_usable`; this draft renamed it
+   for consistency with `slot_occupied`, since the mask is slot-indexed and tail slots hold no
+   identity. The rule it encodes is really "enough confident non-tail keypoints to compute shape
+   features", which neither name says.
+9. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
    `JABS-postprocess` reads `identity_embeds.attrs["network"]`; this ADR puts it in provenance as
    `model.name`, which is a rename that consumer will have to follow.
 
