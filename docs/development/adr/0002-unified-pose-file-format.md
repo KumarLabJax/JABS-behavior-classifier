@@ -368,6 +368,12 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
             "properties": { "axes": { "contains": { "const": "sample" } } }
           },
           "then": { "required": ["sparse"] }
+        },
+        {
+          "if": { "required": ["sparse"] },
+          "then": {
+            "properties": { "axes": { "contains": { "const": "sample" } } }
+          }
         }
       ],
       "properties": {
@@ -973,7 +979,7 @@ about the HDF5 layout, and `validate()` warns when it disagrees with the file.
 
 | source | conversion |
 |---|---|
-| v4–v8 | scatter to identity-aligned slots once; flip (y,x)→(x,y); derive `point_valid` at confidence > 0.3; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
+| v4–v8 | scatter to identity-aligned slots once; flip (y,x)→(x,y); derive `slot_occupied` from `instance_count` semantics (any keypoint confidence > 0) and `point_valid` at confidence > 0.3; write `jabs.mouse12` explicitly; carry embeddings, centers, tracklets and bbox forward; segmentation as the dense baseline with `contour_count` / `contour_length` computed from the `-1` padding |
 | v2 | single animal → one slot; `slot_occupied` derived from confidence > 0 |
 | v3 | tracklets only: `tracklet_id` populated, `dimensions.identity = 0`, no long-term identity. The file is valid and honest; JABS declines it for identity-requiring work |
 
