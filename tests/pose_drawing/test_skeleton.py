@@ -47,15 +47,32 @@ def _identity_transform(x, y):
 @pytest.mark.parametrize(
     ("width", "height", "expected"),
     [
-        (100, 100, (3, 2)),  # min bounds
-        (800, 600, (3, 2)),
-        (1920, 1080, (8, 5)),
+        (100, 100, (3, 2)),  # below the reference size, so the floors apply
+        (800, 600, (3, 2)),  # larger dimension is 800, so the scale is exactly 1
+        (800, 800, (3, 2)),  # the footage the base sizes are calibrated on
+        (1920, 1080, (5, 3)),
+        (3840, 2160, (7, 4)),
     ],
-    ids=["min", "sd", "hd"],
+    ids=["min", "sd", "reference", "hd", "4k"],
 )
 def test_native_pose_sizes(width, height, expected) -> None:
     """Keypoint/line sizes honor their minimums and scale with resolution."""
     assert native_pose_sizes(width, height) == expected
+
+
+def test_native_pose_sizes_grow_sub_linearly() -> None:
+    """Markers must grow more slowly than the frame.
+
+    Linear growth keeps a marker at a fixed share of the frame, which produced dots
+    heavy enough to cover the animal on high-resolution footage. Quadrupling the
+    frame should grow the marker by less than four times.
+    """
+    base_kp, base_lw = native_pose_sizes(800, 800)
+    quad_kp, quad_lw = native_pose_sizes(3200, 3200)
+
+    assert quad_kp > base_kp, "markers should still grow with resolution"
+    assert quad_kp < base_kp * 4, "growth must be sub-linear"
+    assert quad_lw < base_lw * 4
 
 
 def test_native_pose_sizes_monotonic() -> None:
