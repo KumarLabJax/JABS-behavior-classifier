@@ -169,7 +169,7 @@ def draw_all_contours(img: np.ndarray, seg_data: np.ndarray, color: tuple[int, i
         None
     """
     trimmed_contours = trim_seg_list(seg_data)
-    cv2.drawContours(img, trimmed_contours, -1, color, 2)
+    cv2.drawContours(img, trimmed_contours, -1, color, 1)
 
 
 def overlay_segmentation(

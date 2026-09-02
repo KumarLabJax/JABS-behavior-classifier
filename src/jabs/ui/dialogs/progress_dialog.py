@@ -116,6 +116,17 @@ def create_cancelable_progress_dialog(
     The dialog will be closed by the caller when the task is complete or successfully cancelled.
 
     The dialog will not be shown immediately, it will be up to the caller to call `show()` on the dialog.
+
+    Note:
+        :meth:`CustomProgressDialog.closeEvent` ignores close events so the user cannot
+        dismiss a running task, which also makes ``close()`` a no-op for the *caller*.
+        To take the dialog down, call ``deleteLater()`` (or ``hide()``) as well -
+        ``close()`` on its own leaves it stuck on screen.
+
+        Use this dialog only for tasks that must not be abandoned midway, such as ones
+        that mutate the project. For a self-contained job where cancelling is cheap and
+        safe, a plain ``QProgressDialog`` is a better fit: it auto-closes at 100% and
+        treats the window close button as cancel.
     """
     return CustomProgressDialog(parent, text, steps)
 

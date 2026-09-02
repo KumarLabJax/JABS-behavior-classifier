@@ -118,6 +118,7 @@ Commands:
   convert-to-nwb        Convert a JABS pose HDF5 file to NWB format.
   cross-validation      Run leave-one-group-out cross-validation for a JABS project.
   export-training       Export training data for a specified behavior and JABS project directory.
+  export-video          Export a copy of a video with the JABS pose overlay drawn on every frame.
   merge                 Merge one JABS project into another.
   prune                 Prune unused videos from a JABS project directory.
   rename-behavior       Rename a behavior in a JABS project.
@@ -135,6 +136,41 @@ To get help for a specific command, run:
 ```bash
 jabs-cli <command> --help
 ```
+
+## jabs-cli export-video
+
+The `jabs-cli export-video` command writes a copy of a video with the JABS pose
+overlay drawn on every frame. It is the batch equivalent of the GUI's
+**File→Export Video with Pose Overlay**, and renders with the same code, so the
+output matches what the player shows.
+
+It works on any video and pose file pair and does not need a JABS project.
+
+**Usage:**
+
+```bash
+jabs-cli export-video [OPTIONS] <video_path>
+```
+
+- `<video_path>`: Path to the video to render. Required.
+- `--output`, `-o`: Output video path. Defaults to `<video>_overlay.mp4` beside the source video.
+- `--pose-file`: Pose file to use. Defaults to the highest-version `_pose_est_v*.h5` file found beside the video.
+- `--segmentation` / `--no-segmentation`: Whether to include segmentation contours alongside the pose skeleton. Defaults to `--segmentation`. Segmentation requires a version 6 or newer pose file and is ignored otherwise, so `--no-segmentation` is how you get a pose-only video.
+- `--codec`: FourCC codec for the output. Defaults to `mp4v`. `avc1` (H.264) produces smaller files but is absent from some OpenCV builds, in which case the export fails when the writer is opened.
+- `--force`, `-f`: Overwrite the output file if it already exists.
+
+**Examples:**
+
+```bash
+# pose + segmentation, written to clip_overlay.mp4 beside the source
+jabs-cli export-video /data/videos/clip.avi
+
+# pose only, to a chosen path
+jabs-cli export-video /data/videos/clip.avi -o /tmp/pose_only.mp4 --no-segmentation
+```
+
+Every identity is drawn the same way, at full opacity. Unlike the live player, an
+export has no active identity, so no animal is singled out.
 
 ## jabs-init
 

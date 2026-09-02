@@ -1,11 +1,4 @@
-"""Shared pose-skeleton drawing.
-
-Both the on-screen :class:`~jabs.ui.player_widget.overlays.pose_overlay.PoseOverlay`
-(which draws at the scaled/cropped display resolution) and the full-resolution frame
-export use :func:`draw_identity_pose`. The only thing that differs between the two is
-how image coordinates map to the painter's coordinate space, so that mapping is passed
-in as ``to_output``.
-"""
+"""Qt drawing primitives for a single identity's pose skeleton."""
 
 from collections.abc import Callable
 
@@ -14,7 +7,8 @@ from PySide6 import QtCore, QtGui
 
 from jabs.core.utils.pose_util import gen_line_fragments
 from jabs.pose_estimation import PoseEstimation
-from jabs.ui.colors import KEYPOINT_COLOR_MAP
+
+from .colors import KEYPOINT_COLOR_MAP
 
 # Color for the pose line segments (white, semi-transparent).
 LINE_SEGMENT_COLOR = QtGui.QColor(255, 255, 255, 128)
