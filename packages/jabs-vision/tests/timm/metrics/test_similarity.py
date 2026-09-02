@@ -95,6 +95,39 @@ class TestComputeOKS:
         oks_large_area = compute_oks(det, gt_large, sigma)
         assert oks_large_area > oks_small_area
 
+    def test_matches_documented_coco_formula(self) -> None:
+        """OKS equals exp(-d^2 / (2 * k^2 * area)) with k = 2 * sigma.
+
+        Pins the exact value so the exponent denominator cannot silently drift
+        from the COCO convention documented on ``compute_oks``.
+        """
+        bbox = np.array([0.0, 0.0, 10.0, 20.0], dtype=np.float64)  # area = 200
+        gt_kps = np.array([[10.0, 20.0]], dtype=np.float64)
+        det_kps = np.array([[13.0, 24.0]], dtype=np.float64)  # offset (3, 4) -> d = 5
+        sigma = np.array([0.05], dtype=np.float64)
+
+        det = KeypointDetection(keypoints=det_kps, score=0.9, bbox=bbox)
+        gt = KeypointGroundTruth(keypoints=gt_kps, bbox=bbox)
+
+        area = 200.0
+        d_squared = 25.0
+        expected = np.exp(-d_squared / (2 * (2 * sigma[0]) ** 2 * area))
+
+        assert compute_oks(det, gt, sigma) == pytest.approx(expected)
+
+    def test_degenerate_area(self, sigmas: npt.NDArray[np.float64]) -> None:
+        """OKS is 0.0 when the GT bbox has no area."""
+        kps = np.array(
+            [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0], [70.0, 80.0], [90.0, 100.0]],
+            dtype=np.float64,
+        )
+        bbox = np.array([10.0, 20.0, 10.0, 40.0], dtype=np.float64)  # zero width
+
+        det = KeypointDetection(keypoints=kps, score=0.9, bbox=bbox)
+        gt = KeypointGroundTruth(keypoints=kps, bbox=bbox)
+
+        assert compute_oks(det, gt, sigmas) == 0.0
+
     def test_visibility_mask(self, sigmas: npt.NDArray[np.float64]) -> None:
         """Only visible keypoints contribute to OKS."""
         # Detection matches on visible kps but is far on invisible ones
