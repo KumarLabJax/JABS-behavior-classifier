@@ -11,6 +11,8 @@ from shapely.geometry import MultiPoint
 from jabs.core.types import DynamicObjectData
 from jabs.core.utils import hash_file
 
+logger = logging.getLogger(__name__)
+
 MINIMUM_CONFIDENCE = 0.3
 
 
@@ -119,13 +121,12 @@ class PoseEstimation(ABC):
         """initialize new object from h5 file
 
         Args:
-            file_path: path to pose_est_v2.h5 file
-            cache_dir: optional cache directory, used to cache convex
-                hulls
-            fps: frames per second, used for scaling time series
-                features
-        for faster loading
-        from "per frame" to "per second"
+            file_path: path to the pose file, named following the JABS
+                convention ``<video name>_pose_est_v<major version>.h5``
+            cache_dir: optional cache directory, used to cache convex hulls
+                for faster loading
+            fps: frames per second, used for scaling time series features
+                from "per frame" to "per second"
         """
         super().__init__()
         self._num_frames = 0
@@ -148,8 +149,7 @@ class PoseEstimation(ABC):
                 try:
                     cache_file.unlink()
                 except Exception:
-                    logging.warning("Unable to delete old cache file %s", cache_file)
-                    pass
+                    logger.warning("Unable to delete old cache file %s", cache_file)
 
     @property
     def num_frames(self) -> int:
@@ -382,7 +382,7 @@ class PoseEstimation(ABC):
         """compute the bearing for each frame for a given identity"""
         use_nose = not self.get_reduced_point_mask()[self.KeypointIndex.BASE_NECK.value]
         if use_nose:
-            logging.warning("Falling back to using nose keypoint for bearing computation")
+            logger.warning("Falling back to using nose keypoint for bearing computation")
 
         bearings = np.full(self.num_frames, np.nan, dtype=np.float32)
         for i in range(self.num_frames):
