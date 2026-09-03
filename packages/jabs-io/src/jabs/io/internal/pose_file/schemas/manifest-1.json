@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jabs.jax.org/schema/pose-file/manifest/1",
+  "title": "JABS pose file manifest",
+  "type": "object",
+  "required": [
+    "format",
+    "schema_revision",
+    "dimensions",
+    "video",
+    "components"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "jabs.pose-file"
+    },
+    "schema_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dimensions": {
+      "type": "object",
+      "required": [
+        "frame",
+        "slot",
+        "identity"
+      ],
+      "properties": {
+        "frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "video": {
+      "$ref": "#/$defs/video"
+    },
+    "skeletons": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/componentId"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/skeleton"
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachment"
+      }
+    },
+    "extra": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "componentId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)+$"
+    },
+    "hdf5Path": {
+      "type": "string",
+      "pattern": "^/[^\\0]*$"
+    },
+    "dtype": {
+      "enum": [
+        "float32",
+        "float64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "bool",
+        "string"
+      ]
+    },
+    "video": {
+      "type": "object",
+      "required": [
+        "frame_count",
+        "width",
+        "height",
+        "fps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "frame_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "fps": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "cm_per_pixel": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "cm_per_pixel_source": {
+          "enum": [
+            "corner_detection",
+            "manually_set",
+            "default_alignment",
+            null
+          ]
+        },
+        "start_time": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clip_of": {
+          "type": "object",
+          "required": [
+            "frame_offset"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "frame_offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "content_hash": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "skeleton": {
+      "type": "object",
+      "required": [
+        "body_parts",
+        "edges"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "body_parts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "encoding": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "dense"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "group_offsets",
+            "instance_offsets"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "ragged"
+            },
+            "group_offsets": {
+              "$ref": "#/$defs/hdf5Path"
+            },
+            "instance_offsets": {
+              "$ref": "#/$defs/hdf5Path"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "instance_offsets"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "rle"
+            },
+            "instance_offsets": {
+              "$ref": "#/$defs/hdf5Path"
+            },
+            "order": {
+              "enum": [
+                "column-major",
+                "row-major"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "missing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "policy"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "policy": {
+              "enum": [
+                "none",
+                "nan"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "policy",
+            "mask"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "policy": {
+              "const": "mask"
+            },
+            "mask": {
+              "$ref": "#/$defs/componentId"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "policy",
+            "length"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "policy": {
+              "const": "length"
+            },
+            "length": {
+              "$ref": "#/$defs/componentId"
+            }
+          }
+        }
+      ]
+    },
+    "sparse": {
+      "type": "object",
+      "required": [
+        "index"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/componentId"
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "storage": {
+          "enum": [
+            "contiguous",
+            "chunked"
+          ]
+        },
+        "chunks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "compression": {
+          "enum": [
+            "none",
+            "gzip",
+            "lzf",
+            "szip"
+          ]
+        },
+        "compression_opts": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "axes",
+        "dtype",
+        "shape",
+        "encoding",
+        "missing"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "axes"
+            ],
+            "properties": {
+              "axes": {
+                "contains": {
+                  "const": "coord"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "units",
+              "coord_order"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "axes"
+            ],
+            "properties": {
+              "axes": {
+                "contains": {
+                  "const": "sample"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "sparse"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "sparse"
+            ]
+          },
+          "then": {
+            "properties": {
+              "axes": {
+                "contains": {
+                  "const": "sample"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/componentId"
+        },
+        "path": {
+          "$ref": "#/$defs/hdf5Path"
+        },
+        "axes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "dtype": {
+          "$ref": "#/$defs/dtype"
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "units": {
+          "enum": [
+            "pixel",
+            "cm",
+            "second",
+            "frame",
+            "radian",
+            "unitless"
+          ]
+        },
+        "coord_order": {
+          "enum": [
+            "xy",
+            "yx"
+          ]
+        },
+        "encoding": {
+          "$ref": "#/$defs/encoding"
+        },
+        "missing": {
+          "$ref": "#/$defs/missing"
+        },
+        "sparse": {
+          "$ref": "#/$defs/sparse"
+        },
+        "layout": {
+          "$ref": "#/$defs/layout"
+        },
+        "skeleton": {
+          "$ref": "#/$defs/componentId"
+        },
+        "provenance": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "extra": {
+          "type": "object"
+        }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/hdf5Path"
+        },
+        "description": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
