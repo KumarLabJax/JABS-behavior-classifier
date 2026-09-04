@@ -3,46 +3,17 @@
 import numpy as np
 import pytest
 
+from jabs.io.internal.pose_file.skeletons import jabs_mouse12
 from jabs.io.internal.pose_file.types import (
     Component,
     HistoryEntry,
     PoseFile,
     Provenance,
     ProvenanceRecord,
-    Skeleton,
     VideoInfo,
 )
 
-MOUSE12 = Skeleton(
-    body_parts=(
-        "NOSE",
-        "LEFT_EAR",
-        "RIGHT_EAR",
-        "BASE_NECK",
-        "LEFT_FRONT_PAW",
-        "RIGHT_FRONT_PAW",
-        "CENTER_SPINE",
-        "LEFT_REAR_PAW",
-        "RIGHT_REAR_PAW",
-        "BASE_TAIL",
-        "MID_TAIL",
-        "TIP_TAIL",
-    ),
-    edges=(
-        (4, 6),
-        (6, 5),
-        (7, 9),
-        (9, 8),
-        (0, 3),
-        (3, 6),
-        (6, 9),
-        (9, 10),
-        (10, 11),
-        (1, 0),
-        (0, 2),
-    ),
-    description="JABS 12-keypoint mouse skeleton",
-)
+MOUSE12 = jabs_mouse12()
 
 
 def build_sample_pose_file(width: int | None = 800, height: int | None = 800) -> PoseFile:

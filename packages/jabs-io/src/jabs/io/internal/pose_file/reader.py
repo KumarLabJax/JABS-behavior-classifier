@@ -173,6 +173,22 @@ def _dataset_for(h5: h5py.File, spec: dict) -> h5py.Dataset:
     return node
 
 
+def _payload(node: h5py.Dataset, spec: dict) -> np.ndarray:
+    """Read a component's payload, decoding text as text.
+
+    Args:
+        node: The payload dataset.
+        spec: The component's manifest entry.
+
+    Returns:
+        The payload. A ``string`` component comes back as unicode rather than
+        the bytes h5py hands back by default.
+    """
+    if spec["dtype"] == "string":
+        return np.asarray(node.asstr()[()])
+    return node[()]
+
+
 def _check_decodable(spec: dict) -> None:
     """Refuse a component whose encoding this build cannot decode.
 
@@ -280,7 +296,7 @@ def read_component(path: str | Path, component_id: str, frames: slice | None = N
     with h5py.File(path, "r") as h5:
         dataset = _dataset_for(h5, spec)
         if frames is None:
-            return dataset[()]
+            return _payload(dataset, spec)
         axis = spec["axes"].index("frame")
         selector = (slice(None),) * axis + (frames,)
         return dataset[selector]
@@ -316,7 +332,7 @@ def read_pose_file(path: str | Path) -> PoseFile:
         for spec in parsed.component_specs:
             _check_decodable(spec)
             _check_skeleton(manifest, spec)
-            components.append(_component_from(spec, _dataset_for(h5, spec)[()]))
+            components.append(_component_from(spec, _payload(_dataset_for(h5, spec), spec)))
 
         attachments = []
         for spec in parsed.attachment_specs:

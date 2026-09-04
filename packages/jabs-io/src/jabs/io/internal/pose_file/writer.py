@@ -151,6 +151,15 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         h5: The open destination file.
         component: The component to write.
     """
+    if component.dtype == "string":
+        # Variable-length UTF-8, so a reader on any HDF5 implementation gets
+        # text rather than this machine's fixed-width padding.
+        h5.create_dataset(
+            component.path,
+            data=[str(value) for value in component.data.tolist()],
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+        return
     if _is_keypoint_scale(component.id):
         h5.create_dataset(component.path, data=component.data, chunks=None)
         return
@@ -167,7 +176,7 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
     )
 
 
-def write_pose_file(pose_file: PoseFile, path: str | Path) -> None:
+def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None = None) -> None:
     """Write a pose file, atomically.
 
     Both JSON documents are built, validated **and serialized** before any file
@@ -178,6 +187,9 @@ def write_pose_file(pose_file: PoseFile, path: str | Path) -> None:
     Args:
         pose_file: The file's contents.
         path: Destination path.
+        created: The manifest's creation timestamp. Defaults to now; pass a
+            fixed value to make output byte-reproducible, as the conformance
+            fixtures need.
 
     Raises:
         ValueError: If the manifest or provenance document would be invalid, or
@@ -190,7 +202,7 @@ def write_pose_file(pose_file: PoseFile, path: str | Path) -> None:
     _check_path_collisions(pose_file)
 
     layouts = {component.id: _layout_for(component) for component in pose_file.components}
-    manifest = build_manifest(pose_file, layouts=layouts)
+    manifest = build_manifest(pose_file, layouts=layouts, created=created)
     provenance = build_provenance(pose_file.provenance)
     errors = validate_manifest(manifest) + validate_provenance(provenance)
     if errors:

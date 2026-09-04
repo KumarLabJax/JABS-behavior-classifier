@@ -22,53 +22,30 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from jabs.io.internal.pose_file.skeletons import jabs_mouse12
 from jabs.io.internal.pose_file.types import (
     Component,
     HistoryEntry,
     PoseFile,
     Provenance,
     ProvenanceRecord,
-    Skeleton,
     VideoInfo,
 )
 from jabs.io.internal.pose_file.writer import write_pose_file
 
 HERE = Path(__file__).parent
 
+# Pinned so the corpus is byte-reproducible: a wall-clock stamp gave the three
+# valid fixtures three different timestamps from a single run, which makes any
+# regeneration look like a change.
+CREATED = "2026-09-04T00:00:00Z"
+
 FRAMES = 8
 SLOTS = 3
 IDENTITIES = 2
 
-MOUSE12 = Skeleton(
-    body_parts=(
-        "NOSE",
-        "LEFT_EAR",
-        "RIGHT_EAR",
-        "BASE_NECK",
-        "LEFT_FRONT_PAW",
-        "RIGHT_FRONT_PAW",
-        "CENTER_SPINE",
-        "LEFT_REAR_PAW",
-        "RIGHT_REAR_PAW",
-        "BASE_TAIL",
-        "MID_TAIL",
-        "TIP_TAIL",
-    ),
-    edges=(
-        (4, 6),
-        (6, 5),
-        (7, 9),
-        (9, 8),
-        (0, 3),
-        (3, 6),
-        (6, 9),
-        (9, 10),
-        (10, 11),
-        (1, 0),
-        (0, 2),
-    ),
-    description="JABS 12-keypoint mouse skeleton",
-)
+MOUSE12 = jabs_mouse12()
+
 
 INFER = ProvenanceRecord(
     producer="jabs-io conformance fixtures",
@@ -283,19 +260,15 @@ def _entry(manifest: dict, component_id: str) -> dict:
 
 def main() -> None:
     """Write every fixture."""
-    write_pose_file(valid_minimal(), HERE / "valid-minimal.h5")
-    write_pose_file(valid_full(), HERE / "valid-full.h5")
-    write_pose_file(valid_sparse(), HERE / "valid-sparse.h5")
+    write_pose_file(valid_minimal(), HERE / "valid-minimal.h5", created=CREATED)
+    write_pose_file(valid_full(), HERE / "valid-full.h5", created=CREATED)
+    write_pose_file(valid_sparse(), HERE / "valid-sparse.h5", created=CREATED)
 
-    # An attachment nobody declared. The writer cannot produce one yet, so it
-    # is added here; the corpus keeps it because a warning is the specified
-    # response and that path deserves coverage.
-    with h5py.File(HERE / "valid-full.h5", "r+") as h5:
-        h5.create_dataset(
-            "/attachments/notes", data=np.frombuffer(b"an opaque payload", dtype=np.uint8)
-        )
-
-    base = HERE / "valid-full.h5"
+    # The invalid fixtures are copies of a clean base, taken BEFORE the
+    # undeclared attachment goes in: injecting it first gave every invalid
+    # fixture an unrelated attachment_undeclared warning.
+    base = HERE / ".base.h5"
+    write_pose_file(valid_full(), base, created=CREATED)
 
     shutil.copy(base, HERE / "invalid-shape-mismatch.h5")
     _rewrite_manifest(
@@ -322,6 +295,14 @@ def main() -> None:
         manifest["skeletons"]["jabs.mouse12"]["edges"] = [[0, 1]]
 
     _rewrite_manifest(HERE / "invalid-keypoint-axis.h5", shrink_skeleton)
+
+    # An attachment nobody declared, on the valid-full fixture only, so the
+    # specified warning has coverage.
+    with h5py.File(HERE / "valid-full.h5", "r+") as h5:
+        h5.create_dataset(
+            "/attachments/notes", data=np.frombuffer(b"an opaque payload", dtype=np.uint8)
+        )
+    base.unlink()
 
     with h5py.File(HERE / "invalid-not-a-pose-file.h5", "w") as h5:
         group = h5.create_group("poseest")
