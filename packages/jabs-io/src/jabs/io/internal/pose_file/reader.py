@@ -40,7 +40,7 @@ class NotAPoseFileError(PoseFileError):
     """Raised when a file is not a ``jabs.pose-file`` at all."""
 
 
-def _attr_text(value: object) -> str | None:
+def attr_text(value: object) -> str | None:
     """Decode an HDF5 string attribute to ``str``.
 
     h5py hands back ``bytes``/``np.bytes_`` for fixed-length ASCII attributes,
@@ -63,7 +63,7 @@ def _attr_text(value: object) -> str | None:
     flat = np.atleast_1d(np.asarray(value)).ravel()
     if flat.size == 0:
         return None
-    return _attr_text(flat[0].item() if hasattr(flat[0], "item") else flat[0])
+    return attr_text(flat[0].item() if hasattr(flat[0], "item") else flat[0])
 
 
 def _describe_other_format(h5: h5py.File) -> str:
@@ -99,7 +99,7 @@ def read_manifest(path: str | Path) -> dict:
         PoseFileError: If the manifest is unreadable or fails its schema.
     """
     with h5py.File(path, "r") as h5:
-        if _attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
+        if attr_text(h5.attrs.get("jabs_format")) != FORMAT_ID:
             raise NotAPoseFileError(f"{path} is {_describe_other_format(h5)}, not a {FORMAT_ID}")
         try:
             raw = h5["manifest"][()]
