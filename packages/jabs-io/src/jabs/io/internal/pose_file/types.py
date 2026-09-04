@@ -41,7 +41,7 @@ DTYPE_NAMES = frozenset(
     }
 )
 
-_RESERVED_NAMESPACE = "jabs"
+RESERVED_NAMESPACE = "jabs"
 
 
 @dataclass(frozen=True)
@@ -189,7 +189,7 @@ class Component:
                 "at least two segments"
             )
         segments = self.id.split(".")
-        if segments[0] != _RESERVED_NAMESPACE and len(segments) < 3:
+        if segments[0] != RESERVED_NAMESPACE and len(segments) < 3:
             raise ValueError(
                 f"invalid component id {self.id!r}: a non-jabs namespace must use a "
                 "reverse-DNS root of at least two segments"
@@ -218,7 +218,7 @@ class Component:
         if self.stored_path is not None:
             return self.stored_path
         segments = self.id.split(".")
-        if segments[0] == _RESERVED_NAMESPACE:
+        if segments[0] == RESERVED_NAMESPACE:
             root, rest = segments[0], segments[1:]
         else:
             # Reverse-DNS: everything up to the local name is one path element,
