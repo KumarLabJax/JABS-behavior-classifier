@@ -17,6 +17,7 @@ specification makes the baseline encoding the mandatory one and ``ragged`` and
 ``rle`` optional.
 """
 
+from jabs.io.internal.pose_file.adapter import PoseFileHDF5Adapter
 from jabs.io.internal.pose_file.manifest import (
     ParsedManifest,
     build_manifest,
@@ -61,6 +62,7 @@ __all__ = [
     "NotAPoseFileError",
     "ParsedManifest",
     "PoseFile",
+    "PoseFileHDF5Adapter",
     "Provenance",
     "ProvenanceRecord",
     "Skeleton",
