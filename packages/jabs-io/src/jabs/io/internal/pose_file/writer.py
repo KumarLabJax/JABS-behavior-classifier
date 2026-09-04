@@ -25,6 +25,11 @@ from jabs.io.internal.pose_file.schema import (
 )
 from jabs.io.internal.pose_file.types import Component, PoseFile
 
+# Only the baseline encoding is implemented. The specification permits ragged
+# and RLE, and a reader must implement the baseline and may implement others --
+# so writing a ragged payload as though it were dense is not an option.
+_SUPPORTED_ENCODINGS = frozenset({"dense"})
+
 # Keypoint-scale components are stored contiguous and uncompressed, because
 # contiguous storage is the only layout under which a frame range really is one
 # byte range -- the access pattern an in-browser overlay depends on. Chunking
@@ -117,6 +122,28 @@ def _check_path_collisions(pose_file: PoseFile) -> None:
             )
 
 
+def _check_encodings(pose_file: PoseFile) -> None:
+    """Refuse any encoding this writer cannot actually produce.
+
+    Silently re-labeling a ragged or RLE payload as dense would corrupt it
+    beyond recovery while the bytes are still run values or offsets.
+
+    Args:
+        pose_file: The file's contents.
+
+    Raises:
+        NotImplementedError: If a component declares an unsupported encoding.
+    """
+    for component in pose_file.components:
+        kind = component.encoding.get("kind")
+        if kind not in _SUPPORTED_ENCODINGS:
+            raise NotImplementedError(
+                f"{component.id}: cannot write encoding {kind!r}; only "
+                f"{sorted(_SUPPORTED_ENCODINGS)} is implemented, and relabeling the payload "
+                "as dense would corrupt it"
+            )
+
+
 def _create_dataset(h5: h5py.File, component: Component) -> None:
     """Create one component's dataset with this writer's layout policy.
 
@@ -159,6 +186,7 @@ def write_pose_file(pose_file: PoseFile, path: str | Path) -> None:
             serialized to JSON.
     """
     destination = Path(path)
+    _check_encodings(pose_file)
     _check_path_collisions(pose_file)
 
     layouts = {component.id: _layout_for(component) for component in pose_file.components}
@@ -187,6 +215,11 @@ def write_pose_file(pose_file: PoseFile, path: str | Path) -> None:
             h5.create_dataset("provenance", data=provenance_json, dtype=string_dtype)
             for component in pose_file.components:
                 _create_dataset(h5, component)
+            for attachment in pose_file.attachments:
+                # Carried verbatim: an attachment declares no axes, so no tool
+                # can transform it correctly, and dropping one silently is a
+                # specification violation.
+                h5.create_dataset(attachment.path, data=attachment.data)
         os.replace(temporary, destination)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
