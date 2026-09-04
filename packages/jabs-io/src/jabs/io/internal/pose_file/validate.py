@@ -16,7 +16,6 @@ specific rule rather than on message text.
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -25,9 +24,10 @@ import numpy as np
 from jabs.io.internal.pose_file.reader import attr_text
 from jabs.io.internal.pose_file.schema import (
     FORMAT_ID,
+    MANIFEST_SCHEMA,
+    PROVENANCE_SCHEMA,
     SCHEMA_REVISION,
-    validate_manifest,
-    validate_provenance,
+    iter_errors,
 )
 from jabs.io.internal.pose_file.types import RESERVED_NAMESPACE
 
@@ -142,6 +142,28 @@ def _read_json(h5: h5py.File, name: str) -> tuple[object | None, str | None]:
         return None, f"/{name} is not valid JSON: {error}"
 
 
+def _record_schema_errors(
+    schema: dict, instance: object, document: str, findings: list[Finding]
+) -> None:
+    """Record one document's schema errors, separating format failures.
+
+    A malformed timestamp is worth reporting, but it says nothing about whether
+    the payloads are sound -- and a ``*_schema`` finding aborts the structural
+    pass. Format failures therefore get their own check name so one bad
+    timestamp does not hide every other problem in the file.
+
+    Args:
+        schema: The schema to validate against.
+        instance: The document.
+        document: ``"manifest"`` or ``"provenance"``, for the check name.
+        findings: Accumulator.
+    """
+    for error in iter_errors(schema, instance):
+        where = "/".join(str(part) for part in error.path) or "<root>"
+        check = "timestamp_parseable" if error.validator == "format" else f"{document}_schema"
+        findings.append(Finding(ERROR, check, f"{document}.{where}: {error.message}"))
+
+
 def _check_documents(h5: h5py.File, findings: list[Finding]) -> tuple[dict | None, dict]:
     """Validate the manifest and provenance documents.
 
@@ -162,8 +184,7 @@ def _check_documents(h5: h5py.File, findings: list[Finding]) -> tuple[dict | Non
         findings.append(Finding(ERROR, "manifest_schema", "/manifest is not a JSON object"))
         manifest = None
     else:
-        for message in validate_manifest(manifest):
-            findings.append(Finding(ERROR, "manifest_schema", message))
+        _record_schema_errors(MANIFEST_SCHEMA, manifest, "manifest", findings)
 
     provenance, error = _read_json(h5, "provenance")
     if error is not None:
@@ -173,8 +194,7 @@ def _check_documents(h5: h5py.File, findings: list[Finding]) -> tuple[dict | Non
         findings.append(Finding(ERROR, "provenance_schema", "/provenance is not a JSON object"))
         provenance = {}
     else:
-        for message in validate_provenance(provenance):
-            findings.append(Finding(ERROR, "provenance_schema", message))
+        _record_schema_errors(PROVENANCE_SCHEMA, provenance, "provenance", findings)
 
     if manifest is None or any(f.check == "manifest_schema" for f in findings):
         return None, provenance if isinstance(provenance, dict) else {}
@@ -314,6 +334,7 @@ def _check_component(
                     f"{component_id}: an RLE mask needs video.width and video.height",
                 )
             )
+    _check_offsets(h5, spec, manifest, node, findings)
 
     _check_layout(component_id, spec, node, findings)
 
@@ -531,6 +552,136 @@ def _check_skeletons(manifest: dict, findings: list[Finding]) -> None:
             )
 
 
+def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
+    """Read an offsets dataset as int64.
+
+    int64 because np.diff wraps on unsigned dtypes, and offsets are uint64 by
+    specification -- the same trap that made a decreasing frame index validate
+    clean.
+
+    Args:
+        h5: The open file.
+        path: The dataset's path.
+
+    Returns:
+        The offsets, or None when the path is not a one-dimensional dataset.
+    """
+    node = h5.get(path)
+    if not isinstance(node, h5py.Dataset):
+        return None
+    values = np.asarray(node[()])
+    if values.ndim != 1:
+        return None
+    return values.astype(np.int64, copy=False)
+
+
+def _check_offsets(
+    h5: h5py.File, spec: dict, manifest: dict, node: h5py.Dataset, findings: list[Finding]
+) -> None:
+    """Validate a non-dense component's offset indexes.
+
+    The ADR carries two error rows for these, and they are checkable whether or
+    not this build can decode the encoding: a conforming file is a conforming
+    file.
+
+    Args:
+        h5: The open file.
+        spec: The component's manifest entry.
+        manifest: The validated manifest.
+        node: The payload dataset.
+        findings: Accumulator.
+    """
+    encoding = spec.get("encoding", {})
+    kind = encoding.get("kind")
+    if kind not in ("ragged", "rle"):
+        return
+    component_id = spec["id"]
+    check = f"{kind}_offsets"
+    dimensions = manifest["dimensions"]
+    expected_instances = dimensions["frame"] * dimensions["slot"] + 1
+
+    group_offsets = None
+    if kind == "ragged":
+        group_offsets = _offsets(h5, encoding["group_offsets"])
+        if group_offsets is None:
+            findings.append(
+                Finding(
+                    ERROR,
+                    check,
+                    f"{component_id}: group_offsets at {encoding['group_offsets']} is missing "
+                    "or not a one-dimensional dataset",
+                )
+            )
+        else:
+            _check_monotonic(
+                component_id, "group_offsets", group_offsets, node.shape[0], check, findings
+            )
+
+    instance_offsets = _offsets(h5, encoding["instance_offsets"])
+    if instance_offsets is None:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: instance_offsets at {encoding['instance_offsets']} is "
+                "missing or not a one-dimensional dataset",
+            )
+        )
+        return
+    # Ragged instance offsets index into group_offsets; RLE ones index the
+    # payload directly.
+    terminal = (
+        len(group_offsets) - 1 if kind == "ragged" and group_offsets is not None else node.shape[0]
+    )
+    _check_monotonic(component_id, "instance_offsets", instance_offsets, terminal, check, findings)
+    if instance_offsets.size != expected_instances:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: instance_offsets has {instance_offsets.size} entries, "
+                f"expected frame*slot+1 = {expected_instances}",
+            )
+        )
+
+
+def _check_monotonic(
+    component_id: str,
+    name: str,
+    values: np.ndarray,
+    terminal: int,
+    check: str,
+    findings: list[Finding],
+) -> None:
+    """Validate one CSR offsets array's shape and ordering.
+
+    Args:
+        component_id: The component being checked.
+        name: The offsets array's role, for the message.
+        values: The offsets, as int64.
+        terminal: The value the array must end at.
+        check: The finding's check name.
+        findings: Accumulator.
+    """
+    if values.size == 0:
+        findings.append(Finding(ERROR, check, f"{component_id}: {name} is empty"))
+        return
+    if values[0] != 0:
+        findings.append(
+            Finding(ERROR, check, f"{component_id}: {name} starts at {values[0]}, expected 0")
+        )
+    if np.any(np.diff(values) < 0):
+        findings.append(Finding(ERROR, check, f"{component_id}: {name} is not non-decreasing"))
+    if values[-1] != terminal:
+        findings.append(
+            Finding(
+                ERROR,
+                check,
+                f"{component_id}: {name} ends at {values[-1]}, expected {terminal}",
+            )
+        )
+
+
 def _check_layout(
     component_id: str, spec: dict, node: h5py.Dataset, findings: list[Finding]
 ) -> None:
@@ -545,71 +696,28 @@ def _check_layout(
     declared = spec.get("layout")
     if declared is None:
         return
-    actual_storage = "contiguous" if node.chunks is None else "chunked"
-    actual_compression = node.compression or "none"
-    if (
-        declared.get("storage", actual_storage) != actual_storage
-        or declared.get("compression", actual_compression) != actual_compression
-    ):
+    actual = {
+        "storage": "contiguous" if node.chunks is None else "chunked",
+        "compression": node.compression or "none",
+    }
+    if node.chunks is not None:
+        actual["chunks"] = list(node.chunks)
+    if node.compression_opts is not None:
+        actual["compression_opts"] = node.compression_opts
+    disagreements = [
+        f"{key}: declared {declared[key]!r}, actual {actual.get(key)!r}"
+        for key in declared
+        if declared[key] != actual.get(key)
+    ]
+    if disagreements:
         findings.append(
             Finding(
                 WARNING,
                 "layout_matches_file",
-                f"{component_id}: declares {declared} but the dataset is "
-                f"{actual_storage}/{actual_compression}",
+                f"{component_id}: declared layout disagrees with the dataset -- "
+                + "; ".join(disagreements),
             )
         )
-
-
-def _parseable_timestamp(value: object) -> bool:
-    """Whether a value is an ISO 8601 / RFC 3339 timestamp.
-
-    ``format: "date-time"`` in the schema is advisory: jsonschema only enforces
-    formats when an optional validator package is installed, so garbage
-    validates clean. Checked here instead, with no new dependency.
-
-    Args:
-        value: The candidate timestamp.
-
-    Returns:
-        True when the value parses as a timestamp.
-    """
-    if not isinstance(value, str):
-        return False
-    try:
-        # fromisoformat only learned to accept a trailing Z in 3.11.
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    return True
-
-
-def _check_timestamps(manifest: dict, provenance: dict, findings: list[Finding]) -> None:
-    """Validate every timestamp the two documents carry.
-
-    Args:
-        manifest: The validated manifest.
-        provenance: The provenance document.
-        findings: Accumulator.
-    """
-    candidates = [("manifest.created", manifest.get("created"))]
-    start_time = manifest.get("video", {}).get("start_time")
-    if start_time is not None:
-        candidates.append(("manifest.video.start_time", start_time))
-    for key, record in provenance.get("records", {}).items():
-        candidates.append((f"provenance.records.{key}.created", record.get("created")))
-    for position, entry in enumerate(provenance.get("history", [])):
-        candidates.append((f"provenance.history[{position}].time", entry.get("time")))
-
-    for where, value in candidates:
-        if value is not None and not _parseable_timestamp(value):
-            findings.append(
-                Finding(
-                    ERROR,
-                    "timestamp_parseable",
-                    f"{where} is not an ISO 8601 timestamp: {value!r}",
-                )
-            )
 
 
 def _check_manifest_wide(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
@@ -753,7 +861,6 @@ def validate(path: str | Path) -> list[Finding]:
 
         provenance_records = set(provenance.get("records", {}))
         _check_manifest_wide(h5, manifest, findings)
-        _check_timestamps(manifest, provenance, findings)
         _check_skeletons(manifest, findings)
         _check_sparse_index_values(h5, manifest, findings)
         for spec in manifest["components"]:

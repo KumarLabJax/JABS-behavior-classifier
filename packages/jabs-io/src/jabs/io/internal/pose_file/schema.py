@@ -10,6 +10,7 @@ reader asks what a file contains, never how old it is.
 """
 
 import json
+from datetime import datetime
 from importlib import resources
 
 import jsonschema
@@ -35,6 +36,48 @@ MANIFEST_SCHEMA = _load("manifest-1.json")
 PROVENANCE_SCHEMA = _load("provenance-1.json")
 
 
+# The shipped schemas declare `format: "date-time"`, and jsonschema treats
+# format as an annotation unless a checker is supplied -- so without this the
+# schemas assert a constraint the helpers ignore. Registered locally rather
+# than pulling in jsonschema's optional format extras.
+FORMAT_CHECKER = jsonschema.FormatChecker()
+
+
+@FORMAT_CHECKER.checks("date-time", raises=ValueError)
+def _is_date_time(value: object) -> bool:
+    """Whether a value is an ISO 8601 / RFC 3339 timestamp.
+
+    Args:
+        value: The candidate. Non-strings are not this format's business.
+
+    Returns:
+        True when the value parses as a timestamp.
+    """
+    if not isinstance(value, str):
+        return True
+    # fromisoformat only learned to accept a trailing Z in 3.11.
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return True
+
+
+def iter_errors(schema: dict, instance: object) -> list[jsonschema.ValidationError]:
+    """Validate an instance, returning the raw errors.
+
+    Callers that need to treat some failures differently from others -- a
+    malformed timestamp is worth reporting without abandoning every structural
+    check below it -- need the validator keyword, not just a message.
+
+    Args:
+        schema: The schema to validate against.
+        instance: The document to validate.
+
+    Returns:
+        The errors, ordered by document path.
+    """
+    validator = jsonschema.Draft202012Validator(schema, format_checker=FORMAT_CHECKER)
+    return sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+
+
 def _errors(schema: dict, instance: dict) -> list[str]:
     """Validate an instance and render its errors as readable strings.
 
@@ -45,10 +88,9 @@ def _errors(schema: dict, instance: dict) -> list[str]:
     Returns:
         One string per error, each prefixed with the failing document path.
     """
-    validator = jsonschema.Draft202012Validator(schema)
     return [
         f"{'/'.join(str(part) for part in error.path) or '<root>'}: {error.message}"
-        for error in sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+        for error in iter_errors(schema, instance)
     ]
 
 
