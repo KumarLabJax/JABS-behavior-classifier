@@ -106,6 +106,34 @@ class VideoInfo:
 
 
 @dataclass(frozen=True, eq=False)
+class Attachment:
+    """A tier-1 opaque payload that rides along in the file.
+
+    An attachment declares no axes, so no tool can subset it correctly. The
+    specification therefore requires that a tool transforming a file carry
+    attachments through verbatim and record the transformation — dropping one
+    silently is a specification violation.
+
+    Attributes:
+        path: Absolute HDF5 path, conventionally under ``/attachments/``.
+        data: The payload.
+        description: Optional human-readable description.
+        content_type: Optional media type, for a consumer that knows the
+            producer's convention.
+    """
+
+    path: str
+    data: np.ndarray
+    description: str | None = None
+    content_type: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate that the path is absolute."""
+        if not self.path.startswith("/"):
+            raise ValueError(f"attachment path must be absolute, got {self.path!r}")
+
+
+@dataclass(frozen=True, eq=False)
 class Component:
     """One declared array in a pose file.
 
@@ -128,6 +156,14 @@ class Component:
         description: Optional human-readable description.
         layout: Declared HDF5 storage, e.g.
             ``{"storage": "contiguous", "compression": "none"}``.
+        encoding: How the payload is encoded. Only ``{"kind": "dense"}`` is
+            implemented; a declaration that is preserved rather than re-asserted
+            on write, so a ragged or RLE file cannot be silently relabeled.
+        extra: Namespaced producer metadata. The manifest's own extension
+            point, so it must survive a round trip.
+        stored_path: Where the payload actually lives, when that differs from
+            the path derived from the id. Preserved so a read-write cycle does
+            not relocate a third party's data.
     """
 
     id: str
@@ -141,6 +177,9 @@ class Component:
     sparse_index: str | None = None
     description: str | None = None
     layout: dict | None = None
+    encoding: dict = field(default_factory=lambda: {"kind": "dense"})
+    extra: dict | None = None
+    stored_path: str | None = None
 
     def __post_init__(self) -> None:
         """Validate the id, the axis declarations and the payload dtype."""
@@ -176,6 +215,8 @@ class Component:
     @property
     def path(self) -> str:
         """The absolute HDF5 path this component's payload lives at."""
+        if self.stored_path is not None:
+            return self.stored_path
         segments = self.id.split(".")
         if segments[0] == _RESERVED_NAMESPACE:
             root, rest = segments[0], segments[1:]
@@ -265,6 +306,8 @@ class PoseFile:
         skeletons: Skeletons by id.
         components: The file's components.
         provenance: Provenance records and history.
+        attachments: Tier-1 opaque payloads, carried verbatim.
+        extra: Namespaced file-level metadata.
     """
 
     dimensions: dict[str, int]
@@ -272,6 +315,8 @@ class PoseFile:
     skeletons: dict[str, Skeleton] = field(default_factory=dict)
     components: tuple[Component, ...] = ()
     provenance: Provenance = field(default_factory=Provenance)
+    attachments: tuple[Attachment, ...] = ()
+    extra: dict | None = None
 
     def __post_init__(self) -> None:
         """Validate dimensions and every cross-reference between components."""

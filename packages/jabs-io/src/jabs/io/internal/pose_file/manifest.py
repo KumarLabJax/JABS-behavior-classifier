@@ -52,12 +52,16 @@ class ParsedManifest:
         skeletons: Skeletons by id.
         component_specs: The raw component entries, left as dicts so the reader
             can decide what to load rather than being forced to load everything.
+        attachment_specs: The raw attachment entries.
+        extra: File-level namespaced metadata, or None.
     """
 
     dimensions: dict[str, int]
     video: VideoInfo
     skeletons: dict[str, Skeleton]
     component_specs: tuple[dict, ...]
+    attachment_specs: tuple[dict, ...] = ()
+    extra: dict | None = None
 
 
 def _component_entry(component: Component, layout: dict | None) -> dict:
@@ -76,7 +80,7 @@ def _component_entry(component: Component, layout: dict | None) -> dict:
         "axes": list(component.axes),
         "dtype": component.dtype,
         "shape": [int(n) for n in component.data.shape],
-        "encoding": {"kind": "dense"},
+        "encoding": dict(component.encoding),
         "missing": dict(component.missing),
     }
     optional = {
@@ -87,6 +91,8 @@ def _component_entry(component: Component, layout: dict | None) -> dict:
         "description": component.description,
     }
     entry.update({k: v for k, v in optional.items() if v is not None})
+    if component.extra is not None:
+        entry["extra"] = dict(component.extra)
     if component.sparse_index is not None:
         entry["sparse"] = {"index": component.sparse_index}
     resolved_layout = layout if layout is not None else component.layout
@@ -136,6 +142,21 @@ def build_manifest(pose_file: PoseFile, layouts: dict[str, dict] | None = None) 
     }
     if skeletons:
         manifest["skeletons"] = skeletons
+    if pose_file.attachments:
+        manifest["attachments"] = [
+            {
+                key: value
+                for key, value in (
+                    ("path", attachment.path),
+                    ("description", attachment.description),
+                    ("content_type", attachment.content_type),
+                )
+                if value is not None
+            }
+            for attachment in pose_file.attachments
+        ]
+    if pose_file.extra is not None:
+        manifest["extra"] = dict(pose_file.extra)
     return manifest
 
 
@@ -208,6 +229,8 @@ def parse_manifest(manifest: dict) -> ParsedManifest:
         video=VideoInfo(**video_fields),
         skeletons=skeletons,
         component_specs=tuple(manifest["components"]),
+        attachment_specs=tuple(manifest.get("attachments", ())),
+        extra=manifest.get("extra"),
     )
 
 

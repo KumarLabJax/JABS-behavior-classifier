@@ -27,6 +27,7 @@ from jabs.io.internal.pose_file.manifest import (
 )
 from jabs.io.internal.pose_file.reader import (
     NotAPoseFileError,
+    PoseFileError,
     read_component,
     read_manifest,
     read_pose_file,
@@ -40,6 +41,7 @@ from jabs.io.internal.pose_file.schema import (
     validate_provenance,
 )
 from jabs.io.internal.pose_file.types import (
+    Attachment,
     Component,
     HistoryEntry,
     PoseFile,
@@ -56,12 +58,14 @@ __all__ = [
     "MANIFEST_SCHEMA",
     "PROVENANCE_SCHEMA",
     "SCHEMA_REVISION",
+    "Attachment",
     "Component",
     "Finding",
     "HistoryEntry",
     "NotAPoseFileError",
     "ParsedManifest",
     "PoseFile",
+    "PoseFileError",
     "PoseFileHDF5Adapter",
     "Provenance",
     "ProvenanceRecord",
