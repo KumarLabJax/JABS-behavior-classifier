@@ -16,6 +16,7 @@ specific rule rather than on message text.
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -560,6 +561,57 @@ def _check_layout(
         )
 
 
+def _parseable_timestamp(value: object) -> bool:
+    """Whether a value is an ISO 8601 / RFC 3339 timestamp.
+
+    ``format: "date-time"`` in the schema is advisory: jsonschema only enforces
+    formats when an optional validator package is installed, so garbage
+    validates clean. Checked here instead, with no new dependency.
+
+    Args:
+        value: The candidate timestamp.
+
+    Returns:
+        True when the value parses as a timestamp.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        # fromisoformat only learned to accept a trailing Z in 3.11.
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
+def _check_timestamps(manifest: dict, provenance: dict, findings: list[Finding]) -> None:
+    """Validate every timestamp the two documents carry.
+
+    Args:
+        manifest: The validated manifest.
+        provenance: The provenance document.
+        findings: Accumulator.
+    """
+    candidates = [("manifest.created", manifest.get("created"))]
+    start_time = manifest.get("video", {}).get("start_time")
+    if start_time is not None:
+        candidates.append(("manifest.video.start_time", start_time))
+    for key, record in provenance.get("records", {}).items():
+        candidates.append((f"provenance.records.{key}.created", record.get("created")))
+    for position, entry in enumerate(provenance.get("history", [])):
+        candidates.append((f"provenance.history[{position}].time", entry.get("time")))
+
+    for where, value in candidates:
+        if value is not None and not _parseable_timestamp(value):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "timestamp_parseable",
+                    f"{where} is not an ISO 8601 timestamp: {value!r}",
+                )
+            )
+
+
 def _check_manifest_wide(h5: h5py.File, manifest: dict, findings: list[Finding]) -> None:
     """Validate rules that span the whole manifest.
 
@@ -701,6 +753,7 @@ def validate(path: str | Path) -> list[Finding]:
 
         provenance_records = set(provenance.get("records", {}))
         _check_manifest_wide(h5, manifest, findings)
+        _check_timestamps(manifest, provenance, findings)
         _check_skeletons(manifest, findings)
         _check_sparse_index_values(h5, manifest, findings)
         for spec in manifest["components"]:

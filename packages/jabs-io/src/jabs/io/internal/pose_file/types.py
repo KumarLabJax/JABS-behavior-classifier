@@ -15,6 +15,7 @@ at open time.
 
 import re
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 import numpy as np
 
@@ -24,7 +25,9 @@ COMPONENT_ID_RE = re.compile(
     r"^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)+$"
 )
 
-# The dtypes the manifest schema admits. numpy reports booleans as "bool".
+# The dtypes the manifest schema admits. numpy reports booleans as "bool", and
+# every string representation h5py can hand back -- object, bytes, unicode --
+# is declared as "string", which is the name the schema uses.
 DTYPE_NAMES = frozenset(
     {
         "float32",
@@ -38,8 +41,13 @@ DTYPE_NAMES = frozenset(
         "uint32",
         "uint64",
         "bool",
+        "string",
     }
 )
+
+# numpy dtype kinds that the format calls "string": object (h5py variable
+# length), bytes and unicode.
+_STRING_KINDS = "OSU"
 
 RESERVED_NAMESPACE = "jabs"
 
@@ -211,6 +219,12 @@ class Component:
             raise ValueError(f"{self.id}: sparse_index declared but there is no sample axis")
         if self.dtype not in DTYPE_NAMES:
             raise ValueError(f"{self.id}: unsupported dtype {self.dtype!r}")
+        # Frozen only freezes the attribute bindings. Without this a caller
+        # keeps a live reference to the dicts that were validated, and can
+        # mutate them past every check above.
+        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(self, "missing", MappingProxyType(dict(self.missing)))
+        object.__setattr__(self, "encoding", MappingProxyType(dict(self.encoding)))
 
     @property
     def path(self) -> str:
@@ -229,6 +243,8 @@ class Component:
     @property
     def dtype(self) -> str:
         """The payload's dtype name, as the manifest records it."""
+        if self.data.dtype.kind in _STRING_KINDS:
+            return "string"
         return self.data.dtype.name
 
 
@@ -356,6 +372,20 @@ class PoseFile:
             mask = component.missing.get("mask") or component.missing.get("length")
             if mask is not None and mask not in known:
                 raise ValueError(f"{component.id}: missing policy references unknown {mask!r}")
+
+        self._freeze()
+
+    def _freeze(self) -> None:
+        """Replace the validated mappings with read-only views.
+
+        Frozen dataclasses freeze attribute bindings, not the objects bound.
+        Without this, ``pose.dimensions["identity"] = 99`` sails past
+        ``__post_init__`` and is then written to disk.
+        """
+        object.__setattr__(self, "dimensions", MappingProxyType(dict(self.dimensions)))
+        object.__setattr__(self, "skeletons", MappingProxyType(dict(self.skeletons)))
+        object.__setattr__(self, "components", tuple(self.components))
+        object.__setattr__(self, "attachments", tuple(self.attachments))
 
     def component(self, component_id: str) -> Component:
         """Return one component by id.

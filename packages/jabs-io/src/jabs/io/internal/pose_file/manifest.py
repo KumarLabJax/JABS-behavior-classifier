@@ -101,14 +101,22 @@ def _component_entry(component: Component, layout: dict | None) -> dict:
     return entry
 
 
-def build_manifest(pose_file: PoseFile, layouts: dict[str, dict] | None = None) -> dict:
+def build_manifest(
+    pose_file: PoseFile,
+    layouts: dict[str, dict] | None = None,
+    created: str | None = None,
+) -> dict:
     """Build the manifest document for a pose file.
 
     Args:
         pose_file: The file's contents.
         layouts: Storage layout per component id, as the writer will apply it.
             Supplied by the writer so the manifest reports what is actually on
-            disk rather than an intention.
+            disk rather than an intention. This deliberately overrides any
+            layout already on a component: layout describes the storage a file
+            really has, so the writer's decision is the truth and a caller's
+            preference is not.
+        created: Creation timestamp. Defaults to now.
 
     Returns:
         The manifest, ready to validate and serialize.
@@ -132,7 +140,7 @@ def build_manifest(pose_file: PoseFile, layouts: dict[str, dict] | None = None) 
     manifest: dict = {
         "format": FORMAT_ID,
         "schema_revision": SCHEMA_REVISION,
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": created or datetime.now(timezone.utc).isoformat(),
         "dimensions": {k: int(v) for k, v in pose_file.dimensions.items()},
         "video": video,
         "components": [
