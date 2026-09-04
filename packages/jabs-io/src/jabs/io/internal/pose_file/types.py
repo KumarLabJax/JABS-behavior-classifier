@@ -339,6 +339,11 @@ class PoseFile:
         for required in ("frame", "slot", "identity"):
             if required not in self.dimensions:
                 raise ValueError(f"dimensions must declare {required!r}")
+        if self.dimensions["frame"] != self.video.frame_count:
+            raise ValueError(
+                f"dimensions.frame ({self.dimensions['frame']}) disagrees with "
+                f"video.frame_count ({self.video.frame_count})"
+            )
         if self.dimensions["identity"] > self.dimensions["slot"]:
             raise ValueError(
                 f"dimensions.identity ({self.dimensions['identity']}) exceeds "
@@ -372,8 +377,30 @@ class PoseFile:
             mask = component.missing.get("mask") or component.missing.get("length")
             if mask is not None and mask not in known:
                 raise ValueError(f"{component.id}: missing policy references unknown {mask!r}")
+            self._check_axis_lengths(component)
 
         self._freeze()
+
+    def _check_axis_lengths(self, component: Component) -> None:
+        """Validate a component's axes against the file's dimensions.
+
+        The specification says an axis named ``frame`` always has length
+        ``dimensions.frame``, and the same reasoning applies to every axis the
+        file gives a size. Checked at construction so the writer cannot emit a
+        file that the validator would then reject.
+
+        Args:
+            component: The component to check.
+
+        Raises:
+            ValueError: If a named axis disagrees with its dimension.
+        """
+        for axis, length in zip(component.axes, component.data.shape, strict=True):
+            declared = self.dimensions.get(axis)
+            if declared is not None and length != declared:
+                raise ValueError(
+                    f"{component.id}: {axis} axis is {length} but dimensions.{axis} is {declared}"
+                )
 
     def _freeze(self) -> None:
         """Replace the validated mappings with read-only views.
