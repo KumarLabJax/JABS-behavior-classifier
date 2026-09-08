@@ -149,10 +149,12 @@ def test_read_component_refuses_a_non_dense_payload(tmp_path, sample_pose_file):
     an RLE payload must be an unsigned integer, so declaring it on the float32
     points array is now rejected by the schema instead.
     """
+    # An RLE payload is a flat sequence of scalar runs, so it declares a
+    # single `run` axis; the schema enforces that now.
     runs = Component(
         id="jabs.segmentation.contours",
-        axes=("frame", "slot"),
-        data=np.zeros((4, 2), dtype=np.uint32),
+        axes=("run",),
+        data=np.zeros(8, dtype=np.uint32),
         missing={"policy": "none"},
     )
     path = tmp_path / "rle.h5"

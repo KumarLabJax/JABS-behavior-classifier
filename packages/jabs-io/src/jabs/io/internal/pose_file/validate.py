@@ -301,14 +301,25 @@ def _check_component(
     elif has_sample:
         _check_sparse_reference(component_id, spec, by_id, findings)
 
-    if "coord" in spec["axes"] and ("units" not in spec or "coord_order" not in spec):
-        findings.append(
-            Finding(
-                ERROR,
-                "coord_declarations",
-                f"{component_id}: a coord axis requires units and coord_order",
+    if "coord" in spec["axes"]:
+        if "units" not in spec or "coord_order" not in spec:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "coord_declarations",
+                    f"{component_id}: a coord axis requires units and coord_order",
+                )
             )
-        )
+        pair = _axis_length(spec, "coord")
+        if pair is not None and pair != 2:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "coord_axis_length",
+                    f"{component_id}: coord axis is {pair} wide; coord_order describes two "
+                    "values and nothing else",
+                )
+            )
 
     # Every axis the file gives a size, not only frame: the invariant is the
     # same for slot and identity, and PoseFile enforces all of them, so
@@ -392,6 +403,7 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
     # Matching lengths are not alignment: a (frame,) payload and an (identity,)
     # mask of the same size cannot align semantically, so the axis *names* have
     # to be the target's leading axes too.
+    _check_reference_dtype(spec, target, policy, own_shape, findings)
     if (
         len(other_axes) > len(own_axes)
         or other_axes != own_axes[: len(other_axes)]
@@ -404,6 +416,51 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
                 f"{spec['id']}: {policy} reference {reference!r} has axes "
                 f"{tuple(other_axes)}{tuple(other_shape)}, which are not the leading axes of "
                 f"{tuple(own_axes)}{tuple(own_shape)}",
+            )
+        )
+
+
+def _check_reference_dtype(
+    spec: dict, target: dict, policy: str, own_shape: list, findings: list[Finding]
+) -> None:
+    """Validate that a mask or length reference can actually be applied.
+
+    Alignment is not interpretability: a boolean mask says present or absent
+    and a length says how many, so a float mask or a signed length cannot be
+    applied however well its shape lines up.
+
+    Args:
+        spec: The component whose policy is checked.
+        target: The referenced component's entry.
+        policy: ``"mask"`` or ``"length"``.
+        own_shape: The referencing component's shape.
+        findings: Accumulator.
+    """
+    if policy == "mask" and target["dtype"] != "bool":
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: mask reference {target['id']!r} has dtype "
+                f"{target['dtype']!r}; a mask must be boolean",
+            )
+        )
+    if policy == "length" and target["dtype"] not in (
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    ):
+        findings.append(
+            Finding(
+                ERROR,
+                "mask_reference",
+                f"{spec['id']}: length reference {target['id']!r} has dtype "
+                f"{target['dtype']!r}; a length must be an integer",
             )
         )
 
@@ -595,7 +652,10 @@ def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
     if not isinstance(node, h5py.Dataset):
         return None
     values = np.asarray(node[()])
-    if values.ndim != 1 or values.dtype.kind not in "iu":
+    # Unsigned by specification. A float offset cannot index an array, and a
+    # signed one admits negatives, so neither is usable even when its values
+    # happen to look right.
+    if values.ndim != 1 or values.dtype.kind != "u":
         return None
     return values.astype(np.int64, copy=False)
 
@@ -633,8 +693,8 @@ def _check_offsets(
                 Finding(
                     ERROR,
                     check,
-                    f"{component_id}: group_offsets at {encoding['group_offsets']} is missing "
-                    "or not a one-dimensional dataset",
+                    f"{component_id}: group_offsets at {encoding['group_offsets']} is missing, "
+                    "not one-dimensional, or not an unsigned integer",
                 )
             )
         else:
@@ -649,7 +709,7 @@ def _check_offsets(
                 ERROR,
                 check,
                 f"{component_id}: instance_offsets at {encoding['instance_offsets']} is "
-                "missing or not a one-dimensional dataset",
+                "missing, not one-dimensional, or not an unsigned integer",
             )
         )
         return
@@ -893,15 +953,34 @@ def _check_attachments(h5: h5py.File, manifest: dict, findings: list[Finding]) -
     """
     declared_paths = {c["path"] for c in manifest["components"]}
     declared_attachments = {a["path"] for a in manifest.get("attachments", [])}
+    seen: set[str] = set()
     for spec in manifest.get("attachments", []):
-        if not isinstance(h5.get(spec["path"]), h5py.Dataset):
+        path = spec["path"]
+        if not isinstance(h5.get(path), h5py.Dataset):
             findings.append(
                 Finding(
                     ERROR,
                     "attachment_path_exists",
-                    f"declared attachment {spec['path']} is missing or is not a dataset",
+                    f"declared attachment {path} is missing or is not a dataset",
                 )
             )
+        if not path.startswith("/attachments/"):
+            findings.append(
+                Finding(
+                    ERROR,
+                    "attachment_namespace",
+                    f"declared attachment {path} is outside /attachments/",
+                )
+            )
+        if path in seen:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "attachment_unique",
+                    f"attachment {path} is declared more than once",
+                )
+            )
+        seen.add(path)
 
     root = h5.get("attachments")
     if not isinstance(root, h5py.Group):

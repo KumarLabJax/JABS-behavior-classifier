@@ -207,10 +207,17 @@ class Component:
                 f"{self.id}: declared {len(self.axes)} axes {self.axes} but the payload has "
                 f"{self.data.ndim} dimensions {self.data.shape}"
             )
-        if "coord" in self.axes and (self.units is None or self.coord_order is None):
-            raise ValueError(
-                f"{self.id}: a component with a coord axis must declare units and coord_order"
-            )
+        if "coord" in self.axes:
+            if self.units is None or self.coord_order is None:
+                raise ValueError(
+                    f"{self.id}: a component with a coord axis must declare units and coord_order"
+                )
+            pair = self.data.shape[self.axes.index("coord")]
+            if pair != 2:
+                raise ValueError(
+                    f"{self.id}: coord axis is {pair} wide; coord_order describes two values "
+                    f"({self.coord_order!r}) and nothing else"
+                )
         if "keypoint" in self.axes and self.skeleton is None:
             raise ValueError(f"{self.id}: a component with a keypoint axis must name its skeleton")
         if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):
@@ -500,6 +507,30 @@ class PoseFile:
                 f"{component.id}: {policy} reference {other.id!r} has shape "
                 f"{other.data.shape}, which does not align with {component.data.shape}"
             )
+        # Alignment is not interpretability: a boolean mask says present or
+        # absent, and a length says how many, so a float mask or a negative
+        # length cannot be applied however well its shape lines up.
+        if policy == "mask" and other.data.dtype.kind != "b":
+            raise ValueError(
+                f"{component.id}: mask reference {other.id!r} has dtype "
+                f"{other.data.dtype.name!r}; a mask must be boolean"
+            )
+        if policy == "length":
+            if other.data.dtype.kind not in "iu":
+                raise ValueError(
+                    f"{component.id}: length reference {other.id!r} has dtype "
+                    f"{other.data.dtype.name!r}; a length must be an integer"
+                )
+            bound = (
+                component.data.shape[other.data.ndim]
+                if other.data.ndim < component.data.ndim
+                else 0
+            )
+            if other.data.size and (other.data.min() < 0 or other.data.max() > bound):
+                raise ValueError(
+                    f"{component.id}: length reference {other.id!r} has values outside "
+                    f"[0, {bound}], the axis it bounds"
+                )
 
     def _freeze(self) -> None:
         """Replace the validated mappings with read-only views.
