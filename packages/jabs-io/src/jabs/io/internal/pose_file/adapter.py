@@ -36,14 +36,16 @@ class PoseFileHDF5Adapter(Adapter):
         Args:
             data: The pose file to write.
             path: Destination path.
-            **kwargs: Unused; accepted for interface compatibility.
+            **kwargs: Forwarded to :func:`write_pose_file`, so options such as
+                ``created`` work through the public API and an unsupported one
+                fails visibly rather than being silently dropped.
 
         Raises:
             TypeError: If ``data`` is a list rather than a single pose file.
         """
         if isinstance(data, list):
             raise TypeError("a pose file describes one video; write each PoseFile to its own path")
-        write_pose_file(data, path)
+        write_pose_file(data, path, **kwargs)
 
     def read(self, path: str | Path, data_type: type | None = None) -> PoseFile:
         """Read one pose file.

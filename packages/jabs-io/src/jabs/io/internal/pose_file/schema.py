@@ -56,7 +56,14 @@ def _is_date_time(value: object) -> bool:
     if not isinstance(value, str):
         return True
     # fromisoformat only learned to accept a trailing Z in 3.11.
-    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    # And it is looser than RFC 3339 in two ways that matter here: it accepts a
+    # date with no time at all, and a time with no offset. Neither is a
+    # date-time, and a timestamp without an offset is not a point in time.
+    if "T" not in value and "t" not in value:
+        raise ValueError(f"{value!r} has no time component")
+    if parsed.tzinfo is None:
+        raise ValueError(f"{value!r} has no UTC offset")
     return True
 
 

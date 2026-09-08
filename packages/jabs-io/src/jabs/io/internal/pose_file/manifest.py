@@ -184,7 +184,7 @@ def build_provenance(provenance: Provenance) -> dict:
             "version": record.version,
             "created": record.created,
         }
-        for name in ("model", "algorithm", "parameters"):
+        for name in ("model", "algorithm", "parameters", "extra"):
             value = getattr(record, name)
             if value is not None:
                 entry[name] = dict(value)
@@ -206,9 +206,14 @@ def build_provenance(provenance: Provenance) -> dict:
             entry["dropped"] = list(item.dropped)
         if item.notes is not None:
             entry["notes"] = item.notes
+        if item.extra is not None:
+            entry["extra"] = dict(item.extra)
         history.append(entry)
 
-    return {"records": records, "history": history}
+    document: dict = {"records": records, "history": history}
+    if provenance.extra is not None:
+        document["extra"] = dict(provenance.extra)
+    return document
 
 
 def parse_manifest(manifest: dict) -> ParsedManifest:
@@ -259,6 +264,7 @@ def parse_provenance(provenance: dict) -> Provenance:
             model=entry.get("model"),
             algorithm=entry.get("algorithm"),
             parameters=entry.get("parameters"),
+            extra=entry.get("extra"),
         )
         for key, entry in provenance.get("records", {}).items()
     }
@@ -272,7 +278,8 @@ def parse_provenance(provenance: dict) -> Provenance:
             synthesized=tuple(entry["synthesized"]) if "synthesized" in entry else None,
             dropped=tuple(entry["dropped"]) if "dropped" in entry else None,
             notes=entry.get("notes"),
+            extra=entry.get("extra"),
         )
         for entry in provenance.get("history", ())
     )
-    return Provenance(records=records, history=history)
+    return Provenance(records=records, history=history, extra=provenance.get("extra"))

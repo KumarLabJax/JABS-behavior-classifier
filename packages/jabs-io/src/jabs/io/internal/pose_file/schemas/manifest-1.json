@@ -426,6 +426,85 @@
             "properties": {
               "axes": {
                 "contains": {
+                  "const": "keypoint"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "skeleton"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "missing"
+            ],
+            "properties": {
+              "missing": {
+                "properties": {
+                  "policy": {
+                    "const": "nan"
+                  }
+                },
+                "required": [
+                  "policy"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": {
+                "enum": [
+                  "float32",
+                  "float64"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "encoding"
+            ],
+            "properties": {
+              "encoding": {
+                "properties": {
+                  "kind": {
+                    "const": "rle"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": {
+                "enum": [
+                  "uint8",
+                  "uint16",
+                  "uint32",
+                  "uint64"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "axes"
+            ],
+            "properties": {
+              "axes": {
+                "contains": {
                   "const": "sample"
                 }
               }

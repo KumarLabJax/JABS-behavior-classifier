@@ -103,6 +103,7 @@ def _core_components():
             data=confidence,
             missing={"policy": "none"},
             units="unitless",
+            skeleton="jabs.mouse12",
             provenance="jabs.pose",
         ),
         Component(
@@ -110,6 +111,7 @@ def _core_components():
             axes=("frame", "slot", "keypoint"),
             data=point_valid,
             missing={"policy": "none"},
+            skeleton="jabs.mouse12",
             provenance="jabs.pose",
         ),
         Component(

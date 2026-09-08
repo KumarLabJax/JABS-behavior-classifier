@@ -211,6 +211,23 @@ class Component:
             raise ValueError(
                 f"{self.id}: a component with a coord axis must declare units and coord_order"
             )
+        if "keypoint" in self.axes and self.skeleton is None:
+            raise ValueError(f"{self.id}: a component with a keypoint axis must name its skeleton")
+        if self.missing.get("policy") == "nan" and self.dtype not in ("float32", "float64"):
+            raise ValueError(
+                f"{self.id}: a nan missing-policy needs a float payload, not {self.dtype!r} -- "
+                "NaN is reserved for floats and no other dtype can represent it"
+            )
+        if self.encoding.get("kind") == "rle" and self.dtype not in (
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        ):
+            raise ValueError(
+                f"{self.id}: an RLE payload holds run lengths and must be an unsigned "
+                f"integer, not {self.dtype!r}"
+            )
         if "sample" in self.axes and self.sparse_index is None:
             raise ValueError(
                 f"{self.id}: a component with a sample axis must declare sparse_index"
@@ -260,6 +277,7 @@ class ProvenanceRecord:
         algorithm: Algorithm reference.
         parameters: The policy the producer applied, e.g. a confidence
             threshold. Declaring it is what lets a consumer disagree knowingly.
+        extra: Namespaced producer metadata, preserved across a round trip.
     """
 
     producer: str
@@ -268,6 +286,7 @@ class ProvenanceRecord:
     model: dict | None = None
     algorithm: dict | None = None
     parameters: dict | None = None
+    extra: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +305,7 @@ class HistoryEntry:
             a natively produced one.
         dropped: What the operation discarded.
         notes: Free text.
+        extra: Namespaced metadata, preserved across a round trip.
     """
 
     operation: str
@@ -296,6 +316,7 @@ class HistoryEntry:
     synthesized: tuple[str, ...] | None = None
     dropped: tuple[str, ...] | None = None
     notes: str | None = None
+    extra: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -305,10 +326,13 @@ class Provenance:
     Attributes:
         records: Provenance records, keyed by the name components reference.
         history: Operations applied to the file, in order.
+        extra: Namespaced document-level metadata, preserved across a round
+            trip.
     """
 
     records: dict[str, ProvenanceRecord] = field(default_factory=dict)
     history: tuple[HistoryEntry, ...] = ()
+    extra: dict | None = None
 
 
 @dataclass(frozen=True, eq=False)
@@ -350,6 +374,7 @@ class PoseFile:
                 f"dimensions.slot ({self.dimensions['slot']})"
             )
 
+        by_id = {c.id: c for c in self.components}
         ids = [c.id for c in self.components]
         duplicates = sorted({i for i in ids if ids.count(i) > 1})
         if duplicates:
@@ -378,6 +403,9 @@ class PoseFile:
             if mask is not None and mask not in known:
                 raise ValueError(f"{component.id}: missing policy references unknown {mask!r}")
             self._check_axis_lengths(component)
+            self._check_skeleton_width(component)
+            self._check_sparse_reference(component, by_id)
+            self._check_missing_reference(component, by_id)
 
         self._freeze()
 
@@ -401,6 +429,77 @@ class PoseFile:
                 raise ValueError(
                     f"{component.id}: {axis} axis is {length} but dimensions.{axis} is {declared}"
                 )
+
+    def _check_skeleton_width(self, component: Component) -> None:
+        """Validate a keypoint axis against the skeleton it names.
+
+        Args:
+            component: The component to check.
+
+        Raises:
+            ValueError: If the skeleton cannot label the keypoint axis.
+        """
+        if component.skeleton is None or "keypoint" not in component.axes:
+            return
+        width = component.data.shape[component.axes.index("keypoint")]
+        body_parts = len(self.skeletons[component.skeleton].body_parts)
+        if width != body_parts:
+            raise ValueError(
+                f"{component.id}: keypoint axis is {width} wide but skeleton "
+                f"{component.skeleton!r} names {body_parts} body parts"
+            )
+
+    def _check_sparse_reference(self, component: Component, by_id: dict) -> None:
+        """Validate a sparse index's shape and axes.
+
+        Args:
+            component: The referencing component.
+            by_id: Every component, keyed by id.
+
+        Raises:
+            ValueError: If the index is not a one-dimensional sample-axis
+                component of the same length as the referencing sample axis.
+        """
+        if component.sparse_index is None:
+            return
+        index = by_id[component.sparse_index]
+        if index.axes != ("sample",):
+            raise ValueError(
+                f"{component.id}: sparse index {index.id!r} has axes {index.axes}, expected a "
+                "one-dimensional sample axis"
+            )
+        samples = component.data.shape[component.axes.index("sample")]
+        if samples != index.data.shape[0]:
+            raise ValueError(
+                f"{component.id}: sample axis is {samples} but index {index.id!r} has "
+                f"{index.data.shape[0]} entries"
+            )
+
+    def _check_missing_reference(self, component: Component, by_id: dict) -> None:
+        """Validate that a mask or length reference can align with its target.
+
+        Args:
+            component: The component whose policy is checked.
+            by_id: Every component, keyed by id.
+
+        Raises:
+            ValueError: If the reference's axes are not the target's leading
+                axes.
+        """
+        policy = component.missing.get("policy")
+        if policy not in ("mask", "length"):
+            return
+        other = by_id[component.missing[policy]]
+        if other.axes != component.axes[: len(other.axes)]:
+            raise ValueError(
+                f"{component.id}: {policy} reference {other.id!r} has axes {other.axes}, which "
+                f"are not the leading axes of {component.axes}"
+            )
+        if other.data.shape != component.data.shape[: other.data.ndim]:
+            raise ValueError(
+                f"{component.id}: {policy} reference {other.id!r} has shape "
+                f"{other.data.shape}, which does not align with {component.data.shape}"
+            )
 
     def _freeze(self) -> None:
         """Replace the validated mappings with read-only views.

@@ -62,6 +62,7 @@ def build_sample_pose_file(width: int | None = 800, height: int | None = 800) ->
                 data=confidence,
                 missing={"policy": "none"},
                 units="unitless",
+                skeleton="jabs.mouse12",
                 provenance="jabs.pose",
             ),
             Component(
@@ -69,6 +70,7 @@ def build_sample_pose_file(width: int | None = 800, height: int | None = 800) ->
                 axes=("frame", "slot", "keypoint"),
                 data=point_valid,
                 missing={"policy": "none"},
+                skeleton="jabs.mouse12",
                 provenance="jabs.pose",
             ),
             Component(

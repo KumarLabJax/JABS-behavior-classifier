@@ -19,6 +19,7 @@ def test_component_path_for_jabs_namespace():
         units="pixel",
         coord_order="xy",
         missing={"policy": "nan"},
+        skeleton="jabs.mouse12",
     )
     assert c.path == "/jabs/pose/points"
     assert c.dtype == "float32"
@@ -43,6 +44,7 @@ def test_component_rejects_axes_arity_mismatch():
             axes=("frame", "slot"),
             data=_points(),
             missing={"policy": "nan"},
+            skeleton="jabs.mouse12",
         )
 
 
@@ -72,6 +74,7 @@ def test_component_requires_coord_order_on_coord_axis():
             data=_points(),
             units="pixel",
             missing={"policy": "nan"},
+            skeleton="jabs.mouse12",
         )
 
 

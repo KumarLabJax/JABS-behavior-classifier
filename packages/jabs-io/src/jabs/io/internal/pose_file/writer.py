@@ -144,6 +144,21 @@ def _check_encodings(pose_file: PoseFile) -> None:
             )
 
 
+def _as_text(value: object) -> str:
+    """Decode one element of a string payload.
+
+    Args:
+        value: A str, bytes, or anything else.
+
+    Returns:
+        The text. Bytes are decoded rather than repr'd, so ``b"a"`` becomes
+        ``"a"`` and not ``"b'a'"``.
+    """
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def _create_dataset(h5: h5py.File, component: Component) -> None:
     """Create one component's dataset with this writer's layout policy.
 
@@ -151,28 +166,33 @@ def _create_dataset(h5: h5py.File, component: Component) -> None:
         h5: The open destination file.
         component: The component to write.
     """
+    data = component.data
+    options: dict = {}
     if component.dtype == "string":
         # Variable-length UTF-8, so a reader on any HDF5 implementation gets
-        # text rather than this machine's fixed-width padding.
-        h5.create_dataset(
-            component.path,
-            data=[str(value) for value in component.data.tolist()],
-            dtype=h5py.string_dtype(encoding="utf-8"),
-        )
-        return
+        # text rather than this machine's fixed-width padding. Converted
+        # elementwise with the shape preserved: `[str(v) for v in arr.tolist()]`
+        # stringifies whole rows of a 2-D array into one element each, and
+        # turns b"a" into the literal text "b'a'".
+        data = np.asarray(
+            [_as_text(value) for value in component.data.ravel().tolist()], dtype=object
+        ).reshape(component.data.shape)
+        options["dtype"] = h5py.string_dtype(encoding="utf-8")
+
     if _is_keypoint_scale(component.id):
-        h5.create_dataset(component.path, data=component.data, chunks=None)
+        h5.create_dataset(component.path, data=data, chunks=None, **options)
         return
     chunks = _frame_major_chunks(component)
     if chunks is None:
-        h5.create_dataset(component.path, data=component.data, chunks=None)
+        h5.create_dataset(component.path, data=data, chunks=None, **options)
         return
     h5.create_dataset(
         component.path,
-        data=component.data,
+        data=data,
         chunks=chunks,
         compression=_COMPRESSION,
         compression_opts=_COMPRESSION_OPTS,
+        **options,
     )
 
 
@@ -232,6 +252,20 @@ def write_pose_file(pose_file: PoseFile, path: str | Path, created: str | None =
                 # can transform it correctly, and dropping one silently is a
                 # specification violation.
                 h5.create_dataset(attachment.path, data=attachment.data)
+        # The two documents were validated before the open, but file-level
+        # invariants -- offset integrity, sparse index ordering, layout
+        # agreement -- can only be checked against the finished file. Checking
+        # here is what makes "the writer never publishes a file its own
+        # validator rejects" true rather than aspirational, and it is cheap:
+        # validate() reads indexes and offsets, never the payloads.
+        from jabs.io.internal.pose_file.validate import validate
+
+        errors = [f for f in validate(temporary) if f.severity == "error"]
+        if errors:
+            raise ValueError(
+                "refusing to write an invalid pose file: "
+                + "; ".join(f"{f.check}: {f.message}" for f in errors)
+            )
         os.replace(temporary, destination)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)

@@ -24,7 +24,11 @@ import h5py
 import numpy as np
 
 from jabs.io.internal.pose_file.manifest import parse_manifest, parse_provenance
-from jabs.io.internal.pose_file.schema import FORMAT_ID, validate_manifest
+from jabs.io.internal.pose_file.schema import (
+    FORMAT_ID,
+    validate_manifest,
+    validate_provenance,
+)
 from jabs.io.internal.pose_file.types import Attachment, Component, PoseFile
 
 # Only the baseline encoding can be decoded. Handing back RLE run values or a
@@ -63,7 +67,14 @@ def attr_text(value: object) -> str | None:
     flat = np.atleast_1d(np.asarray(value)).ravel()
     if flat.size == 0:
         return None
-    return attr_text(flat[0].item() if hasattr(flat[0], "item") else flat[0])
+    scalar = flat[0].item() if hasattr(flat[0], "item") else flat[0]
+    # Only one unwrapping step: recursing on a non-string scalar such as
+    # jabs_format = 1 would hand the same object back forever.
+    if isinstance(scalar, bytes | np.bytes_):
+        return scalar.decode("utf-8", errors="replace")
+    if isinstance(scalar, str):
+        return scalar
+    return None
 
 
 def _describe_other_format(h5: h5py.File) -> str:
@@ -299,6 +310,10 @@ def read_component(path: str | Path, component_id: str, frames: slice | None = N
             return _payload(dataset, spec)
         axis = spec["axes"].index("frame")
         selector = (slice(None),) * axis + (frames,)
+        # asstr() on the window too, so a string component does not hand back
+        # bytes for a window and str for a whole read.
+        if spec["dtype"] == "string":
+            return np.asarray(dataset.asstr()[selector])
         return dataset[selector]
 
 
@@ -326,6 +341,16 @@ def read_pose_file(path: str | Path) -> PoseFile:
             raise PoseFileError(
                 f"{path}: /provenance is missing or unreadable: {error}"
             ) from error
+        if not isinstance(provenance_raw, dict):
+            raise PoseFileError(f"{path}: /provenance is not a JSON object")
+        # Validated before parsing: parse_provenance indexes required fields,
+        # so a schema-invalid record would leak a KeyError past the documented
+        # PoseFileError contract.
+        provenance_errors = validate_provenance(provenance_raw)
+        if provenance_errors:
+            raise PoseFileError(
+                f"{path}: provenance does not satisfy the schema: " + "; ".join(provenance_errors)
+            )
         provenance = parse_provenance(provenance_raw)
 
         components = []

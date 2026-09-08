@@ -125,7 +125,7 @@ def test_decreasing_unsigned_sparse_index_is_an_error(tmp_path, sample_pose_file
     index = Component(
         id=index_id,
         axes=("sample",),
-        data=np.array([2, 1, 0], dtype=np.uint32),
+        data=np.array([0, 1, 2], dtype=np.uint32),
         missing={"policy": "none"},
         units="frame",
         sparse_index=index_id,
@@ -139,6 +139,9 @@ def test_decreasing_unsigned_sparse_index_is_an_error(tmp_path, sample_pose_file
         sparse_index=index_id,
     )
     path = tmp_path / "decreasing.h5"
+    # Written increasing and then corrupted in place: the writer now validates
+    # the finished file and refuses to publish one its own validator rejects,
+    # so an invalid fixture cannot be produced through it.
     write_pose_file(
         PoseFile(
             dimensions=sample_pose_file.dimensions,
@@ -149,6 +152,10 @@ def test_decreasing_unsigned_sparse_index_is_an_error(tmp_path, sample_pose_file
         ),
         path,
     )
+    with h5py.File(path, "r+") as h5:
+        h5["/jabs/dynamic_objects/fecal_boli/frame_index"][:] = np.array(
+            [2, 1, 0], dtype=np.uint32
+        )
     assert "sparse_index_valid" in _checks(path)
 
 
@@ -160,7 +167,7 @@ def test_a_shared_sparse_index_reports_once(tmp_path, sample_pose_file):
     index = Component(
         id=index_id,
         axes=("sample",),
-        data=np.array([2, 1, 0], dtype=np.uint32),
+        data=np.array([0, 1, 2], dtype=np.uint32),
         missing={"policy": "none"},
         units="frame",
         sparse_index=index_id,
@@ -187,6 +194,10 @@ def test_a_shared_sparse_index_reports_once(tmp_path, sample_pose_file):
         ),
         path,
     )
+    with h5py.File(path, "r+") as h5:
+        h5["/jabs/dynamic_objects/fecal_boli/frame_index"][:] = np.array(
+            [2, 1, 0], dtype=np.uint32
+        )
     monotonic = [f for f in validate(path) if f.check == "sparse_index_valid"]
     assert len(monotonic) == 1, [f.message for f in monotonic]
 

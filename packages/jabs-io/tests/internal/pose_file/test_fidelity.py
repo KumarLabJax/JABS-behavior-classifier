@@ -142,16 +142,36 @@ def test_dense_encoding_round_trips(written):
     assert back.component("jabs.pose.points").encoding == {"kind": "dense"}
 
 
-def test_read_component_refuses_a_non_dense_payload(written):
-    """Handing back RLE run values as if they were coordinates is worse than failing."""
+def test_read_component_refuses_a_non_dense_payload(tmp_path, sample_pose_file):
+    """Handing back RLE run values as if they were coordinates is worse than failing.
+
+    The component has to be schema-valid for the reader to be what refuses it:
+    an RLE payload must be an unsigned integer, so declaring it on the float32
+    points array is now rejected by the schema instead.
+    """
+    runs = Component(
+        id="jabs.segmentation.contours",
+        axes=("frame", "slot"),
+        data=np.zeros((4, 2), dtype=np.uint32),
+        missing={"policy": "none"},
+    )
+    path = tmp_path / "rle.h5"
+    write_pose_file(
+        PoseFile(
+            dimensions=sample_pose_file.dimensions,
+            video=sample_pose_file.video,
+            components=(runs,),
+        ),
+        path,
+    )
     _rewrite_manifest(
-        written,
+        path,
         lambda m: m["components"][0].update(
-            encoding={"kind": "rle", "instance_offsets": "/jabs/pose/offsets"}
+            encoding={"kind": "rle", "instance_offsets": "/jabs/segmentation/offsets"}
         ),
     )
     with pytest.raises(NotImplementedError, match="rle"):
-        read_component(written, "jabs.pose.points")
+        read_component(path, "jabs.segmentation.contours")
 
 
 # --- a round trip loses nothing --------------------------------------------

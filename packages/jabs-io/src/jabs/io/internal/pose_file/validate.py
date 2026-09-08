@@ -310,17 +310,19 @@ def _check_component(
             )
         )
 
-    frame_axis = _axis_length(spec, "frame")
-    declared_frames = manifest["dimensions"]["frame"]
-    if frame_axis is not None and frame_axis != declared_frames:
-        findings.append(
-            Finding(
-                ERROR,
-                "frame_axis_length",
-                f"{component_id}: frame axis is {frame_axis} but dimensions.frame is "
-                f"{declared_frames}",
+    # Every axis the file gives a size, not only frame: the invariant is the
+    # same for slot and identity, and PoseFile enforces all of them, so
+    # checking one here left the two out of step for externally produced files.
+    for axis, length in zip(spec["axes"], spec["shape"], strict=True):
+        declared = manifest["dimensions"].get(axis)
+        if declared is not None and length != declared:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "frame_axis_length" if axis == "frame" else "axis_length",
+                    f"{component_id}: {axis} axis is {length} but dimensions.{axis} is {declared}",
+                )
             )
-        )
 
     _check_component_skeleton(component_id, spec, manifest, findings)
 
@@ -383,15 +385,25 @@ def _check_missing_reference(spec: dict, by_id: dict[str, dict], findings: list[
             )
         )
         return
-    own = list(spec["shape"])
-    other = list(target["shape"])
-    if len(other) > len(own) or other != own[: len(other)]:
+    own_shape = list(spec["shape"])
+    other_shape = list(target["shape"])
+    own_axes = list(spec["axes"])
+    other_axes = list(target["axes"])
+    # Matching lengths are not alignment: a (frame,) payload and an (identity,)
+    # mask of the same size cannot align semantically, so the axis *names* have
+    # to be the target's leading axes too.
+    if (
+        len(other_axes) > len(own_axes)
+        or other_axes != own_axes[: len(other_axes)]
+        or other_shape != own_shape[: len(other_shape)]
+    ):
         findings.append(
             Finding(
                 ERROR,
                 "mask_reference",
-                f"{spec['id']}: {policy} reference {reference!r} has shape {tuple(other)}, "
-                f"which does not align with the leading axes of {tuple(own)}",
+                f"{spec['id']}: {policy} reference {reference!r} has axes "
+                f"{tuple(other_axes)}{tuple(other_shape)}, which are not the leading axes of "
+                f"{tuple(own_axes)}{tuple(own_shape)}",
             )
         )
 
@@ -464,12 +476,25 @@ def _check_sparse_index_values(h5: h5py.File, manifest: dict, findings: list[Fin
         # int64 before differencing: np.diff wraps on unsigned dtypes, so a
         # decreasing uint32 index would otherwise validate clean -- and uint32
         # is exactly what the specification prescribes for a frame index.
-        values = np.asarray(node[()]).astype(np.int64, copy=False)
-        if values.ndim != 1:
+        raw = np.asarray(node[()])
+        if raw.ndim != 1:
             findings.append(
                 Finding(ERROR, "sparse_index_valid", f"{index_id}: index must be one-dimensional")
             )
             continue
+        # Checked before casting: astype on a string index raises, and a float
+        # index would truncate to apparently valid frame numbers.
+        if raw.dtype.kind not in "iu":
+            findings.append(
+                Finding(
+                    ERROR,
+                    "sparse_index_valid",
+                    f"{index_id}: index dtype is {raw.dtype.name!r}; a frame index must be an "
+                    "integer",
+                )
+            )
+            continue
+        values = raw.astype(np.int64, copy=False)
         if values.size and not np.all(np.diff(values) > 0):
             findings.append(
                 Finding(
@@ -570,7 +595,7 @@ def _offsets(h5: h5py.File, path: str) -> np.ndarray | None:
     if not isinstance(node, h5py.Dataset):
         return None
     values = np.asarray(node[()])
-    if values.ndim != 1:
+    if values.ndim != 1 or values.dtype.kind not in "iu":
         return None
     return values.astype(np.int64, copy=False)
 
@@ -634,6 +659,8 @@ def _check_offsets(
         len(group_offsets) - 1 if kind == "ragged" and group_offsets is not None else node.shape[0]
     )
     _check_monotonic(component_id, "instance_offsets", instance_offsets, terminal, check, findings)
+    if kind == "rle":
+        _check_rle_coverage(component_id, node, instance_offsets, manifest, findings)
     if instance_offsets.size != expected_instances:
         findings.append(
             Finding(
@@ -643,6 +670,50 @@ def _check_offsets(
                 f"expected frame*slot+1 = {expected_instances}",
             )
         )
+
+
+def _check_rle_coverage(
+    component_id: str,
+    node: h5py.Dataset,
+    instance_offsets: np.ndarray,
+    manifest: dict,
+    findings: list[Finding],
+) -> None:
+    """Validate that each RLE instance's runs cover exactly one mask.
+
+    A short or long run list decodes to a mask of the wrong size, and no shape
+    check catches it because the payload is a flat buffer. This is the one
+    validation rule whose cost scales with the payload rather than the
+    manifest.
+
+    Args:
+        component_id: The component being checked.
+        node: The run-length payload.
+        instance_offsets: The CSR index into it.
+        manifest: The validated manifest.
+        findings: Accumulator.
+    """
+    video = manifest["video"]
+    width, height = video.get("width"), video.get("height")
+    if width is None or height is None:
+        return
+    expected = int(width) * int(height)
+    runs = np.asarray(node[()]).astype(np.int64, copy=False)
+    for position in range(len(instance_offsets) - 1):
+        start, stop = int(instance_offsets[position]), int(instance_offsets[position + 1])
+        if start > stop or stop > runs.size:
+            return
+        total = int(runs[start:stop].sum())
+        if total != expected:
+            findings.append(
+                Finding(
+                    ERROR,
+                    "rle_coverage",
+                    f"{component_id}: instance {position}'s runs sum to {total}, expected "
+                    f"width*height = {expected}",
+                )
+            )
+            return
 
 
 def _check_monotonic(
@@ -784,6 +855,20 @@ def _check_manifest_wide(h5: h5py.File, manifest: dict, findings: list[Finding])
                 )
             )
 
+    undeclared = sorted(c["id"] for c in manifest["components"] if c.get("provenance") is None)
+    if undeclared:
+        # A warning, not an error: design goal 15 says where provenance
+        # attaches, and design goal 16 says a valid file is a well-formed
+        # manifest. Requiring it would invalidate a third party's file for
+        # omitting a field only JABS cares about.
+        findings.append(
+            Finding(
+                WARNING,
+                "provenance_declared",
+                f"components with no provenance record: {undeclared}",
+            )
+        )
+
     video = manifest["video"]
     if video.get("width") is None or video.get("height") is None:
         findings.append(
@@ -852,14 +937,22 @@ def validate(path: str | Path) -> list[Finding]:
         Findings, errors first. An empty list means the file conforms.
     """
     findings: list[Finding] = []
-    with h5py.File(path, "r") as h5:
+    try:
+        handle = h5py.File(path, "r")
+    except OSError as error:
+        # A truncated, missing or non-HDF5 file is exactly the input this
+        # function exists to diagnose, so it cannot be the one input that
+        # raises.
+        return [Finding(ERROR, "file_readable", f"{path} cannot be opened as HDF5: {error}")]
+    with handle as h5:
         if not _check_root(h5, findings):
             return findings
         manifest, provenance = _check_documents(h5, findings)
         if manifest is None:
             return findings
 
-        provenance_records = set(provenance.get("records", {}))
+        records = provenance.get("records")
+        provenance_records = set(records) if isinstance(records, dict) else set()
         _check_manifest_wide(h5, manifest, findings)
         _check_skeletons(manifest, findings)
         _check_sparse_index_values(h5, manifest, findings)
