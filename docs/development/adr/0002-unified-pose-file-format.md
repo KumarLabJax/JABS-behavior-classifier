@@ -365,6 +365,41 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
         {
           "if": {
             "required": ["axes"],
+            "properties": { "axes": { "contains": { "const": "keypoint" } } }
+          },
+          "then": { "required": ["skeleton"] }
+        },
+        {
+          "if": {
+            "required": ["missing"],
+            "properties": {
+              "missing": {
+                "properties": { "policy": { "const": "nan" } },
+                "required": ["policy"]
+              }
+            }
+          },
+          "then": { "properties": { "dtype": { "enum": ["float32", "float64"] } } }
+        },
+        {
+          "if": {
+            "required": ["encoding"],
+            "properties": {
+              "encoding": {
+                "properties": { "kind": { "const": "rle" } },
+                "required": ["kind"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dtype": { "enum": ["uint8", "uint16", "uint32", "uint64"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["axes"],
             "properties": { "axes": { "contains": { "const": "sample" } } }
           },
           "then": { "required": ["sparse"] }
@@ -531,6 +566,18 @@ count or group length exists.
 row-major `(frame, slot)` order, with `len(instance_offsets) == F*S + 1`. Mask dimensions come from
 `video.width` / `video.height`, which must therefore be non-null for a file using this encoding.
 
+Three further constraints, without which two conforming readers decode the same file differently:
+
+- The payload dtype is an **unsigned integer** (`uint8`…`uint64`). A run length is a count, and a
+  float or string payload — which the general component schema would otherwise admit — has no
+  defined meaning. Enforced by a schema conditional on `encoding.kind`.
+- **Each instance's runs begin with background.** A mask whose first pixel is foreground therefore
+  starts with a zero-length run. Without this, alternation is ambiguous and every implementation
+  guesses.
+- **Each instance's runs sum to exactly `video.width * video.height`.** A short or long run list
+  decodes to a mask of the wrong size, which no shape check catches because the payload is a flat
+  buffer.
+
 ### Component catalog
 
 Shapes use `F` = frames, `S` = slots, `I` = identities, `K` = keypoints, `E` = embedding
@@ -547,6 +594,12 @@ dimension. Every component below is optional.
 | `jabs.pose.slot_usable` | `/jabs/pose/slot_usable` | frame, slot | F×S | bool | — | `none` |
 | `jabs.pose.bbox` | `/jabs/pose/bbox` | frame, slot, corner, coord | F×S×2×2 | float32 | pixel | mask → `slot_occupied` |
 | `jabs.pose.tracklet_id` | `/jabs/pose/tracklet_id` | frame, slot | F×S | uint32 | — | mask → `slot_occupied` |
+
+**Every component with a `keypoint` axis names its skeleton**, not only `points`: `confidence`,
+`point_valid` and any future per-keypoint array declare the same reference. It is redundant for a
+file whose components all share one skeleton, and it is what makes each component self-describing
+when they do not — a reader holding one component's entry never has to look at a sibling's to learn
+what its keypoint axis means. A schema conditional enforces it.
 
 `points` uses `coord_order: "xy"` and carries a `skeleton` reference. `point_valid` is the
 producer's recommendation; the threshold that produced it is recorded in that component's
@@ -603,6 +656,11 @@ Dense baseline:
 | `jabs.segmentation.contour_length` | `/jabs/segmentation/contour_length` | frame, slot, contour | F×S×C | uint32 | `none` |
 | `jabs.segmentation.external_flag` | `/jabs/segmentation/external_flag` | frame, slot, contour | F×S×C | bool | `none` |
 
+`jabs.segmentation.contours` carries `units: "pixel"` and `coord_order: "xy"`, like every other
+coordinate component in this specification. The schema requires both whenever a `coord` axis is
+present; stating the values here means a producer does not have to guess and cannot emit a
+schema-valid manifest that disagrees with everyone else's.
+
 Note what changed even in the dense case: validity comes from `contour_count` and
 `contour_length`, **not** from `-1` padding. Padding bytes become unspecified rather than
 meaningful, which is what brings the dense encoding into line with design goal 11.
@@ -633,18 +691,28 @@ form a valid polygon — both stated in the component's `description`.
 Objects predicted on a subset of frames. `jabs.dynamic_objects.<name>.*` at
 `/jabs/dynamic_objects/<name>/`:
 
-| id suffix | axes | shape | dtype | units | notes |
-|---|---|---|---|---|---|
-| `.frame_index` | sample | M | uint32 | frame | the frames on which a prediction was made, strictly increasing |
-| `.points` | sample, object, point, coord | M×O×P×2 | float32 | pixel | `sparse.index` → `.frame_index` |
-| `.counts` | sample | M | uint32 | unitless | valid object count per sample |
+| id suffix | axes | shape | dtype | units | coord_order | missing | sparse.index |
+|---|---|---|---|---|---|---|---|
+| `.frame_index` | sample | M | uint32 | frame | — | `none` | **itself** |
+| `.points` | sample, object, point, coord | M×O×P×2 | float32 | pixel | `xy` | `length` → `.counts` | `.frame_index` |
+| `.counts` | sample | M | uint32 | unitless | — | `none` | `.frame_index` |
 
-All three use the `sample` axis, not `frame`, and `.points` / `.counts` declare
-`sparse: {"index": "<name>.frame_index"}`. `.frame_index` is itself a `sample`-axis component whose
-`units` are `frame` — it holds frame numbers. Keeping these axes distinct is what stops a generic
-clip tool from slicing an index array as though it were one value per video frame. This generalizes
-`dynamic_objects/*/sample_indices` into the mechanism any component may use, which is how the
-format expresses "not predicted" without padding.
+All three use the `sample` axis, not `frame`. Keeping those axes distinct is what stops a generic
+clip tool from slicing an index array as though it were one value per video frame, and it
+generalizes `dynamic_objects/*/sample_indices` into the mechanism any component may use — which is
+how the format expresses "not predicted" without padding.
+
+`.points` declares `missing: {"policy": "length", "length": "<name>.counts"}`: `.counts` is exactly
+the number of object slots valid on each sample, which is what a length policy means. Stating it
+here, along with the coordinate order, is what lets a producer build a complete manifest without
+guessing.
+
+**`.frame_index` names itself as its own sparse index.** Every component with a `sample` axis must
+declare `sparse` — the pairing is required in both directions, so that a `sample` axis can never
+appear without the mapping that gives it meaning — and the index is itself sample-shaped. The
+self-reference is not a curiosity: it is what makes the generic clipping rule apply to the index as
+well, so a clip tool filters and rewrites it by the same rule it uses for everything else, rather
+than needing a special case for the one component that describes the others.
 
 `fecal_boli` (P=1) is defined by this revision.
 
@@ -703,12 +771,14 @@ so a producer that knows frames were dropped can say so, instead of every consum
       "axes": ["frame", "slot", "keypoint"],
       "dtype": "float32", "shape": [108150, 4, 12], "units": "unitless",
       "encoding": { "kind": "dense" }, "missing": { "policy": "none" },
+      "skeleton": "jabs.mouse12",
       "provenance": "jabs.pose" },
 
     { "id": "jabs.pose.point_valid", "path": "/jabs/pose/point_valid",
       "axes": ["frame", "slot", "keypoint"],
       "dtype": "bool", "shape": [108150, 4, 12],
       "encoding": { "kind": "dense" }, "missing": { "policy": "none" },
+      "skeleton": "jabs.mouse12",
       "provenance": "jabs.pose" },
 
     { "id": "jabs.pose.slot_occupied", "path": "/jabs/pose/slot_occupied",
@@ -916,11 +986,29 @@ Anything that needs to survive subsetting correctly should be a first-class comp
 | `skeleton` references resolve; every edge index `< len(body_parts)` | error |
 | every keypoint component's `keypoint` axis length equals its skeleton's `body_parts` length | error |
 | `dimensions.identity <= dimensions.slot` | error |
+| `dimensions.frame == video.frame_count` — the same fact, stated twice, must agree | error |
+| every axis that names a dimension (`frame`, `slot`, `identity`) has that dimension's length | error |
+| a `missing.policy` of `nan` appears only on a `float32`/`float64` component | error |
+| a component with a `keypoint` axis declares a `skeleton` | error |
+| every skeleton edge index is `< len(body_parts)` | error |
+| a `mask`/`length` reference's axes are the target's leading axes, not merely the same lengths | error |
+| ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the correct terminal value, with `frame*slot+1` instance entries | error |
+| an RLE instance's runs sum to `video.width * video.height` | error |
+| a sparse index is integer-typed | error |
 | component ids are unique and namespace-well-formed | error |
 | a non-`jabs` namespace has a reverse-DNS root of ≥2 segments | error |
 | `video.width` / `video.height` non-null | warning |
+| every component declares a `provenance` record | warning |
 | declared `layout` matches the dataset's actual HDF5 storage and filters | warning |
 | an `/attachments` member has no manifest entry | warning |
+
+**Why per-component provenance is a warning and not a requirement.** Design goal 15 says provenance
+is *per-component* — that is a statement about where records attach, not that every component must
+carry one. Making `provenance` mandatory in the schema would contradict design goal 16, under which
+a valid file is a well-formed manifest and consumers declare their own requirements: a
+segmentation-only file from a third party would become invalid for omitting a field JABS cares
+about. A warning says the same thing without deciding it for every producer, and a consumer that
+needs provenance can require it.
 
 **Conformance fixtures ship with the specification** in `packages/jabs-io/tests/data/pose-format/`:
 a minimal valid file, one file per defined encoding, one with a sparse component, one with a
@@ -1078,7 +1166,11 @@ it makes one threshold permanent and destroys the ability to re-evaluate it.
    for consistency with `slot_occupied`, since the mask is slot-indexed and tail slots hold no
    identity. The rule it encodes is really "enough confident non-tail keypoints to compute shape
    features", which neither name says.
-9. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
+9. **Should an RLE instance's runs be validated against `video.width * video.height` by every
+   reader, or only by `validate()`?** The coverage rule is now normative, but checking it means
+   summing every run of every instance, which is the one validation rule whose cost scales with the
+   payload rather than the manifest.
+10. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
    `JABS-postprocess` reads `identity_embeds.attrs["network"]`; this ADR puts it in provenance as
    `model.name`, which is a rename that consumer will have to follow.
 
