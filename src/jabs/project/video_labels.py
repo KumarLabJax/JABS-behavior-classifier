@@ -250,13 +250,25 @@ class VideoLabels:
                 label_dict["external_identities"][str(i)] = identity
 
         if len(self._annotations) > 0:
-            label_dict["annotations"]: list[dict] = self._annotations.serialize()
+            label_dict["annotations"] = self._annotations.serialize()
 
         return label_dict
 
     @classmethod
     def load(cls, video_label_dict: dict, pose: PoseEstimation | None = None) -> "VideoLabels":
-        """return a VideoLabels object initialized with data from a dict previously exported using the export method"""
+        """Return a VideoLabels object initialized with data previously exported by as_dict().
+
+        Args:
+            video_label_dict: Dict representation of the labels, as produced by
+                :meth:`as_dict`.
+            pose: Optional PoseEstimation for the video. It is used only to map
+                timeline annotation identity indexes to their display identity;
+                when omitted, the identity index is used as its own display
+                string.
+
+        Returns:
+            VideoLabels: Object populated from the dict representation.
+        """
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
 
         key = "unfragmented_labels" if "unfragmented_labels" in video_label_dict else "labels"
@@ -272,7 +284,8 @@ class VideoLabels:
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
             labels._annotations = TimelineAnnotations.load(
-                video_label_dict["annotations"], pose.identity_index_to_display
+                video_label_dict["annotations"],
+                pose.identity_index_to_display if pose is not None else None,
             )
 
         return labels
@@ -301,6 +314,10 @@ class VideoLabels:
         Only renames behavior in memory; does not update any associated files on disk.
         Behavior labels must be saved to disk again after renaming to persist changes.
 
+        Identities with no labels for ``old_name`` are left untouched rather than
+        treated as an error: a project-wide rename runs over every video, and most
+        videos will not have labels for the renamed behavior.
+
         Args:
             old_name (str): The current name of the behavior to rename.
             new_name (str): The new name for the behavior.
@@ -309,8 +326,7 @@ class VideoLabels:
             None
 
         Raises:
-            KeyError: If the old behavior name does not exist or
-                if the new behavior name already exists for any identity.
+            KeyError: If the new behavior name already exists for any identity.
         """
         # validate that new_name doesn't already exist for any identity
         for identity in self._identity_labels:
