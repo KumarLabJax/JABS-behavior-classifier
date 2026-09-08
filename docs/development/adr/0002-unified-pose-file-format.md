@@ -393,7 +393,8 @@ specification. Any other producer **must** use a reverse-DNS root of at least tw
           },
           "then": {
             "properties": {
-              "dtype": { "enum": ["uint8", "uint16", "uint32", "uint64"] }
+              "dtype": { "enum": ["uint8", "uint16", "uint32", "uint64"] },
+              "axes": { "const": ["run"] }
             }
           }
         },
@@ -668,8 +669,14 @@ meaningful, which is what brings the dense encoding into line with design goal 1
 Under the ragged encoding, `jabs.segmentation.contours` has `axes: ["point", "coord"]` and its
 `path` holds the concatenated contour points; `group_offsets` is
 `/jabs/segmentation/contour_offsets` and `instance_offsets` is
-`/jabs/segmentation/instance_offsets`. `external_flag` becomes a flat `contour`-axis array.
-`contour_count` and `contour_length` are then derivable from the offsets and must be omitted.
+`/jabs/segmentation/instance_offsets`. `contour_count` and `contour_length` are then derivable from
+the offsets and must be omitted.
+
+`external_flag` becomes a flat `contour`-axis array, and **it declares the same ragged encoding,
+naming the same two offset datasets**. That is what makes its relationship to the contours
+machine-readable: a tool holding the manifest can see that the two components are indexed by one
+pair of offsets, rather than having to know that `external_flag` happens to be per-contour. It
+reuses the mechanism already there instead of adding a sidecar-association field.
 
 There is no `instance_seg_id` and no `longterm_seg_id`. Segmentation is indexed by the same
 `(frame, slot)` as pose, so the pose↔segmentation link **is** the slot, and the matching step those
@@ -959,8 +966,37 @@ correctly. Therefore:
   that an attachment may no longer correspond to the file's frame range.
 - Silently dropping an attachment is a specification violation. Dropping is irrecoverable;
   preserving with a recorded caveat is not.
+- A declared attachment **must exist**, must live under `/attachments/`, and must be declared once.
+  The reverse direction — a payload under `/attachments/` that the manifest never declared — is only
+  a warning, because it costs nothing and loses nothing; a *declaration* with no payload is an error,
+  because a copy tool is required to preserve something that is not there.
 
 Anything that needs to survive subsetting correctly should be a first-class component instead.
+
+### Clipping
+
+The generic rule stated with the axis vocabulary — slice a `frame` axis, filter a `sample` axis
+through its index — covers every **dense** component, whatever its namespace. It does not cover a
+non-dense one, and that gap is worth stating rather than leaving to be discovered: a ragged
+`contours` component has neither a `frame` nor a `sample` axis, because frame ownership lives in
+`instance_offsets`. A tool that sliced only what it recognised would leave stale offsets behind,
+now describing more frames than `dimensions.frame` claims.
+
+So:
+
+- **A tool that does not implement a component's encoding must refuse to clip the file**, naming the
+  component and its encoding. It must not drop the component, and it must not copy it through with
+  its offsets untouched.
+- **A tool that does implement the encoding** clips it as follows. `instance_offsets` is row-major
+  over `(frame, slot)`, so frames `[a, b)` are rows `[a*S, b*S]`: take that row range, rebase it to
+  zero, slice `group_offsets` over the group range those rows span and rebase it likewise, and slice
+  the payload over the point range the groups span. Components sharing those offsets — the
+  per-contour sidecars above — are sliced by the same group range.
+- Either way the operation appends a `clip` entry to `history` recording the frame offset, as
+  `video.clip_of` records it structurally.
+
+Whether ragged clipping is worth implementing before a producer writes a ragged file is an open
+question, not a requirement of this revision.
 
 ### Validation
 
@@ -995,6 +1031,11 @@ Anything that needs to survive subsetting correctly should be a first-class comp
 | ragged `group_offsets` / `instance_offsets`, and RLE `instance_offsets`: present, one-dimensional, non-decreasing, starting at 0, ending at the correct terminal value, with `frame*slot+1` instance entries | error |
 | an RLE instance's runs sum to `video.width * video.height` | error |
 | a sparse index is integer-typed | error |
+| a `coord` axis has length exactly 2 — `coord_order` describes two values and nothing else | error |
+| offset datasets are unsigned integers, as the encoding text requires; a float offset cannot index an array | error |
+| a `mask` reference is boolean, and a `length` reference is a non-negative integer no larger than the axis it bounds | error |
+| an RLE payload is one-dimensional with a single `run` axis | error |
+| every declared attachment exists, lives under `/attachments/`, and is declared once | error |
 | component ids are unique and namespace-well-formed | error |
 | a non-`jabs` namespace has a reverse-DNS root of ≥2 segments | error |
 | `video.width` / `video.height` non-null | warning |
@@ -1170,7 +1211,11 @@ it makes one threshold permanent and destroys the ability to re-evaluate it.
    reader, or only by `validate()`?** The coverage rule is now normative, but checking it means
    summing every run of every instance, which is the one validation rule whose cost scales with the
    payload rather than the manifest.
-10. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
+10. **Is ragged clipping worth implementing before a producer writes a ragged file?** The semantics
+    are now specified, and a tool that does not implement them must refuse. Whether `jabs-io` should
+    implement them now, or keep refusing until segmentation is actually written ragged, is a
+    scheduling call rather than a specification one.
+11. **Does `jabs.identity.embeddings` need its network name preserved as a first-class field?**
    `JABS-postprocess` reads `identity_embeds.attrs["network"]`; this ADR puts it in provenance as
    `model.name`, which is a rename that consumer will have to follow.
 
