@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from shapely.geometry import Point
 
+from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -90,11 +91,11 @@ class CornerDistanceInfo:
                 self_base_neck_point = points[idx.BASE_NECK, :]
                 self_nose_point = points[idx.NOSE, :]
 
-                corner_bearing = self.compute_angle(
+                corner_bearing = signed_angle_degrees(
                     self_nose_point, self_base_neck_point, corner_coordinates
                 )
 
-                center_bearing = self.compute_angle(
+                center_bearing = signed_angle_degrees(
                     self_nose_point, self_base_neck_point, arena_center_np
                 )
 
@@ -237,25 +238,6 @@ class CornerDistanceInfo:
         # Roll the points to have the first point still be first
         first_point_idx = np.where(np.all(sorted_points == points[0], axis=1))[0][0]
         return np.roll(sorted_points, -first_point_idx, axis=0)
-
-    @staticmethod
-    def compute_angle(a, b, c):
-        """compute angle created by three connected points
-
-        Args:
-            a: point
-            b: vertex point
-            c: point
-
-        Returns:
-            angle between AB and BC with range [-180, 180)
-        """
-        # most of the point types are unsigned short integers
-        # cast to signed types to avoid underflow issues during subtraction
-        angle = np.degrees(
-            np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
-        )
-        return ((angle + 180) % 360) - 180
 
 
 class DistanceToCorner(Feature):

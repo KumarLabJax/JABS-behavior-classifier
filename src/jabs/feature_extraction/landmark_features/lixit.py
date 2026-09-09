@@ -2,6 +2,7 @@ import typing
 
 import numpy as np
 
+from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.feature_base_class import Feature
 from jabs.pose_estimation import PoseEstimation
 
@@ -104,7 +105,7 @@ class LixitDistanceInfo:
 
             nose_points = points[:, PoseEstimation.KeypointIndex.NOSE, :]
             base_neck_points = points[:, PoseEstimation.KeypointIndex.BASE_NECK, :]
-            self._cached_bearings[identity]["bearing to lixit"] = self.compute_angles(
+            self._cached_bearings[identity]["bearing to lixit"] = signed_angle_degrees(
                 nose_points, base_neck_points, closest_lixit_vec
             )
 
@@ -223,24 +224,6 @@ class LixitDistanceInfo:
 
         source = np.where(prev_dist <= next_dist, prev_idx, next_idx)
         return closest[source]
-
-    @staticmethod
-    def compute_angles(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
-        """compute angles for a set of points
-
-        Args:
-            a: array of point coordinates
-            b: array of vertex point coordinates
-            c: array of point coordinates
-
-        Returns:
-            array containing angles, in degrees, formed from the lines ab and ba for each row in a, b, and c with range [-180, 180)
-        """
-        angles = np.degrees(
-            np.arctan2(c[:, 1] - b[:, 1], c[:, 0] - b[:, 0])
-            - np.arctan2(a[:, 1] - b[:, 1], a[:, 0] - b[:, 0])
-        )
-        return ((angles + 180) % 360) - 180
 
 
 class DistanceToLixit(Feature):
