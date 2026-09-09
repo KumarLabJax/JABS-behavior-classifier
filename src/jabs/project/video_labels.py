@@ -198,6 +198,10 @@ class VideoLabels:
             :meth:`TrackLabels.get_blocks`.
 
         Example:
+            The returned dict in its serialized JSON form, as written to
+            ``jabs/annotations/<video>.json`` (so ``true`` below is the JSON
+            spelling of Python's ``True``):
+
             {
                 "version": 1,
                 "file": "filename.avi",
