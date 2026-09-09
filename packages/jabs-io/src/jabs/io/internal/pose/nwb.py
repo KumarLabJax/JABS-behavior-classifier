@@ -316,7 +316,11 @@ class PoseNWBAdapter(Adapter):
         for obj_name, obj_skeleton in static_skeletons.items():
             behavior.add(
                 self._build_static_object_pose_estimation(
-                    obj_name, data.static_objects[obj_name], obj_skeleton
+                    obj_name,
+                    data.static_objects[obj_name],
+                    obj_skeleton,
+                    fps=data.fps,
+                    num_frames=data.points.shape[1],
                 )
             )
 
@@ -332,6 +336,11 @@ class PoseNWBAdapter(Adapter):
                 name=_IDENTITY_MASK_KEY,
                 data=data.identity_mask.T.astype(np.uint8),  # (num_frames, num_identities)
                 unit="bool",
+                description=(
+                    "Per-frame identity presence mask, one column per identity "
+                    "(in the order of identity_names in jabs_metadata); "
+                    "1=identity present in frame, 0=absent"
+                ),
                 rate=float(data.fps),
             )
         )
@@ -343,6 +352,11 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
+                        description=(
+                            f"Per-frame bounding box for identity '{name}': "
+                            "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
+                            "-1 indicates a missing value"
+                        ),
                         rate=float(data.fps),
                     )
                 )
@@ -400,7 +414,11 @@ class PoseNWBAdapter(Adapter):
             for obj_name, obj_skeleton in static_skeletons.items():
                 behavior.add(
                     self._build_static_object_pose_estimation(
-                        obj_name, data.static_objects[obj_name], obj_skeleton
+                        obj_name,
+                        data.static_objects[obj_name],
+                        obj_skeleton,
+                        fps=data.fps,
+                        num_frames=data.points.shape[1],
                     )
                 )
 
@@ -416,6 +434,10 @@ class PoseNWBAdapter(Adapter):
                     name=_IDENTITY_MASK_KEY,
                     data=data.identity_mask[i].astype(np.uint8),
                     unit="bool",
+                    description=(
+                        f"Per-frame presence mask for identity '{identity_name}'; "
+                        "1=present in frame, 0=absent"
+                    ),
                     rate=float(data.fps),
                 )
             )
@@ -426,6 +448,11 @@ class PoseNWBAdapter(Adapter):
                         name=_bounding_box_key(identity_name),
                         data=data.bounding_boxes[i],  # (num_frames, 2, 2)
                         unit="pixels",
+                        description=(
+                            f"Per-frame bounding box for identity '{identity_name}': "
+                            "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
+                            "-1 indicates a missing value"
+                        ),
                         rate=float(data.fps),
                     )
                 )
@@ -733,6 +760,7 @@ class PoseNWBAdapter(Adapter):
             "institution",
             "experiment_description",
             "session_id",
+            "keywords",
         ):
             if kwargs.get(_field) is not None:
                 nwb_kwargs[_field] = kwargs[_field]
@@ -905,6 +933,7 @@ class PoseNWBAdapter(Adapter):
                 data=points[:, j, :],
                 confidence=point_mask[:, j].astype(np.float64),
                 confidence_definition=_CONFIDENCE_DEFINITION,
+                description=f"(x, y) position of the {bp_name} keypoint for {name}",
                 reference_frame=_REFERENCE_FRAME,
                 rate=float(fps),
                 unit="pixels",
@@ -952,24 +981,39 @@ class PoseNWBAdapter(Adapter):
         name: str,
         points: npt.NDArray,
         skeleton: Skeleton,  # type: ignore[valid-type]
+        fps: float,
+        num_frames: int,
     ) -> PoseEstimation:
-        """Build a single-timestamp PoseEstimation for a static spatial object.
+        """Build a PoseEstimation for a static (unchanging) spatial object.
 
         Each node in the skeleton corresponds to one row of ``points`` and is
-        stored as a ``PoseEstimationSeries`` with a single timestamp at t=0.
+        stored as a ``PoseEstimationSeries`` holding that same (x, y) value at
+        two timestamps spanning the session (t=0 and t=session end) rather than
+        a single timestamp at t=0. A lone-timestamp series has shape (1, 2) —
+        its non-time axis (2) is longer than its time axis (1), which
+        nwbinspector's data-orientation check always flags regardless of the
+        data being genuinely static. Repeating the constant value at both ends
+        of the session keeps the value unchanged while satisfying that check.
 
         Args:
             name: Name for this PoseEstimation (matches the static object key).
             points: Shape (N, 2) array of x, y coordinates.
             skeleton: Skeleton with N nodes, one per point.
+            fps: Frames per second of the source video, used to compute the
+                session-end timestamp.
+            num_frames: Total number of frames in the session, used to compute
+                the session-end timestamp.
         """
+        end_time = (num_frames - 1) / fps if fps > 0 and num_frames > 0 else 0.0
+        timestamps = [0.0, end_time]
         series_list = [
             PoseEstimationSeries(
                 name=f"{name}_{i}",
-                data=points[i : i + 1, :].astype(np.float64),  # shape (1, 2)
-                confidence=np.ones(1, dtype=np.float64),
+                data=np.tile(points[i].astype(np.float64), (2, 1)),  # shape (2, 2)
+                confidence=np.ones(2, dtype=np.float64),
                 confidence_definition="Static landmark; confidence is always 1.0",
-                timestamps=[0.0],
+                description=f"Static landmark '{name}' point {i}; constant for the session",
+                timestamps=timestamps,
                 unit="pixels",
                 reference_frame=_REFERENCE_FRAME,
             )
@@ -1040,12 +1084,16 @@ class PoseNWBAdapter(Adapter):
             slot_confidence = (dyn_obj.counts > slot).astype(np.float64)
             for kp in range(n_keypoints):
                 series_name = f"{name}_{slot}" if n_keypoints == 1 else f"{name}_{slot}_{kp}"
+                description = f"Dynamic object '{name}' detection slot {slot}"
+                if n_keypoints > 1:
+                    description += f", keypoint {kp}"
                 series_list.append(
                     PoseEstimationSeries(
                         name=series_name,
                         data=dyn_obj.points[:, slot, kp, :].astype(np.float64),
                         confidence=slot_confidence,
                         confidence_definition=_DYNAMIC_CONFIDENCE_DEFINITION,
+                        description=description,
                         timestamps=timestamps,
                         unit="pixels",
                         reference_frame=_REFERENCE_FRAME,
