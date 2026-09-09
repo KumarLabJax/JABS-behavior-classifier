@@ -160,62 +160,75 @@ class VideoLabels:
         project_metadata: dict | None = None,
         video_metadata: dict | None = None,
     ) -> dict:
-        """return dict representation of video labels
+        """Return a dict representation of the video labels.
 
-        useful for JSON serialization and saving to disk
+        This is the on-disk format of a project's ``jabs/annotations/<video>.json``
+        file, so it is also what :meth:`load` consumes.
 
-        example return value:
-        {
-            "file": "filename.avi",
-            "num_frames": 100,
-            "external_identities: {
-                "jabs identity", 1234,
-            },
-            "metadata": {
-                "project": {},
-                "video": {},
-            }
-            "labels": {
-                "jabs identity": {
-                    "behavior": [
-                        {
-                            "start": 25,
-                            "end": 50,
-                            "present": True
-                        }
-                    ]
-                }
-            },
-            "unfragmented_labels": {
-                "jabs identity": {
-                    "behavior": [
-                        {
-                            "start": 25,
-                            "end": 50,
-                            "present": True
-                        }
-                    ]
-                }
-            },
-            annotations: [
-                {
-                    "start": 10,
-                    "end": 20,
-                    "tag": "annotationTag",
-                    "color": "#FF0000",
-                    "description": "Description for the annotation"
+        Args:
+            pose: PoseEstimation for this video. Its identity mask fragments the
+                blocks written to ``labels``, and its external identities are
+                included in the output when the pose file has them.
+            project_metadata: Optional project-level metadata to embed.
+            video_metadata: Optional video-level metadata to embed.
+
+        Returns:
+            Dict representation of the labels, with these keys:
+
+            - ``version``: serialization format version (``SERIALIZED_VERSION``).
+            - ``file``: name of the video these labels belong to.
+            - ``num_frames``: number of frames in the video.
+            - ``labels``: label blocks masked by ``pose.identity_mask()``, so a
+              block is split wherever the identity is missing from the pose file.
+              These are the blocks that correspond to usable training data.
+            - ``unfragmented_labels``: the same blocks without that mask, which is
+              what the user actually labeled. :meth:`load` prefers this key and
+              falls back to ``labels`` for files written before it existed.
+            - ``metadata``: the ``project_metadata`` and ``video_metadata``
+              arguments, each defaulting to an empty dict.
+            - ``external_identities``: only present when the pose file has external
+              identities. Maps the JABS identity index, as a string, to the
+              external identity.
+            - ``annotations``: only present when the video has timeline
+              annotations. See :meth:`TimelineAnnotations.serialize` for the fields
+              of an entry.
+
+            Both label dicts are keyed by identity (as a string), then by behavior
+            name, and hold the block lists produced by
+            :meth:`TrackLabels.get_blocks`.
+
+        Example:
+            The returned dict in its serialized JSON form, as written to
+            ``jabs/annotations/<video>.json`` (so ``true`` below is the JSON
+            spelling of Python's ``True``):
+
+            {
+                "version": 1,
+                "file": "filename.avi",
+                "num_frames": 100,
+                "labels": {
+                    "0": {
+                        "behavior": [{"start": 25, "end": 40, "present": true}]
+                    }
                 },
-                {
-                    "start": 30,
-                    "end": 40,
-                    "tag": "anotherTag",
-                    "color": "#00FF00",
-                    "description": "Another optional description",
-                    "animal_id": 0  # optional, if the annotation is associated with an identity (internal JABS ID)
-                }
-            ]
-        }
-
+                "unfragmented_labels": {
+                    "0": {
+                        "behavior": [{"start": 25, "end": 50, "present": true}]
+                    }
+                },
+                "metadata": {"project": {}, "video": {}},
+                "external_identities": {"0": "mouse_a"},
+                "annotations": [
+                    {
+                        "start": 10,
+                        "end": 20,
+                        "tag": "annotationTag",
+                        "color": "#FF0000",
+                        "description": "optional description",
+                        "identity": 0
+                    }
+                ]
+            }
         """
         label_dict: dict[str, Any] = {
             "version": SERIALIZED_VERSION,
