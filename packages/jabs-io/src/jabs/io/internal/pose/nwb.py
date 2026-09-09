@@ -1004,7 +1004,11 @@ class PoseNWBAdapter(Adapter):
             num_frames: Total number of frames in the session, used to compute
                 the session-end timestamp.
         """
-        end_time = (num_frames - 1) / fps if fps > 0 and num_frames > 0 else 0.0
+        if fps <= 0:
+            raise ValueError(f"fps must be positive, got {fps}")
+        if num_frames <= 0:
+            raise ValueError(f"num_frames must be positive, got {num_frames}")
+        end_time = num_frames / fps
         timestamps = [0.0, end_time]
         series_list = [
             PoseEstimationSeries(
