@@ -34,6 +34,33 @@ class CrossValidationResult:
 
 
 @dataclass
+class PostprocessedMetrics:
+    """Binary metrics for one CV iteration after prediction postprocessing.
+
+    Computed on the same held-out labeled frames as the iteration's raw
+    metrics, so the two are directly comparable. Support counts are not
+    repeated here because the ground truth is unchanged.
+
+    Attributes:
+        accuracy: Classification accuracy (0.0 to 1.0).
+        confusion_matrix: Confusion matrix, shape ``(2, 2)``.
+        precision_behavior: Precision for the behavior class.
+        precision_not_behavior: Precision for the not-behavior class.
+        recall_behavior: Recall for the behavior class.
+        recall_not_behavior: Recall for the not-behavior class.
+        f1_behavior: F1 score for the behavior class.
+    """
+
+    accuracy: float = 0.0
+    confusion_matrix: np.ndarray | None = None
+    precision_behavior: float = 0.0
+    precision_not_behavior: float = 0.0
+    recall_behavior: float = 0.0
+    recall_not_behavior: float = 0.0
+    f1_behavior: float = 0.0
+
+
+@dataclass
 class BinaryCVResult(CrossValidationResult):
     """Binary cross-validation iteration result.
 
@@ -45,6 +72,8 @@ class BinaryCVResult(CrossValidationResult):
         f1_behavior: F1 score for the behavior class.
         support_behavior: Number of behavior frames in the test set.
         support_not_behavior: Number of not-behavior frames in the test set.
+        postprocessed: Metrics for the same iteration with the postprocessing
+            pipeline applied, or ``None`` when postprocessing was not evaluated.
     """
 
     precision_behavior: float = 0.0
@@ -54,6 +83,7 @@ class BinaryCVResult(CrossValidationResult):
     f1_behavior: float = 0.0
     support_behavior: int = 0
     support_not_behavior: int = 0
+    postprocessed: PostprocessedMetrics | None = None
 
 
 @dataclass
@@ -107,6 +137,9 @@ class TrainingReportData:
         cv_grouping_strategy: Strategy used for cross-validation grouping.
         cv_grouping_regex: Filename-pattern regex used for grouping. Only set when
             the grouping strategy is "Filename Pattern".
+        postprocessing_stages: Enabled postprocessing stage configurations that
+            were evaluated during cross-validation, or ``None`` when
+            postprocessing was not evaluated.
     """
 
     behavior_name: str
@@ -127,6 +160,7 @@ class TrainingReportData:
     class_frame_counts: dict[str, int] | None = None
     class_bout_counts: dict[str, int] | None = None
     cv_grouping_regex: str | None = None
+    postprocessing_stages: list[dict] | None = None
 
 
 def _escape_markdown(text: str) -> str:
@@ -140,6 +174,25 @@ def _escape_markdown(text: str) -> str:
 def _is_multiclass_cv(cv_results: list[CrossValidationResult]) -> bool:
     """Return True if the CV result list belongs to multi-class mode."""
     return bool(cv_results) and isinstance(cv_results[0], MultiClassCVResult)
+
+
+def _format_postprocessing_stages(stages: list[dict]) -> list[str]:
+    """Return markdown lines describing the evaluated postprocessing stages."""
+    lines = ["- **Postprocessing Evaluated in Cross-Validation:** Yes"]
+    if not stages:
+        lines.append("  - *No stages enabled*")
+        return lines
+    for stage in stages:
+        params = stage.get("parameters") or {}
+        rendered = _escape_markdown(", ".join(f"{name}={value}" for name, value in params.items()))
+        name = _escape_markdown(str(stage.get("stage_name", "unknown")))
+        lines.append(f"  - {name}" + (f" ({rendered})" if rendered else ""))
+    return lines
+
+
+def _postprocessed_results(cv_results: list[CrossValidationResult]) -> list[BinaryCVResult]:
+    """Return the binary CV results that carry postprocessed metrics."""
+    return [r for r in cv_results if isinstance(r, BinaryCVResult) and r.postprocessed is not None]
 
 
 def _format_label_counts(data: TrainingReportData) -> list[str]:
@@ -180,6 +233,18 @@ def _format_performance_summary(cv_results: list[CrossValidationResult]) -> list
             lines.append(
                 f"- **Mean F1 Score (Behavior):** {np.mean(f1_behavior):.4f} "
                 f"(± {np.std(f1_behavior):.4f})"
+            )
+        postprocessed = _postprocessed_results(cv_results)
+        if postprocessed:
+            pp_accuracies = [r.postprocessed.accuracy for r in postprocessed]
+            pp_f1 = [r.postprocessed.f1_behavior for r in postprocessed]
+            lines.append(
+                f"- **Mean Accuracy (Postprocessed):** {np.mean(pp_accuracies):.4f} "
+                f"(± {np.std(pp_accuracies):.4f})"
+            )
+            lines.append(
+                f"- **Mean F1 Score (Behavior, Postprocessed):** {np.mean(pp_f1):.4f} "
+                f"(± {np.std(pp_f1):.4f})"
             )
     return lines
 
@@ -233,6 +298,29 @@ _MULTICLASS_HEADERS = [
 ]
 
 
+def _postprocessed_iteration_row(result: BinaryCVResult) -> list[str | int]:
+    """Return a single iteration row for the postprocessed binary CV table."""
+    postprocessed = result.postprocessed
+    if postprocessed is None:  # pragma: no cover - callers filter these out
+        raise ValueError("result has no postprocessed metrics")
+    return [
+        result.iteration,
+        f"{postprocessed.accuracy:.4f}",
+        f"{postprocessed.precision_not_behavior:.4f}",
+        f"{postprocessed.precision_behavior:.4f}",
+        f"{postprocessed.recall_not_behavior:.4f}",
+        f"{postprocessed.recall_behavior:.4f}",
+        f"{postprocessed.f1_behavior:.4f}",
+        _escape_markdown(result.test_label),
+    ]
+
+
+def _format_postprocessed_iteration_table(cv_results: list[CrossValidationResult]) -> str:
+    """Return the markdown iteration table for postprocessed metrics."""
+    rows = [_postprocessed_iteration_row(r) for r in _postprocessed_results(cv_results)]
+    return tabulate(rows, headers=_BINARY_HEADERS, tablefmt="github")
+
+
 def _format_iteration_table(cv_results: list[CrossValidationResult]) -> str:
     """Return the markdown iteration-details table."""
     if _is_multiclass_cv(cv_results):
@@ -273,6 +361,8 @@ def generate_markdown_report(data: TrainingReportData) -> str:
     lines.append(f"- **Symmetric Behavior:** {'Yes' if data.symmetric_behavior else 'No'}")
     lines.append(f"- **Distance Unit:** {data.distance_unit}")
     lines.append(f"- **Training Time:** {data.training_time_ms / 1000:.2f} seconds")
+    if data.postprocessing_stages is not None:
+        lines.extend(_format_postprocessing_stages(data.postprocessing_stages))
     lines.append("")
 
     lines.append("### Label Counts")
@@ -295,6 +385,19 @@ def generate_markdown_report(data: TrainingReportData) -> str:
         lines.append("")
         lines.append(_format_iteration_table(data.cv_results))
         lines.append("")
+
+        if _postprocessed_results(data.cv_results):
+            lines.append("### Iteration Details (Postprocessed)")
+            lines.append("")
+            lines.append(
+                "Metrics for the same held-out frames after applying the prediction "
+                "postprocessing pipeline. Predictions are made over each held-out "
+                "identity's full track before postprocessing, then scored on the "
+                "labeled frames only."
+            )
+            lines.append("")
+            lines.append(_format_postprocessed_iteration_table(data.cv_results))
+            lines.append("")
     else:
         lines.append("## Cross-Validation")
         lines.append("")
@@ -360,6 +463,16 @@ def _binary_cv_to_dict(result: BinaryCVResult) -> dict:
             "support_not_behavior": int(result.support_not_behavior),
         }
     )
+    if result.postprocessed is not None:
+        payload["postprocessed"] = {
+            "accuracy": float(result.postprocessed.accuracy),
+            "confusion_matrix": _to_python_type(result.postprocessed.confusion_matrix),
+            "precision_behavior": float(result.postprocessed.precision_behavior),
+            "precision_not_behavior": float(result.postprocessed.precision_not_behavior),
+            "recall_behavior": float(result.postprocessed.recall_behavior),
+            "recall_not_behavior": float(result.postprocessed.recall_not_behavior),
+            "f1_behavior": float(result.postprocessed.f1_behavior),
+        }
     return payload
 
 
@@ -416,6 +529,7 @@ def generate_json_report(data: TrainingReportData) -> dict:
         "timestamp": timestamp_str,
         "cv_grouping_strategy": data.cv_grouping_strategy.value,
         "cv_grouping_regex": data.cv_grouping_regex,
+        "postprocessing_stages": _to_python_type(data.postprocessing_stages),
         "frames_behavior": int(data.frames_behavior),
         "frames_not_behavior": int(data.frames_not_behavior),
         "bouts_behavior": int(data.bouts_behavior),

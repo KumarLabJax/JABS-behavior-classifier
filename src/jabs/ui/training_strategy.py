@@ -99,6 +99,7 @@ class TrainingStrategy:
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Assemble the ``TrainingReportData`` for the trained model."""
         raise NotImplementedError
@@ -176,6 +177,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Build the binary-mode training report with frame and bout counts.
 
@@ -205,6 +207,7 @@ class BinaryTrainingStrategy(TrainingStrategy):
             window_size=settings["window_size"],
             cv_grouping_strategy=cv_grouping_strategy,
             cv_grouping_regex=cv_grouping_regex,
+            postprocessing_stages=postprocessing_stages,
         )
 
     def cv_secondary_metric(self, cv_results: list[CrossValidationResult]) -> float | None:
@@ -290,11 +293,14 @@ class MultiClassTrainingStrategy(TrainingStrategy):
         distance_unit: str,
         settings: dict,
         cv_grouping_regex: str | None = None,
+        postprocessing_stages: list[dict] | None = None,
     ) -> TrainingReportData:
         """Build the multi-class training report with per-class frame and bout counts.
 
         Frame and bout counts reflect only the videos trained on; rows and videos
-        excluded from training are filtered out.
+        excluded from training are filtered out. ``postprocessing_stages`` is
+        accepted for interface compatibility and ignored, since prediction
+        postprocessing is binary-only.
         """
         class_names = self._classifier.get_class_names()
         behavior_names = self._classifier.behavior_names

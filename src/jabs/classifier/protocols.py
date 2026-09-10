@@ -65,6 +65,34 @@ class ClassifierProtocol(Protocol):
         """
         ...
 
+    @staticmethod
+    def combine_data(per_frame: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
+        """Combine per-frame and window feature DataFrames into one.
+
+        Args:
+            per_frame: Per-frame feature DataFrame.
+            window: Window feature DataFrame.
+
+        Returns:
+            The combined feature DataFrame.
+        """
+        ...
+
+    @staticmethod
+    def derive_predictions(
+        probabilities: npt.NDArray[np.floating],
+    ) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.floating]]:
+        """Derive class predictions and confidence from class probabilities.
+
+        Args:
+            probabilities: Array of shape ``(n_frames, n_classes)`` of predicted
+                class probabilities.
+
+        Returns:
+            Tuple ``(predictions, confidence)``.
+        """
+        ...
+
     def save(self, path: Path) -> None:
         """Serialize the classifier to disk.
 

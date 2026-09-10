@@ -3,7 +3,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jabs.core.constants import CLASSIFIER_MODE_KEY, CV_GROUPING_KEY, CV_GROUPING_REGEX_KEY
+from jabs.core.constants import (
+    CLASSIFIER_MODE_KEY,
+    CV_GROUPING_KEY,
+    CV_GROUPING_REGEX_KEY,
+    EVALUATE_POSTPROCESSING_IN_CV_KEY,
+    POSTPROCESSING_KEY,
+)
 from jabs.core.enums import ClassifierMode, CrossValidationGroupingStrategy
 
 try:
@@ -17,7 +23,13 @@ try:
     from jabs.ui.settings_dialog.cross_validation_settings_group import (
         CrossValidationSettingsGroup,
     )
-    from jabs.ui.settings_dialog.settings_dialog import _OverlapCheckThread
+    from jabs.ui.settings_dialog.postprocessing_group import (
+        PostprocessingEvaluationSettingsGroup,
+    )
+    from jabs.ui.settings_dialog.settings_dialog import (
+        PostprocessingSettingsDialog,
+        _OverlapCheckThread,
+    )
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -245,3 +257,84 @@ def test_collapsible_section_toggles_disclosure_icon() -> None:
 
     section.set_expanded(False)
     assert section._toggle_btn.icon().cacheKey() == collapsed_key
+
+
+class _FakePostprocessingSettingsManager:
+    """Settings manager stand-in recording what the postprocessing dialog saves."""
+
+    def __init__(self, behavior_settings: dict | None = None) -> None:
+        self._behavior_settings = behavior_settings or {}
+        self.saved: list[tuple[str, dict]] = []
+
+    def get_behavior(self, _behavior: str) -> dict:
+        return dict(self._behavior_settings)
+
+    def save_behavior(self, behavior: str, data: dict) -> None:
+        self.saved.append((behavior, data))
+
+
+def test_postprocessing_evaluation_group_roundtrips_flag() -> None:
+    """The cross-validation evaluation flag round-trips, defaulting to off."""
+    group = PostprocessingEvaluationSettingsGroup()
+
+    assert group.get_values() == {EVALUATE_POSTPROCESSING_IN_CV_KEY: False}
+
+    group.set_values({EVALUATE_POSTPROCESSING_IN_CV_KEY: True})
+    assert group.get_values() == {EVALUATE_POSTPROCESSING_IN_CV_KEY: True}
+
+    group.set_values({})
+    assert group.get_values() == {EVALUATE_POSTPROCESSING_IN_CV_KEY: False}
+
+
+def test_postprocessing_dialog_saves_stages_and_flag_separately() -> None:
+    """The evaluation flag is a sibling key, not an entry in the ordered stage list.
+
+    The stage list's order defines the order stages are applied, so a non-stage
+    group must not be swept into it.
+    """
+    settings_manager = _FakePostprocessingSettingsManager()
+    dialog = PostprocessingSettingsDialog(settings_manager, behavior="Walk")
+
+    dialog._evaluation_group.set_values({EVALUATE_POSTPROCESSING_IN_CV_KEY: True})
+    dialog._on_save()
+
+    assert len(settings_manager.saved) == 1
+    behavior, data = settings_manager.saved[0]
+    assert behavior == "Walk"
+    assert data[EVALUATE_POSTPROCESSING_IN_CV_KEY] is True
+
+    stages = data[POSTPROCESSING_KEY]
+    assert len(stages) == 3
+    assert [stage["stage_name"] for stage in stages] == [
+        "GapInterpolationStage",
+        "BoutStitchingStage",
+        "BoutDurationFilterStage",
+    ]
+    assert all("stage_name" in stage for stage in stages)
+
+
+def test_postprocessing_dialog_loads_saved_flag() -> None:
+    """An enabled flag stored under the behavior is reflected in the dialog."""
+    settings_manager = _FakePostprocessingSettingsManager(
+        {
+            EVALUATE_POSTPROCESSING_IN_CV_KEY: True,
+            POSTPROCESSING_KEY: [
+                {
+                    "stage_name": "BoutStitchingStage",
+                    "enabled": True,
+                    "parameters": {"max_stitch_gap": 7},
+                }
+            ],
+        }
+    )
+
+    dialog = PostprocessingSettingsDialog(settings_manager, behavior="Walk")
+
+    assert dialog._evaluation_group.get_values() == {EVALUATE_POSTPROCESSING_IN_CV_KEY: True}
+    stitching = next(
+        stage
+        for stage in (g.get_values() for g in dialog._stage_groups)
+        if stage["stage_name"] == "BoutStitchingStage"
+    )
+    assert stitching["enabled"] is True
+    assert stitching["parameters"]["max_stitch_gap"] == 7

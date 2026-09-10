@@ -252,3 +252,70 @@ def test_cv_grouping_regex_reads_configured_value(mock_project):
 
     settings_manager = SettingsManager(mock_project.project_paths)
     assert settings_manager.cv_grouping_regex == r"cage_(\d+)"
+
+
+def _write_behavior_settings(mock_project, behavior: str, behavior_settings: dict) -> None:
+    """Write a project file containing settings for a single behavior."""
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump({"behavior": {behavior: behavior_settings}}, f)
+
+
+def test_postprocessing_config_returns_stage_list(mock_project):
+    """The stage list is returned in the order it was saved."""
+    stages = [
+        {"stage_name": "GapInterpolationStage", "enabled": False, "parameters": {}},
+        {"stage_name": "BoutStitchingStage", "enabled": True, "parameters": {"max_stitch_gap": 3}},
+    ]
+    _write_behavior_settings(mock_project, "Walking", {"postprocessing": stages})
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    assert settings_manager.postprocessing_config("Walking") == stages
+
+
+def test_postprocessing_config_defaults_to_empty(mock_project):
+    """A behavior with no postprocessing configured yields an empty list."""
+    _write_behavior_settings(mock_project, "Walking", {"window_size": 5})
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    assert settings_manager.postprocessing_config("Walking") == []
+    assert settings_manager.postprocessing_config("Unknown") == []
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [({"evaluate_postprocessing_in_cv": True}, True), ({}, False)],
+    ids=["enabled", "default"],
+)
+def test_evaluate_postprocessing_in_cv(mock_project, stored: dict, expected: bool):
+    """The cross-validation evaluation flag reads back, defaulting to off."""
+    _write_behavior_settings(mock_project, "Walking", stored)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+
+    assert settings_manager.evaluate_postprocessing_in_cv("Walking") is expected
+
+
+def test_save_behavior_for_new_behavior_does_not_mutate_defaults(mock_project):
+    """Saving settings for a not-yet-present behavior must not rewrite project defaults."""
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump({"defaults": {"window_size": 5}, "behavior": {}}, f)
+
+    settings_manager = SettingsManager(mock_project.project_paths)
+    settings_manager.save_behavior(
+        "NewBehavior",
+        {
+            "postprocessing": [{"stage_name": "BoutStitchingStage", "parameters": {}}],
+            "evaluate_postprocessing_in_cv": True,
+        },
+    )
+
+    # the new behavior inherits the defaults plus its own settings
+    behavior_settings = settings_manager.get_behavior("NewBehavior")
+    assert behavior_settings["window_size"] == 5
+    assert behavior_settings["evaluate_postprocessing_in_cv"] is True
+
+    # ...but the defaults themselves are untouched, so the next new behavior
+    # does not silently inherit this one's postprocessing configuration
+    assert settings_manager.project_settings["defaults"] == {"window_size": 5}
