@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -132,6 +133,25 @@ def test_remove_video_updates_derived_state(video_manager):
     # the per-video caches should no longer carry an entry for the removed video
     assert "video1.avi" not in video_manager._video_has_cm_per_pixel
     assert "video1.avi" not in video_manager._pose_path_cache
+
+
+def test_remove_video_removes_project_file_entry(video_manager, settings_manager, project_paths):
+    """Removing a video drops its video_files entry from project.json."""
+    settings_manager.save_project_file(
+        {
+            "video_files": {
+                "video1.avi": {"identities": 3},
+                "video2.mp4": {"identities": 5},
+            }
+        }
+    )
+
+    video_manager.remove_video("video1.avi")
+
+    assert settings_manager.project_settings["video_files"] == {"video2.mp4": {"identities": 5}}
+    # the removal was persisted, not just applied in memory
+    on_disk = json.loads(project_paths.project_file.read_text())
+    assert "video1.avi" not in on_disk["video_files"]
 
 
 def test_remove_video_unknown_video_is_a_no_op(video_manager):

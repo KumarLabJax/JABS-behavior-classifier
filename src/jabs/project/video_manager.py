@@ -95,7 +95,9 @@ class VideoManager:
         Drops every piece of per-video state this manager derived from the
         project scan, so ``total_project_identities``,
         :meth:`video_has_cm_per_pixel` and the pose path cache stay consistent
-        with the remaining videos.
+        with the remaining videos. The video's ``video_files`` entry is also
+        removed from ``project.json`` so the persisted project matches the
+        in-memory removal.
 
         Does nothing (other than logging a warning) if the video is not in the
         project.
@@ -113,7 +115,7 @@ class VideoManager:
         self._total_project_identities -= self._video_identity_count.pop(video_name, 0)
         self._video_has_cm_per_pixel.pop(video_name, None)
         self._pose_path_cache.pop(video_name, None)
-        self._settings_manager.save_project_file()
+        self._settings_manager.remove_video_from_project_file(video_name)
 
     @property
     def total_project_identities(self) -> int:
