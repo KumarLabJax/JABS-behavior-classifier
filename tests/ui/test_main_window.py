@@ -299,3 +299,66 @@ def test_stop_feature_cache_scan_logs_when_it_cannot_stop_the_thread(caplog):
 
     thread.terminate.assert_called_once()
     assert "could not be stopped" in caplog.text
+
+
+def _feature_menu_stub(
+    *,
+    is_cm_unit: bool,
+    can_use_social: bool,
+    can_use_segmentation: bool,
+    static_objects: set[str],
+) -> tuple[SimpleNamespace, SimpleNamespace]:
+    """Build a stub self for update_feature_availability_menus and its menu refs."""
+    menu_refs = SimpleNamespace(
+        enable_cm_units=MagicMock(),
+        enable_social_features=MagicMock(),
+        enable_segmentation_features=MagicMock(),
+        enable_landmark_features={"corners": MagicMock(), "lixit": MagicMock()},
+    )
+    feature_manager = SimpleNamespace(
+        is_cm_unit=is_cm_unit,
+        can_use_social_features=can_use_social,
+        can_use_segmentation_features=can_use_segmentation,
+        static_objects=static_objects,
+    )
+    stub = SimpleNamespace(
+        _project=SimpleNamespace(feature_manager=feature_manager),
+        _menu_refs=menu_refs,
+    )
+    return stub, menu_refs
+
+
+def test_feature_menus_follow_the_projects_capabilities():
+    """Every feature the project's videos support is enabled; the rest are not."""
+    stub, menu_refs = _feature_menu_stub(
+        is_cm_unit=True,
+        can_use_social=True,
+        can_use_segmentation=True,
+        static_objects={"corners"},
+    )
+
+    MainWindow.update_feature_availability_menus(stub)
+
+    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(True)
+    menu_refs.enable_social_features.setEnabled.assert_called_once_with(True)
+    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(True)
+    menu_refs.enable_landmark_features["corners"].setEnabled.assert_called_once_with(True)
+    menu_refs.enable_landmark_features["lixit"].setEnabled.assert_called_once_with(False)
+
+
+def test_feature_menus_disabled_for_an_unsupported_project():
+    """A project whose videos support nothing extra leaves every feature disabled."""
+    stub, menu_refs = _feature_menu_stub(
+        is_cm_unit=False,
+        can_use_social=False,
+        can_use_segmentation=False,
+        static_objects=set(),
+    )
+
+    MainWindow.update_feature_availability_menus(stub)
+
+    menu_refs.enable_cm_units.setEnabled.assert_called_once_with(False)
+    menu_refs.enable_social_features.setEnabled.assert_called_once_with(False)
+    menu_refs.enable_segmentation_features.setEnabled.assert_called_once_with(False)
+    menu_refs.enable_landmark_features["corners"].setEnabled.assert_called_once_with(False)
+    menu_refs.enable_landmark_features["lixit"].setEnabled.assert_called_once_with(False)
