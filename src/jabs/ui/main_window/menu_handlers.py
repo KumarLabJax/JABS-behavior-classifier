@@ -425,6 +425,13 @@ class MenuHandlers:
                 for video in videos_to_prune:
                     self.window._project.video_manager.remove_video(video.video_path.name)
 
+                # The removed videos may have been the ones holding the project's
+                # feature support back (an older pose version, a missing static
+                # object, no cm scale), so recompute what the remaining videos
+                # support and re-apply it to the menus.
+                self.window._project.refresh_feature_manager()
+                self.window.update_feature_availability_menus()
+
                 # Force the video list to update its contents
                 self.window.video_list.set_project(self.window._project)
 

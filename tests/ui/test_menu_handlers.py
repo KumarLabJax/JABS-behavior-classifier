@@ -1,6 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -395,3 +395,80 @@ def test_export_overlay_video_leaves_an_mp4_name_alone(video_export_setup, monke
     handlers.export_overlay_video()
 
     assert thread_cls.call_args.args[1] == Path("/tmp/already.mp4")
+
+
+def _prune_setup(monkeypatch, videos_to_prune, project_videos):
+    """Wire a MenuHandlers whose prune dialog returns the given videos.
+
+    Returns the handler and a recorder whose ``mock_calls`` capture the order of
+    the prune side effects (video removal, feature manager refresh, menu update).
+    """
+    recorder = MagicMock()
+    project = SimpleNamespace(
+        video_manager=SimpleNamespace(
+            videos=list(project_videos), remove_video=recorder.remove_video
+        ),
+        refresh_feature_manager=recorder.refresh_feature_manager,
+    )
+    window = SimpleNamespace(
+        _project=project,
+        video_list=SimpleNamespace(set_project=MagicMock()),
+        update_feature_availability_menus=recorder.update_feature_availability_menus,
+        display_status_message=MagicMock(),
+    )
+
+    dialog = MagicMock()
+    dialog.exec.return_value = menu_handlers_module.QtWidgets.QDialog.DialogCode.Accepted
+    dialog.videos_to_prune = videos_to_prune
+    monkeypatch.setattr(
+        menu_handlers_module, "ProjectPruningDialog", MagicMock(return_value=dialog)
+    )
+    monkeypatch.setattr(menu_handlers_module, "MessageDialog", MagicMock())
+
+    handler = MenuHandlers(window)
+    handler.move_files_to_recycle_bin_with_delete_fallback = MagicMock()
+    return handler, recorder
+
+
+def _video_paths(name: str) -> SimpleNamespace:
+    """Build a VideoPaths-like stand-in for a video the prune dialog selected."""
+    return SimpleNamespace(
+        video_path=Path(f"/project/{name}.avi"),
+        pose_path=Path(f"/project/{name}_pose_est_v6.h5"),
+        annotation_path=Path(f"/project/jabs/annotations/{name}.json"),
+    )
+
+
+def test_prune_refreshes_feature_support_after_removing_videos(monkeypatch):
+    """Pruning rebuilds the feature manager, then re-applies the feature menu state.
+
+    The pruned videos may have been the ones limiting the project's feature
+    support, so the capabilities have to be recomputed from the videos that
+    remain, and the menus updated from the rebuilt feature manager.
+    """
+    handler, recorder = _prune_setup(
+        monkeypatch,
+        videos_to_prune=[_video_paths("video1")],
+        project_videos=["video1.avi", "video2.avi"],
+    )
+
+    handler.show_project_pruning_dialog()
+
+    assert recorder.mock_calls == [
+        call.remove_video("video1.avi"),
+        call.refresh_feature_manager(),
+        call.update_feature_availability_menus(),
+    ]
+
+
+def test_prune_cancelled_leaves_feature_support_alone(monkeypatch):
+    """Declining to remove every video short-circuits before any state changes."""
+    handler, recorder = _prune_setup(
+        monkeypatch,
+        videos_to_prune=[_video_paths("video1"), _video_paths("video2")],
+        project_videos=["video1.avi", "video2.avi"],
+    )
+
+    handler.show_project_pruning_dialog()
+
+    assert recorder.mock_calls == []
