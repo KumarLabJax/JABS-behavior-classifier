@@ -3,6 +3,7 @@ import time
 import numpy as np
 from PySide6 import QtCore, QtGui
 
+from jabs.core.utils import signed_angle_degrees
 from jabs.feature_extraction.social_features.social_distance import ClosestIdentityInfo
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV6
 from jabs.video_reader import (
@@ -269,13 +270,11 @@ class PlayerThread(QtCore.QThread):
                                     (other_shape.centroid.x, other_shape.centroid.y)
                                 )
 
-                                view_angle = ClosestIdentityInfo.compute_angle(
+                                # already wrapped to [-180, 180), which is the range
+                                # the FoV comparison below needs
+                                view_angle = signed_angle_degrees(
                                     ref_nose_point, ref_base_neck_point, other_centroid
                                 )
-
-                                # for FoV we want the range of view angle to be [180, -180)
-                                if view_angle > 180:
-                                    view_angle -= 360
 
                                 if abs(view_angle) <= half_fov_deg and (
                                     closest_dist is None or curr_dist < closest_dist

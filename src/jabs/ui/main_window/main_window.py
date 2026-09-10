@@ -318,17 +318,19 @@ class MainWindow(QtWidgets.QMainWindow):
         safe to enable the action whenever playing is False and a video is loaded.
         """
         # noinspection PyProtectedMember
-        self._menu_refs.export_frame.setEnabled(
-            not playing and self._central_widget._player_widget.num_frames > 0
-        )
+        can_export = not playing and self._central_widget._player_widget.num_frames > 0
+        self._menu_refs.export_frame.setEnabled(can_export)
+        self._menu_refs.export_overlay_video.setEnabled(can_export)
 
     def _video_list_selection(self, filename: str) -> None:
         """handle a click on a new video in the list loaded into the main window dock"""
         try:
             self._central_widget.load_video(self._project.video_manager.video_path(filename))
             self._menu_refs.export_frame.setEnabled(True)
+            self._menu_refs.export_overlay_video.setEnabled(True)
         except OSError as e:
             self._menu_refs.export_frame.setEnabled(False)
+            self._menu_refs.export_overlay_video.setEnabled(False)
             self.display_status_message(f"Unable to load video: {e}")
             self._project_load_error_callback(e)
 
@@ -343,24 +345,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update which controls should be available
         self._menu_refs.export_frame.setEnabled(False)
+        self._menu_refs.export_overlay_video.setEnabled(False)
         self._menu_refs.archive_behavior.setEnabled(True)
         self._menu_refs.prune_action.setEnabled(True)
         self._menu_refs.settings_action.setEnabled(True)
-        self._menu_refs.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
-        self._menu_refs.enable_social_features.setEnabled(
-            self._project.feature_manager.can_use_social_features
-        )
-        self._menu_refs.enable_segmentation_features.setEnabled(
-            self._project.feature_manager.can_use_segmentation_features
-        )
+        self.update_feature_availability_menus()
         self._menu_refs.clear_cache.setEnabled(True)
         self._menu_refs.clear_feature_cache.setEnabled(True)
-        available_objects = self._project.feature_manager.static_objects
-        for static_object, menu_item in self._menu_refs.enable_landmark_features.items():
-            if static_object in available_objects:
-                menu_item.setEnabled(True)
-            else:
-                menu_item.setEnabled(False)
         self._menu_refs.behavior_search.setEnabled(True)
         self._menu_refs.postprocessing_settings.setEnabled(True)
 
@@ -373,6 +364,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dialog.close()
         self._progress_dialog.deleteLater()
         self._progress_dialog = None
+
+    def update_feature_availability_menus(self) -> None:
+        """Enable the feature menu items the project's videos can support.
+
+        Reads the capabilities the project's FeatureManager derives from its
+        current videos, so it must be re-run whenever those can change: when a
+        project is loaded, and after videos are removed from one.
+        """
+        self._menu_refs.enable_cm_units.setEnabled(self._project.feature_manager.is_cm_unit)
+        self._menu_refs.enable_social_features.setEnabled(
+            self._project.feature_manager.can_use_social_features
+        )
+        self._menu_refs.enable_segmentation_features.setEnabled(
+            self._project.feature_manager.can_use_segmentation_features
+        )
+        available_objects = self._project.feature_manager.static_objects
+        for static_object, menu_item in self._menu_refs.enable_landmark_features.items():
+            menu_item.setEnabled(static_object in available_objects)
 
     def refresh_feature_cache_status(self) -> None:
         """Scan the current project's feature cache in a background thread.

@@ -27,19 +27,29 @@ def compute_oks(
     """Compute Object Keypoint Similarity between a detection and ground truth.
 
     Follows the COCO OKS formula:
-        OKS = sum(exp(-d_i^2 / (2 * s_i^2 * area * 2)) * delta(v_i > 0)) /
+        OKS = sum(exp(-d_i^2 / (2 * k_i^2 * area)) * delta(v_i > 0)) /
               sum(delta(v_i > 0))
 
-    where d_i is the Euclidean distance for keypoint i, s_i is the per-keypoint
-    sigma, area is the GT annotation area, and v_i is the GT visibility flag.
+    where d_i is the Euclidean distance for keypoint i, k_i is twice that
+    keypoint's sigma (``k_i = 2 * sigmas[i]``, the COCO convention), area is the
+    GT annotation area, and v_i is the GT visibility flag. Written in terms of
+    the sigmas passed in, the exponent denominator is ``8 * sigmas[i]**2 * area``.
 
     Args:
         detection: Predicted keypoint detection.
         ground_truth: Ground-truth keypoint annotation.
-        sigmas: Per-keypoint standard deviations, shape (K,).
+        sigmas: Per-keypoint standard deviations, shape (K,). These are the COCO
+            sigmas, not the doubled k_i of the formula above.
 
     Returns:
-        OKS score in [0, 1]. Returns 0.0 if no visible keypoints in GT.
+        OKS score in [0, 1]. Returns 0.0 when the ground truth has no visible
+        keypoints, or when its ``area`` is missing or non-positive (the formula
+        is undefined in that case).
+
+    Raises:
+        ValueError: If ``sigmas`` is not 1-D with one entry per ground-truth
+            keypoint, or if the detection and ground truth have different
+            keypoint counts.
     """
     gt_kps = ground_truth.keypoints
     det_kps = detection.keypoints
@@ -71,10 +81,11 @@ def compute_oks(
     dy = det_kps[:, 1] - gt_kps[:, 1]
     d_squared = dx**2 + dy**2
 
-    # OKS per keypoint: exp(-d^2 / (2 * s^2 * k^2))
-    # where s^2 = area and k = 2*sigma, matching the canonical COCO formula
-    variance = (2 * sigmas) ** 2 * 2 * area
-    oks_per_kp = np.exp(-d_squared / (variance + np.finfo(np.float64).eps))
+    # OKS per keypoint: exp(-d^2 / (2 * k^2 * area)) with k = 2 * sigma, matching
+    # COCO's vars = (2 * sigmas)**2 and its subsequent division by (2 * area).
+    # eps keeps the division finite when a sigma is 0.
+    denominator = (2 * sigmas) ** 2 * 2 * area
+    oks_per_kp = np.exp(-d_squared / (denominator + np.finfo(np.float64).eps))
 
     return float(np.sum(oks_per_kp[visible]) / num_visible)
 

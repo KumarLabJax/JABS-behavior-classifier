@@ -215,22 +215,28 @@ class Project:
         is_new_project = not self._paths.project_file.exists()
 
         self._settings_manager = SettingsManager(self._paths)
-        scan_results = self._run_video_scan(enable_video_check, process_pool)
+        # Retained so the FeatureManager can be rebuilt when the project's video set
+        # changes, without re-reading every pose file (see refresh_feature_manager()).
+        self._scan_results: dict[str, VideoScanResult] = self._run_video_scan(
+            enable_video_check, process_pool
+        )
         self._video_manager = VideoManager(
-            self._paths, self._settings_manager, enable_video_check, scan_results=scan_results
+            self._paths,
+            self._settings_manager,
+            enable_video_check,
+            scan_results=self._scan_results,
         )
         self._feature_manager = FeatureManager(
             self._paths,
             self._video_manager.videos,
             self._video_manager,
-            scan_results=scan_results,
+            scan_results=self._scan_results,
         )
         self._prediction_manager = PredictionManager(self)
         self._session_tracker = SessionTracker(self, tracking_enabled=enable_session_tracker)
 
         # write out the defaults to the project file
-        if self._settings_manager.project_settings.get("defaults") != self.get_project_defaults():
-            self._settings_manager.save_project_file({"defaults": self.get_project_defaults()})
+        self._save_project_defaults()
 
         # Persist cache_format. New projects default to Parquet; existing projects that
         # predate this setting default to HDF5 to preserve backward compatibility.
@@ -801,6 +807,41 @@ class Project:
             self._feature_manager.distance_unit,
             self._feature_manager.static_objects,
         )
+
+    def _save_project_defaults(self) -> None:
+        """Write the per-behavior defaults to project.json if they have changed."""
+        defaults = self.get_project_defaults()
+        if self._settings_manager.project_settings.get("defaults") != defaults:
+            self._settings_manager.save_project_file({"defaults": defaults})
+
+    def refresh_feature_manager(self) -> None:
+        """Rebuild the FeatureManager from the project's current set of videos.
+
+        The FeatureManager derives the project's capabilities -- minimum pose
+        version, the static objects common to every video, whether cm units are
+        available, and the enabled extended features -- once, from the videos
+        present when the project was opened. Removing a video (the GUI's
+        "Prune Project" action) leaves those values describing a video set that
+        no longer exists, so callers that change the video set must call this
+        afterwards.
+
+        The rebuild reuses the metadata collected by the project scan, so it
+        re-reads no pose files. Because pruning can only remove constraints, a
+        capability can be gained here but never lost. The refreshed defaults are
+        written to project.json when they change, which is what reopening the
+        project would do anyway.
+
+        Only removals are supported: the current videos must be a subset of the
+        ones scanned when the project was opened. Videos added to the directory
+        after that are picked up by reopening the project.
+        """
+        self._feature_manager = FeatureManager(
+            self._paths,
+            self._video_manager.videos,
+            self._video_manager,
+            scan_results=self._scan_results,
+        )
+        self._save_project_defaults()
 
     @staticmethod
     def settings_by_pose_version(

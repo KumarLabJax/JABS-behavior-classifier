@@ -158,6 +158,64 @@ class TestVideoLabels(unittest.TestCase):
             d_after["unfragmented_labels"]["0"]["Walking"],
         )
 
+    def test_rename_behavior_missing_old_name_is_a_no_op(self):
+        """renaming a behavior an identity has no labels for should leave it untouched"""
+        labels = VideoLabels("filename.avi", 100)
+        track = labels.get_track_labels("0", "Walk")
+        track.label_behavior(10, 20)
+
+        labels.rename_behavior("Groom", "Grooming")
+
+        behaviors = {behavior for _, behavior, _ in labels.iter_identity_behavior_labels()}
+        self.assertEqual(behaviors, {"Walk"})
+
+    def test_rename_behavior_raises_if_new_name_exists(self):
+        """renaming onto an existing behavior name should raise"""
+        labels = VideoLabels("filename.avi", 100)
+        labels.get_track_labels("0", "Walk")
+        labels.get_track_labels("0", "Walking")
+
+        with self.assertRaises(KeyError):
+            labels.rename_behavior("Walk", "Walking")
+
+
+def _annotation_label_dict() -> dict:
+    """Return a serialized VideoLabels dict containing one timeline annotation."""
+    return {
+        "version": SERIALIZED_VERSION,
+        "file": "filename.avi",
+        "num_frames": 100,
+        "labels": {},
+        "unfragmented_labels": {},
+        "metadata": {"project": {}, "video": {}},
+        "annotations": [
+            {"start": 10, "end": 20, "tag": "tag1", "color": "#FF0000", "identity": 0}
+        ],
+    }
+
+
+def test_load_annotations_without_pose() -> None:
+    """Loading timeline annotations without a pose file falls back to the identity index."""
+    labels = VideoLabels.load(_annotation_label_dict())
+
+    annotations = labels.timeline_annotations
+    assert len(annotations) == 1
+    interval = next(iter(annotations[10:21]))
+    assert interval.data["identity"] == 0
+    assert interval.data["display_identity"] == "0"
+
+
+def test_load_annotations_with_pose_uses_display_identity() -> None:
+    """A pose file supplies the display identity for a timeline annotation."""
+    pose = MagicMock()
+    pose.identity_index_to_display.return_value = "mouse-A"
+
+    labels = VideoLabels.load(_annotation_label_dict(), pose)
+
+    interval = next(iter(labels.timeline_annotations[10:21]))
+    assert interval.data["display_identity"] == "mouse-A"
+    pose.identity_index_to_display.assert_called_once_with(0)
+
 
 # ---------------------------------------------------------------------------
 # build_multiclass_label_array

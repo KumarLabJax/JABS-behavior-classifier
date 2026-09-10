@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 
+from jabs.core.utils import signed_angle_degrees
 from jabs.pose_estimation import PoseEstimation
 
 
@@ -60,7 +61,7 @@ class ClosestIdentityInfo:
                                 np.array(other_shape.centroid.xy).squeeze() * self._pixel_scale
                             )
 
-                            view_angle = self.compute_angle(
+                            view_angle = signed_angle_degrees(
                                 self_nose_point, self_base_neck_point, other_centroid
                             )
 
@@ -85,23 +86,6 @@ class ClosestIdentityInfo:
     def closest_fov_angles(self):
         """Returns the angles of the closest animals in the field of view."""
         return self._fov_angles
-
-    @staticmethod
-    def compute_angle(a, b, c):
-        """compute angle created by three connected points
-
-        Args:
-            a: point
-            b: vertex point
-            c: point
-
-        Returns:
-            angle between AB and BC with range [-180, 180)
-        """
-        angle = np.degrees(
-            np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
-        )
-        return ((angle + 180) % 360) - 180
 
     def compute_distances(self, closest_identities: np.ndarray) -> np.ndarray:
         """Computes the frame-wise distances between the subject's convex hull and the convex hull of the closest other animal.

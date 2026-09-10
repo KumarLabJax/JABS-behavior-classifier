@@ -40,6 +40,7 @@ class MenuReferences:
     clear_cache: QtGui.QAction
     clear_feature_cache: QtGui.QAction
     export_frame: QtGui.QAction
+    export_overlay_video: QtGui.QAction
     export_training: QtGui.QAction
     archive_behavior: QtGui.QAction
     prune_action: QtGui.QAction
@@ -235,6 +236,15 @@ class MenuBuilder:
         export_frame.triggered.connect(self.handlers.export_frame)
         menu.addAction(export_frame)
 
+        # Export overlay video action
+        export_overlay_video = QtGui.QAction("Export Video with Pose Overlay…", self.main_window)
+        export_overlay_video.setStatusTip(
+            "Export a copy of the current video with the pose overlay drawn on every frame"
+        )
+        export_overlay_video.setEnabled(False)
+        export_overlay_video.triggered.connect(self.handlers.export_overlay_video)
+        menu.addAction(export_overlay_video)
+
         menu.addSeparator()
 
         # Export training data action
@@ -278,6 +288,7 @@ class MenuBuilder:
         return {
             "open_recent_menu": open_recent_menu,
             "export_frame": export_frame,
+            "export_overlay_video": export_overlay_video,
             "export_training": export_training,
             "archive_behavior": archive_behavior,
             "prune_action": prune_action,

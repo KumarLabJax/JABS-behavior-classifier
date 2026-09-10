@@ -92,6 +92,16 @@ class VideoManager:
     def remove_video(self, video_name: str):
         """Remove a video from the project.
 
+        Drops every piece of per-video state this manager derived from the
+        project scan, so ``total_project_identities``,
+        :meth:`video_has_cm_per_pixel` and the pose path cache stay consistent
+        with the remaining videos. The video's ``video_files`` entry is also
+        removed from ``project.json`` so the persisted project matches the
+        in-memory removal.
+
+        Does nothing (other than logging a warning) if the video is not in the
+        project.
+
         Args:
             video_name: Name of the video file to remove.
         """
@@ -99,10 +109,13 @@ class VideoManager:
             self.check_video_name(video_name)
         except ValueError as e:
             logger.warning("Error removing video %s: %s", video_name, e)
-        else:
-            self._videos.remove(video_name)
-            del self._video_identity_count[video_name]
-            self._settings_manager.save_project_file()
+            return
+
+        self._videos.remove(video_name)
+        self._total_project_identities -= self._video_identity_count.pop(video_name, 0)
+        self._video_has_cm_per_pixel.pop(video_name, None)
+        self._pose_path_cache.pop(video_name, None)
+        self._settings_manager.remove_video_from_project_file(video_name)
 
     @property
     def total_project_identities(self) -> int:

@@ -1,3 +1,11 @@
+"""Query types and search routines for locating labels, predictions, and annotations.
+
+Searches run against an open :class:`~jabs.project.Project` and return
+:class:`SearchHit` records identifying the video, identity, and frame range of
+each match.
+"""
+
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -5,6 +13,8 @@ from enum import Enum, auto
 import numpy as np
 
 from jabs.project import Project, TrackLabels
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -130,15 +140,29 @@ def _search_behaviors_gen(
 
                     for aid, animal_probs in probs.items():
                         # do a couple of checks before generating search hits
-                        animal_probs = probs.get(aid)
                         if animal_probs is None or animal_probs.size == 0:
                             continue
 
                         animal_preds = preds.get(aid)
-                        if animal_preds is None or animal_preds.size != animal_probs.size:
-                            print(
-                                f"WARNING: Skipping {video} for {aid} as predictions and probabilities "
-                                f"do not match in size."
+                        if animal_preds is None:
+                            logger.warning(
+                                "Skipping identity %s in %s: no '%s' predictions were loaded "
+                                "alongside the probabilities.",
+                                aid,
+                                video,
+                                behavior,
+                            )
+                            continue
+
+                        if animal_preds.size != animal_probs.size:
+                            logger.warning(
+                                "Skipping identity %s in %s: '%s' has %d predictions but %d "
+                                "probabilities.",
+                                aid,
+                                video,
+                                behavior,
+                                animal_preds.size,
+                                animal_probs.size,
                             )
                             continue
 
@@ -249,11 +273,30 @@ def _gen_contig_true_intervals(
     animal_predictions: np.ndarray,
     animal_probabilities: np.ndarray,
 ) -> Iterable[tuple[int, int]]:
+    """Yield inclusive (start, end) frame ranges where the prediction query is satisfied.
+
+    Args:
+        pred_query: The prediction query describing which frames qualify.
+        animal_predictions: Per-frame predicted class values for one identity.
+        animal_probabilities: Per-frame prediction probabilities for the same identity.
+
+    Yields:
+        Tuples of (start_frame, end_frame), both inclusive, for each contiguous run of
+        frames matching the query. Nothing is yielded if either input is empty or if the
+        two inputs disagree in size.
+
+    Raises:
+        ValueError: If the query's search kind is not supported.
+    """
     if animal_predictions.size == 0 or animal_probabilities.size == 0:
         return
 
     if animal_predictions.size != animal_probabilities.size:
-        print("WARNING: Predictions and probabilities do not match in size. Skipping this animal.")
+        logger.warning(
+            "Skipping identity: %d predictions but %d probabilities.",
+            animal_predictions.size,
+            animal_probabilities.size,
+        )
         return
 
     match pred_query.search_kind:

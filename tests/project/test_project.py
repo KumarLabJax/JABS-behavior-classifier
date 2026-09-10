@@ -14,7 +14,7 @@ import pytest
 from jabs.classifier import MultiClassClassifier
 from jabs.classifier.protocols import ClassifierProtocol
 from jabs.core.constants import CLASSIFIER_MODE_KEY, MULTICLASS_NONE_BEHAVIOR
-from jabs.core.enums import ClassifierMode
+from jabs.core.enums import ClassifierMode, ProjectDistanceUnit
 from jabs.core.utils import hash_file, hide_stderr
 from jabs.project import Project, VideoLabels
 from jabs.project.prediction_manager import MULTICLASS_PREDICTION_KEY
@@ -1091,3 +1091,103 @@ def test_archive_behavior_removes_only_archived_behavior_from_annotations(tmp_pa
     saved_labels = project.save_annotations.call_args.args[0]
     remaining = dict(saved_labels.iter_behavior_labels("0"))
     assert list(remaining) == ["Grooming"]
+
+
+def _mixed_pose_version_project(tmp_path: Path) -> Project:
+    """Build a two-video project: a v3 pose file and a v6 pose file.
+
+    The v3 file has no ``cm_per_pixel`` scale and no static objects; the v6 file
+    has both, so the project's capabilities are held back by the v3 video.
+    """
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    test_data_dir = Path(__file__).parent.parent / "data"
+
+    (project_dir / "video1.avi").touch()
+    (project_dir / "video2.avi").touch()
+    shutil.copy(test_data_dir / "sample_pose_est_v3.h5", project_dir / "video1_pose_est_v3.h5")
+    shutil.copy(test_data_dir / "sample_pose_est_v6.h5", project_dir / "video2_pose_est_v6.h5")
+
+    return Project(project_dir, enable_session_tracker=False)
+
+
+def test_refresh_feature_manager_recomputes_capabilities(tmp_path: Path) -> None:
+    """Removing the video that limited the project promotes its feature support."""
+    project = _mixed_pose_version_project(tmp_path)
+
+    # the v3 video holds every capability back
+    assert project.feature_manager.min_pose_version == 3
+    assert not project.feature_manager.can_use_segmentation_features
+    assert not project.feature_manager.is_cm_unit
+    assert project.feature_manager.static_objects == set()
+
+    project.video_manager.remove_video("video1.avi")
+    project.refresh_feature_manager()
+
+    assert project.feature_manager.min_pose_version == 6
+    assert project.feature_manager.can_use_segmentation_features
+    assert project.feature_manager.can_use_social_features
+    assert project.feature_manager.is_cm_unit
+    assert project.feature_manager.static_objects == {"corners"}
+
+
+def test_refresh_feature_manager_matches_reopening_the_project(tmp_path: Path) -> None:
+    """The refreshed capabilities are the ones a fresh load of the project reports."""
+    project = _mixed_pose_version_project(tmp_path)
+    project_dir = project.project_paths.project_dir
+
+    # delete the v3 video's files the way the GUI prune action does, then refresh
+    (project_dir / "video1.avi").unlink()
+    (project_dir / "video1_pose_est_v3.h5").unlink()
+    project.video_manager.remove_video("video1.avi")
+    project.refresh_feature_manager()
+
+    reopened = Project(project_dir, enable_session_tracker=False)
+
+    assert project.feature_manager.min_pose_version == reopened.feature_manager.min_pose_version
+    assert project.feature_manager.static_objects == reopened.feature_manager.static_objects
+    assert project.feature_manager.is_cm_unit == reopened.feature_manager.is_cm_unit
+    assert (
+        project.feature_manager.can_use_segmentation_features
+        == reopened.feature_manager.can_use_segmentation_features
+    )
+    assert project.feature_manager.extended_features == reopened.feature_manager.extended_features
+    assert project.get_project_defaults() == reopened.get_project_defaults()
+
+
+def test_refresh_feature_manager_persists_updated_defaults(tmp_path: Path) -> None:
+    """The per-behavior defaults written to project.json follow the new video set."""
+    project = _mixed_pose_version_project(tmp_path)
+    project_file = project.project_paths.project_file
+
+    defaults_before = json.loads(project_file.read_text())["defaults"]
+    assert defaults_before["segmentation"] is False
+    assert defaults_before["static_objects"]["corners"] is False
+
+    project.video_manager.remove_video("video1.avi")
+    project.refresh_feature_manager()
+
+    defaults_after = json.loads(project_file.read_text())["defaults"]
+    assert defaults_after["segmentation"] is True
+    assert defaults_after["static_objects"]["corners"] is True
+    assert defaults_after["cm_units"] == ProjectDistanceUnit.CM
+
+
+def test_refresh_feature_manager_reads_no_pose_files(tmp_path: Path) -> None:
+    """The rebuild reuses the retained scan results rather than re-reading pose files.
+
+    Every pose file is deleted before the refresh: it still produces the right
+    capabilities, which it could not do if it opened them.
+    """
+    project = _mixed_pose_version_project(tmp_path)
+    project_dir = project.project_paths.project_dir
+
+    project.video_manager.remove_video("video1.avi")
+    (project_dir / "video1_pose_est_v3.h5").unlink()
+    (project_dir / "video2_pose_est_v6.h5").unlink()
+
+    project.refresh_feature_manager()
+
+    assert project.feature_manager.min_pose_version == 6
+    assert project.feature_manager.is_cm_unit
+    assert project.feature_manager.static_objects == {"corners"}

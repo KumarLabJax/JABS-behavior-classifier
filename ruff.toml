@@ -51,6 +51,13 @@ convention = "google"
 "src/jabs/scripts/cli/sample_frames.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
 ]
+"src/jabs/scripts/cli/export_video.py" = [
+    "D301",  # Click uses \b in docstrings to control help formatting
+]
+"tests/video_export/test_*.py" = [
+    # the Qt availability guard has to run before the shared fixtures are imported
+    "E402",
+]
 "src/jabs/scripts/cli/merge_projects.py" = [
     "D301",  # Click uses \b in docstrings to control help formatting
     "D412",  # Click Examples sections look better with a blank line before \b blocks

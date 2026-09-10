@@ -160,62 +160,75 @@ class VideoLabels:
         project_metadata: dict | None = None,
         video_metadata: dict | None = None,
     ) -> dict:
-        """return dict representation of video labels
+        """Return a dict representation of the video labels.
 
-        useful for JSON serialization and saving to disk
+        This is the on-disk format of a project's ``jabs/annotations/<video>.json``
+        file, so it is also what :meth:`load` consumes.
 
-        example return value:
-        {
-            "file": "filename.avi",
-            "num_frames": 100,
-            "external_identities: {
-                "jabs identity", 1234,
-            },
-            "metadata": {
-                "project": {},
-                "video": {},
-            }
-            "labels": {
-                "jabs identity": {
-                    "behavior": [
-                        {
-                            "start": 25,
-                            "end": 50,
-                            "present": True
-                        }
-                    ]
-                }
-            },
-            "unfragmented_labels": {
-                "jabs identity": {
-                    "behavior": [
-                        {
-                            "start": 25,
-                            "end": 50,
-                            "present": True
-                        }
-                    ]
-                }
-            },
-            annotations: [
-                {
-                    "start": 10,
-                    "end": 20,
-                    "tag": "annotationTag",
-                    "color": "#FF0000",
-                    "description": "Description for the annotation"
+        Args:
+            pose: PoseEstimation for this video. Its identity mask fragments the
+                blocks written to ``labels``, and its external identities are
+                included in the output when the pose file has them.
+            project_metadata: Optional project-level metadata to embed.
+            video_metadata: Optional video-level metadata to embed.
+
+        Returns:
+            Dict representation of the labels, with these keys:
+
+            - ``version``: serialization format version (``SERIALIZED_VERSION``).
+            - ``file``: name of the video these labels belong to.
+            - ``num_frames``: number of frames in the video.
+            - ``labels``: label blocks masked by ``pose.identity_mask()``, so a
+              block is split wherever the identity is missing from the pose file.
+              These are the blocks that correspond to usable training data.
+            - ``unfragmented_labels``: the same blocks without that mask, which is
+              what the user actually labeled. :meth:`load` prefers this key and
+              falls back to ``labels`` for files written before it existed.
+            - ``metadata``: the ``project_metadata`` and ``video_metadata``
+              arguments, each defaulting to an empty dict.
+            - ``external_identities``: only present when the pose file has external
+              identities. Maps the JABS identity index, as a string, to the
+              external identity.
+            - ``annotations``: only present when the video has timeline
+              annotations. See :meth:`TimelineAnnotations.serialize` for the fields
+              of an entry.
+
+            Both label dicts are keyed by identity (as a string), then by behavior
+            name, and hold the block lists produced by
+            :meth:`TrackLabels.get_blocks`.
+
+        Example:
+            The returned dict in its serialized JSON form, as written to
+            ``jabs/annotations/<video>.json`` (so ``true`` below is the JSON
+            spelling of Python's ``True``):
+
+            {
+                "version": 1,
+                "file": "filename.avi",
+                "num_frames": 100,
+                "labels": {
+                    "0": {
+                        "behavior": [{"start": 25, "end": 40, "present": true}]
+                    }
                 },
-                {
-                    "start": 30,
-                    "end": 40,
-                    "tag": "anotherTag",
-                    "color": "#00FF00",
-                    "description": "Another optional description",
-                    "animal_id": 0  # optional, if the annotation is associated with an identity (internal JABS ID)
-                }
-            ]
-        }
-
+                "unfragmented_labels": {
+                    "0": {
+                        "behavior": [{"start": 25, "end": 50, "present": true}]
+                    }
+                },
+                "metadata": {"project": {}, "video": {}},
+                "external_identities": {"0": "mouse_a"},
+                "annotations": [
+                    {
+                        "start": 10,
+                        "end": 20,
+                        "tag": "annotationTag",
+                        "color": "#FF0000",
+                        "description": "optional description",
+                        "identity": 0
+                    }
+                ]
+            }
         """
         label_dict: dict[str, Any] = {
             "version": SERIALIZED_VERSION,
@@ -250,13 +263,25 @@ class VideoLabels:
                 label_dict["external_identities"][str(i)] = identity
 
         if len(self._annotations) > 0:
-            label_dict["annotations"]: list[dict] = self._annotations.serialize()
+            label_dict["annotations"] = self._annotations.serialize()
 
         return label_dict
 
     @classmethod
     def load(cls, video_label_dict: dict, pose: PoseEstimation | None = None) -> "VideoLabels":
-        """return a VideoLabels object initialized with data from a dict previously exported using the export method"""
+        """Return a VideoLabels object initialized with data previously exported by as_dict().
+
+        Args:
+            video_label_dict: Dict representation of the labels, as produced by
+                :meth:`as_dict`.
+            pose: Optional PoseEstimation for the video. It is used only to map
+                timeline annotation identity indexes to their display identity;
+                when omitted, the identity index is used as its own display
+                string.
+
+        Returns:
+            VideoLabels: Object populated from the dict representation.
+        """
         labels = cls(video_label_dict["file"], video_label_dict["num_frames"])
 
         key = "unfragmented_labels" if "unfragmented_labels" in video_label_dict else "labels"
@@ -272,7 +297,8 @@ class VideoLabels:
         # load non-behavior annotations if they exist
         if "annotations" in video_label_dict:
             labels._annotations = TimelineAnnotations.load(
-                video_label_dict["annotations"], pose.identity_index_to_display
+                video_label_dict["annotations"],
+                pose.identity_index_to_display if pose is not None else None,
             )
 
         return labels
@@ -301,6 +327,10 @@ class VideoLabels:
         Only renames behavior in memory; does not update any associated files on disk.
         Behavior labels must be saved to disk again after renaming to persist changes.
 
+        Identities with no labels for ``old_name`` are left untouched rather than
+        treated as an error: a project-wide rename runs over every video, and most
+        videos will not have labels for the renamed behavior.
+
         Args:
             old_name (str): The current name of the behavior to rename.
             new_name (str): The new name for the behavior.
@@ -309,8 +339,7 @@ class VideoLabels:
             None
 
         Raises:
-            KeyError: If the old behavior name does not exist or
-                if the new behavior name already exists for any identity.
+            KeyError: If the new behavior name already exists for any identity.
         """
         # validate that new_name doesn't already exist for any identity
         for identity in self._identity_labels:

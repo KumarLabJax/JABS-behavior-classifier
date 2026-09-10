@@ -128,6 +128,19 @@ class TimelineAnnotations:
     def serialize(self) -> list[dict]:
         """Convert the internal IntervalTree to a JSON-serializable list of dictionaries.
 
+        Each annotation is serialized with the following fields, which are also the
+        fields :meth:`load` reads back:
+
+        - ``start``: first frame of the annotation (inclusive).
+        - ``end``: last frame of the annotation (inclusive).
+        - ``tag``: annotation tag.
+        - ``color``: color used to render the annotation.
+        - ``description``: optional description, omitted when unset.
+        - ``identity``: optional internal JABS identity index the annotation
+          applies to, omitted when the annotation is not tied to an identity.
+          The derived ``display_identity`` is not serialized: :meth:`load`
+          recomputes it from this index.
+
         Returns:
             list[dict]: A list containing a dictionary representation for each timeline annotation,
              suitable for JSON serialization.

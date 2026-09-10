@@ -3,7 +3,6 @@ import numpy as np
 from PySide6.QtGui import QColor
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
-from jabs.pose_estimation import PoseEstimation
 
 POSITION_MARKER_COLOR = QColor(231, 66, 126, 255)
 SELECTION_COLOR = QColor(255, 255, 0, 255)
@@ -44,15 +43,6 @@ def is_color_light(color: QColor) -> bool:
     luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
     return luminance > LIGHT_COLOR_LUMINANCE_THRESHOLD
 
-
-# Generate distinct colors for keypoints
-# Use a fixed seed for reproducible colors
-__KEYPOINT_COLORS = distinctipy.get_colors(len(PoseEstimation.KeypointIndex), rng=42)
-
-KEYPOINT_COLOR_MAP = {
-    kp: QColor(int(r * 255), int(g * 255), int(b * 255))
-    for kp, (r, g, b) in zip(PoseEstimation.KeypointIndex, __KEYPOINT_COLORS, strict=True)
-}
 
 # Colors excluded when generating per-behavior palettes so they don't collide with
 # the fixed UI colors used in binary mode.
