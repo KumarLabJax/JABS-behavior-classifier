@@ -116,6 +116,32 @@ def test_load_video_labels(video_manager, project_paths):
     assert labels.filename == "video1.avi"
 
 
+def test_remove_video_updates_derived_state(video_manager):
+    """Removing a video drops all per-video state derived from the project scan."""
+    assert video_manager.total_project_identities == 8
+    # populate the pose path cache so we can assert it is invalidated
+    assert video_manager.get_cached_pose_path("video1.avi").name == "video1_pose_est_v3.h5"
+
+    video_manager.remove_video("video1.avi")
+
+    assert video_manager.videos == ["video2.mp4"]
+    assert video_manager.num_videos == 1
+    assert video_manager.total_project_identities == 5
+    assert video_manager.get_video_identity_count("video1.avi") == 0
+    assert video_manager.video_has_cm_per_pixel("video1.avi") is False
+    # the per-video caches should no longer carry an entry for the removed video
+    assert "video1.avi" not in video_manager._video_has_cm_per_pixel
+    assert "video1.avi" not in video_manager._pose_path_cache
+
+
+def test_remove_video_unknown_video_is_a_no_op(video_manager):
+    """Removing a video that is not in the project leaves state untouched."""
+    video_manager.remove_video("nonexistent_video.avi")
+
+    assert video_manager.videos == ["video1.avi", "video2.mp4"]
+    assert video_manager.total_project_identities == 8
+
+
 def test_video_manager_uses_custom_video_and_pose_dirs(tmp_path):
     """VideoManager should enumerate videos and resolve pose from the configured dirs."""
     project_root = tmp_path / "project"
