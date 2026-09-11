@@ -168,11 +168,33 @@ def test_save_new_behavior_defaults_not_aliased_on_disk(mock_project, project_wi
     settings_manager, defaults = project_with_defaults
 
     settings_manager.save_behavior("Walking", {})
-    settings_manager.save_behavior("Walking", {"static_objects": {"corners": False}})
+    settings_manager.save_behavior("Walking", {"window_size": 99})
 
     with mock_project.project_paths.project_file.open("r") as f:
         saved = json.load(f)
     assert saved["defaults"] == defaults
+
+
+def test_save_new_behavior_does_not_share_nested_settings(mock_project, project_with_defaults):
+    """A new behavior's nested settings are its own, not the defaults' nested dicts.
+
+    A shallow copy of the defaults would leave ``static_objects`` shared, so
+    editing it through the behavior would still rewrite the project defaults.
+    """
+    settings_manager, defaults = project_with_defaults
+
+    settings_manager.save_behavior("Walking", {})
+
+    # mutate the nested dict in place through the behavior, as a caller holding
+    # the behavior's settings would, and persist it
+    settings_manager.get_behavior("Walking")["static_objects"]["corners"] = False
+    settings_manager.save_project_file()
+
+    assert settings_manager.project_settings["defaults"] == defaults
+    with mock_project.project_paths.project_file.open("r") as f:
+        saved = json.load(f)
+    assert saved["defaults"] == defaults
+    assert saved["behavior"]["Walking"]["static_objects"]["corners"] is False
 
 
 def test_save_new_behavior_does_not_inherit_sibling_settings(project_with_defaults):
