@@ -683,7 +683,7 @@ class PlayerWidget(QtWidgets.QWidget):
         self._frame_label.setText(f"{frame_number}:{self._video_stream.num_frames - 1}")
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
-    @QtCore.Slot(QtGui.QImage)
+    @QtCore.Slot(QtGui.QImage, int)
     def _display_image(self, image: QtGui.QImage, frame_number: int) -> None:
         """display a new frame sent from the player thread
 

@@ -158,3 +158,10 @@ def test_nothing_is_drawn_without_contours() -> None:
     image = _draw(StubPose(None))
 
     assert not any(_painted(image, x, y) for x in range(0, 80, 5) for y in range(0, 80, 5))
+
+
+def test_a_single_point_contour_is_drawn_as_a_pixel() -> None:
+    """A one-point contour is degenerate, but cv2 drew it and a pose file can hold one."""
+    image = _draw(StubPose(_padded([(30, 30)])))
+
+    assert _painted(image, 30, 30)

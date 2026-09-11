@@ -118,6 +118,11 @@ def draw_identity_segmentation(
     for contour in identity_contours(pose, frame_index, identity):
         mapped = [to_output(float(x), float(y)) for x, y in contour]
         for run, complete in _visible_runs(mapped):
+            if len(run) == 1:
+                # A contour can be a single point, and cv2 drew that as a pixel.
+                painter.drawPoint(QtCore.QPoint(*run[0]))
+                continue
+
             polygon = QtGui.QPolygon([QtCore.QPoint(x, y) for x, y in run])
             if complete:
                 # A contour is a closed shape, so the last point joins the first. Only
@@ -133,18 +138,20 @@ def _visible_runs(
 ) -> Iterator[tuple[list[tuple[int, int]], bool]]:
     """Split mapped contour points into runs of consecutive visible points.
 
-    Yields ``(run, complete)`` for each run of two or more points, where ``complete``
-    says the run is the entire contour, with nothing dropped by a crop.
+    Yields ``(run, complete)`` for each non-empty run, where ``complete`` says the run
+    is the entire contour, with nothing dropped by a crop. Single-point runs are
+    included: a one-point contour is degenerate but a pose file can hold one, and cv2
+    used to draw it as a pixel.
     """
     run: list[tuple[int, int]] = []
     dropped = False
     for point in mapped:
         if point is None:
             dropped = True
-            if len(run) >= 2:
+            if run:
                 yield run, False
             run = []
             continue
         run.append(point)
-    if len(run) >= 2:
+    if run:
         yield run, not dropped

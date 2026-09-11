@@ -56,3 +56,17 @@ def test_displayed_frame_number_comes_from_the_player_thread():
 
     assert widget._frame_widget.current_frame == 42
     assert widget.current_frame == 0, "the slider is still where the other signal left it"
+
+
+def test_the_display_slot_is_declared_with_both_arguments():
+    """The Slot declaration has to match the method, which takes the frame number too.
+
+    A stale one-argument declaration still works today - PySide6 dispatches to the
+    Python callable, and both arguments arrive whether the connection is direct or
+    queued - but it describes a signature that no longer exists.
+    """
+    widget = PlayerWidget()
+
+    meta = widget.metaObject()
+    assert meta.indexOfSlot("_display_image(QImage,int)") != -1
+    assert meta.indexOfSlot("_display_image(QImage)") == -1
