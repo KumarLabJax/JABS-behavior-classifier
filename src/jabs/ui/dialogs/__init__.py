@@ -12,6 +12,7 @@ from .project_pruning_dialog import ProjectPruningDialog
 from .training_report import TrainingReportDialog
 from .update_check_dialog import UpdateCheckDialog
 from .user_guide_dialog import UserGuideDialog
+from .video_export_options_dialog import VideoExportOptionsDialog
 from .video_info_dialog import VideoInfoDialog
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "TrainingReportDialog",
     "UpdateCheckDialog",
     "UserGuideDialog",
+    "VideoExportOptionsDialog",
     "VideoInfoDialog",
 ]

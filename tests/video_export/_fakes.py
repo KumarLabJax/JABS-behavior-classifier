@@ -1,6 +1,7 @@
 """Shared stand-ins for the video-export tests."""
 
 import numpy as np
+from shapely.geometry import Polygon
 
 from jabs.pose_estimation import PoseEstimation
 
@@ -17,9 +18,13 @@ class StubPose:
         num_frames: int = FRAMES,
         identities: list[int] | None = None,
         has_segmentation: bool = False,
+        hulls_present: bool = True,
     ) -> None:
         self.num_frames = num_frames
         self.identities = [0] if identities is None else identities
+        # Frames without a valid convex hull are a real case (no pose for that
+        # identity), and the prediction marker has nowhere to sit on them.
+        self._hulls_present = hulls_present
         # Segmentation is optional even in v6+ pose files, so the renderer keys off
         # this rather than the pose version.
         self.has_segmentation = has_segmentation
@@ -55,3 +60,14 @@ class StubPose:
             dtype=np.float32,
         )
         return points, np.ones(n_kp, dtype=np.uint8)
+
+    def get_identity_convex_hulls(self, identity: int):
+        """Return one convex hull per frame, offset the same way as the keypoints."""
+        if not self._hulls_present:
+            return [None] * self.num_frames
+        hulls = []
+        for frame in range(self.num_frames):
+            x = 40 + frame
+            y = 40 + identity * 40
+            hulls.append(Polygon([(x, y), (x + 8, y), (x + 8, y + 8), (x, y + 8)]))
+        return hulls

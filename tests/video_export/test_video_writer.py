@@ -1,4 +1,4 @@
-"""Tests for writing a video with the pose overlay burned in."""
+"""Tests for writing a video with the JABS overlays burned in."""
 
 import logging
 from pathlib import Path
@@ -10,7 +10,12 @@ import pytest
 try:
     from PySide6.QtWidgets import QApplication  # noqa: F401
 
-    from jabs.video_export import DEFAULT_CODEC, VideoExportError, export_overlay_video
+    from jabs.video_export import (
+        DEFAULT_CODEC,
+        PredictionOverlay,
+        VideoExportError,
+        export_overlay_video,
+    )
     from jabs.video_export import video_writer as video_writer_module
 
     SKIP_UI_TESTS = False
@@ -348,3 +353,59 @@ def test_refuses_a_case_differing_alias_of_the_source(source_video: Path, tmp_pa
         export_overlay_video(source_video, alias, StubPose(), draw_segmentation=False)
 
     assert source_video.stat().st_size == size_before, "source was modified"
+
+
+def test_overlay_choices_reach_the_renderer(
+    source_video: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Every overlay switch is passed through to the per-frame renderer."""
+    overlay = PredictionOverlay(labels=[np.ones(FRAMES, dtype=np.int8)])
+    seen: list[dict] = []
+
+    def record(frame, pose_est, frame_index, **kwargs):
+        seen.append(kwargs)
+        return frame
+
+    monkeypatch.setattr(video_writer_module, "render_overlay_frame", record)
+
+    export_overlay_video(
+        source_video,
+        tmp_path / "out.mp4",
+        StubPose(),
+        draw_pose=False,
+        draw_segmentation=False,
+        prediction_overlay=overlay,
+    )
+
+    assert len(seen) == FRAMES
+    assert all(
+        call
+        == {
+            "draw_pose": False,
+            "draw_segmentation": False,
+            "prediction_overlay": overlay,
+        }
+        for call in seen
+    )
+
+
+def test_prediction_markers_reach_the_written_video(source_video: Path, tmp_path: Path) -> None:
+    """A predictions-only export still changes the frames it writes."""
+    output = tmp_path / "predictions.mp4"
+
+    written = export_overlay_video(
+        source_video,
+        output,
+        StubPose(),
+        draw_pose=False,
+        draw_segmentation=False,
+        prediction_overlay=PredictionOverlay(labels=[np.ones(FRAMES, dtype=np.int8)]),
+    )
+
+    assert written == FRAMES
+    capture = cv2.VideoCapture(str(output))
+    try:
+        _, frame = capture.read()
+        assert (np.abs(frame.astype(int) - BACKGROUND) > 25).any(), "no marker in output"
+    finally:
+        capture.release()

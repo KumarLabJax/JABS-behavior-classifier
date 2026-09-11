@@ -20,6 +20,7 @@ from jabs.core.enums import (
 )
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
+from jabs.video_export import PredictionOverlay
 
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
@@ -38,6 +39,15 @@ from . import central_widget_mode
 
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
+
+# Why the prediction overlay cannot be exported, shown as the tooltip on the disabled
+# checkbox in the export options dialog. The two cases need different things from the
+# user: one video has never been classified, the other was classified against a
+# behavior list the project no longer has.
+_NO_PREDICTIONS_REASON = "No predictions for this video: classify it first"
+_STALE_PREDICTIONS_REASON = (
+    "These predictions were generated for a different behavior list: classify this video again"
+)
 
 
 class CentralWidget(QtWidgets.QWidget):
@@ -678,15 +688,23 @@ class CentralWidget(QtWidgets.QWidget):
         self._counts = self._project.counts(self.behavior)
         self._update_label_counts()
 
-        # load saved predictions
-        if (
-            self._loaded_video
-            and self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS
-        ):
-            self._predictions, self._probabilities, self._predictions_postprocessed = (
-                self._project.prediction_manager.load_predictions(
-                    self._loaded_video.name, self.behavior
-                )
+        # Load saved predictions. Dispatching by mode rather than skipping the load in
+        # multi-class mode: switching an already-open project from binary to
+        # multi-class comes through here, and leaving the binary predictions in place
+        # would have the timeline, the label overlay and the video export all read
+        # 0/1 values as multi-class indices. The multi-class load returns nothing when
+        # the video has no multi-class record, which is the honest answer.
+        if self._loaded_video:
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                self._loaded_video.name,
+                self.behavior,
             )
 
         # display labels and predictions for new behavior
@@ -1523,21 +1541,88 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.set_label_color_lut(None)
             self._player_widget.set_labels(self._prediction_list)
 
+    @property
+    def _showing_postprocessed_predictions(self) -> bool:
+        """Whether the displayed binary predictions are the post-processed ones.
+
+        The user asking for post-processed predictions is not enough on its own:
+        they also have to exist for every identity, which the matching keys check.
+        Without them the display falls back to the raw predictions.
+        """
+        return (
+            self.prediction_type == PredictionType.POSTPROCESSED
+            and self._predictions_postprocessed.keys() == self._predictions.keys()
+        )
+
+    def prediction_overlay(self) -> tuple[PredictionOverlay | None, str | None]:
+        """Build the prediction overlay for the loaded video, for the video export.
+
+        Mirrors what "View > Label Overlay > Predictions" paints in the player - the
+        same per-identity values, colors, and raw/post-processed choice - so an
+        exported video matches the live view, whether or not the overlay is currently
+        switched on.
+
+        Returns:
+            ``(overlay, unavailable_reason)``, exactly one of which is set. The reason
+            is UI copy for the disabled checkbox's tooltip, and comes from here rather
+            than being inferred by the caller so that it cannot disagree with the
+            decision it explains.
+        """
+        if self._project is None or self._loaded_video is None or self._pose_est is None:
+            return None, _NO_PREDICTIONS_REASON
+        if not self._predictions:
+            return None, _NO_PREDICTIONS_REASON
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            lut = self._jabs_timeline.multiclass_color_lut
+            if lut is None:
+                return None, _NO_PREDICTIONS_REASON
+
+            class_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+            if self._multiclass_class_names != class_names:
+                # The color table and the legend are built from the project's current
+                # behavior list, but the label values are class indices from the saved
+                # prediction record. If the project has gained, lost or reordered a
+                # behavior since the video was classified, index 1 no longer means what
+                # the table's entry 1 says, and the export would burn in a marker under
+                # another behavior's name and color. The timeline already falls back to
+                # empty rows when the class count disagrees; refusing here is the same
+                # answer for a file that outlives the session. Re-classifying the video
+                # writes a record that matches and makes the export available again.
+                return None, _STALE_PREDICTIONS_REASON
+
+            return (
+                PredictionOverlay.for_multiclass(
+                    self._build_multiclass_overlay_labels(),
+                    color_lut=lut,
+                    class_names=class_names,
+                    # The player draws raw predictions in multi-class mode: the
+                    # post-processed view is binary-only. The export says the same.
+                    postprocessed=False,
+                ),
+                None,
+            )
+
+        predictions, _ = self._get_prediction_list()
+        return (
+            PredictionOverlay.for_binary(
+                predictions,
+                behavior=self.behavior,
+                postprocessed=self._showing_postprocessed_predictions,
+            ),
+            None,
+        )
+
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""
         prediction_list = []
         probability_list = []
 
-        # does the user want to see raw or post-processed predictions?
-        # if they do, also make sure we have post-processed predictions to show
-        # to check, just make sure the keys match up -- that means we have post-processed data for all identities
-        if (
-            self.prediction_type == PredictionType.POSTPROCESSED
-            and self._predictions_postprocessed.keys() == self._predictions.keys()
-        ):
-            predictions = self._predictions_postprocessed
-        else:
-            predictions = self._predictions
+        predictions = (
+            self._predictions_postprocessed
+            if self._showing_postprocessed_predictions
+            else self._predictions
+        )
 
         for i in range(self._pose_est.num_identities):
             # if there are no predictions we will pass an array of no-predictions and zero probabilities to

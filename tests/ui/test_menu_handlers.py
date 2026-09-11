@@ -45,7 +45,10 @@ def handler_setup():
         current_video_path=Path("video.mp4"),
     )
     window = SimpleNamespace(
-        _central_widget=SimpleNamespace(_player_widget=player),
+        _central_widget=SimpleNamespace(
+            _player_widget=player,
+            prediction_overlay=MagicMock(return_value=(None, "no predictions")),
+        ),
         _settings=MagicMock(),
         display_status_message=MagicMock(),
     )
@@ -267,6 +270,9 @@ def video_export_setup(handler_setup, monkeypatch):
     player.pose_est = _FakeV6Pose(has_segmentation=True)
     player.num_frames = 100
     player.current_video_path = Path("/videos/clip.avi")
+    window._central_widget.prediction_overlay = MagicMock(
+        return_value=(None, "No predictions for this video: classify it first")
+    )
 
     thread = MagicMock()
     thread_cls = MagicMock(return_value=thread)
@@ -275,10 +281,46 @@ def video_export_setup(handler_setup, monkeypatch):
     return handlers, window, player, thread_cls, thread
 
 
+def _patch_video_export_dialogs(
+    monkeypatch,
+    *,
+    options_accepted: bool = True,
+    selected: str = "/tmp/out.mp4",
+    draw_pose: bool = True,
+    draw_segmentation: bool = True,
+    draw_predictions: bool = False,
+    segmentation_enabled: bool = True,
+    predictions_enabled: bool = True,
+):
+    """Replace the overlay options dialog and the save dialog with controllable mocks.
+
+    Returns ``(options_cls, options, save_dialog)``: the patched options dialog class,
+    the instance the handler built, and the mock standing in for the file dialog.
+    """
+    options = MagicMock()
+    options.exec.return_value = (
+        menu_handlers_module.QtWidgets.QDialog.DialogCode.Accepted
+        if options_accepted
+        else menu_handlers_module.QtWidgets.QDialog.DialogCode.Rejected
+    )
+    options.draw_pose = draw_pose
+    options.draw_segmentation = draw_segmentation
+    options.draw_predictions = draw_predictions
+    options.segmentation_enabled = segmentation_enabled
+    options.predictions_enabled = predictions_enabled
+    options_cls = MagicMock(return_value=options)
+    monkeypatch.setattr(menu_handlers_module, "VideoExportOptionsDialog", options_cls)
+
+    save_dialog = MagicMock()
+    save_dialog.getSaveFileName.return_value = (selected, "MP4 Video (*.mp4)")
+    monkeypatch.setattr(menu_handlers_module.QtWidgets, "QFileDialog", save_dialog)
+    return options_cls, options, save_dialog
+
+
 def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup, monkeypatch):
-    """The selected path, pose object and segmentation choice reach the thread."""
+    """The selected path, pose object and overlay choices reach the thread."""
     handlers, _window, player, thread_cls, thread = video_export_setup
-    _patch_export_dialog(monkeypatch, selected=("/tmp/out.mp4",), overlay_checked=True)
+    _patch_video_export_dialogs(monkeypatch, selected="/tmp/out.mp4")
 
     handlers.export_overlay_video()
 
@@ -287,23 +329,40 @@ def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup,
     assert args[1] == Path("/tmp/out.mp4")
     assert args[2] is player.pose_est
     assert args[3] is True  # draw_segmentation
+    kwargs = thread_cls.call_args.kwargs
+    assert kwargs["draw_pose"] is True
+    assert kwargs["prediction_overlay"] is None  # no predictions available
+    assert kwargs["parent"] is handlers.window
     thread.start.assert_called_once()
+
+
+def test_export_overlay_video_options_come_before_the_file_dialog(video_export_setup, monkeypatch):
+    """Declining the overlay options never gets as far as asking for a filename."""
+    handlers, _window, _player, thread_cls, _thread = video_export_setup
+    _, _options, save_dialog = _patch_video_export_dialogs(monkeypatch, options_accepted=False)
+
+    handlers.export_overlay_video()
+
+    save_dialog.getSaveFileName.assert_not_called()
+    thread_cls.assert_not_called()
 
 
 def test_export_overlay_video_appends_extension(video_export_setup, monkeypatch):
     """A filename without .mp4 still produces an mp4 path."""
     handlers, _window, _player, thread_cls, _thread = video_export_setup
-    _patch_export_dialog(monkeypatch, selected=("/tmp/no_extension",))
+    _patch_video_export_dialogs(monkeypatch, selected="/tmp/no_extension")
 
     handlers.export_overlay_video()
 
     assert thread_cls.call_args.args[1] == Path("/tmp/no_extension.mp4")
 
 
-def test_export_overlay_video_cancelled_dialog_starts_nothing(video_export_setup, monkeypatch):
+def test_export_overlay_video_cancelled_file_dialog_starts_nothing(
+    video_export_setup, monkeypatch
+):
     """Dismissing the save dialog must not start an export."""
     handlers, _window, _player, thread_cls, _thread = video_export_setup
-    _patch_export_dialog(monkeypatch, accepted=False)
+    _patch_video_export_dialogs(monkeypatch, selected="")
 
     handlers.export_overlay_video()
 
@@ -324,36 +383,101 @@ def test_export_overlay_video_without_video_warns(handler_setup, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("has_segmentation", "expect_enabled"),
-    [(True, True), (False, False)],
+    ("has_segmentation", "expect_reason"),
+    [(True, False), (False, True)],
     ids=["v6-with-segmentation", "v6-without-segmentation"],
 )
-def test_export_overlay_video_checkbox_reflects_segmentation_availability(
-    video_export_setup, monkeypatch, has_segmentation: bool, expect_enabled: bool
+def test_export_overlay_video_reports_segmentation_availability(
+    video_export_setup, monkeypatch, has_segmentation: bool, expect_reason: bool
 ):
     """Segmentation is optional even in v6+, so the box tracks the data, not the version."""
     handlers, _window, player, _thread_cls, _thread = video_export_setup
     player.pose_est = _FakeV6Pose(has_segmentation=has_segmentation)
+    options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
-    fake_qfiledialog = MagicMock()
-    dialog = fake_qfiledialog.return_value
-    dialog.exec.return_value = fake_qfiledialog.DialogCode.Accepted
-    dialog.selectedFiles.return_value = ["/tmp/out.mp4"]
-    dialog.layout.return_value = None
-    monkeypatch.setattr(menu_handlers_module.QtWidgets, "QFileDialog", fake_qfiledialog)
-    checkbox = MagicMock()
-    checkbox.isChecked.return_value = has_segmentation
-    monkeypatch.setattr(
-        menu_handlers_module.QtWidgets, "QCheckBox", MagicMock(return_value=checkbox)
+    handlers.export_overlay_video()
+
+    reason = options_cls.call_args.kwargs["segmentation_unavailable"]
+    if expect_reason:
+        assert "segmentation" in reason.lower()
+    else:
+        assert reason is None
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "No predictions for this video: classify it first",
+        "These predictions were generated for a different behavior list: "
+        "classify this video again",
+    ],
+    ids=["never-classified", "stale-record"],
+)
+def test_export_overlay_video_reports_why_predictions_are_unavailable(
+    video_export_setup, monkeypatch, reason: str
+):
+    """The checkbox repeats the central widget's reason rather than guessing one.
+
+    A stale multi-class record is not a missing one, and telling the user to classify
+    a video they already classified would send them looking for the wrong problem.
+    """
+    handlers, window, _player, _thread_cls, _thread = video_export_setup
+    window._central_widget.prediction_overlay = MagicMock(return_value=(None, reason))
+    options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
+
+    handlers.export_overlay_video()
+
+    assert options_cls.call_args.kwargs["predictions_unavailable"] == reason
+
+
+def test_export_overlay_video_passes_the_prediction_overlay_when_selected(
+    video_export_setup, monkeypatch
+):
+    """Ticking predictions sends the central widget's overlay to the exporter."""
+    handlers, window, _player, thread_cls, _thread = video_export_setup
+    overlay = object()
+    window._central_widget.prediction_overlay = MagicMock(return_value=(overlay, None))
+    options_cls, _options, _save_dialog = _patch_video_export_dialogs(
+        monkeypatch, draw_predictions=True
     )
 
     handlers.export_overlay_video()
 
-    if expect_enabled:
-        checkbox.setEnabled.assert_not_called()
-    else:
-        checkbox.setEnabled.assert_called_once_with(False)
-        assert "segmentation" in checkbox.setToolTip.call_args.args[0].lower()
+    assert options_cls.call_args.kwargs["predictions_unavailable"] is None
+    assert thread_cls.call_args.kwargs["prediction_overlay"] is overlay
+
+
+def test_export_overlay_video_drops_the_overlay_when_predictions_are_unticked(
+    video_export_setup, monkeypatch
+):
+    """Predictions exist but were not asked for, so they are not drawn."""
+    handlers, window, _player, thread_cls, _thread = video_export_setup
+    window._central_widget.prediction_overlay = MagicMock(return_value=(object(), None))
+    _patch_video_export_dialogs(monkeypatch, draw_predictions=False)
+
+    handlers.export_overlay_video()
+
+    assert thread_cls.call_args.kwargs["prediction_overlay"] is None
+
+
+def test_export_overlay_video_persists_available_choices_only(video_export_setup, monkeypatch):
+    """A forced-off overlay must not overwrite the preference for the next video."""
+    handlers, window, _player, _thread_cls, _thread = video_export_setup
+    _patch_video_export_dialogs(
+        monkeypatch,
+        draw_pose=True,
+        draw_segmentation=False,
+        draw_predictions=False,
+        segmentation_enabled=False,
+        predictions_enabled=True,
+    )
+
+    handlers.export_overlay_video()
+
+    saved = {c.args[0] for c in window._settings.setValue.call_args_list}
+    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_POSE in saved
+    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_PREDICTIONS in saved
+    assert menu_handlers_module._SETTINGS_EXPORT_VIDEO_SEGMENTATION not in saved
 
 
 def test_export_overlay_video_thread_deletes_itself_on_finished(video_export_setup, monkeypatch):
@@ -363,7 +487,7 @@ def test_export_overlay_video_thread_deletes_itself_on_finished(video_export_set
     QThread that has not finished aborts the process.
     """
     handlers, _window, _player, _thread_cls, thread = video_export_setup
-    _patch_export_dialog(monkeypatch, selected=("/tmp/out.mp4",))
+    _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
@@ -380,7 +504,7 @@ def test_export_overlay_video_preserves_dots_in_filenames(video_export_setup, mo
     different file than the user asked for.
     """
     handlers, _window, _player, thread_cls, _thread = video_export_setup
-    _patch_export_dialog(monkeypatch, selected=("/tmp/session_2024.09.01",))
+    _patch_video_export_dialogs(monkeypatch, selected="/tmp/session_2024.09.01")
 
     handlers.export_overlay_video()
 
@@ -390,7 +514,7 @@ def test_export_overlay_video_preserves_dots_in_filenames(video_export_setup, mo
 def test_export_overlay_video_leaves_an_mp4_name_alone(video_export_setup, monkeypatch):
     """A name that already ends in .mp4 is used as-is, not doubled up."""
     handlers, _window, _player, thread_cls, _thread = video_export_setup
-    _patch_export_dialog(monkeypatch, selected=("/tmp/already.mp4",))
+    _patch_video_export_dialogs(monkeypatch, selected="/tmp/already.mp4")
 
     handlers.export_overlay_video()
 

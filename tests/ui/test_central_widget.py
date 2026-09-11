@@ -606,3 +606,60 @@ def test_training_feature_check_passes_the_unit_setting(monkeypatch):
 
     for call in stub._project.videos_missing_window_features.call_args_list:
         assert call.kwargs["cm_units"] is True
+
+
+def _behavior_change_stub(mode, prediction_manager) -> SimpleNamespace:
+    """Stand-in exposing what _on_behavior_changed() reads from self."""
+    return SimpleNamespace(
+        _project=SimpleNamespace(
+            session_tracker=SimpleNamespace(behavior_selected=MagicMock()),
+            settings_manager=SimpleNamespace(classifier_mode=mode, save_project_file=MagicMock()),
+            prediction_manager=prediction_manager,
+            counts=MagicMock(return_value={}),
+        ),
+        behavior="Grooming",
+        _loaded_video=SimpleNamespace(name="clip.avi"),
+        # Predictions left over from before a classifier-mode change.
+        _predictions={0: "stale"},
+        _probabilities={0: "stale"},
+        _predictions_postprocessed={},
+        _multiclass_class_names=None,
+        _counts={},
+        _update_controls_from_project_settings=MagicMock(),
+        _load_cached_classifier=MagicMock(),
+        _update_label_counts=MagicMock(),
+        _set_label_track=MagicMock(),
+        _update_label_button_color=MagicMock(),
+        set_train_button_enabled_state=MagicMock(),
+    )
+
+
+def test_behavior_change_loads_binary_predictions_for_the_behavior():
+    """Binary mode reloads the newly selected behavior's saved predictions."""
+    manager = MagicMock()
+    manager.load_predictions.return_value = ({0: "binary"}, {0: "prob"}, {})
+    stub = _behavior_change_stub(ClassifierMode.BINARY, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_predictions.assert_called_once_with("clip.avi", "Grooming")
+    manager.load_multiclass_predictions.assert_not_called()
+    assert stub._predictions == {0: "binary"}
+
+
+def test_behavior_change_replaces_predictions_left_over_from_the_other_mode():
+    """Switching an open project to multi-class must not keep the binary predictions.
+
+    The mode change reaches this method, and stale binary 0/1 values read as
+    multi-class color indices would mis-color the timeline, the label overlay and an
+    exported video.
+    """
+    manager = MagicMock()
+    manager.load_multiclass_predictions.return_value = ({}, {}, {}, None)
+    stub = _behavior_change_stub(ClassifierMode.MULTICLASS, manager)
+
+    CentralWidget._on_behavior_changed(stub)
+
+    manager.load_multiclass_predictions.assert_called_once_with("clip.avi")
+    manager.load_predictions.assert_not_called()
+    assert stub._predictions == {}, "stale binary predictions were kept"

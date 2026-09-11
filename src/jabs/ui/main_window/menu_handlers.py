@@ -29,6 +29,7 @@ from ..dialogs import (
     ProjectPruningDialog,
     UpdateCheckDialog,
     UserGuideDialog,
+    VideoExportOptionsDialog,
 )
 from ..dialogs.progress_dialog import create_progress_dialog
 from ..export_training_thread import ExportTrainingDataThread
@@ -51,6 +52,8 @@ _SETTINGS_EXPORT_FRAME_DIR = "ui/save_frame_last_dir"
 _SETTINGS_EXPORT_OVERLAY = "ui/save_frame_overlay_copy"
 _SETTINGS_EXPORT_VIDEO_DIR = "ui/export_overlay_video_last_dir"
 _SETTINGS_EXPORT_VIDEO_SEGMENTATION = "ui/export_overlay_video_segmentation"
+_SETTINGS_EXPORT_VIDEO_POSE = "ui/export_overlay_video_pose"
+_SETTINGS_EXPORT_VIDEO_PREDICTIONS = "ui/export_overlay_video_predictions"
 
 
 class UpdateCheckThread(QtCore.QThread):
@@ -190,74 +193,104 @@ class MenuHandlers:
         self.window.display_status_message(status, 5000)
 
     def export_overlay_video(self) -> None:
-        """Export a copy of the current video with the pose overlay drawn on every frame.
+        """Export a copy of the current video with the JABS overlays drawn on every frame.
 
-        Opens a save dialog with a checkbox controlling whether segmentation contours
-        are included alongside the pose skeleton (pose is always drawn). The export
-        runs in a background thread with a cancelable progress dialog, since a
-        full-length video takes a while. The chosen directory and checkbox state are
-        remembered in QSettings.
+        Asks which overlays to include first, then where to write the video: the
+        overlay choices decide what is rendered, and rendering a full-length video is
+        slow enough that they are worth settling before a filename is typed. Overlays
+        the loaded video cannot provide are disabled in the options dialog with the
+        reason as their tooltip. The export itself runs in a background thread with a
+        cancelable progress dialog. The chosen overlays and directory are remembered
+        in QSettings.
         """
         # noinspection PyProtectedMember
-        player = self.window._central_widget._player_widget
+        central_widget = self.window._central_widget
+        player = central_widget._player_widget
         video_path = player.current_video_path
         pose_est = player.pose_est
         if video_path is None or pose_est is None:
             MessageDialog.warning(self.window, message="No video loaded to export.")
             return
 
-        # A checkbox is added below, which native OS dialogs cannot host.
-        dialog = QtWidgets.QFileDialog(self.window, "Export Video with Pose Overlay")
-        dialog.setOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog, True)
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
-        dialog.setNameFilter("MP4 Video (*.mp4)")
-        dialog.setDefaultSuffix("mp4")
-        last_dir = self.window._settings.value(_SETTINGS_EXPORT_VIDEO_DIR, "", type=str)
-        if last_dir and Path(last_dir).is_dir():
-            dialog.setDirectory(last_dir)
-        dialog.selectFile(f"{video_path.stem}_overlay.mp4")
-
-        segmentation_checkbox = QtWidgets.QCheckBox("Include segmentation contours")
-        segmentation_checkbox.setChecked(
-            self.window._settings.value(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, True, type=bool)
-        )
         # Segmentation needs a v6+ pose file *and* that file to actually contain
-        # segmentation data, which is optional even in v6+. Leave the box visible but
-        # inert otherwise, so its absence is explained rather than mysterious - and so
-        # nobody ticks it, waits out a full export, and gets no contours.
+        # segmentation data, which is optional even in v6+.
+        segmentation_unavailable = None
         if not getattr(pose_est, "has_segmentation", False):
             reason = (
                 "this pose file was generated without it"
                 if isinstance(pose_est, PoseEstimationV6)
                 else "requires pose version 6 or newer"
             )
-            segmentation_checkbox.setChecked(False)
-            segmentation_checkbox.setEnabled(False)
-            segmentation_checkbox.setToolTip(f"No segmentation data available: {reason}")
-        layout = dialog.layout()
-        if isinstance(layout, QtWidgets.QGridLayout):
-            layout.addWidget(segmentation_checkbox, layout.rowCount(), 0, 1, layout.columnCount())
+            segmentation_unavailable = f"No segmentation data available: {reason}"
 
-        if dialog.exec() != QtWidgets.QFileDialog.DialogCode.Accepted:
+        # Built up front so the checkbox can say whether there is anything to draw,
+        # and why not when there is not.
+        prediction_overlay, predictions_unavailable = central_widget.prediction_overlay()
+
+        settings = self.window._settings
+        options = VideoExportOptionsDialog(
+            self.window,
+            draw_pose=settings.value(_SETTINGS_EXPORT_VIDEO_POSE, True, type=bool),
+            draw_segmentation=settings.value(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, True, type=bool),
+            draw_predictions=settings.value(_SETTINGS_EXPORT_VIDEO_PREDICTIONS, False, type=bool),
+            segmentation_unavailable=segmentation_unavailable,
+            predictions_unavailable=predictions_unavailable,
+        )
+        if options.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return  # user cancelled
-        selected_files = dialog.selectedFiles()
-        if not selected_files:
-            return
 
-        output_path = Path(selected_files[0])
+        draw_pose = options.draw_pose
+        draw_segmentation = options.draw_segmentation
+        if not options.draw_predictions:
+            prediction_overlay = None
+
+        # Only persist a choice the user could actually make: an unavailable overlay
+        # is forced off, and saving that would lose the preference for the next video.
+        settings.setValue(_SETTINGS_EXPORT_VIDEO_POSE, draw_pose)
+        if options.segmentation_enabled:
+            settings.setValue(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, draw_segmentation)
+        if options.predictions_enabled:
+            settings.setValue(_SETTINGS_EXPORT_VIDEO_PREDICTIONS, options.draw_predictions)
+
+        last_dir = settings.value(_SETTINGS_EXPORT_VIDEO_DIR, "", type=str)
+        suggested_name = f"{video_path.stem}_overlay.mp4"
+        start_path = (
+            str(Path(last_dir) / suggested_name)
+            if last_dir and Path(last_dir).is_dir()
+            else suggested_name
+        )
+        dialog_options = (
+            QtWidgets.QFileDialog.Option(0)
+            if USE_NATIVE_FILE_DIALOG
+            else QtWidgets.QFileDialog.Option.DontUseNativeDialog
+        )
+        selected_file, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.window,
+            "Export Video with Overlays",
+            start_path,
+            "MP4 Video (*.mp4)",
+            options=dialog_options,
+        )
+        if not selected_file:
+            return  # user cancelled
+
+        output_path = Path(selected_file)
         if output_path.suffix.lower() != ".mp4":
             # Append rather than with_suffix(): with_suffix replaces whatever follows
             # the last dot, so "session_2024.09.01" would silently become
             # "session_2024.09.mp4". Never rewrite the name the user typed.
             output_path = output_path.with_name(output_path.name + ".mp4")
-        draw_segmentation = segmentation_checkbox.isChecked()
 
-        self.window._settings.setValue(_SETTINGS_EXPORT_VIDEO_DIR, str(output_path.parent))
-        if segmentation_checkbox.isEnabled():
-            self.window._settings.setValue(_SETTINGS_EXPORT_VIDEO_SEGMENTATION, draw_segmentation)
+        settings.setValue(_SETTINGS_EXPORT_VIDEO_DIR, str(output_path.parent))
 
         self._video_export_thread = VideoExportThread(
-            video_path, output_path, pose_est, draw_segmentation, parent=self.window
+            video_path,
+            output_path,
+            pose_est,
+            draw_segmentation,
+            parent=self.window,
+            draw_pose=draw_pose,
+            prediction_overlay=prediction_overlay,
         )
         # A plain QProgressDialog rather than the cancelable dialog used for training
         # and classification: those must not be dismissable because they mutate project
