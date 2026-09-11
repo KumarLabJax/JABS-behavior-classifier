@@ -679,15 +679,23 @@ class CentralWidget(QtWidgets.QWidget):
         self._counts = self._project.counts(self.behavior)
         self._update_label_counts()
 
-        # load saved predictions
-        if (
-            self._loaded_video
-            and self._project.settings_manager.classifier_mode != ClassifierMode.MULTICLASS
-        ):
-            self._predictions, self._probabilities, self._predictions_postprocessed = (
-                self._project.prediction_manager.load_predictions(
-                    self._loaded_video.name, self.behavior
-                )
+        # Load saved predictions. Dispatching by mode rather than skipping the load in
+        # multi-class mode: switching an already-open project from binary to
+        # multi-class comes through here, and leaving the binary predictions in place
+        # would have the timeline, the label overlay and the video export all read
+        # 0/1 values as multi-class indices. The multi-class load returns nothing when
+        # the video has no multi-class record, which is the honest answer.
+        if self._loaded_video:
+            (
+                self._predictions,
+                self._probabilities,
+                self._predictions_postprocessed,
+                self._multiclass_class_names,
+            ) = central_widget_mode.load_video_predictions(
+                self._project.prediction_manager,
+                self._project.settings_manager.classifier_mode,
+                self._loaded_video.name,
+                self.behavior,
             )
 
         # display labels and predictions for new behavior

@@ -20,6 +20,10 @@ from jabs.overlay_drawing import native_overlay_scale
 
 logger = logging.getLogger(__name__)
 
+# This module is called once per exported frame, so the missing-application warning
+# is latched: a full-length export would otherwise log it thousands of times.
+_warned_without_application = False
+
 # Base sizes, in pixels, calibrated for an 800x800 frame and scaled from there.
 _BASE_FONT_SIZE = 14
 _BASE_MARGIN = 8
@@ -59,7 +63,10 @@ def draw_overlay_caption(
     if QtGui.QGuiApplication.instance() is None:
         # Drawing text would abort on QFontDatabase. Markers are already on the
         # frame by this point, so the export continues without the banner.
-        logger.warning("No QGuiApplication: exporting without the overlay caption")
+        global _warned_without_application
+        if not _warned_without_application:
+            logger.warning("No QGuiApplication: exporting without the overlay caption")
+            _warned_without_application = True
         return
 
     scale = native_overlay_scale(width, height)
@@ -80,10 +87,18 @@ def draw_overlay_caption(
 
     rows = _wrap_legend(legend, metrics, swatch_size, swatch_gap, entry_gap, content_limit)
 
-    content_width = metrics.horizontalAdvance(caption) if caption else 0
+    # Elide rather than clamp: a rectangle narrower than its text only moves where
+    # the text is cut off, it does not stop the swatches and names that follow from
+    # being laid out past the frame's edge.
+    caption_text = (
+        metrics.elidedText(caption, QtCore.Qt.TextElideMode.ElideRight, content_limit)
+        if caption
+        else ""
+    )
+
+    content_width = metrics.horizontalAdvance(caption_text) if caption_text else 0
     content_width = max(content_width, *(row.width for row in rows)) if rows else content_width
-    content_width = min(content_width, content_limit)
-    line_count = (1 if caption else 0) + len(rows)
+    line_count = (1 if caption_text else 0) + len(rows)
 
     banner = QtCore.QRect(
         margin,
@@ -102,12 +117,12 @@ def draw_overlay_caption(
     text_x = banner.left() + padding
     text_y = banner.top() + padding
 
-    if caption:
+    if caption_text:
         painter.setPen(_TEXT_COLOR)
         painter.drawText(
             QtCore.QRect(text_x, text_y, content_width, line_height),
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
-            caption,
+            caption_text,
         )
         text_y += line_height
 
@@ -150,19 +165,29 @@ def _wrap_legend(
 ) -> list[_LegendRow]:
     """Split legend entries into lines that fit within ``limit`` pixels.
 
-    An entry wider than ``limit`` on its own still gets a line to itself rather than
-    being dropped: an over-wide banner is better than a missing class.
+    A name too long to fit a line of its own is elided rather than dropped or drawn
+    past the frame's edge: a truncated class name still tells the viewer which color
+    belongs to which behavior.
     """
     rows: list[_LegendRow] = []
     row = _LegendRow()
     for name, color in legend:
-        entry_width = swatch_size + swatch_gap + metrics.horizontalAdvance(name)
+        text = name
+        entry_width = swatch_size + swatch_gap + metrics.horizontalAdvance(text)
+        if entry_width > limit:
+            text = metrics.elidedText(
+                name,
+                QtCore.Qt.TextElideMode.ElideRight,
+                max(0, limit - swatch_size - swatch_gap),
+            )
+            entry_width = swatch_size + swatch_gap + metrics.horizontalAdvance(text)
+
         needed = entry_width if not row.entries else row.width + entry_gap + entry_width
         if row.entries and needed > limit:
             rows.append(row)
             row = _LegendRow()
             needed = entry_width
-        row.entries.append((name, color))
+        row.entries.append((text, color))
         row.width = needed
     if row.entries:
         rows.append(row)
