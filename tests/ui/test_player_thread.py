@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 
 try:
+    from PySide6 import QtGui
     from PySide6.QtWidgets import QApplication
 
+    from jabs.ui.player_widget import player_thread as player_thread_module
     from jabs.ui.player_widget.player_thread import PlayerThread
 
     SKIP_UI_TESTS = False
@@ -77,3 +79,33 @@ def test_seek_emits_the_frame_it_sought_to() -> None:
 
     assert images == [42]
     assert positions == [42]
+
+
+def test_the_image_does_not_alias_the_buffer_it_was_built_from(monkeypatch) -> None:
+    """The QImage has to own its pixels, or a played frame can be freed underneath Qt.
+
+    The QImage constructor only wraps the numpy array it is handed, and that array is
+    local to the method: during playback the image travels to the GUI thread on a
+    queued signal, so whatever reads the pixels does so long after the array is gone.
+    """
+    wrapped: dict[str, object] = {}
+    real_ascontiguousarray = np.ascontiguousarray
+
+    def spy(array, *args, **kwargs):
+        result = real_ascontiguousarray(array, *args, **kwargs)
+        wrapped["buffer"] = result
+        return result
+
+    monkeypatch.setattr(player_thread_module.np, "ascontiguousarray", spy)
+    thread = PlayerThread(FakeReader(), pose_est=None, identity=0)
+
+    image = thread._prepare_image(
+        {"data": np.full((8, 8, 3), 60, dtype=np.uint8), "index": 0, "duration": 1 / 30}
+    )
+
+    assert "buffer" in wrapped, "the image is no longer built from a wrapped array"
+    # Stand in for the array being freed: scribble over the buffer the QImage was
+    # built from. An image that owns its pixels is unaffected.
+    wrapped["buffer"][:] = 0
+
+    assert QtGui.QColor(image.pixel(0, 0)).getRgb()[:3] == (60, 60, 60)

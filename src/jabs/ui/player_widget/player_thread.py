@@ -164,7 +164,12 @@ class PlayerThread(QtCore.QThread):
                 bytes_per_line,
                 QtGui.QImage.Format.Format_RGB888,
             )
-            return image
+            # copy() so the QImage owns its pixels. The constructor above only wraps
+            # `img_rgb`, which this method drops on return, and during playback the
+            # image reaches the GUI thread through a queued signal - the array is long
+            # gone by the time anything reads from it. Do not remove this to save a
+            # copy: what it buys is that the buffer cannot be freed underneath Qt.
+            return image.copy()
         else:
             raise ValueError("Unsupported image format: expected 3 channels (BGR/RGB)")
 
