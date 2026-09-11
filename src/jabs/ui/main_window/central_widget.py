@@ -1565,12 +1565,22 @@ class CentralWidget(QtWidgets.QWidget):
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             lut = self._jabs_timeline.multiclass_color_lut
-            if lut is None:
+            class_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
+            if lut is None or self._multiclass_class_names != class_names:
+                # The color table and the legend are built from the project's current
+                # behavior list, but the label values are class indices from the saved
+                # prediction record. If the project has gained, lost or reordered a
+                # behavior since the video was classified, index 1 no longer means what
+                # the table's entry 1 says, and the export would burn in a marker under
+                # another behavior's name and color. The timeline already falls back to
+                # empty rows when the class count disagrees; refusing here is the same
+                # answer for a file that outlives the session. Re-classifying the video
+                # writes a record that matches and makes the export available again.
                 return None
             return PredictionOverlay.for_multiclass(
                 self._build_multiclass_overlay_labels(),
                 color_lut=lut,
-                class_names=[MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors],
+                class_names=class_names,
                 # The player draws raw predictions in multi-class mode: the
                 # post-processed view is binary-only. The export says the same.
                 postprocessed=False,

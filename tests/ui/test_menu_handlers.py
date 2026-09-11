@@ -326,8 +326,10 @@ def test_export_overlay_video_starts_thread_with_chosen_path(video_export_setup,
     assert args[1] == Path("/tmp/out.mp4")
     assert args[2] is player.pose_est
     assert args[3] is True  # draw_segmentation
-    assert args[4] is True  # draw_pose
-    assert args[5] is None  # no predictions available
+    kwargs = thread_cls.call_args.kwargs
+    assert kwargs["draw_pose"] is True
+    assert kwargs["prediction_overlay"] is None  # no predictions available
+    assert kwargs["parent"] is handlers.window
     thread.start.assert_called_once()
 
 
@@ -423,7 +425,7 @@ def test_export_overlay_video_passes_the_prediction_overlay_when_selected(
     handlers.export_overlay_video()
 
     assert options_cls.call_args.kwargs["predictions_unavailable"] is None
-    assert thread_cls.call_args.args[5] is overlay
+    assert thread_cls.call_args.kwargs["prediction_overlay"] is overlay
 
 
 def test_export_overlay_video_drops_the_overlay_when_predictions_are_unticked(
@@ -436,7 +438,7 @@ def test_export_overlay_video_drops_the_overlay_when_predictions_are_unticked(
 
     handlers.export_overlay_video()
 
-    assert thread_cls.call_args.args[5] is None
+    assert thread_cls.call_args.kwargs["prediction_overlay"] is None
 
 
 def test_export_overlay_video_persists_available_choices_only(video_export_setup, monkeypatch):

@@ -37,10 +37,17 @@ def _widget(
     project=_PRESENT,
     loaded_video=_PRESENT,
     pose_est=_PRESENT,
+    multiclass_class_names=_PRESENT,
 ) -> SimpleNamespace:
     """Stand-in exposing what prediction_overlay() reads from self."""
     mode = ClassifierMode.BINARY if classifier_mode is None else classifier_mode
     pose = SimpleNamespace(num_identities=1) if pose_est is _PRESENT else pose_est
+    # By default the saved record's class list matches the project's behaviors.
+    class_names = (
+        ["None", "Grooming", "Rearing"]
+        if multiclass_class_names is _PRESENT
+        else multiclass_class_names
+    )
     return SimpleNamespace(
         _project=(
             None
@@ -52,6 +59,7 @@ def _widget(
         _predictions={0: _RAW[0]} if predictions is None else predictions,
         _jabs_timeline=SimpleNamespace(multiclass_color_lut=color_lut),
         _controls=SimpleNamespace(behaviors=["Grooming", "Rearing"]),
+        _multiclass_class_names=class_names,
         _player_widget=SimpleNamespace(num_frames=4),
         _showing_postprocessed_predictions=postprocessed,
         behavior="Grooming",
@@ -144,3 +152,55 @@ def test_postprocessed_flag_requires_the_data_to_exist(
     )
 
     assert CentralWidget._showing_postprocessed_predictions.fget(widget) is expected
+
+
+_LUT = np.array([[0, 0, 0, 255], [1, 1, 1, 255], [2, 2, 2, 255], [3, 3, 3, 255]], dtype=np.uint8)
+
+
+@pytest.mark.parametrize(
+    "stored_names",
+    [
+        ["None", "Rearing", "Grooming"],
+        ["None", "Grooming"],
+        ["None", "Grooming", "Rearing", "Locomotion"],
+        None,
+    ],
+    ids=["reordered", "behavior-removed", "behavior-added", "names-unknown"],
+)
+def test_multiclass_overlay_refuses_a_record_that_does_not_match_the_project(
+    stored_names: list[str] | None,
+) -> None:
+    """Stale class indices would be burned in under another behavior's name and color.
+
+    The label values are class indices from the saved record, while the color table
+    and legend come from the project's current behavior list. If the two disagree,
+    there is no safe way to label the markers, so nothing is exported.
+    """
+    overlay = CentralWidget.prediction_overlay(
+        _widget(
+            classifier_mode=ClassifierMode.MULTICLASS,
+            color_lut=_LUT,
+            multiclass_class_names=stored_names,
+        )
+    )
+
+    assert overlay is None
+
+
+def test_multiclass_overlay_accepts_a_record_that_matches_the_project() -> None:
+    """The ordinary case, where nothing has changed since the video was classified."""
+    overlay = CentralWidget.prediction_overlay(
+        _widget(
+            classifier_mode=ClassifierMode.MULTICLASS,
+            color_lut=_LUT,
+            multiclass_class_names=["None", "Grooming", "Rearing"],
+        )
+    )
+
+    assert overlay is not None
+    assert [name for name, _ in overlay.legend] == [
+        "None",
+        "Grooming",
+        "Rearing",
+        "no prediction",
+    ]

@@ -292,9 +292,9 @@ class MenuHandlers:
             output_path,
             pose_est,
             draw_segmentation,
-            draw_pose,
-            prediction_overlay,
             parent=self.window,
+            draw_pose=draw_pose,
+            prediction_overlay=prediction_overlay,
         )
         # A plain QProgressDialog rather than the cancelable dialog used for training
         # and classification: those must not be dismissable because they mutate project

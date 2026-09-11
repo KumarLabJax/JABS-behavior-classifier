@@ -25,10 +25,10 @@ class VideoExportThread(QThread):
         output_path: Destination video to write.
         pose_est: Pose estimation for ``video_path``.
         draw_segmentation: Whether to include segmentation contours.
+        parent: Optional parent widget.
         draw_pose: Whether to include the pose keypoints and skeleton.
         prediction_overlay: Predictions to mark next to each identity, or ``None``
             to draw no predictions.
-        parent: Optional parent widget.
     """
 
     export_complete = Signal(int)
@@ -42,9 +42,13 @@ class VideoExportThread(QThread):
         output_path: Path,
         pose_est: PoseEstimation,
         draw_segmentation: bool = True,
+        # `parent` keeps its position, and the overlay options added after it are
+        # keyword-only: a caller passing a parent positionally would otherwise have
+        # it silently taken as `draw_pose`, leaving the thread unparented.
+        parent: QWidget | None = None,
+        *,
         draw_pose: bool = True,
         prediction_overlay: PredictionOverlay | None = None,
-        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent=parent)
         self._video_path = video_path
