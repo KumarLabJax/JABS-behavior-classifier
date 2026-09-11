@@ -135,6 +135,79 @@ def test_save_behavior(mock_project):
     assert behavior_settings == new_behavior_settings
 
 
+@pytest.fixture
+def project_with_defaults(mock_project):
+    """A SettingsManager for a project file that has per-behavior defaults."""
+    initial_settings = {
+        "defaults": {
+            "window_size": 5,
+            "social": False,
+            "static_objects": {"corners": True, "lixit": False},
+        },
+        "behavior": {},
+    }
+    with mock_project.project_paths.project_file.open("w") as f:
+        json.dump(initial_settings, f)
+    return SettingsManager(mock_project.project_paths), initial_settings["defaults"]
+
+
+def test_save_new_behavior_preserves_defaults(project_with_defaults):
+    """Saving a new behavior seeded from the defaults must not modify the defaults."""
+    settings_manager, defaults = project_with_defaults
+
+    # this is how the GUI creates a behavior: seed it from the project defaults
+    settings_manager.save_behavior("Walking", {})
+    settings_manager.save_behavior("Walking", {"window_size": 99, "social": True})
+
+    assert settings_manager.get_behavior("Walking")["window_size"] == 99
+    assert settings_manager.project_settings["defaults"] == defaults
+
+
+def test_save_new_behavior_defaults_not_aliased_on_disk(mock_project, project_with_defaults):
+    """The defaults written to project.json are unaffected by behavior edits."""
+    settings_manager, defaults = project_with_defaults
+
+    settings_manager.save_behavior("Walking", {})
+    settings_manager.save_behavior("Walking", {"window_size": 99})
+
+    with mock_project.project_paths.project_file.open("r") as f:
+        saved = json.load(f)
+    assert saved["defaults"] == defaults
+
+
+def test_save_new_behavior_does_not_share_nested_settings(mock_project, project_with_defaults):
+    """A new behavior's nested settings are its own, not the defaults' nested dicts.
+
+    A shallow copy of the defaults would leave ``static_objects`` shared, so
+    editing it through the behavior would still rewrite the project defaults.
+    """
+    settings_manager, defaults = project_with_defaults
+
+    settings_manager.save_behavior("Walking", {})
+
+    # mutate the nested dict in place through the behavior, as a caller holding
+    # the behavior's settings would, and persist it
+    settings_manager.get_behavior("Walking")["static_objects"]["corners"] = False
+    settings_manager.save_project_file()
+
+    assert settings_manager.project_settings["defaults"] == defaults
+    with mock_project.project_paths.project_file.open("r") as f:
+        saved = json.load(f)
+    assert saved["defaults"] == defaults
+    assert saved["behavior"]["Walking"]["static_objects"]["corners"] is False
+
+
+def test_save_new_behavior_does_not_inherit_sibling_settings(project_with_defaults):
+    """A behavior created after another was edited still starts from the defaults."""
+    settings_manager, defaults = project_with_defaults
+
+    settings_manager.save_behavior("Walking", {})
+    settings_manager.save_behavior("Walking", {"window_size": 99, "social": True})
+    settings_manager.save_behavior("Grooming", {})
+
+    assert settings_manager.get_behavior("Grooming") == defaults
+
+
 def test_rename_behavior(mock_project):
     """Test renaming a behavior in the settings."""
     initial_settings = {

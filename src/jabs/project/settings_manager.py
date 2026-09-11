@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import typing
@@ -252,14 +253,22 @@ class SettingsManager:
     def save_behavior(self, behavior: str, data: dict):
         """Save a behavior to project file.
 
+        ``data`` is merged into the behavior's existing settings. A behavior
+        that has no settings yet starts from a *copy* of the project defaults:
+        merging into the stored ``defaults`` dict itself would overwrite the
+        project defaults with this behavior's settings and leave the two
+        aliased, so later edits to the behavior would keep rewriting the
+        defaults and every behavior created afterwards would inherit them.
+
         Args:
             behavior: Behavior name.
             data: Dictionary of behavior settings.
         """
-        defaults = self._project_info.get("defaults", {})
-
         all_behavior_data = self._project_info.get("behavior", {})
-        merged_data = all_behavior_data.get(behavior, defaults)
+        if behavior in all_behavior_data:
+            merged_data = all_behavior_data[behavior]
+        else:
+            merged_data = copy.deepcopy(self._project_info.get("defaults", {}))
         merged_data.update(data)
 
         all_behavior_data[behavior] = merged_data
