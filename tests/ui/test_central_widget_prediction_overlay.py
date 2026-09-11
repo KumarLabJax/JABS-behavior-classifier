@@ -5,8 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from jabs.core.enums import ClassifierMode, PredictionType
+
 try:
-    from jabs.core.enums import ClassifierMode, PredictionType
     from jabs.ui.main_window.central_widget import CentralWidget
 
     SKIP_UI_TESTS = False

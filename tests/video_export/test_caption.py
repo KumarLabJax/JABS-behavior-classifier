@@ -1,5 +1,10 @@
 """Tests for the caption and legend banner burned into an exported frame."""
 
+# Annotations below name Qt types, which do not exist when the guarded import of
+# PySide6 fails. Deferring their evaluation keeps this module importable, and so
+# skippable, on a machine without Qt.
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
