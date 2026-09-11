@@ -46,7 +46,8 @@ def handler_setup():
     )
     window = SimpleNamespace(
         _central_widget=SimpleNamespace(
-            _player_widget=player, prediction_overlay=MagicMock(return_value=None)
+            _player_widget=player,
+            prediction_overlay=MagicMock(return_value=(None, "no predictions")),
         ),
         _settings=MagicMock(),
         display_status_message=MagicMock(),
@@ -269,7 +270,9 @@ def video_export_setup(handler_setup, monkeypatch):
     player.pose_est = _FakeV6Pose(has_segmentation=True)
     player.num_frames = 100
     player.current_video_path = Path("/videos/clip.avi")
-    window._central_widget.prediction_overlay = MagicMock(return_value=None)
+    window._central_widget.prediction_overlay = MagicMock(
+        return_value=(None, "No predictions for this video: classify it first")
+    )
 
     thread = MagicMock()
     thread_cls = MagicMock(return_value=thread)
@@ -401,14 +404,30 @@ def test_export_overlay_video_reports_segmentation_availability(
         assert reason is None
 
 
-def test_export_overlay_video_reports_missing_predictions(video_export_setup, monkeypatch):
-    """With nothing classified, the predictions box explains why it is unavailable."""
-    handlers, _window, _player, _thread_cls, _thread = video_export_setup
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "No predictions for this video: classify it first",
+        "These predictions were generated for a different behavior list: "
+        "classify this video again",
+    ],
+    ids=["never-classified", "stale-record"],
+)
+def test_export_overlay_video_reports_why_predictions_are_unavailable(
+    video_export_setup, monkeypatch, reason: str
+):
+    """The checkbox repeats the central widget's reason rather than guessing one.
+
+    A stale multi-class record is not a missing one, and telling the user to classify
+    a video they already classified would send them looking for the wrong problem.
+    """
+    handlers, window, _player, _thread_cls, _thread = video_export_setup
+    window._central_widget.prediction_overlay = MagicMock(return_value=(None, reason))
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(monkeypatch)
 
     handlers.export_overlay_video()
 
-    assert "classify" in options_cls.call_args.kwargs["predictions_unavailable"].lower()
+    assert options_cls.call_args.kwargs["predictions_unavailable"] == reason
 
 
 def test_export_overlay_video_passes_the_prediction_overlay_when_selected(
@@ -417,7 +436,7 @@ def test_export_overlay_video_passes_the_prediction_overlay_when_selected(
     """Ticking predictions sends the central widget's overlay to the exporter."""
     handlers, window, _player, thread_cls, _thread = video_export_setup
     overlay = object()
-    window._central_widget.prediction_overlay = MagicMock(return_value=overlay)
+    window._central_widget.prediction_overlay = MagicMock(return_value=(overlay, None))
     options_cls, _options, _save_dialog = _patch_video_export_dialogs(
         monkeypatch, draw_predictions=True
     )
@@ -433,7 +452,7 @@ def test_export_overlay_video_drops_the_overlay_when_predictions_are_unticked(
 ):
     """Predictions exist but were not asked for, so they are not drawn."""
     handlers, window, _player, thread_cls, _thread = video_export_setup
-    window._central_widget.prediction_overlay = MagicMock(return_value=object())
+    window._central_widget.prediction_overlay = MagicMock(return_value=(object(), None))
     _patch_video_export_dialogs(monkeypatch, draw_predictions=False)
 
     handlers.export_overlay_video()

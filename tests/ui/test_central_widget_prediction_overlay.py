@@ -8,7 +8,11 @@ import pytest
 from jabs.core.enums import ClassifierMode, PredictionType
 
 try:
-    from jabs.ui.main_window.central_widget import CentralWidget
+    from jabs.ui.main_window.central_widget import (
+        _NO_PREDICTIONS_REASON,
+        _STALE_PREDICTIONS_REASON,
+        CentralWidget,
+    )
 
     SKIP_UI_TESTS = False
     SKIP_REASON = None
@@ -70,8 +74,9 @@ def _widget(
 
 def test_binary_overlay_carries_the_displayed_predictions() -> None:
     """The export draws exactly what the player's prediction overlay would."""
-    overlay = CentralWidget.prediction_overlay(_widget())
+    overlay, reason = CentralWidget.prediction_overlay(_widget())
 
+    assert reason is None
     assert overlay is not None
     assert overlay.labels is _RAW
     assert overlay.color_lut is None
@@ -80,7 +85,7 @@ def test_binary_overlay_carries_the_displayed_predictions() -> None:
 
 def test_binary_overlay_follows_the_postprocessed_choice() -> None:
     """Switching the timeline to post-processed predictions exports those instead."""
-    overlay = CentralWidget.prediction_overlay(_widget(postprocessed=True))
+    overlay, _reason = CentralWidget.prediction_overlay(_widget(postprocessed=True))
 
     assert overlay.labels is _POSTPROCESSED
     assert overlay.caption == "Grooming predictions (post-processed)"
@@ -92,10 +97,11 @@ def test_multiclass_overlay_uses_the_project_color_table() -> None:
         [[0, 0, 0, 255], [1, 1, 1, 255], [2, 2, 2, 255], [3, 3, 3, 255]], dtype=np.uint8
     )
 
-    overlay = CentralWidget.prediction_overlay(
+    overlay, reason = CentralWidget.prediction_overlay(
         _widget(classifier_mode=ClassifierMode.MULTICLASS, color_lut=lut)
     )
 
+    assert reason is None
     assert overlay is not None
     assert overlay.color_lut is lut
     assert [name for name, _ in overlay.legend] == [
@@ -125,7 +131,10 @@ def test_multiclass_overlay_uses_the_project_color_table() -> None:
 )
 def test_no_overlay_when_there_is_nothing_to_draw(widget_kwargs: dict) -> None:
     """Every state with no drawable predictions returns None, not a blank overlay."""
-    assert CentralWidget.prediction_overlay(_widget(**widget_kwargs)) is None
+    overlay, reason = CentralWidget.prediction_overlay(_widget(**widget_kwargs))
+
+    assert overlay is None
+    assert reason == _NO_PREDICTIONS_REASON
 
 
 @pytest.mark.parametrize(
@@ -176,7 +185,7 @@ def test_multiclass_overlay_refuses_a_record_that_does_not_match_the_project(
     and legend come from the project's current behavior list. If the two disagree,
     there is no safe way to label the markers, so nothing is exported.
     """
-    overlay = CentralWidget.prediction_overlay(
+    overlay, reason = CentralWidget.prediction_overlay(
         _widget(
             classifier_mode=ClassifierMode.MULTICLASS,
             color_lut=_LUT,
@@ -185,11 +194,14 @@ def test_multiclass_overlay_refuses_a_record_that_does_not_match_the_project(
     )
 
     assert overlay is None
+    # A stale record is not a missing one: telling the user to classify a video they
+    # already classified would send them looking for a problem that is not there.
+    assert reason == _STALE_PREDICTIONS_REASON
 
 
 def test_multiclass_overlay_accepts_a_record_that_matches_the_project() -> None:
     """The ordinary case, where nothing has changed since the video was classified."""
-    overlay = CentralWidget.prediction_overlay(
+    overlay, reason = CentralWidget.prediction_overlay(
         _widget(
             classifier_mode=ClassifierMode.MULTICLASS,
             color_lut=_LUT,
@@ -197,6 +209,7 @@ def test_multiclass_overlay_accepts_a_record_that_matches_the_project() -> None:
         )
     )
 
+    assert reason is None
     assert overlay is not None
     assert [name for name, _ in overlay.legend] == [
         "None",

@@ -223,13 +223,9 @@ class MenuHandlers:
             )
             segmentation_unavailable = f"No segmentation data available: {reason}"
 
-        # Built up front so the checkbox can say whether there is anything to draw.
-        prediction_overlay = central_widget.prediction_overlay()
-        predictions_unavailable = (
-            None
-            if prediction_overlay is not None
-            else "No predictions for this video: classify it first"
-        )
+        # Built up front so the checkbox can say whether there is anything to draw,
+        # and why not when there is not.
+        prediction_overlay, predictions_unavailable = central_widget.prediction_overlay()
 
         settings = self.window._settings
         options = VideoExportOptionsDialog(

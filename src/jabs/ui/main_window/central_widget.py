@@ -40,6 +40,15 @@ from . import central_widget_mode
 _CLICK_THRESHOLD = 20
 _DEBOUNCE_SEARCH_DELAY_MS = 100
 
+# Why the prediction overlay cannot be exported, shown as the tooltip on the disabled
+# checkbox in the export options dialog. The two cases need different things from the
+# user: one video has never been classified, the other was classified against a
+# behavior list the project no longer has.
+_NO_PREDICTIONS_REASON = "No predictions for this video: classify it first"
+_STALE_PREDICTIONS_REASON = (
+    "These predictions were generated for a different behavior list: classify this video again"
+)
+
 
 class CentralWidget(QtWidgets.QWidget):
     """QT Widget implementing our main window contents"""
@@ -1545,7 +1554,7 @@ class CentralWidget(QtWidgets.QWidget):
             and self._predictions_postprocessed.keys() == self._predictions.keys()
         )
 
-    def prediction_overlay(self) -> PredictionOverlay | None:
+    def prediction_overlay(self) -> tuple[PredictionOverlay | None, str | None]:
         """Build the prediction overlay for the loaded video, for the video export.
 
         Mirrors what "View > Label Overlay > Predictions" paints in the player - the
@@ -1554,19 +1563,23 @@ class CentralWidget(QtWidgets.QWidget):
         switched on.
 
         Returns:
-            The overlay to draw, or ``None`` when there is nothing to draw: no project
-            or video loaded, no saved predictions for the current behavior, or a
-            multi-class project whose color table has not been built yet.
+            ``(overlay, unavailable_reason)``, exactly one of which is set. The reason
+            is UI copy for the disabled checkbox's tooltip, and comes from here rather
+            than being inferred by the caller so that it cannot disagree with the
+            decision it explains.
         """
         if self._project is None or self._loaded_video is None or self._pose_est is None:
-            return None
+            return None, _NO_PREDICTIONS_REASON
         if not self._predictions:
-            return None
+            return None, _NO_PREDICTIONS_REASON
 
         if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
             lut = self._jabs_timeline.multiclass_color_lut
+            if lut is None:
+                return None, _NO_PREDICTIONS_REASON
+
             class_names = [MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors]
-            if lut is None or self._multiclass_class_names != class_names:
+            if self._multiclass_class_names != class_names:
                 # The color table and the legend are built from the project's current
                 # behavior list, but the label values are class indices from the saved
                 # prediction record. If the project has gained, lost or reordered a
@@ -1576,21 +1589,28 @@ class CentralWidget(QtWidgets.QWidget):
                 # empty rows when the class count disagrees; refusing here is the same
                 # answer for a file that outlives the session. Re-classifying the video
                 # writes a record that matches and makes the export available again.
-                return None
-            return PredictionOverlay.for_multiclass(
-                self._build_multiclass_overlay_labels(),
-                color_lut=lut,
-                class_names=class_names,
-                # The player draws raw predictions in multi-class mode: the
-                # post-processed view is binary-only. The export says the same.
-                postprocessed=False,
+                return None, _STALE_PREDICTIONS_REASON
+
+            return (
+                PredictionOverlay.for_multiclass(
+                    self._build_multiclass_overlay_labels(),
+                    color_lut=lut,
+                    class_names=class_names,
+                    # The player draws raw predictions in multi-class mode: the
+                    # post-processed view is binary-only. The export says the same.
+                    postprocessed=False,
+                ),
+                None,
             )
 
         predictions, _ = self._get_prediction_list()
-        return PredictionOverlay.for_binary(
-            predictions,
-            behavior=self.behavior,
-            postprocessed=self._showing_postprocessed_predictions,
+        return (
+            PredictionOverlay.for_binary(
+                predictions,
+                behavior=self.behavior,
+                postprocessed=self._showing_postprocessed_predictions,
+            ),
+            None,
         )
 
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:

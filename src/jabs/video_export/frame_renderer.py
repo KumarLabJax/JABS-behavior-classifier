@@ -1,7 +1,8 @@
 """Composite the JABS overlays onto a single video frame.
 
 Shared by the GUI's "Export Frame", the GUI's "Export Video with Overlays", and
-``jabs-cli export-video``, so all three produce identical pixels. Segmentation
+``jabs-cli export-video``, so an overlay looks the same whichever asked for it. They
+do not ask for the same ones: only the video export passes a prediction overlay. Segmentation
 contours are baked into the BGR frame by the headless drawing in
 :mod:`jabs.video_reader.frame_annotation`; the pose keypoints and skeleton, and the
 per-identity prediction markers, are then painted on top with the shared drawing in
