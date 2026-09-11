@@ -684,13 +684,19 @@ class PlayerWidget(QtWidgets.QWidget):
         self._time_label.setText(self._video_stream.get_frame_time(frame_number))
 
     @QtCore.Slot(QtGui.QImage)
-    def _display_image(self, image: QtGui.QImage) -> None:
+    def _display_image(self, image: QtGui.QImage, frame_number: int) -> None:
         """display a new frame sent from the player thread
 
         Args:
             image (QImage): frame ready for display as emitted by player thread
+            frame_number (int): index of the frame the image was decoded from
+
+        The frame number comes from the player thread with the image, not from
+        ``current_frame``: the position slider it reads is updated by a separate signal
+        that arrives after this one during playback, so the overlays would be drawn
+        against the previous frame.
         """
-        self._frame_widget.update_frame(image, self.current_frame)
+        self._frame_widget.update_frame(image, frame_number)
 
     @QtCore.Slot(int)
     def _on_frame_number_changed(self, frame_number: int) -> None:

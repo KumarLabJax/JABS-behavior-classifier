@@ -29,7 +29,11 @@ class PlayerThread(QtCore.QThread):
         label_closest (bool, optional): Whether to label the closest animal. Defaults to False.
 
     Signals:
-        newImage (QImage): Emitted with a new QImage for the PlayerWidget to display.
+        newImage (QImage, int): Emitted with a new QImage for the PlayerWidget to
+            display, and the index of the frame it was decoded from. The index travels
+            with the image rather than being read from ``updatePosition``: the overlays
+            are drawn from the frame number the widget was given, so an image paired
+            with a stale number draws every overlay a frame behind the video.
         updatePosition (int): Emitted with the current frame index
         endOfFile: Emitted when the end of the video is reached.
     """
@@ -38,7 +42,7 @@ class PlayerThread(QtCore.QThread):
     _CLOSEST_FOV_LABEL_COLOR = (0, 255, 0)
 
     # signals used to update the UI components from the thread
-    newImage = QtCore.Signal(QtGui.QImage)
+    newImage = QtCore.Signal(QtGui.QImage, int)
     updatePosition = QtCore.Signal(int)
     endOfFile = QtCore.Signal()
 
@@ -107,7 +111,7 @@ class PlayerThread(QtCore.QThread):
         frame = self._video_reader.load_next_frame()
         image = self._prepare_image(frame)
         self.updatePosition.emit(frame["index"])
-        self.newImage.emit(image)
+        self.newImage.emit(image, frame["index"])
 
     def _prepare_image(self, frame: dict) -> QtGui.QImage | None:
         if frame["data"] is None:
@@ -208,7 +212,7 @@ class PlayerThread(QtCore.QThread):
                 # send the new frame and the frame index to the UI components
                 # unless playback was stopped while we were sleeping
                 if not self.isInterruptionRequested():
-                    self.newImage.emit(image)
+                    self.newImage.emit(image, frame["index"])
                     self.updatePosition.emit(frame["index"])
 
                 # update timestamp for when should the next frame be shown
