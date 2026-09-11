@@ -99,8 +99,8 @@ def test_errors_are_reported_not_raised(monkeypatch, tmp_path: Path) -> None:
     assert completed == []
 
 
-def test_segmentation_flag_is_passed_through(monkeypatch, tmp_path: Path) -> None:
-    """The GUI checkbox reaches the exporter rather than being dropped."""
+def test_overlay_choices_are_passed_through(monkeypatch, tmp_path: Path) -> None:
+    """Every checkbox in the options dialog reaches the exporter rather than being dropped."""
     captured: dict = {}
 
     def fake_export(*_args, **kwargs):
@@ -108,6 +108,27 @@ def test_segmentation_flag_is_passed_through(monkeypatch, tmp_path: Path) -> Non
         return 1
 
     monkeypatch.setattr(vet, "export_overlay_video", fake_export)
-    VideoExportThread(tmp_path / "in.avi", tmp_path / "out.mp4", object(), False).run()
+    overlay = object()
+    VideoExportThread(
+        tmp_path / "in.avi", tmp_path / "out.mp4", object(), False, False, overlay
+    ).run()
 
     assert captured["draw_segmentation"] is False
+    assert captured["draw_pose"] is False
+    assert captured["prediction_overlay"] is overlay
+
+
+def test_defaults_draw_pose_and_no_predictions(monkeypatch, tmp_path: Path) -> None:
+    """The pose-only export that predates the options dialog still works unchanged."""
+    captured: dict = {}
+
+    def fake_export(*_args, **kwargs):
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(vet, "export_overlay_video", fake_export)
+    VideoExportThread(tmp_path / "in.avi", tmp_path / "out.mp4", object()).run()
+
+    assert captured["draw_pose"] is True
+    assert captured["draw_segmentation"] is True
+    assert captured["prediction_overlay"] is None

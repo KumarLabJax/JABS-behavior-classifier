@@ -4,16 +4,18 @@ from PySide6.QtGui import QColor
 
 from jabs.core.constants import MULTICLASS_NONE_BEHAVIOR
 
+# The three label colors are defined in jabs.overlay_drawing, not here: the frame and
+# video exports color their label markers with them and must not import anything under
+# jabs.ui, which pulls in MainWindow. Re-exported so the rest of the GUI keeps reading
+# them from this module.
+from jabs.overlay_drawing import BACKGROUND_COLOR, BEHAVIOR_COLOR, NOT_BEHAVIOR_COLOR
+
 POSITION_MARKER_COLOR = QColor(231, 66, 126, 255)
 SELECTION_COLOR = QColor(255, 255, 0, 255)
 
-BACKGROUND_COLOR = QColor(128, 128, 128, 255)
-
-NOT_BEHAVIOR_COLOR = QColor(0, 86, 229, 255)
 NOT_BEHAVIOR_COLOR_BRIGHT = QColor(50, 119, 234)
 NOT_BEHAVIOR_BUTTON_DISABLED_COLOR = QColor(0, 77, 206)
 
-BEHAVIOR_COLOR = QColor(255, 165, 0, 255)
 BEHAVIOR_BUTTON_COLOR_BRIGHT = QColor(255, 195, 77, 255)
 BEHAVIOR_BUTTON_DISABLED_COLOR = QColor(229, 143, 0, 255)
 

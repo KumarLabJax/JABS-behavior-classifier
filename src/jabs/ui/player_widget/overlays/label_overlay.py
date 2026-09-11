@@ -2,12 +2,7 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui
 
-from jabs.project import TrackLabels
-from jabs.ui.colors import (
-    BACKGROUND_COLOR,
-    BEHAVIOR_COLOR,
-    NOT_BEHAVIOR_COLOR,
-)
+from jabs.overlay_drawing import LABEL_MARKER_SIZE, draw_label_marker, label_marker_color
 
 from .overlay import Overlay
 
@@ -18,9 +13,7 @@ if TYPE_CHECKING:
 class LabelOverlay(Overlay):
     """Overlay for displaying manual or predicted labels on the video frame."""
 
-    _BEHAVIOR_LABEL_SIZE = 10  # size of the behavior label square
     _GAP = 5  # gap between identity label and behavior label
-    _BEHAVIOR_LABEL_OUTLINE_COLOR = QtGui.QColor(255, 255, 255)
 
     def __init__(self, parent: "FrameWithOverlaysWidget"):
         super().__init__(parent)
@@ -39,14 +32,7 @@ class LabelOverlay(Overlay):
         if not self._enabled or self.parent.pixmap().isNull():
             return
 
-        # Turn off antialiasing for the label overlay to ensure sharp edges
-        old_antialiasing = painter.testRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
-
         self._overlay_labels(painter, crop_rect)
-
-        # Restore the previous antialiasing setting
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, old_antialiasing)
 
     def _overlay_labels(self, painter: QtGui.QPainter, crop_rect: QtCore.QRect) -> None:
         if self.parent.pose is None or self.parent.labels is None:
@@ -76,27 +62,11 @@ class LabelOverlay(Overlay):
             else:
                 # if the identity overlay is not floating, we draw the behavior label to the left of the identity label
                 # that leaves room for the identity label to be drawn
-                behavior_x = widget_x - self._BEHAVIOR_LABEL_SIZE - self._GAP
+                behavior_x = widget_x - LABEL_MARKER_SIZE - self._GAP
 
-            behavior_y = widget_y - self._BEHAVIOR_LABEL_SIZE
+            behavior_y = widget_y - LABEL_MARKER_SIZE
 
             label_val = int(self.parent.labels[identity][self.parent.current_frame])
-            lut = self.parent.label_color_lut
-            if lut is not None:
-                idx = max(0, min(label_val, len(lut) - 1))
-                r, g, b, a = lut[idx]
-                prediction_color = QtGui.QColor(int(r), int(g), int(b), int(a))
-            else:
-                match label_val:
-                    case TrackLabels.Label.BEHAVIOR:
-                        prediction_color = BEHAVIOR_COLOR
-                    case TrackLabels.Label.NOT_BEHAVIOR:
-                        prediction_color = NOT_BEHAVIOR_COLOR
-                    case _:
-                        prediction_color = BACKGROUND_COLOR
+            prediction_color = label_marker_color(label_val, self.parent.label_color_lut)
 
-            painter.setBrush(prediction_color)
-            painter.setPen(self._BEHAVIOR_LABEL_OUTLINE_COLOR)
-            painter.drawRect(
-                behavior_x, behavior_y, self._BEHAVIOR_LABEL_SIZE, self._BEHAVIOR_LABEL_SIZE
-            )
+            draw_label_marker(painter, behavior_x, behavior_y, LABEL_MARKER_SIZE, prediction_color)

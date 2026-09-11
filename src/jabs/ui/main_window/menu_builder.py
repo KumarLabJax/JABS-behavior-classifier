@@ -237,9 +237,10 @@ class MenuBuilder:
         menu.addAction(export_frame)
 
         # Export overlay video action
-        export_overlay_video = QtGui.QAction("Export Video with Pose Overlay…", self.main_window)
+        export_overlay_video = QtGui.QAction("Export Video with Overlays…", self.main_window)
         export_overlay_video.setStatusTip(
-            "Export a copy of the current video with the pose overlay drawn on every frame"
+            "Export a copy of the current video with the pose, segmentation and "
+            "prediction overlays drawn on every frame"
         )
         export_overlay_video.setEnabled(False)
         export_overlay_video.triggered.connect(self.handlers.export_overlay_video)

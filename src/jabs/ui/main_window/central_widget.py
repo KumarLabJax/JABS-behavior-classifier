@@ -20,6 +20,7 @@ from jabs.core.enums import (
 )
 from jabs.pose_estimation import PoseEstimation, PoseEstimationV8
 from jabs.project import Project, TimelineAnnotations, TrackLabels, VideoLabels
+from jabs.video_export import PredictionOverlay
 
 from ..behavior_timeline import (
     BehaviorTimelineWidget,
@@ -1523,21 +1524,67 @@ class CentralWidget(QtWidgets.QWidget):
             self._player_widget.set_label_color_lut(None)
             self._player_widget.set_labels(self._prediction_list)
 
+    @property
+    def _showing_postprocessed_predictions(self) -> bool:
+        """Whether the displayed binary predictions are the post-processed ones.
+
+        The user asking for post-processed predictions is not enough on its own:
+        they also have to exist for every identity, which the matching keys check.
+        Without them the display falls back to the raw predictions.
+        """
+        return (
+            self.prediction_type == PredictionType.POSTPROCESSED
+            and self._predictions_postprocessed.keys() == self._predictions.keys()
+        )
+
+    def prediction_overlay(self) -> PredictionOverlay | None:
+        """Build the prediction overlay for the loaded video, for the video export.
+
+        Mirrors what "View > Label Overlay > Predictions" paints in the player - the
+        same per-identity values, colors, and raw/post-processed choice - so an
+        exported video matches the live view, whether or not the overlay is currently
+        switched on.
+
+        Returns:
+            The overlay to draw, or ``None`` when there is nothing to draw: no project
+            or video loaded, no saved predictions for the current behavior, or a
+            multi-class project whose color table has not been built yet.
+        """
+        if self._project is None or self._loaded_video is None or self._pose_est is None:
+            return None
+        if not self._predictions:
+            return None
+
+        if self._project.settings_manager.classifier_mode == ClassifierMode.MULTICLASS:
+            lut = self._jabs_timeline.multiclass_color_lut
+            if lut is None:
+                return None
+            return PredictionOverlay.for_multiclass(
+                self._build_multiclass_overlay_labels(),
+                color_lut=lut,
+                class_names=[MULTICLASS_NONE_BEHAVIOR, *self._controls.behaviors],
+                # The player draws raw predictions in multi-class mode: the
+                # post-processed view is binary-only. The export says the same.
+                postprocessed=False,
+            )
+
+        predictions, _ = self._get_prediction_list()
+        return PredictionOverlay.for_binary(
+            predictions,
+            behavior=self.behavior,
+            postprocessed=self._showing_postprocessed_predictions,
+        )
+
     def _get_prediction_list(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """get the prediction and probability list for each identity in the current video"""
         prediction_list = []
         probability_list = []
 
-        # does the user want to see raw or post-processed predictions?
-        # if they do, also make sure we have post-processed predictions to show
-        # to check, just make sure the keys match up -- that means we have post-processed data for all identities
-        if (
-            self.prediction_type == PredictionType.POSTPROCESSED
-            and self._predictions_postprocessed.keys() == self._predictions.keys()
-        ):
-            predictions = self._predictions_postprocessed
-        else:
-            predictions = self._predictions
+        predictions = (
+            self._predictions_postprocessed
+            if self._showing_postprocessed_predictions
+            else self._predictions
+        )
 
         for i in range(self._pose_est.num_identities):
             # if there are no predictions we will pass an array of no-predictions and zero probabilities to

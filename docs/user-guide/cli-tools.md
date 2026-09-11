@@ -141,10 +141,12 @@ jabs-cli <command> --help
 
 The `jabs-cli export-video` command writes a copy of a video with the JABS pose
 overlay drawn on every frame. It is the batch equivalent of the GUI's
-**File→Export Video with Pose Overlay**, and renders with the same code, so the
+**File→Export Video with Overlays**, and renders with the same code, so the
 output matches what the player shows.
 
-It works on any video and pose file pair and does not need a JABS project.
+It works on any video and pose file pair and does not need a JABS project. The
+GUI's prediction overlay has no equivalent here: predictions live inside a JABS
+project, which this command does not take.
 
 **Usage:**
 
