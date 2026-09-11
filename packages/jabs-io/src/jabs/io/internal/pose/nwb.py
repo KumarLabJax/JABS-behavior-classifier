@@ -355,7 +355,7 @@ class PoseNWBAdapter(Adapter):
                         description=(
                             f"Per-frame bounding box for identity '{name}': "
                             "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
-                            "-1 indicates a missing value"
+                            "missing values are NaN"
                         ),
                         rate=float(data.fps),
                     )
@@ -451,7 +451,7 @@ class PoseNWBAdapter(Adapter):
                         description=(
                             f"Per-frame bounding box for identity '{identity_name}': "
                             "[[upper_left_x, upper_left_y], [lower_right_x, lower_right_y]]; "
-                            "-1 indicates a missing value"
+                            "missing values are NaN"
                         ),
                         rate=float(data.fps),
                     )
@@ -988,8 +988,8 @@ class PoseNWBAdapter(Adapter):
 
         Each node in the skeleton corresponds to one row of ``points`` and is
         stored as a ``PoseEstimationSeries`` holding that same (x, y) value at
-        two timestamps spanning the session (t=0 and t=session end) rather than
-        a single timestamp at t=0. A lone-timestamp series has shape (1, 2) —
+        two timestamps spanning the session (the first and last frame) rather
+        than a single timestamp at t=0. A lone-timestamp series has shape (1, 2) —
         its non-time axis (2) is longer than its time axis (1), which
         nwbinspector's data-orientation check always flags regardless of the
         data being genuinely static. Repeating the constant value at both ends
@@ -1000,15 +1000,18 @@ class PoseNWBAdapter(Adapter):
             points: Shape (N, 2) array of x, y coordinates.
             skeleton: Skeleton with N nodes, one per point.
             fps: Frames per second of the source video, used to compute the
-                session-end timestamp.
+                last frame's timestamp.
             num_frames: Total number of frames in the session, used to compute
-                the session-end timestamp.
+                the last frame's timestamp.
         """
         if fps <= 0:
             raise ValueError(f"fps must be positive, got {fps}")
         if num_frames <= 0:
             raise ValueError(f"num_frames must be positive, got {num_frames}")
-        end_time = num_frames / fps
+        # The last frame is at (num_frames - 1) / fps, matching the rate-based timing of
+        # every other series. Clamp to one frame period so a single-frame session still
+        # yields two strictly ascending timestamps.
+        end_time = max(num_frames - 1, 1) / fps
         timestamps = [0.0, end_time]
         series_list = [
             PoseEstimationSeries(

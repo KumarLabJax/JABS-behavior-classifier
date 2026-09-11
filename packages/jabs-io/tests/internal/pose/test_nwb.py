@@ -1076,3 +1076,58 @@ def test_multisubject_isolated_from_per_identity_siblings(tmp_path, adapter):
     # Reading a per-identity sibling auto-merges only the per-identity siblings;
     # the multisubject session.nwb is excluded by the glob/split_subject_count filter.
     _assert_pose_data_equal(data, adapter.read(tmp_path / "session_mouse_a.nwb"))
+
+
+@pytest.mark.parametrize(
+    ("num_frames", "fps", "expected_end"),
+    [(10, 30, 9 / 30), (300, 30, 299 / 30), (1, 30, 1 / 30)],
+    ids=["short", "longer", "single_frame"],
+)
+def test_static_object_timestamps_span_first_and_last_frame(
+    tmp_path, adapter, num_frames, fps, expected_end
+):
+    """Static object timestamps end on the last frame, not one frame period past it.
+
+    Every other series is written with rate=fps and an implicit starting_time of 0, so
+    frame k sits at k / fps and the final frame at (num_frames - 1) / fps. A single-frame
+    session is clamped to one frame period so the two timestamps stay strictly ascending.
+    """
+    path = tmp_path / "pose_static_timestamps.nwb"
+    data = _make_pose_data(num_frames=num_frames, fps=fps, with_static_objects=True)
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        series = nwb.processing["behavior"].data_interfaces["lixit"].pose_estimation_series
+        timestamps = np.asarray(series["lixit_0"].timestamps)
+
+        np.testing.assert_allclose(timestamps, [0.0, expected_end])
+        # nwbinspector requires strictly ascending timestamps
+        assert np.all(np.diff(timestamps) > 0)
+        # the end timestamp must stay within the session
+        assert timestamps[-1] <= (num_frames - 1) / fps or num_frames == 1
+
+
+def test_bounding_box_description_reports_nan_for_missing(tmp_path, adapter):
+    """The bounding box description names NaN, the sentinel the writer actually emits.
+
+    Missing boxes arrive as NaN: PoseEstimationV8 initializes its regrouped array with
+    NaN and fills only slots where id_mask marks the instance valid. The -1 placeholder
+    is written to disk by convert_parquet, but only into slots that id_mask excludes, so
+    it never reaches this writer.
+    """
+    path = tmp_path / "pose_bbox_description.nwb"
+    data = _make_pose_data(num_identities=1, with_bounding_boxes=True)
+
+    adapter.write(data, path, multisubject=True)
+
+    with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+        nwb = io.read()
+        behavior = nwb.processing["behavior"]
+        bbox_keys = [k for k in behavior.data_interfaces if k.startswith("jabs_bounding_boxes")]
+        assert bbox_keys, "expected a bounding box TimeSeries"
+
+        description = behavior.data_interfaces[bbox_keys[0]].description
+        assert "NaN" in description
+        assert "-1" not in description
